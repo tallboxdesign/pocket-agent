@@ -9,7 +9,8 @@ import { createTelegramBot, TelegramBot } from '../channels/telegram';
 import { SettingsManager } from '../settings';
 import { loadIdentity, saveIdentity, getIdentityPath } from '../config/identity';
 import { loadInstructions, saveInstructions, getInstructionsPath } from '../config/instructions';
-import { closeTaskDb } from '../tools';
+import { closeTaskDb, closeKanbanDb } from '../tools';
+import { KanbanService, type KanbanStatus } from '../kanban';
 import { initializeUpdater, setupUpdaterIPC, setSettingsWindow } from './updater';
 import cityTimezones from 'city-timezones';
 
@@ -157,6 +158,7 @@ let customizeWindow: BrowserWindow | null = null;
 let factsWindow: BrowserWindow | null = null;
 let soulWindow: BrowserWindow | null = null;
 let skillsSetupWindow: BrowserWindow | null = null;
+let kanbanWindow: BrowserWindow | null = null;
 
 /**
  * Get the agent's isolated workspace directory.
@@ -432,6 +434,10 @@ function updateTrayMenu(): void {
       label: 'Chat',
       click: () => openChatWindow(),
       accelerator: 'Alt+Z',
+    },
+    {
+      label: 'Projects',
+      click: () => openKanbanWindow(),
     },
     { type: 'separator' },
     {
@@ -945,6 +951,58 @@ function createSkillsSetupWindow(): void {
 
   skillsSetupWindow.on('closed', () => {
     skillsSetupWindow = null;
+  });
+}
+
+function openKanbanWindow(): void {
+  if (kanbanWindow && !kanbanWindow.isDestroyed()) {
+    kanbanWindow.focus();
+    return;
+  }
+
+  const savedBoundsJson = SettingsManager.get('window.kanbanBounds');
+  let windowOptions: Electron.BrowserWindowConstructorOptions = {
+    width: 1100,
+    height: 700,
+    title: 'Projects - Pocket Agent',
+    backgroundColor: '#0a0a0b',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  };
+
+  if (savedBoundsJson) {
+    try {
+      const savedBounds = JSON.parse(savedBoundsJson);
+      if (savedBounds.x !== undefined) windowOptions.x = savedBounds.x;
+      if (savedBounds.y !== undefined) windowOptions.y = savedBounds.y;
+      if (savedBounds.width) windowOptions.width = savedBounds.width;
+      if (savedBounds.height) windowOptions.height = savedBounds.height;
+    } catch { /* ignore */ }
+  }
+
+  kanbanWindow = new BrowserWindow(windowOptions);
+
+  kanbanWindow.loadFile(path.join(__dirname, '../../ui/kanban.html'));
+
+  kanbanWindow.once('ready-to-show', () => {
+    kanbanWindow?.show();
+  });
+
+  const saveBounds = () => {
+    if (kanbanWindow && !kanbanWindow.isDestroyed()) {
+      SettingsManager.set('window.kanbanBounds', JSON.stringify(kanbanWindow.getBounds()));
+    }
+  };
+  kanbanWindow.on('moved', saveBounds);
+  kanbanWindow.on('resized', saveBounds);
+  kanbanWindow.on('close', saveBounds);
+
+  kanbanWindow.on('closed', () => {
+    kanbanWindow = null;
   });
 }
 
@@ -1594,6 +1652,84 @@ function setupIPC(): void {
     createSkillsSetupWindow();
   });
 
+  ipcMain.handle('app:openKanban', async () => {
+    openKanbanWindow();
+  });
+
+  // Kanban
+  ipcMain.handle('kanban:listProjects', async () => {
+    try { return KanbanService.listProjects(); } catch { return []; }
+  });
+
+  ipcMain.handle('kanban:getProject', async (_, id: number) => {
+    try { return KanbanService.getProject(id); } catch { return null; }
+  });
+
+  ipcMain.handle('kanban:createProject', async (_, name: string, description?: string, color?: string) => {
+    try { return { success: true, project: KanbanService.createProject(name, description, color) }; }
+    catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:archiveProject', async (_, id: number) => {
+    return { success: KanbanService.archiveProject(id) };
+  });
+
+  ipcMain.handle('kanban:updateProject', async (_, id: number, updates: Record<string, string>) => {
+    try { return { success: true, project: KanbanService.updateProject(id, updates) }; }
+    catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:getBoard', async (_, projectId: number) => {
+    try { return KanbanService.getBoard(projectId); } catch { return null; }
+  });
+
+  ipcMain.handle('kanban:createTask', async (_, input: Record<string, unknown>) => {
+    try {
+      return { success: true, task: KanbanService.createTask(input as unknown as Parameters<typeof KanbanService.createTask>[0]) };
+    } catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:getTask', async (_, id: number) => {
+    try { return KanbanService.getTask(id); } catch { return null; }
+  });
+
+  ipcMain.handle('kanban:updateTask', async (_, id: number, updates: Record<string, unknown>) => {
+    try { return { success: true, task: KanbanService.updateTask(id, updates) }; }
+    catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:moveTask', async (_, id: number, status: string) => {
+    try { return { success: true, task: KanbanService.moveTask(id, status as KanbanStatus) }; }
+    catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:deleteTask', async (_, id: number) => {
+    return { success: KanbanService.deleteTask(id) };
+  });
+
+  ipcMain.handle('kanban:addComment', async (_, taskId: number, comment: string) => {
+    try { KanbanService.addComment(taskId, comment); return { success: true }; }
+    catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:getActivity', async (_, taskId: number, limit?: number) => {
+    try { return KanbanService.getActivityLog(taskId, limit); } catch { return []; }
+  });
+
+  ipcMain.handle('kanban:approveTask', async (_, id: number) => {
+    try { return { success: true, task: KanbanService.approveTask(id) }; }
+    catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:rejectTask', async (_, id: number, feedback: string) => {
+    try { return { success: true, task: KanbanService.rejectTask(id, feedback) }; }
+    catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:searchTasks', async (_, query: string, projectId?: number) => {
+    try { return KanbanService.searchTasks(query, projectId); } catch { return []; }
+  });
+
   // Skill setup handlers
   ipcMain.handle('skills:getSetupConfig', async (_, skillName: string) => {
     const { loadSkillsManifest } = await import('../skills');
@@ -2047,6 +2183,7 @@ app.on('before-quit', async () => {
     memory.close();
   }
   closeTaskDb(); // Clean up task tools database connection
+  closeKanbanDb(); // Clean up kanban database connection
   SettingsManager.close();
 });
 

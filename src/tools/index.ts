@@ -16,6 +16,7 @@ import { getSoulTools } from './soul-tools';
 import { getSchedulerTools } from './scheduler-tools';
 import { getCalendarTools } from './calendar-tools';
 import { getTaskTools } from './task-tools';
+import { getKanbanTools } from './kanban-tools';
 import {
   getNotifyToolDefinition,
   handleNotifyTool,
@@ -36,6 +37,8 @@ export { setSoulMemoryManager } from './soul-tools';
 export { getSchedulerTools } from './scheduler-tools';
 export { getCalendarTools } from './calendar-tools';
 export { getTaskTools, closeTaskDb } from './task-tools';
+export { getKanbanTools } from './kanban-tools';
+export { closeKanbanDb } from '../kanban';
 export { showNotification, execWithPty } from './macos';
 export { setCurrentSessionId, getCurrentSessionId } from './session-context';
 
@@ -333,6 +336,30 @@ export async function buildSdkMcpServers(
       tools.push(sdkTool);
     }
 
+    // Kanban tools (with diagnostics wrapper)
+    const kanbanTools = getKanbanTools();
+    for (const kanbanTool of kanbanTools) {
+      const wrappedHandler = wrapToolHandler(kanbanTool.name, kanbanTool.handler, getToolTimeout(kanbanTool.name));
+      const sdkTool = tool(
+        kanbanTool.name,
+        kanbanTool.description,
+        Object.fromEntries(
+          Object.entries(kanbanTool.input_schema.properties || {}).map(([key, value]: [string, unknown]) => {
+            const prop = value as { type?: string };
+            if (prop.type === 'string') return [key, z.string().optional()];
+            if (prop.type === 'number') return [key, z.number().optional()];
+            if (prop.type === 'boolean') return [key, z.boolean().optional()];
+            return [key, z.any().optional()];
+          })
+        ),
+        async (args) => {
+          const result = await wrappedHandler(args);
+          return { content: [{ type: 'text', text: result }] };
+        }
+      );
+      tools.push(sdkTool);
+    }
+
     // Create the SDK MCP server
     const server = createSdkMcpServer({
       name: 'pocket-agent-tools',
@@ -438,6 +465,17 @@ export function getCustomTools(config: ToolsConfig): Array<{
   // Task tools
   const taskTools = getTaskTools();
   for (const tool of taskTools) {
+    tools.push({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.input_schema as Record<string, unknown>,
+      handler: tool.handler,
+    });
+  }
+
+  // Kanban tools
+  const kanbanTools = getKanbanTools();
+  for (const tool of kanbanTools) {
     tools.push({
       name: tool.name,
       description: tool.description,

@@ -1,8 +1,12 @@
-import { Bot, Context } from 'grammy';
+import { Bot, Context, InputFile } from 'grammy';
 import { BaseChannel } from './index';
 import { AgentManager, ImageContent } from '../agent';
 import { SettingsManager } from '../settings';
 import { transcribeAudio, isTranscriptionAvailable } from '../utils/transcribe';
+import { synthesizeSpeech, stripMarkdown } from '../voice/tts';
+import { app } from 'electron';
+import * as path from 'path';
+import * as fs from 'fs';
 
 /**
  * Convert markdown to Telegram HTML format
@@ -553,6 +557,146 @@ export class TelegramBot extends BaseChannel {
       await ctx.reply('✅ Conversation history cleared.\nFacts and scheduled tasks are preserved.');
     });
 
+    // Handle /board command - show Kanban board summary
+    this.bot.command('board', async (ctx) => {
+      try {
+        const { KanbanService } = await import('../kanban');
+        const projects = KanbanService.listProjects();
+
+        if (projects.length === 0) {
+          await ctx.reply('No projects yet. Ask me to create one!');
+          return;
+        }
+
+        // If a project name/id is specified, show that project's board
+        const arg = ctx.message?.text?.replace('/board', '').trim();
+        let targetProject = projects[0];
+
+        if (arg) {
+          const byId = projects.find(p => p.id === parseInt(arg, 10));
+          const byName = projects.find(p => p.name.toLowerCase().includes(arg.toLowerCase()));
+          if (byId) targetProject = byId;
+          else if (byName) targetProject = byName;
+        }
+
+        const board = KanbanService.getBoard(targetProject.id);
+        if (!board) {
+          await ctx.reply('Could not load board.');
+          return;
+        }
+
+        const lines: string[] = [`<b>${board.project.name}</b>\n`];
+        const columnEmojis: Record<string, string> = {
+          backlog: '📋', todo: '📝', in_progress: '🔧', review: '👀', done: '✅'
+        };
+
+        for (const [col, tasks] of Object.entries(board.columns)) {
+          const emoji = columnEmojis[col] || '•';
+          const colName = col.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
+          lines.push(`${emoji} <b>${colName}</b> (${tasks.length})`);
+          for (const task of tasks.slice(0, 5)) {
+            const priorityIcon = task.priority === 'urgent' ? '🔴' : task.priority === 'high' ? '🟠' : '';
+            lines.push(`  ${priorityIcon} #${task.id} ${task.title}`);
+          }
+          if (tasks.length > 5) lines.push(`  ... +${tasks.length - 5} more`);
+        }
+
+        await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+      } catch (error) {
+        console.error('[Telegram] /board error:', error);
+        await ctx.reply('Failed to load board.');
+      }
+    });
+
+    // Handle /tasks command - show active tasks
+    this.bot.command('tasks', async (ctx) => {
+      try {
+        const { KanbanService } = await import('../kanban');
+        const projects = KanbanService.listProjects();
+
+        if (projects.length === 0) {
+          await ctx.reply('No projects yet.');
+          return;
+        }
+
+        const lines: string[] = ['<b>Active Tasks</b>\n'];
+        for (const project of projects.slice(0, 5)) {
+          const board = KanbanService.getBoard(project.id);
+          if (!board) continue;
+
+          const activeTasks = [
+            ...board.columns.in_progress,
+            ...board.columns.review,
+            ...board.columns.todo,
+          ];
+
+          if (activeTasks.length === 0) continue;
+
+          lines.push(`<b>${project.name}</b>`);
+          for (const task of activeTasks.slice(0, 10)) {
+            const statusIcon = task.status === 'in_progress' ? '🔧' : task.status === 'review' ? '👀' : '📝';
+            lines.push(`${statusIcon} #${task.id} ${task.title}`);
+          }
+          lines.push('');
+        }
+
+        if (lines.length === 1) {
+          await ctx.reply('No active tasks.');
+          return;
+        }
+
+        await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+      } catch (error) {
+        console.error('[Telegram] /tasks error:', error);
+        await ctx.reply('Failed to load tasks.');
+      }
+    });
+
+    // Handle /approve command
+    this.bot.command('approve', async (ctx) => {
+      const arg = ctx.message?.text?.replace('/approve', '').trim();
+      if (!arg) {
+        await ctx.reply('Usage: /approve [task_id]');
+        return;
+      }
+      try {
+        const { KanbanService } = await import('../kanban');
+        const taskId = parseInt(arg, 10);
+        const task = KanbanService.approveTask(taskId);
+        if (task) {
+          await ctx.reply(`✅ Approved: #${task.id} ${task.title}\nMoved to Done.`);
+        } else {
+          await ctx.reply(`Task #${taskId} not found.`);
+        }
+      } catch {
+        await ctx.reply('Failed to approve task.');
+      }
+    });
+
+    // Handle /reject command
+    this.bot.command('reject', async (ctx) => {
+      const text = ctx.message?.text?.replace('/reject', '').trim() || '';
+      const parts = text.split(/\s+/);
+      const taskId = parseInt(parts[0], 10);
+      const feedback = parts.slice(1).join(' ') || 'Rejected';
+
+      if (!taskId) {
+        await ctx.reply('Usage: /reject [task_id] [feedback]');
+        return;
+      }
+      try {
+        const { KanbanService } = await import('../kanban');
+        const task = KanbanService.rejectTask(taskId, feedback);
+        if (task) {
+          await ctx.reply(`❌ Rejected: #${task.id} ${task.title}\nFeedback: ${feedback}\nMoved back to In Progress.`);
+        } else {
+          await ctx.reply(`Task #${taskId} not found.`);
+        }
+      } catch {
+        await ctx.reply('Failed to reject task.');
+      }
+    });
+
     // Handle /testhtml command - for debugging HTML formatting
     this.bot.command('testhtml', async (ctx) => {
       const testHtml = `<b>Bold text</b>
@@ -718,11 +862,12 @@ multiline</pre>
 
       if (!chatId || !voice) return;
 
-      // Check if transcription is available before processing
+      // Check if transcription is available (native macOS or OpenAI)
       if (!isTranscriptionAvailable()) {
         await ctx.reply(
-          '🎤 Voice notes require an OpenAI API key for transcription.\n\n' +
-            'Add your OpenAI key in Settings → API Keys to enable voice messages.'
+          '🎤 Voice transcription is not available.\n\n' +
+            'On macOS: install ffmpeg (brew install ffmpeg)\n' +
+            'Or: add your OpenAI key in Settings → API Keys'
         );
         return;
       }
@@ -824,16 +969,17 @@ multiline</pre>
 
       if (!chatId || !audio) return;
 
-      // Check if transcription is available
+      // Check if transcription is available (native macOS or OpenAI)
       if (!isTranscriptionAvailable()) {
         await ctx.reply(
-          '🎵 Audio transcription requires an OpenAI API key.\n\n' +
-            'Add your OpenAI key in Settings → API Keys to enable audio transcription.'
+          '🎵 Audio transcription is not available.\n\n' +
+            'On macOS: install ffmpeg (brew install ffmpeg)\n' +
+            'Or: add your OpenAI key in Settings → API Keys'
         );
         return;
       }
 
-      // Check file size (Whisper has a 25MB limit)
+      // Check file size limit
       if (audio.file_size && audio.file_size > 25 * 1024 * 1024) {
         await ctx.reply('❌ Audio file too large. Maximum size is 25MB for transcription.');
         return;
@@ -940,6 +1086,7 @@ multiline</pre>
   /**
    * Send a response, splitting into multiple messages if needed
    * Converts markdown to Telegram HTML format
+   * Optionally sends TTS voice message alongside text
    */
   private async sendResponse(ctx: Context, text: string): Promise<void> {
     const MAX_LENGTH = 4000; // Telegram limit is 4096, leave buffer
@@ -953,23 +1100,47 @@ multiline</pre>
         console.error('[Telegram] HTML parse failed, falling back to plain text:', error);
         await ctx.reply(text);
       }
-      return;
+    } else {
+      const chunks = this.splitMessage(text, MAX_LENGTH);
+      for (let i = 0; i < chunks.length; i++) {
+        const prefix = chunks.length > 1 ? `(${i + 1}/${chunks.length}) ` : '';
+        const html = markdownToTelegramHtml(prefix + chunks[i]);
+        try {
+          await ctx.reply(html, { parse_mode: 'HTML' });
+        } catch {
+          // Fallback to plain text if HTML parsing fails
+          await ctx.reply(prefix + chunks[i]);
+        }
+        // Small delay between messages to maintain order
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
     }
 
-    const chunks = this.splitMessage(text, MAX_LENGTH);
-    for (let i = 0; i < chunks.length; i++) {
-      const prefix = chunks.length > 1 ? `(${i + 1}/${chunks.length}) ` : '';
-      const html = markdownToTelegramHtml(prefix + chunks[i]);
-      try {
-        await ctx.reply(html, { parse_mode: 'HTML' });
-      } catch {
-        // Fallback to plain text if HTML parsing fails
-        await ctx.reply(prefix + chunks[i]);
-      }
-      // Small delay between messages to maintain order
-      if (i < chunks.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+    // Send TTS voice message if enabled
+    await this.sendVoiceReply(ctx, text);
+  }
+
+  /**
+   * Generate and send a TTS voice message via Telegram
+   */
+  private async sendVoiceReply(ctx: Context, text: string): Promise<void> {
+    if (!SettingsManager.getBoolean('telegram.voiceReplies')) return;
+
+    // Skip TTS for very short or empty cleaned text
+    const cleaned = stripMarkdown(text);
+    if (!cleaned.trim() || cleaned.trim().length < 3) return;
+
+    try {
+      const cacheDir = path.join(app.getPath('userData'), 'tts-cache');
+      const audioPath = await synthesizeSpeech(text, cacheDir);
+      const audioBuffer = fs.readFileSync(audioPath);
+
+      await ctx.replyWithVoice(new InputFile(audioBuffer, 'voice.mp3'));
+    } catch (error) {
+      console.error('[Telegram] TTS voice reply failed:', error);
+      // Text was already sent, so just log the TTS failure
     }
   }
 

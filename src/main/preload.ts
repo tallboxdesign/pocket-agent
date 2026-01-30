@@ -110,6 +110,32 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   selectFile: (options?: { title?: string; filters?: Array<{ name: string; extensions: string[] }> }) =>
     ipcRenderer.invoke('skills:selectFile', options || {}),
 
+  // Kanban
+  openKanban: () => ipcRenderer.invoke('app:openKanban'),
+  kanbanListProjects: () => ipcRenderer.invoke('kanban:listProjects'),
+  kanbanGetProject: (id: number) => ipcRenderer.invoke('kanban:getProject', id),
+  kanbanCreateProject: (name: string, description?: string, color?: string) =>
+    ipcRenderer.invoke('kanban:createProject', name, description, color),
+  kanbanArchiveProject: (id: number) => ipcRenderer.invoke('kanban:archiveProject', id),
+  kanbanUpdateProject: (id: number, updates: Record<string, string>) =>
+    ipcRenderer.invoke('kanban:updateProject', id, updates),
+  kanbanGetBoard: (projectId: number) => ipcRenderer.invoke('kanban:getBoard', projectId),
+  kanbanCreateTask: (input: Record<string, unknown>) => ipcRenderer.invoke('kanban:createTask', input),
+  kanbanGetTask: (id: number) => ipcRenderer.invoke('kanban:getTask', id),
+  kanbanUpdateTask: (id: number, updates: Record<string, unknown>) =>
+    ipcRenderer.invoke('kanban:updateTask', id, updates),
+  kanbanMoveTask: (id: number, status: string) => ipcRenderer.invoke('kanban:moveTask', id, status),
+  kanbanDeleteTask: (id: number) => ipcRenderer.invoke('kanban:deleteTask', id),
+  kanbanAddComment: (taskId: number, comment: string) =>
+    ipcRenderer.invoke('kanban:addComment', taskId, comment),
+  kanbanGetActivity: (taskId: number, limit?: number) =>
+    ipcRenderer.invoke('kanban:getActivity', taskId, limit),
+  kanbanApproveTask: (id: number) => ipcRenderer.invoke('kanban:approveTask', id),
+  kanbanRejectTask: (id: number, feedback: string) =>
+    ipcRenderer.invoke('kanban:rejectTask', id, feedback),
+  kanbanSearchTasks: (query: string, projectId?: number) =>
+    ipcRenderer.invoke('kanban:searchTasks', query, projectId),
+
   // Voice
   synthesizeTTS: (text: string) => ipcRenderer.invoke('voice:tts', text),
   requestMicPermission: () => ipcRenderer.invoke('voice:micPermission'),
@@ -219,6 +245,24 @@ declare global {
       completeOAuth: (code: string) => Promise<{ success: boolean; error?: string }>;
       cancelOAuth: () => Promise<{ success: boolean }>;
       isOAuthPending: () => Promise<boolean>;
+      // Kanban
+      openKanban: () => Promise<void>;
+      kanbanListProjects: () => Promise<Array<Record<string, unknown>>>;
+      kanbanGetProject: (id: number) => Promise<Record<string, unknown> | null>;
+      kanbanCreateProject: (name: string, description?: string, color?: string) => Promise<{ success: boolean; project?: Record<string, unknown>; error?: string }>;
+      kanbanArchiveProject: (id: number) => Promise<{ success: boolean }>;
+      kanbanUpdateProject: (id: number, updates: Record<string, string>) => Promise<{ success: boolean; project?: Record<string, unknown>; error?: string }>;
+      kanbanGetBoard: (projectId: number) => Promise<Record<string, unknown> | null>;
+      kanbanCreateTask: (input: Record<string, unknown>) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
+      kanbanGetTask: (id: number) => Promise<Record<string, unknown> | null>;
+      kanbanUpdateTask: (id: number, updates: Record<string, unknown>) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
+      kanbanMoveTask: (id: number, status: string) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
+      kanbanDeleteTask: (id: number) => Promise<{ success: boolean }>;
+      kanbanAddComment: (taskId: number, comment: string) => Promise<{ success: boolean; error?: string }>;
+      kanbanGetActivity: (taskId: number, limit?: number) => Promise<Array<Record<string, unknown>>>;
+      kanbanApproveTask: (id: number) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
+      kanbanRejectTask: (id: number, feedback: string) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
+      kanbanSearchTasks: (query: string, projectId?: number) => Promise<Array<Record<string, unknown>>>;
       // Voice
       synthesizeTTS: (text: string) => Promise<{ success: boolean; audioPath?: string; error?: string }>;
       requestMicPermission: () => Promise<{ granted: boolean }>;

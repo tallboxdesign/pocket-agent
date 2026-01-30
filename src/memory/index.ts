@@ -332,6 +332,57 @@ export class MemoryManager {
 
       -- Unique constraint on session names (for Telegram group linking)
       CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_name_unique ON sessions(name);
+
+      -- Kanban projects (session-independent)
+      CREATE TABLE IF NOT EXISTS kanban_projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        workspace_path TEXT,
+        status TEXT DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+        color TEXT DEFAULT '#a855f7',
+        created_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ'))),
+        updated_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ')))
+      );
+
+      -- Kanban tasks
+      CREATE TABLE IF NOT EXISTS kanban_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES kanban_projects(id) ON DELETE CASCADE,
+        parent_task_id INTEGER REFERENCES kanban_tasks(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        status TEXT DEFAULT 'backlog' CHECK(status IN ('backlog','todo','in_progress','review','done')),
+        priority TEXT DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
+        assignee_model TEXT DEFAULT 'claude',
+        position INTEGER DEFAULT 0,
+        estimated_minutes INTEGER,
+        approval_status TEXT CHECK(approval_status IN ('pending','approved','rejected')),
+        approval_feedback TEXT,
+        tags TEXT,
+        created_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ'))),
+        updated_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ')))
+      );
+
+      -- Kanban activity log
+      CREATE TABLE IF NOT EXISTS kanban_activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES kanban_tasks(id) ON DELETE CASCADE,
+        project_id INTEGER REFERENCES kanban_projects(id) ON DELETE SET NULL,
+        action TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        details TEXT,
+        actor TEXT DEFAULT 'user',
+        created_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ')))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_kanban_tasks_project ON kanban_tasks(project_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_tasks_status ON kanban_tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_kanban_tasks_parent ON kanban_tasks(parent_task_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_activity_task ON kanban_activity_log(task_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_activity_project ON kanban_activity_log(project_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_projects_status ON kanban_projects(status);
     `);
 
     // Create FTS5 virtual table for keyword search
