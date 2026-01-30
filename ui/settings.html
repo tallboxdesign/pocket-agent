@@ -832,6 +832,21 @@
       color: var(--text-primary);
     }
 
+    .key-input button.delete-btn {
+      display: none;
+      padding: 6px 8px;
+    }
+
+    .key-input button.delete-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .key-input button.delete-btn.visible {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
 
     /* Compact Auth Boxes */
     .auth-box {
@@ -1000,6 +1015,7 @@
             </div>
             <div class="key-input">
               <input type="password" id="auth-api-key" placeholder="sk-ant-...">
+              <button class="delete-btn" id="auth-api-key-delete" onclick="deleteKey('anthropic.apiKey', 'auth-api-key')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="saveApiKey()">Save</button>
             </div>
           </div>
@@ -1014,6 +1030,7 @@
             </div>
             <div class="key-input">
               <input type="password" id="moonshot.apiKey" placeholder="sk-...">
+              <button class="delete-btn" id="moonshot.apiKey-delete" onclick="deleteKey('moonshot.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="validateKey('moonshot')">Test</button>
             </div>
           </div>
@@ -1054,6 +1071,7 @@
             </div>
             <div class="key-input">
               <input type="password" id="anthropic.apiKey" placeholder="sk-ant-...">
+              <button class="delete-btn" id="anthropic.apiKey-delete" onclick="deleteKey('anthropic.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="validateKey('anthropic')">Test</button>
             </div>
           </div>
@@ -1065,6 +1083,7 @@
             </div>
             <div class="key-input">
               <input type="password" id="openai.apiKey" placeholder="sk-...">
+              <button class="delete-btn" id="openai.apiKey-delete" onclick="deleteKey('openai.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="validateKey('openai')">Test</button>
             </div>
           </div>
@@ -1076,6 +1095,7 @@
             </div>
             <div class="key-input">
               <input type="password" id="gemini.apiKey" placeholder="AI...">
+              <button class="delete-btn" id="gemini.apiKey-delete" onclick="deleteKey('gemini.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="saveKey('gemini.apiKey')">Save</button>
             </div>
           </div>
@@ -1087,6 +1107,7 @@
             </div>
             <div class="key-input">
               <input type="password" id="google.placesApiKey" placeholder="AIza...">
+              <button class="delete-btn" id="google.placesApiKey-delete" onclick="deleteKey('google.placesApiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="saveKey('google.placesApiKey')">Save</button>
             </div>
           </div>
@@ -1098,6 +1119,7 @@
             </div>
             <div class="key-input">
               <input type="password" id="notion.apiKey" placeholder="secret_...">
+              <button class="delete-btn" id="notion.apiKey-delete" onclick="deleteKey('notion.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="saveKey('notion.apiKey')">Save</button>
             </div>
           </div>
@@ -1110,6 +1132,7 @@
             <div class="key-input">
               <input type="password" id="trello.apiKey" placeholder="API Key">
               <input type="password" id="trello.token" placeholder="Token" style="margin-left: 4px;">
+              <button class="delete-btn" id="trello-delete" onclick="deleteTrelloKeys()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="saveTrelloKeys()">Save</button>
             </div>
           </div>
@@ -1121,6 +1144,7 @@
             </div>
             <div class="key-input">
               <input type="password" id="elevenlabs.apiKey" placeholder="Your API key">
+              <button class="delete-btn" id="elevenlabs.apiKey-delete" onclick="deleteKey('elevenlabs.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="saveKey('elevenlabs.apiKey')">Save</button>
             </div>
           </div>
@@ -1147,6 +1171,7 @@
             </div>
             <div class="key-input">
               <input type="password" id="telegram.botToken" placeholder="123456:ABC-DEF...">
+              <button class="delete-btn" id="telegram.botToken-delete" onclick="deleteKey('telegram.botToken')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
               <button onclick="validateKey('telegram')">Test</button>
             </div>
           </div>
@@ -1326,6 +1351,7 @@
         populateFields();
         updateToggles();
         updateAuthStatus();
+        updateDeleteButtons();
         await refreshModelDropdown();
       } catch (err) {
         console.error('Failed to load settings:', err);
@@ -1597,9 +1623,108 @@
         await window.pocketAgent.setSetting(inputId, key);
         settings[inputId] = key;
         showToast('Got it!', 'success');
+
+        // Show delete button
+        const deleteBtn = document.getElementById(`${inputId}-delete`);
+        if (deleteBtn) {
+          deleteBtn.classList.add('visible');
+        }
       } catch (err) {
         console.error('Failed to save key:', err);
         showToast('Save hiccup, try again?', 'error');
+      }
+    }
+
+    // Update delete button visibility based on stored keys
+    function updateDeleteButtons() {
+      const keyIds = [
+        'anthropic.apiKey', 'openai.apiKey', 'gemini.apiKey',
+        'google.placesApiKey', 'notion.apiKey', 'elevenlabs.apiKey',
+        'moonshot.apiKey', 'telegram.botToken'
+      ];
+
+      for (const keyId of keyIds) {
+        const deleteBtn = document.getElementById(`${keyId}-delete`);
+        if (deleteBtn) {
+          const hasKey = settings[keyId] && settings[keyId].trim() !== '';
+          deleteBtn.classList.toggle('visible', hasKey);
+        }
+      }
+
+      // Special case for auth-api-key which maps to anthropic.apiKey
+      const authDeleteBtn = document.getElementById('auth-api-key-delete');
+      if (authDeleteBtn) {
+        const hasKey = settings['anthropic.apiKey'] && settings['anthropic.apiKey'].trim() !== '';
+        authDeleteBtn.classList.toggle('visible', hasKey);
+      }
+
+      // Special case for Trello (has both apiKey and token)
+      const trelloDeleteBtn = document.getElementById('trello-delete');
+      if (trelloDeleteBtn) {
+        const hasKey = (settings['trello.apiKey'] && settings['trello.apiKey'].trim() !== '') ||
+                       (settings['trello.token'] && settings['trello.token'].trim() !== '');
+        trelloDeleteBtn.classList.toggle('visible', hasKey);
+      }
+    }
+
+    async function deleteKey(keyId, inputId = null) {
+      const actualInputId = inputId || keyId;
+
+      try {
+        await window.pocketAgent.setSetting(keyId, '');
+        settings[keyId] = '';
+
+        // Clear the input field
+        const input = document.getElementById(actualInputId);
+        if (input) {
+          input.value = '';
+        }
+
+        // Hide the delete button
+        const deleteBtn = document.getElementById(`${actualInputId}-delete`);
+        if (deleteBtn) {
+          deleteBtn.classList.remove('visible');
+        }
+
+        showToast('Key removed!', 'success');
+
+        // Refresh model dropdown if this affects available models
+        if (keyId === 'anthropic.apiKey' || keyId === 'moonshot.apiKey') {
+          await refreshModelDropdown();
+          activateReboot();
+        }
+
+        // Update auth status if Anthropic key was deleted
+        if (keyId === 'anthropic.apiKey') {
+          updateAuthStatus();
+        }
+      } catch (err) {
+        console.error('Failed to delete key:', err);
+        showToast('Oops, couldn\'t delete that', 'error');
+      }
+    }
+
+    async function deleteTrelloKeys() {
+      try {
+        await window.pocketAgent.setSetting('trello.apiKey', '');
+        await window.pocketAgent.setSetting('trello.token', '');
+        settings['trello.apiKey'] = '';
+        settings['trello.token'] = '';
+
+        // Clear inputs
+        document.getElementById('trello.apiKey').value = '';
+        document.getElementById('trello.token').value = '';
+
+        // Hide delete button
+        const deleteBtn = document.getElementById('trello-delete');
+        if (deleteBtn) {
+          deleteBtn.classList.remove('visible');
+        }
+
+        showToast('Trello keys removed!', 'success');
+      } catch (err) {
+        console.error('Failed to delete Trello keys:', err);
+        showToast('Oops, couldn\'t delete that', 'error');
       }
     }
 
@@ -1630,6 +1755,12 @@
         settings['trello.apiKey'] = apiKey;
         settings['trello.token'] = token;
         showToast('Got it!', 'success');
+
+        // Show delete button
+        const deleteBtn = document.getElementById('trello-delete');
+        if (deleteBtn) {
+          deleteBtn.classList.add('visible');
+        }
       } catch (err) {
         console.error('Failed to save Trello keys:', err);
         showToast('Save hiccup, try again?', 'error');
@@ -1704,6 +1835,13 @@
           await window.pocketAgent.setSetting(inputId, key);
           settings[inputId] = key;
           showToast(result.botInfo ? `Valid! Bot: @${result.botInfo.username}` : 'All good!', 'success');
+
+          // Show delete button
+          const deleteBtn = document.getElementById(`${inputId}-delete`);
+          if (deleteBtn) {
+            deleteBtn.classList.add('visible');
+          }
+
           // Refresh model dropdown after adding a new key
           await refreshModelDropdown();
         } else {
@@ -1934,6 +2072,13 @@
           await window.pocketAgent.setSetting('auth.method', 'api_key');
           showToast('Key saved!', 'success');
           activateReboot();
+
+          // Show delete button
+          const deleteBtn = document.getElementById('auth-api-key-delete');
+          if (deleteBtn) {
+            deleteBtn.classList.add('visible');
+          }
+
           await loadSettings();
           updateAuthStatus();
           await refreshModelDropdown();
