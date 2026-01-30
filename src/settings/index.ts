@@ -96,6 +96,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     type: 'password',
   },
   {
+    key: 'zhipu.apiKey',
+    defaultValue: '',
+    encrypted: true,
+    category: 'api_keys',
+    label: 'Zhipu AI API Key',
+    description: 'GLM-4 models for lightweight tasks (saves Claude tokens)',
+    type: 'password',
+  },
+  {
     key: 'google.placesApiKey',
     defaultValue: '',
     encrypted: true,
@@ -350,6 +359,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     category: 'voice',
     label: 'Auto TTS',
     description: 'Automatically read agent responses aloud',
+    type: 'boolean',
+  },
+  {
+    key: 'telegram.voiceReplies',
+    defaultValue: 'true',
+    encrypted: false,
+    category: 'telegram',
+    label: 'Voice Replies',
+    description: 'Send voice messages alongside text replies in Telegram',
     type: 'boolean',
   },
 
@@ -919,6 +937,7 @@ class SettingsManagerClass {
     const keyMappings: Record<string, string> = {
       'openai.apiKey': 'OPENAI_API_KEY',
       'gemini.apiKey': 'GEMINI_API_KEY',
+      'zhipu.apiKey': 'ZHIPU_API_KEY',
       'google.placesApiKey': 'GOOGLE_PLACES_API_KEY',
       'notion.apiKey': 'NOTION_API_KEY',
       'trello.apiKey': 'TRELLO_API_KEY',
@@ -950,6 +969,7 @@ class SettingsManagerClass {
     const reverseMapping: Record<string, string> = {
       'OPENAI_API_KEY': 'openai.apiKey',
       'GEMINI_API_KEY': 'gemini.apiKey',
+      'ZHIPU_API_KEY': 'zhipu.apiKey',
       'GOOGLE_PLACES_API_KEY': 'google.placesApiKey',
       'NOTION_API_KEY': 'notion.apiKey',
       'TRELLO_API_KEY': 'trello.apiKey',

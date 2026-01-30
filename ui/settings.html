@@ -1102,6 +1102,18 @@
 
           <div class="key-row">
             <div class="key-info">
+              <span class="key-name">Zhipu AI (GLM)</span>
+              <a href="https://open.bigmodel.cn/usercenter/apikeys" target="_blank" class="key-link">open.bigmodel.cn</a>
+            </div>
+            <div class="key-input">
+              <input type="password" id="zhipu.apiKey" placeholder="your-api-key">
+              <button class="delete-btn" id="zhipu.apiKey-delete" onclick="deleteKey('zhipu.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+              <button onclick="saveKey('zhipu.apiKey')">Save</button>
+            </div>
+          </div>
+
+          <div class="key-row">
+            <div class="key-info">
               <span class="key-name">Google Places</span>
               <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="key-link">cloud.google.com</a>
             </div>
@@ -1191,6 +1203,13 @@
               <input type="text" id="telegram.defaultChatId" placeholder="e.g. -100123456789">
               <button onclick="saveTelegramSetting('telegram.defaultChatId')">Save</button>
             </div>
+          </div>
+          <div class="setting-row">
+            <label>Voice Replies</label>
+            <label class="toggle">
+              <input type="checkbox" id="telegram.voiceReplies" onchange="toggleSetting('telegram.voiceReplies')">
+              <span class="slider"></span>
+            </label>
           </div>
         </div>
       </section>
@@ -1520,7 +1539,7 @@
     function setupAutoSave() {
       // Exclude API key inputs, auth inputs, and fields with manual save buttons from auto-save
       const excludedIds = [
-        'anthropic.apiKey', 'openai.apiKey', 'gemini.apiKey',
+        'anthropic.apiKey', 'openai.apiKey', 'gemini.apiKey', 'zhipu.apiKey',
         'google.placesApiKey', 'notion.apiKey', 'trello.apiKey',
         'trello.token', 'elevenlabs.apiKey', 'auth-api-key', 'oauth-code',
         'telegram.allowedUserIds', 'telegram.defaultChatId'
@@ -1570,6 +1589,10 @@
       'gemini.apiKey': {
         pattern: /^AIza[A-Za-z0-9_-]{35}$/,
         hint: 'Gemini keys start with "AIza" and are 39 characters'
+      },
+      'zhipu.apiKey': {
+        pattern: /^[A-Za-z0-9_.-]{10,}$/,
+        hint: 'Enter your Zhipu AI API key'
       },
       'google.placesApiKey': {
         pattern: /^AIza[A-Za-z0-9_-]{35}$/,
