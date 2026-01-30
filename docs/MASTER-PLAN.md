@@ -23,6 +23,8 @@
 12. [Actor Tracking & Audit Trail](#12-actor-tracking--audit-trail)
 13. [Tag & Assignee System](#13-tag--assignee-system)
 14. [Project Selector in New Task Modal](#14-project-selector-in-new-task-modal)
+15. [Multi-Agent Research System](#15-multi-agent-research-system)
+16. [GLM Project Prioritization](#16-glm-project-prioritization)
 
 ---
 
@@ -46,12 +48,17 @@
 
 ### What
 Use Zhipu AI **GLM-4.7** (z.ai) as a lightweight utility model for:
-- Summarization (daily summaries, log processing)
+- Summarization (daily summaries, log processing, research compilation)
 - Email classification and labeling
 - Periodic log review and compression
 - Routine processing that doesn't need Claude's intelligence
+- News summarization (user can ask "summarize today's AI news")
+- Project prioritization analysis (rank projects by value/urgency)
+- Session briefing compression (summarize 3 days of logs for context injection)
+- Research post-processing (compile and deduplicate multi-agent research findings)
 
 Claude remains the primary agent/manager. GLM handles cheap background tasks.
+GLM **cannot** use the Agent SDK — it's a simple chat completion API. All agentic work (tools, decisions, research orchestration) stays with Claude.
 
 ### Current State
 - API key field exists in settings UI (`ui/settings.html` line 1105)
@@ -513,8 +520,15 @@ export async function generateSessionBriefing(): Promise<string> {
 }
 ```
 
-#### 7.2 Auto-inject into Agent System Prompt
-On each new session or context reset, prepend the briefing to the system prompt so the agent knows the full state without needing the conversation history.
+#### 7.2 GLM Pre-Summarization
+Raw logs from 3 days can be large. Before injection:
+1. Collect raw data from all sources (daily_logs, activity_log, event_log, etc.)
+2. Send to GLM for compression: "Summarize these 3 days of activity into a concise briefing"
+3. GLM returns a compact summary (~500-1000 tokens) covering key events, pending work, blockers
+4. This compact summary gets injected into the system prompt — not the raw logs
+
+#### 7.3 Auto-inject into Agent System Prompt
+On each new session or context reset, prepend the GLM-compressed briefing to the system prompt so the agent knows the full state without needing the conversation history.
 
 ### Files to Create/Modify
 - CREATE: `src/agent/briefing.ts`
@@ -685,6 +699,7 @@ The current task detail panel is too small and only shows on the right side. Nee
 - **Token usage display** — show tokens spent on this task
 - **Worker output viewer** — see full build logs
 - **Activity timeline with actors** — "Claude created", "User approved", "GLM processed"
+- **Voice summary button** — on tasks tagged `research`, a "Read aloud" button that sends the description to TTS for a spoken summary
 
 ### Implementation
 
@@ -698,6 +713,7 @@ The current task detail panel is too small and only shows on the right side. Nee
 - Add left/right toggle button (⇆) to panel header → flips side
 - Store preference in localStorage
 - In expanded mode: full description editor, full activity timeline, worker logs, attachments grid, token counter
+- Voice summary button for `research`-tagged tasks — calls existing TTS pipeline with task description
 
 #### 11.3 Token Display
 In task detail, show:
@@ -809,6 +825,119 @@ When creating a new task, allow selecting which project it belongs to (dropdown 
 
 ---
 
+## 15. Multi-Agent Research System
+
+### What
+When the user requests research (via Telegram, chat, or Kanban task), the manager orchestrates multiple Claude SDK agents in parallel to cover different angles of the topic. Results are compiled, stored in Kanban, and available for reading or voice summary.
+
+### How It Works
+
+```
+User: "Research house prices and population in Sofia"
+  → Manager breaks into sub-queries:
+    1. "Population statistics for Sofia, trends, demographics"
+    2. "House prices in Sofia, districts, trends, predictions"
+    3. "Cost of living comparison with other European capitals"
+  → Spawns 2-4 Claude SDK agents in parallel (NOT CLI workers — these use the agent SDK with web tools)
+  → Each agent runs up to 20 web queries on its sub-topic
+  → Agents stream findings back
+  → Manager compiles results (or delegates compilation to GLM for token savings)
+  → Creates/updates Kanban task tagged 'research' with compiled findings
+  → Sends Telegram notification: "Research on Sofia is ready. 3 agents, 42 sources."
+  → User reads in detail panel or requests TTS voice summary
+```
+
+### Research is a Tag, Not a Column
+- Tasks tagged `research` follow normal flow: todo → in_progress → review → done
+- Research belongs to the project it serves (e.g., real estate research → real estate project)
+- General research with no project → General Inbox
+- Quick-filter button in Kanban header shows all `research` tasks across projects
+
+### Research Agent vs CLI Worker
+| Aspect | Research Agent | CLI Worker |
+|--------|---------------|------------|
+| Purpose | Web research, information gathering | Code building, file operations |
+| SDK | Claude Agent SDK (in-process) | Claude CLI (child process) |
+| Tools | Web search, web fetch, summarize | Full filesystem, shell, git |
+| Duration | 1-5 minutes | 5-60 minutes |
+| Parallelism | 2-4 agents per research task | 1-2 workers at a time |
+| Output | Compiled text/markdown report | Code changes, build artifacts |
+
+### Research Results Storage
+Each research task stores:
+- **Compiled report** — markdown in task description
+- **Sources list** — URLs with titles
+- **Agent breakdown** — which agent found what
+- **Token usage** — per agent and total
+- **Timestamp** — when research was completed
+
+### Implementation
+
+#### 15.1 Research Orchestrator — `src/agent/research.ts`
+```typescript
+export interface ResearchRequest {
+  query: string;              // User's research request
+  projectId?: number;         // Target project (or General Inbox)
+  maxAgents?: number;         // Max parallel agents (default: 3)
+  maxQueriesPerAgent?: number;// Max web queries per agent (default: 20)
+}
+
+export interface ResearchResult {
+  taskId: number;             // Kanban task ID
+  sections: ResearchSection[];// Compiled findings by sub-topic
+  sources: { url: string, title: string }[];
+  tokenUsage: { prompt: number, completion: number, total: number };
+  duration: number;           // Total time in ms
+}
+
+export async function executeResearch(request: ResearchRequest): Promise<ResearchResult>
+```
+
+#### 15.2 Agent Tools — `src/tools/research-tools.ts`
+```typescript
+// Tool: research — Spawn multi-agent research on a topic
+// Tool: research_status — Check status of running research
+// Tool: summarize_research — Get TTS-friendly summary of a research task
+```
+
+#### 15.3 Kanban Integration
+- Research tasks auto-created with tag `research` and assignee `claude`
+- On completion → moved to `review` with full report in description
+- Voice summary button on research task detail panel
+
+#### 15.4 GLM Post-Processing
+After agents return raw findings, GLM can:
+- Compile and deduplicate findings across agents
+- Generate an executive summary
+- Extract key statistics and facts
+- Format for TTS readability
+
+### Files to Create/Modify
+- CREATE: `src/agent/research.ts`
+- CREATE: `src/tools/research-tools.ts`
+- MODIFY: `src/agent/index.ts` — register research tools
+- MODIFY: `ui/kanban.html` — research filter button, voice summary button on research tasks
+
+---
+
+## 16. GLM Project Prioritization
+
+### What
+GLM periodically analyzes all projects and suggests prioritization based on:
+- Completion percentage (how close to done)
+- Last activity date (stale projects)
+- Token investment (sunk cost / ROI)
+- Task count and velocity (momentum)
+- User-assigned priority/tags
+
+### Implementation
+Part of the daily summary (Section 5). GLM receives project data and returns a ranked list with reasoning. Can be triggered manually via Telegram: "What should I work on today?"
+
+### Files to Modify
+- MODIFY: `src/scheduler/daily-summary.ts` — add project prioritization to morning summary
+
+---
+
 ## Implementation Order (Priority)
 
 ### Phase 1 — Foundation (Data Layer)
@@ -817,26 +946,31 @@ When creating a new task, allow selecting which project it belongs to (dropdown 
 3. Actor tracking fixes across all Kanban operations
 4. Project selector in New Task modal (quick win)
 
-### Phase 2 — Workers & Scheduling
+### Phase 2 — Workers & Research
 5. Worker manager + execution DB (`src/workers/`)
 6. Claude CLI spawning + Kanban integration
-7. Task scheduling UI (schedule button, overnight picker)
-8. Scheduled task runner
+7. Multi-agent research orchestrator (`src/agent/research.ts`)
+8. Research tools + Kanban research filter
 
-### Phase 3 — Intelligence & Monitoring
-9. Universal heartbeat system
-10. Auto-task recording (General Inbox)
-11. Daily summary generation (GLM-4.7)
-12. Session continuity briefing
+### Phase 3 — Scheduling & Monitoring
+9. Task scheduling UI (schedule button, overnight picker)
+10. Scheduled task runner
+11. Universal heartbeat system
+12. Auto-task recording (General Inbox)
 
-### Phase 4 — UI & Organization
-13. Task detail panel improvements (expand, left/right, tokens)
-14. Tag & assignee system (autocomplete, dropdown, colors)
-15. Project folder manager (plan subfolders, TODO tracking)
+### Phase 4 — Intelligence & Continuity
+13. Daily summary generation (GLM-4.7)
+14. Session continuity briefing (3-day context injection)
+15. GLM project prioritization (morning recommendations)
 
-### Phase 5 — Communication
-16. Gmail integration + email classification
-17. Telegram notifications for urgent emails
+### Phase 5 — UI & Organization
+16. Task detail panel improvements (expand, left/right, tokens, voice summary)
+17. Tag & assignee system (autocomplete, dropdown, colors, research filter)
+18. Project folder manager (plan subfolders, TODO tracking)
+
+### Phase 6 — Communication
+19. Gmail integration + email classification
+20. Telegram notifications for urgent emails
 
 ---
 
