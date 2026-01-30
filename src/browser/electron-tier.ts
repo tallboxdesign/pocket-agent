@@ -68,9 +68,20 @@ export class ElectronTier {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        sandbox: true,
+        sandbox: false, // Disabled to allow user-agent override
         webSecurity: true,
       },
+    });
+
+    // Set realistic user agent to reduce bot detection
+    const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+    this.window.webContents.setUserAgent(userAgent);
+
+    // Remove webdriver flag that signals automation
+    this.window.webContents.on('did-finish-load', () => {
+      this.window?.webContents.executeJavaScript(`
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      `).catch(() => {});
     });
 
     // Prevent window from showing
@@ -186,12 +197,29 @@ export class ElectronTier {
         };
       }
 
-      const image = await withTimeout(
+      // Wait briefly for any pending renders/paints before capturing
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      let image = await withTimeout(
         webContents.capturePage(),
         10000,
         'capturePage'
       );
-      const base64 = image.toPNG().toString('base64');
+      let base64 = image.toPNG().toString('base64');
+
+      // Detect blank/white screenshots and retry with longer wait
+      const isBlank = image.getSize().width > 0 && image.getSize().height > 0 &&
+        base64.length < 5000; // Very small PNG = likely blank
+      if (isBlank) {
+        logBrowser('screenshot BLANK detected, retrying with longer wait');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        image = await withTimeout(
+          webContents.capturePage(),
+          10000,
+          'capturePage retry'
+        );
+        base64 = image.toPNG().toString('base64');
+      }
 
       const duration = Date.now() - startTime;
       logBrowser('screenshot END', { duration: `${duration}ms`, size: base64.length });

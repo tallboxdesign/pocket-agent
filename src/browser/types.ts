@@ -94,4 +94,5 @@ export interface BrowserToolInput {
   download_timeout?: number;
   file_path?: string;
   tab_id?: string;
+  save_to?: string; // Custom directory to save screenshots
 }

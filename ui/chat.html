@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self' blob: file:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: file: atom:; media-src 'self' blob: file:;">
   <title>Pocket Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -745,6 +745,55 @@
     .message.user a:hover {
       color: #ffffff;
       text-decoration-color: rgba(255, 255, 255, 0.6);
+    }
+
+    .message a.file-link {
+      color: #a78bfa;
+      background: rgba(167, 139, 250, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85em;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+      word-break: break-all;
+    }
+
+    .message a.file-link:hover {
+      color: #c4b5fd;
+      background: rgba(167, 139, 250, 0.2);
+      text-decoration: none;
+    }
+
+    .message a.file-link::before {
+      content: '📄 ';
+      font-size: 0.9em;
+    }
+
+    .inline-screenshot {
+      margin: 8px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .chat-screenshot {
+      max-width: 100%;
+      max-height: 400px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: opacity 0.15s;
+      object-fit: contain;
+    }
+
+    .chat-screenshot:hover {
+      opacity: 0.9;
+    }
+
+    .screenshot-link::before {
+      content: '🖼 ' !important;
     }
 
     .message hr {
@@ -1832,6 +1881,7 @@
 
     let autoTTSEnabled = false;
     let currentTTSAudio = null;
+    let ttsSynthesizing = false;
 
     async function initTTS() {
       try {
@@ -1877,21 +1927,31 @@
       }
     }
 
-    async function playTTS(text, buttonEl) {
-      // If already playing, stop
+    function stopTTS() {
       if (currentTTSAudio) {
         currentTTSAudio.pause();
         currentTTSAudio = null;
-        document.querySelectorAll('.tts-play-btn.playing').forEach(function(btn) { setTTSButtonState(btn, false); });
-        if (buttonEl && buttonEl.classList.contains('playing')) return;
+      }
+      ttsSynthesizing = false;
+      document.querySelectorAll('.tts-play-btn.playing').forEach(function(btn) { setTTSButtonState(btn, false); });
+    }
+
+    async function playTTS(text, buttonEl) {
+      // If anything is currently playing or synthesizing, stop it
+      if (currentTTSAudio || ttsSynthesizing) {
+        stopTTS();
+        return;
       }
 
+      ttsSynthesizing = true;
       try {
         setTTSButtonState(buttonEl, true);
 
         const result = await window.pocketAgent.synthesizeTTS(text);
+        if (!ttsSynthesizing) return; // Was cancelled during synthesis
         if (!result.success) {
           console.error('TTS failed:', result.error);
+          ttsSynthesizing = false;
           setTTSButtonState(buttonEl, false);
           return;
         }
@@ -1901,11 +1961,13 @@
 
         audio.onended = function() {
           currentTTSAudio = null;
+          ttsSynthesizing = false;
           setTTSButtonState(buttonEl, false);
         };
 
         audio.onerror = function() {
           currentTTSAudio = null;
+          ttsSynthesizing = false;
           setTTSButtonState(buttonEl, false);
           console.error('Failed to play TTS audio');
         };
@@ -1913,6 +1975,7 @@
         await audio.play();
       } catch (err) {
         currentTTSAudio = null;
+        ttsSynthesizing = false;
         setTTSButtonState(buttonEl, false);
         console.error('TTS playback error:', err);
       }
@@ -2837,7 +2900,18 @@
           breaks: true, // Convert \n to <br>
           gfm: true, // GitHub flavored markdown
         });
-        return marked.parse(text);
+        let html = marked.parse(text);
+        // Render screenshot images inline
+        html = html.replace(
+          /(?<!")(?<!=)(\/(?:Users|tmp|var|home|Library)[^\s<>"'`\)]*\/screenshots\/[^\s<>"'`\)]*\.(?:png|jpg|jpeg|gif|webp))/gi,
+          '<div class="inline-screenshot"><img src="file://$1" alt="Screenshot" class="chat-screenshot" data-path="$1" /><a href="#" class="file-link screenshot-link" data-path="$1" title="Click to open, right-click to show in Finder">Open image</a></div>'
+        );
+        // Make other file paths clickable (non-image or non-screenshot files)
+        html = html.replace(
+          /(?<!")(?<!=)(?<!src="file:\/\/)(?<!data-path=")(\/(?:Users|tmp|var|home|Library|Applications)[^\s<>"'`\)]*\.(?:png|jpg|jpeg|gif|webp|pdf|html|txt|json|csv|mp3|mp4|mov|zip))/gi,
+          '<a href="#" class="file-link" data-path="$1" title="Click to open, right-click to show in Finder">$1</a>'
+        );
+        return html;
       }
       // Fallback if marked isn't loaded
       return text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -3329,6 +3403,33 @@
       btn.classList.remove('active');
       dropdown.classList.remove('open');
     }
+
+    // Handle file link / screenshot clicks (open file) and right-clicks (show in Finder)
+    document.addEventListener('click', (e) => {
+      const screenshot = e.target.closest('.chat-screenshot');
+      if (screenshot) {
+        e.preventDefault();
+        const filePath = screenshot.getAttribute('data-path');
+        if (filePath) window.pocketAgent.openPath(filePath);
+        return;
+      }
+      const fileLink = e.target.closest('.file-link');
+      if (fileLink) {
+        e.preventDefault();
+        const filePath = fileLink.getAttribute('data-path');
+        if (filePath) window.pocketAgent.openPath(filePath);
+        return;
+      }
+    });
+
+    document.addEventListener('contextmenu', (e) => {
+      const el = e.target.closest('.file-link') || e.target.closest('.chat-screenshot');
+      if (el) {
+        e.preventDefault();
+        const filePath = el.getAttribute('data-path');
+        if (filePath) window.pocketAgent.showInFolder(filePath);
+      }
+    });
 
     // Close menu when clicking outside
     document.addEventListener('click', (e) => {

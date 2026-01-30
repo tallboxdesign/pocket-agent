@@ -68,7 +68,23 @@ export class BrowserManager {
   }
 
   /**
-   * Execute a browser action
+   * Detect if a page result indicates a bot block (Cloudflare, etc.)
+   */
+  private isBlockedResponse(result: BrowserResult): boolean {
+    const blockIndicators = [
+      'just a moment',        // Cloudflare challenge page title
+      'attention required',   // Cloudflare
+      'checking your browser', // Cloudflare
+      'ray id',               // Cloudflare error page
+      'access denied',        // Generic WAF
+      'please verify you are a human', // Various bot checks
+    ];
+    const text = `${result.title || ''} ${result.text || ''}`.toLowerCase();
+    return blockIndicators.some(indicator => text.includes(indicator));
+  }
+
+  /**
+   * Execute a browser action with auto-fallback to CDP on bot blocks
    */
   async execute(action: BrowserAction): Promise<BrowserResult> {
     const tier = this.selectTier(action);
@@ -77,8 +93,23 @@ export class BrowserManager {
     console.log(`[Browser] Executing "${action.action}" via ${tier} tier`);
 
     switch (tier) {
-      case 'electron':
-        return this.getElectronTier().execute(action);
+      case 'electron': {
+        const result = await this.getElectronTier().execute(action);
+
+        // Auto-fallback to CDP if Electron got blocked by bot detection
+        if (result.success && this.isBlockedResponse(result)) {
+          console.log('[Browser] Bot block detected on Electron tier, retrying with CDP...');
+          const cdpResult = await this.getCdpTier().execute(action);
+          if (cdpResult.success) {
+            this.lastTier = 'cdp';
+            return cdpResult;
+          }
+          // CDP failed too — return original with a hint
+          result.text = `[Bot protection detected. CDP fallback failed — start Chrome with --remote-debugging-port=9222 for authenticated access]\n\n${result.text || ''}`;
+        }
+
+        return result;
+      }
 
       case 'cdp':
         return this.getCdpTier().execute(action);
@@ -291,6 +322,10 @@ For CDP, user must start Chrome with: --remote-debugging-port=9222`,
           type: 'string',
           description: 'Tab ID for tabs_close, tabs_focus actions',
         },
+        save_to: {
+          type: 'string',
+          description: 'Custom directory to save screenshots (default: app screenshots folder)',
+        },
       },
       required: ['action'],
     },
@@ -323,14 +358,25 @@ export async function handleBrowserTool(input: unknown): Promise<string> {
   if (result.data) response.data = result.data;
   if (result.html) response.html = result.html;
   if (result.screenshot) {
-    // Save screenshot to temp file instead of flooding response with base64
     const fs = await import('fs');
     const path = await import('path');
-    const os = await import('os');
+    const { app } = await import('electron');
     const timestamp = Date.now();
-    const screenshotPath = path.join(os.tmpdir(), `pa-screenshot-${timestamp}.png`);
+    const toolInput = input as BrowserToolInput;
+
+    // Determine save directory: custom save_to, or persistent screenshots dir
+    let screenshotsDir: string;
+    if (toolInput.save_to) {
+      screenshotsDir = toolInput.save_to;
+    } else {
+      screenshotsDir = path.join(app.getPath('userData'), 'screenshots');
+    }
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+
+    const screenshotPath = path.join(screenshotsDir, `screenshot-${timestamp}.png`);
     fs.writeFileSync(screenshotPath, Buffer.from(result.screenshot, 'base64'));
-    response.screenshot = `saved to ${screenshotPath}`;
+    response.screenshot = screenshotPath;
+    response.screenshotBase64 = result.screenshot;
     response.screenshotSize = `${Math.round(result.screenshot.length / 1024)}KB`;
   }
   // New result fields

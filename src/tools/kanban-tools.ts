@@ -494,6 +494,190 @@ export async function handleKanbanReviewTaskTool(input: unknown): Promise<string
 }
 
 // ============================================================================
+// kanban_log_research
+// ============================================================================
+
+export function getKanbanLogResearchToolDefinition() {
+  return {
+    name: 'kanban_log_research',
+    description: `Log completed research or work to the Kanban board. Creates a task in the Review column so the user can see and approve your work.
+
+Use this after completing:
+- Screenshots of websites or pages
+- Web searches and analysis
+- Data gathering or research tasks
+- File analysis or code review
+- Any work the user should review
+
+The task is created in a "Research" project (auto-created if needed).
+
+Examples:
+- kanban_log_research(title="Screenshot of competitor site", description="Captured homepage of example.com", tags="research,screenshot", attachments=["/path/to/screenshot.png"])
+- kanban_log_research(title="Market analysis for Sofia", description="Researched cost of living, neighborhoods, healthcare...", tags="research,analysis")`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string', description: 'What was researched or done' },
+        description: { type: 'string', description: 'Research findings or results summary' },
+        project_id: { type: 'number', description: 'Project ID (default: auto-created Research project)' },
+        tags: { type: 'string', description: 'Comma-separated tags (e.g. "research,screenshot")' },
+        attachments: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'File paths (screenshots, documents) to attach',
+        },
+        links: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'URLs to attach as link references (source pages, documentation)',
+        },
+        priority: { type: 'string', description: 'Priority: low, medium (default), high, urgent' },
+      },
+      required: ['title', 'description'],
+    },
+  };
+}
+
+export async function handleKanbanLogResearchTool(input: unknown): Promise<string> {
+  const params = input as {
+    title: string;
+    description: string;
+    project_id?: number;
+    tags?: string;
+    attachments?: string[];
+    links?: string[];
+    priority?: string;
+  };
+
+  if (!params.title || !params.description) {
+    return JSON.stringify({ error: 'title and description are required' });
+  }
+
+  try {
+    // Find or create the Research project
+    let projectId = params.project_id;
+    if (!projectId) {
+      const projects = KanbanService.listProjects();
+      const researchProject = projects.find(p => p.name === 'Research');
+      if (researchProject) {
+        projectId = researchProject.id;
+      } else {
+        const newProject = KanbanService.createProject('Research', 'Agent research results and findings', '#3b82f6');
+        projectId = newProject.id;
+      }
+    }
+
+    // Create task in review status
+    const task = KanbanService.createTask({
+      project_id: projectId,
+      title: params.title,
+      description: params.description,
+      status: 'review',
+      priority: (params.priority as KanbanPriority) || 'medium',
+      tags: params.tags || 'research',
+      assignee_model: 'claude',
+    });
+
+    // Add file attachments as real attachment records
+    if (params.attachments && params.attachments.length > 0) {
+      for (const filePath of params.attachments) {
+        const name = filePath.split('/').pop() || filePath;
+        const isImage = /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/i.test(name);
+        KanbanService.addAttachment(task.id, {
+          type: isImage ? 'screenshot' : 'file',
+          name,
+          path: filePath,
+        });
+      }
+    }
+
+    // Auto-extract URLs from description + explicit links
+    const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
+    const descUrls = params.description.match(urlRegex) || [];
+    const allLinks = [...new Set([...(params.links || []), ...descUrls])];
+    for (const url of allLinks) {
+      try {
+        const urlObj = new URL(url);
+        KanbanService.addAttachment(task.id, {
+          type: 'link',
+          name: urlObj.hostname + (urlObj.pathname !== '/' ? urlObj.pathname : ''),
+          path: url,
+        });
+      } catch {
+        KanbanService.addAttachment(task.id, {
+          type: 'link',
+          name: url.substring(0, 80),
+          path: url,
+        });
+      }
+    }
+
+    return JSON.stringify({
+      success: true,
+      task: {
+        id: task.id,
+        project_id: projectId,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+      },
+      message: `Research logged to project #${projectId} as task #${task.id} (review)`,
+    });
+  } catch (error) {
+    return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to log research' });
+  }
+}
+
+// ============================================================================
+// kanban_add_attachment
+// ============================================================================
+
+export function getKanbanAddAttachmentToolDefinition() {
+  return {
+    name: 'kanban_add_attachment',
+    description: `Add a file, link, screenshot, or folder attachment to a Kanban task.
+
+Examples:
+- kanban_add_attachment(task_id=1, type="link", name="Design doc", path="https://figma.com/...")
+- kanban_add_attachment(task_id=1, type="screenshot", name="homepage.png", path="/path/to/screenshot.png")
+- kanban_add_attachment(task_id=1, type="folder", name="project-files", path="/Users/me/project")`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        task_id: { type: 'number', description: 'Task ID to attach to' },
+        type: { type: 'string', enum: ['file', 'screenshot', 'link', 'folder'], description: 'Attachment type' },
+        name: { type: 'string', description: 'Display name for the attachment' },
+        path: { type: 'string', description: 'File path or URL' },
+      },
+      required: ['task_id', 'type', 'name', 'path'],
+    },
+  };
+}
+
+export async function handleKanbanAddAttachmentTool(input: unknown): Promise<string> {
+  const params = input as { task_id: number; type: string; name: string; path: string };
+  if (!params.task_id || !params.type || !params.name || !params.path) {
+    return JSON.stringify({ error: 'task_id, type, name, and path are required' });
+  }
+
+  const validTypes = ['file', 'screenshot', 'link', 'folder'];
+  if (!validTypes.includes(params.type)) {
+    return JSON.stringify({ error: `Invalid type. Use: ${validTypes.join(', ')}` });
+  }
+
+  try {
+    const attachment = KanbanService.addAttachment(params.task_id, {
+      type: params.type as 'file' | 'screenshot' | 'link' | 'folder',
+      name: params.name,
+      path: params.path,
+    });
+    return JSON.stringify({ success: true, attachment: { id: attachment.id, name: attachment.name, type: attachment.type } });
+  } catch (error) {
+    return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to add attachment' });
+  }
+}
+
+// ============================================================================
 // Export all kanban tools
 // ============================================================================
 
@@ -509,5 +693,7 @@ export function getKanbanTools() {
     { ...getKanbanDeleteTaskToolDefinition(), handler: handleKanbanDeleteTaskTool },
     { ...getKanbanAddCommentToolDefinition(), handler: handleKanbanAddCommentTool },
     { ...getKanbanReviewTaskToolDefinition(), handler: handleKanbanReviewTaskTool },
+    { ...getKanbanLogResearchToolDefinition(), handler: handleKanbanLogResearchTool },
+    { ...getKanbanAddAttachmentToolDefinition(), handler: handleKanbanAddAttachmentTool },
   ];
 }

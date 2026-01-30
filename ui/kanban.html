@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: data:;">
   <title>Projects</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -164,6 +164,8 @@
       height: 100%;
       min-width: min-content;
     }
+    .board-wrapper.grabbing { cursor: grabbing; }
+    .board-wrapper.grabbing * { cursor: grabbing !important; }
 
     /* ── Column ── */
     .column {
@@ -231,6 +233,50 @@
     .column-cards.drag-over {
       background: rgba(168, 85, 247, 0.04);
       border-radius: 0 0 var(--radius) var(--radius);
+    }
+
+    /* ── Day groups (review column) ── */
+    .day-group { margin-bottom: 4px; }
+    .day-group-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      user-select: none;
+      border-radius: 4px;
+    }
+    .day-group-header:hover { background: var(--bg-tertiary); }
+    .day-group-header .chevron {
+      display: inline-block;
+      transition: transform 0.15s ease;
+      font-size: 10px;
+    }
+    .day-group-header.collapsed .chevron { transform: rotate(-90deg); }
+    .day-group-header .day-count {
+      font-size: 10px;
+      color: var(--text-muted);
+      opacity: 0.6;
+      margin-left: auto;
+    }
+    .day-group-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-top: 6px;
+    }
+    .day-group-header.collapsed + .day-group-cards { display: none; }
+
+    .task-card-time {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      opacity: 0.7;
     }
 
     .column-add-btn {
@@ -1186,6 +1232,110 @@
       min-height: 40px;
       transition: all 0.15s;
     }
+
+    /* ── Attachments ── */
+    .attachment-list { display: flex; flex-direction: column; gap: 6px; }
+    .attachment-item {
+      display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+      background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px;
+      font-size: 12px; cursor: pointer; transition: all 0.15s;
+    }
+    .attachment-item:hover { border-color: rgba(168,85,247,0.3); }
+    .attachment-icon { font-size: 16px; flex-shrink: 0; width: 20px; text-align: center; }
+    .attachment-name { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .attachment-delete {
+      width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+      background: none; border: none; color: var(--text-muted); cursor: pointer; border-radius: 4px;
+      font-size: 14px; transition: all 0.15s; flex-shrink: 0;
+    }
+    .attachment-delete:hover { background: rgba(239,68,68,0.15); color: var(--error); }
+    .attachment-actions { display: flex; gap: 6px; margin-top: 8px; }
+    .attachment-add-btn {
+      padding: 5px 10px; background: var(--bg-primary); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text-muted); font-size: 11px; font-weight: 500;
+      font-family: inherit; cursor: pointer; transition: all 0.15s;
+    }
+    .attachment-add-btn:hover { border-color: var(--accent); color: var(--text-secondary); }
+    .attachment-thumbnail { width: 40px; height: 40px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+    .workspace-link {
+      display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+      background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text-secondary); font-size: 12px; cursor: pointer; transition: all 0.15s; text-decoration: none;
+    }
+    .workspace-link:hover { border-color: var(--accent); color: var(--text-primary); }
+
+    /* ── Column drag reorder ── */
+    .column.column-drag-over { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+    /* ── Link input popover ── */
+    .link-input-popover { display: flex; gap: 6px; margin-top: 6px; }
+    .link-input-popover input {
+      flex: 1; padding: 5px 8px; background: var(--bg-primary); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text-primary); font-size: 12px; font-family: inherit; outline: none;
+    }
+    .link-input-popover input:focus { border-color: var(--accent); }
+    .link-input-popover button {
+      padding: 5px 10px; background: var(--accent); border: none; border-radius: 6px;
+      color: white; font-size: 11px; font-weight: 500; font-family: inherit; cursor: pointer;
+    }
+
+    /* ── Search ── */
+    .search-container { position: relative; flex: 1; max-width: 280px; }
+    .search-input {
+      width: 100%; padding: 6px 12px 6px 32px; background: var(--bg-tertiary); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text-primary); font-size: 13px; font-family: inherit; outline: none;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 14px; pointer-events: none; }
+    .search-results {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--bg-secondary);
+      border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 300px; overflow-y: auto;
+      z-index: 200; box-shadow: 0 8px 32px rgba(0,0,0,0.5); display: none;
+    }
+    .search-results.open { display: block; }
+    .search-result-item {
+      padding: 8px 12px; cursor: pointer; transition: background 0.15s; display: flex; flex-direction: column; gap: 2px;
+      border-bottom: 1px solid var(--border);
+    }
+    .search-result-item:last-child { border-bottom: none; }
+    .search-result-item:hover { background: var(--bg-tertiary); }
+    .search-result-title { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .search-result-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 8px; }
+
+    /* ── Archive ── */
+    .archive-view { padding: 16px; overflow-y: auto; flex: 1; }
+    .archive-item {
+      display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+      background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm);
+      cursor: pointer; transition: all 0.15s; margin-bottom: 6px;
+    }
+    .archive-item:hover { border-color: rgba(168,85,247,0.3); }
+    .archive-item-title { flex: 1; font-size: 13px; color: var(--text-primary); }
+    .archive-item-date { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+    /* ── Quick delete on cards ── */
+    .task-card { position: relative; }
+    .task-card-delete {
+      position: absolute; top: 6px; right: 6px; width: 20px; height: 20px;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(239,68,68,0.15); border: none; color: var(--error); cursor: pointer;
+      border-radius: 4px; font-size: 13px; transition: all 0.15s; z-index: 5;
+    }
+    .task-card:hover .task-card-delete { display: flex; }
+    .task-card-delete:hover { background: rgba(239,68,68,0.3); }
+
+    /* ── Reject badge ── */
+    .rejected-badge {
+      font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px;
+      background: rgba(239,68,68,0.15); color: var(--error); text-transform: uppercase;
+    }
+
+    /* ── Reject feedback banner ── */
+    .reject-banner {
+      padding: 8px 12px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2);
+      border-radius: 6px; font-size: 12px; color: #fca5a5; line-height: 1.4;
+    }
+    .reject-banner strong { color: var(--error); font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -1196,8 +1346,19 @@
       <div class="project-selector">
         <select id="project-select"></select>
       </div>
+      <span id="workspace-btn" style="display:none;">
+        <button onclick="openProjectWorkspace()" class="attachment-add-btn" title="Open workspace folder" style="padding:6px 10px;">&#x1F4C1;</button>
+      </span>
+    </div>
+    <div class="search-container">
+      <span class="search-icon">&#x1F50D;</span>
+      <input type="text" class="search-input" id="search-input" placeholder="Search tasks...">
+      <div class="search-results" id="search-results"></div>
     </div>
     <div class="header-actions">
+      <button onclick="toggleMute()" id="mute-btn" title="Mute sounds" style="padding:6px 10px;font-size:15px;">&#x1F50A;</button>
+      <button onclick="toggleArchive()" id="archive-btn" title="View archived/done tasks">Archive</button>
+      <button onclick="refreshBoard()" title="Refresh board" style="padding:6px 10px;font-size:15px;">&#x21bb;</button>
       <button onclick="openNewProjectModal()">New Project</button>
       <button class="btn-accent" onclick="openNewTaskModal()">New Task</button>
     </div>
@@ -1308,6 +1469,13 @@
             <div class="color-dot" data-color="#8b5cf6" style="background:#8b5cf6;"></div>
           </div>
         </div>
+        <div class="modal-field">
+          <label>Workspace Folder (optional)</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="project-workspace-input" placeholder="/path/to/project" style="flex:1;" readonly>
+            <button type="button" class="attachment-add-btn" onclick="pickProjectWorkspace()" style="white-space:nowrap;">Browse</button>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="modal-cancel-btn" onclick="closeProjectModal()">Cancel</button>
@@ -1340,6 +1508,7 @@
     let boardData = null;
     let currentDetailTaskId = null;
     let rejectTaskId = null;
+    let showingArchive = false;
 
     const COLUMNS = [
       { key: 'backlog', label: 'Backlog' },
@@ -1349,10 +1518,129 @@
       { key: 'done', label: 'Done' }
     ];
 
+    // ── Subtle notification sounds (Web Audio API) ──
+    let audioCtx = null;
+    let soundsMuted = localStorage.getItem('kanban_sounds_muted') === 'true';
+
+    function getAudioCtx() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      return audioCtx;
+    }
+
+    function toggleMute() {
+      soundsMuted = !soundsMuted;
+      localStorage.setItem('kanban_sounds_muted', soundsMuted.toString());
+      updateMuteButton();
+    }
+
+    function updateMuteButton() {
+      const btn = document.getElementById('mute-btn');
+      if (!btn) return;
+      if (soundsMuted) {
+        btn.innerHTML = '&#x1F507;';
+        btn.title = 'Unmute sounds';
+        btn.style.opacity = '0.5';
+      } else {
+        btn.innerHTML = '&#x1F50A;';
+        btn.title = 'Mute sounds';
+        btn.style.opacity = '1';
+      }
+    }
+
+    function playChime(type = 'move') {
+      if (soundsMuted) return;
+      try {
+        const ctx = getAudioCtx();
+        const gain = ctx.createGain();
+        gain.connect(ctx.destination);
+
+        if (type === 'done') {
+          // Two-note ascending chime for completion
+          const osc1 = ctx.createOscillator();
+          osc1.type = 'sine';
+          osc1.frequency.setValueAtTime(523, ctx.currentTime); // C5
+          osc1.frequency.setValueAtTime(659, ctx.currentTime + 0.12); // E5
+          gain.gain.setValueAtTime(0.08, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+          osc1.connect(gain);
+          osc1.start(ctx.currentTime);
+          osc1.stop(ctx.currentTime + 0.4);
+        } else if (type === 'approve') {
+          // Three-note ascending chime
+          const osc = ctx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(523, ctx.currentTime); // C5
+          osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1); // E5
+          osc.frequency.setValueAtTime(784, ctx.currentTime + 0.2); // G5
+          gain.gain.setValueAtTime(0.07, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+          osc.connect(gain);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.5);
+        } else {
+          // Soft click/tap for moves
+          const osc = ctx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+          gain.gain.setValueAtTime(0.05, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+          osc.connect(gain);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.15);
+        }
+      } catch { /* audio not available */ }
+    }
+
+    // Column order management (per-project in localStorage)
+    function getColumnOrder(projectId) {
+      try {
+        const stored = localStorage.getItem('kanban_col_order_' + projectId);
+        if (stored) {
+          const order = JSON.parse(stored);
+          const defaultKeys = COLUMNS.map(c => c.key);
+          if (order.length === defaultKeys.length && order.every(k => defaultKeys.includes(k))) {
+            return order;
+          }
+        }
+      } catch {}
+      return COLUMNS.map(c => c.key);
+    }
+
+    function saveColumnOrder(projectId, order) {
+      localStorage.setItem('kanban_col_order_' + projectId, JSON.stringify(order));
+    }
+
+    function getOrderedColumns() {
+      if (!currentProjectId) return COLUMNS;
+      const order = getColumnOrder(currentProjectId);
+      return order.map(key => COLUMNS.find(c => c.key === key)).filter(Boolean);
+    }
+
     // ── Init ──
     window.addEventListener('DOMContentLoaded', async () => {
       setupModalListeners();
+      setupSearch();
+      updateMuteButton();
       await loadProjects();
+
+      // Auto-refresh: poll for changes every 10 seconds
+      setInterval(async () => {
+        try {
+          const freshProjects = await window.pocketAgent.kanbanListProjects();
+          // Check if projects changed (new project added, task counts changed)
+          const changed = JSON.stringify(freshProjects.map(p => ({ id: p.id, total: p.total_tasks })))
+            !== JSON.stringify(projects.map(p => ({ id: p.id, total: p.total_tasks })));
+          if (changed || freshProjects.length !== projects.length) {
+            // Check if total tasks increased (agent added something)
+            const oldTotal = projects.reduce((s, p) => s + (p.total_tasks || 0), 0);
+            const newTotal = freshProjects.reduce((s, p) => s + (p.total_tasks || 0), 0);
+            projects = freshProjects;
+            renderProjectSelect();
+            if (currentProjectId) await loadBoard();
+            if (newTotal > oldTotal) playChime('done');
+          }
+        } catch { /* ignore refresh errors */ }
+      }, 10000);
     });
 
     // ── Projects ──
@@ -1407,6 +1695,12 @@
       `;
     }
 
+    async function refreshBoard() {
+      await loadProjects();
+      if (currentProjectId) await loadBoard();
+      showToast('Board refreshed', 'success');
+    }
+
     // ── Board ──
     async function loadBoard() {
       if (!currentProjectId) return;
@@ -1446,7 +1740,7 @@
       }
 
       let html = '<div class="board">';
-      for (const col of COLUMNS) {
+      for (const col of getOrderedColumns()) {
         const tasks = boardData.columns[col.key] || [];
         html += renderColumn(col, tasks);
       }
@@ -1454,10 +1748,61 @@
       area.innerHTML = html;
 
       setupDragAndDrop();
+      setupColumnDragAndDrop();
+      setupBoardScroll();
+      updateWorkspaceButton();
+    }
+
+    function formatDayLabel(dateStr) {
+      const d = new Date(dateStr);
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const diff = Math.round((today - target) / 86400000);
+      if (diff === 0) return 'Today';
+      if (diff === 1) return 'Yesterday';
+      return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    }
+
+    function groupTasksByDay(tasks) {
+      const sorted = [...tasks].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+      const groups = [];
+      const map = {};
+      for (const task of sorted) {
+        const dayKey = task.updated_at ? task.updated_at.slice(0, 10) : 'unknown';
+        if (!map[dayKey]) {
+          map[dayKey] = { label: formatDayLabel(task.updated_at), date: dayKey, tasks: [] };
+          groups.push(map[dayKey]);
+        }
+        map[dayKey].tasks.push(task);
+      }
+      return groups;
+    }
+
+    function toggleDayGroup(el) {
+      el.classList.toggle('collapsed');
     }
 
     function renderColumn(col, tasks) {
-      const cardsHtml = tasks.map(task => renderTaskCard(task, col.key)).join('');
+      let cardsHtml;
+      if (col.key === 'review' && tasks.length > 0) {
+        const groups = groupTasksByDay(tasks);
+        cardsHtml = groups.map(g => {
+          const cards = g.tasks.map(task => renderTaskCard(task, col.key, true)).join('');
+          return `
+            <div class="day-group">
+              <div class="day-group-header" onclick="toggleDayGroup(this)">
+                <span class="chevron">&#x25BC;</span>
+                <span>${g.label}</span>
+                <span class="day-count">${g.tasks.length}</span>
+              </div>
+              <div class="day-group-cards">${cards}</div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        cardsHtml = tasks.map(task => renderTaskCard(task, col.key, false)).join('');
+      }
       return `
         <div class="column" data-status="${col.key}">
           <div class="column-header">
@@ -1477,7 +1822,7 @@
       `;
     }
 
-    function renderTaskCard(task, columnKey) {
+    function renderTaskCard(task, columnKey, showTime) {
       const priorityClass = task.priority ? `priority-${task.priority}` : 'priority-medium';
       const priorityLabel = task.priority ? task.priority.charAt(0).toUpperCase() + task.priority.slice(1) : 'Medium';
 
@@ -1517,10 +1862,22 @@
         `;
       }
 
+      if (task.approval_status === 'rejected') {
+        metaHtml += `<span class="rejected-badge">Rejected</span>`;
+      }
+
+      let timeHtml = '';
+      if (showTime && task.updated_at) {
+        const t = new Date(task.updated_at);
+        timeHtml = `<div class="task-card-time">${t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>`;
+      }
+
       return `
         <div class="task-card" draggable="true" data-task-id="${task.id}" onclick="openDetail(${task.id})">
+          <button class="task-card-delete" onclick="event.stopPropagation();quickDeleteTask(${task.id})" title="Delete task">&times;</button>
           <div class="task-card-title">${escapeHtml(task.title)}</div>
           <div class="task-card-meta">${metaHtml}</div>
+          ${timeHtml}
           ${reviewHtml}
         </div>
       `;
@@ -1593,6 +1950,7 @@
           try {
             const result = await window.pocketAgent.kanbanMoveTask(taskId, newStatus);
             if (result && result.success) {
+              playChime(newStatus === 'done' ? 'done' : 'move');
               await loadBoard();
             } else {
               showToast('Failed to move task', 'error');
@@ -1604,6 +1962,77 @@
           }
         });
       });
+    }
+
+    function setupColumnDragAndDrop() {
+      const columns = document.querySelectorAll('.column');
+      let draggedCol = null;
+
+      columns.forEach(column => {
+        const header = column.querySelector('.column-header');
+        header.setAttribute('draggable', 'true');
+        header.style.cursor = 'grab';
+
+        header.addEventListener('dragstart', (e) => {
+          e.stopPropagation();
+          draggedCol = column;
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/column', column.dataset.status);
+          setTimeout(() => column.style.opacity = '0.4', 0);
+        });
+
+        header.addEventListener('dragend', () => {
+          column.style.opacity = '1';
+          draggedCol = null;
+          columns.forEach(c => c.classList.remove('column-drag-over'));
+        });
+
+        column.addEventListener('dragover', (e) => {
+          if (!draggedCol || draggedCol === column) return;
+          if (!e.dataTransfer.types.includes('text/column')) return;
+          e.preventDefault();
+          column.classList.add('column-drag-over');
+        });
+
+        column.addEventListener('dragleave', (e) => {
+          if (!column.contains(e.relatedTarget)) column.classList.remove('column-drag-over');
+        });
+
+        column.addEventListener('drop', (e) => {
+          if (!draggedCol || draggedCol === column) return;
+          if (!e.dataTransfer.types.includes('text/column')) return;
+          e.preventDefault();
+          e.stopPropagation();
+
+          const from = draggedCol.dataset.status;
+          const to = column.dataset.status;
+          const order = getColumnOrder(currentProjectId);
+          const fi = order.indexOf(from);
+          const ti = order.indexOf(to);
+          if (fi !== -1 && ti !== -1) {
+            order.splice(fi, 1);
+            order.splice(ti, 0, from);
+            saveColumnOrder(currentProjectId, order);
+            renderBoard();
+          }
+          columns.forEach(c => c.classList.remove('column-drag-over'));
+        });
+      });
+    }
+
+    // ── Board horizontal scroll ──
+    function setupBoardScroll() {
+      const wrapper = document.querySelector('.board-wrapper');
+      if (!wrapper) return;
+
+      // Mouse wheel scrolls horizontally on the board
+      wrapper.addEventListener('wheel', (e) => {
+        // If scrolling vertically and board can scroll horizontally, convert to horizontal
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && wrapper.scrollWidth > wrapper.clientWidth) {
+          e.preventDefault();
+          wrapper.scrollLeft += e.deltaY;
+        }
+      }, { passive: false });
     }
 
     // ── Detail Panel ──
@@ -1671,8 +2100,24 @@
         `;
       }
 
+      // Build attachments HTML
+      const attachments = task.attachments || [];
+      const attachmentsHtml = attachments.map(att => renderAttachmentItem(att)).join('');
+
+      // Reject feedback banner
+      let rejectBannerHtml = '';
+      if (task.approval_status === 'rejected' && task.approval_feedback) {
+        rejectBannerHtml = `
+          <div class="reject-banner">
+            <strong>Rejected</strong>
+            ${escapeHtml(task.approval_feedback)}
+          </div>
+        `;
+      }
+
       const body = document.getElementById('detail-body');
       body.innerHTML = `
+        ${rejectBannerHtml}
         <div>
           <div class="detail-field-label">Title</div>
           <input class="detail-title-input" id="detail-title" value="${escapeAttr(task.title || '')}">
@@ -1709,6 +2154,18 @@
           </div>
         </div>
         <button class="detail-save-btn" onclick="saveDetail()">Save Changes</button>
+        <div class="detail-section">
+          <div class="detail-field-label">Attachments</div>
+          <div class="attachment-list" id="attachment-list">
+            ${attachmentsHtml}
+          </div>
+          <div class="attachment-actions">
+            <button class="attachment-add-btn" onclick="addFileAttachment()">+ File</button>
+            <button class="attachment-add-btn" onclick="addLinkAttachment()">+ Link</button>
+            <button class="attachment-add-btn" onclick="addFolderAttachment()">+ Folder</button>
+          </div>
+          <div id="link-input-container"></div>
+        </div>
         ${subtasksHtml}
         ${activityHtml}
       `;
@@ -1788,6 +2245,7 @@
       try {
         const result = await window.pocketAgent.kanbanApproveTask(taskId);
         if (result && result.success) {
+          playChime('approve');
           showToast('Task approved', 'success');
           await loadBoard();
         } else {
@@ -1903,6 +2361,7 @@
     function openNewProjectModal() {
       document.getElementById('project-name-input').value = '';
       document.getElementById('project-desc-input').value = '';
+      document.getElementById('project-workspace-input').value = '';
 
       // Reset color picker
       document.querySelectorAll('#color-picker .color-dot').forEach((dot, i) => {
@@ -1911,6 +2370,17 @@
 
       document.getElementById('project-modal-overlay').classList.add('open');
       setTimeout(() => document.getElementById('project-name-input').focus(), 200);
+    }
+
+    async function pickProjectWorkspace() {
+      try {
+        const result = await window.pocketAgent.kanbanSelectFileOrFolder({ properties: ['openDirectory'] });
+        if (result && result.success && result.filePath) {
+          document.getElementById('project-workspace-input').value = result.filePath;
+        }
+      } catch (err) {
+        showToast('Failed to select folder', 'error');
+      }
     }
 
     function closeProjectModal() {
@@ -1927,10 +2397,17 @@
       const description = document.getElementById('project-desc-input').value.trim();
       const colorDot = document.querySelector('#color-picker .color-dot.selected');
       const color = colorDot ? colorDot.dataset.color : '#a855f7';
+      const workspacePath = document.getElementById('project-workspace-input').value.trim();
 
       try {
         const result = await window.pocketAgent.kanbanCreateProject(name, description || undefined, color);
         if (result && result.success) {
+          // If workspace path was provided, update the project with it
+          if (workspacePath && result.project && result.project.id) {
+            try {
+              await window.pocketAgent.kanbanUpdateProject(result.project.id, { workspace_path: workspacePath });
+            } catch {}
+          }
           closeProjectModal();
           showToast('Project created', 'success');
           if (result.project) {
@@ -1982,7 +2459,7 @@
         if (e.target === e.currentTarget) closeRejectModal();
       });
 
-      // Keyboard: Escape closes modals/detail
+      // Keyboard shortcuts
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
           if (document.getElementById('reject-modal-overlay').classList.contains('open')) {
@@ -1995,7 +2472,298 @@
             closeDetail();
           }
         }
+        // Delete key when detail panel is open (not in input/textarea)
+        if ((e.key === 'Delete' || e.key === 'Backspace') && currentDetailTaskId) {
+          const tag = document.activeElement && document.activeElement.tagName;
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+          if (!document.getElementById('detail-panel').classList.contains('open')) return;
+          e.preventDefault();
+          deleteCurrentTask();
+        }
       });
+    }
+
+    // ── Quick Delete ──
+    async function quickDeleteTask(taskId) {
+      if (!confirm('Delete this task?')) return;
+      try {
+        const result = await window.pocketAgent.kanbanDeleteTask(taskId);
+        if (result && result.success) {
+          showToast('Task deleted', 'success');
+          await loadBoard();
+        } else {
+          showToast('Failed to delete task', 'error');
+        }
+      } catch (err) {
+        showToast('Failed to delete task', 'error');
+      }
+    }
+
+    // ── Attachments ──
+    function openAttachment(type, path) {
+      if (!path) return;
+      if (type === 'link') {
+        window.pocketAgent.openExternal(path);
+      } else if (type === 'folder') {
+        window.pocketAgent.openPath(path);
+      } else {
+        window.pocketAgent.showInFolder(path);
+      }
+    }
+
+    async function addFileAttachment() {
+      if (!currentDetailTaskId) return;
+      try {
+        const result = await window.pocketAgent.kanbanSelectFileOrFolder({});
+        if (result && result.success && result.filePath) {
+          const filePath = result.filePath;
+          const fileName = filePath.split('/').pop();
+          const isImage = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(fileName);
+          await window.pocketAgent.kanbanAddAttachment(currentDetailTaskId, {
+            type: isImage ? 'screenshot' : 'file',
+            path: filePath,
+            name: fileName
+          });
+          await openDetail(currentDetailTaskId);
+          showToast('File attached', 'success');
+        }
+      } catch (err) {
+        showToast('Failed to attach file', 'error');
+      }
+    }
+
+    function addLinkAttachment() {
+      const container = document.getElementById('link-input-container');
+      if (container.querySelector('.link-input-popover')) {
+        container.innerHTML = '';
+        return;
+      }
+      container.innerHTML = `
+        <div class="link-input-popover">
+          <input type="text" id="link-url-input" placeholder="https://..." onkeydown="if(event.key==='Enter')saveLinkAttachment()">
+          <button onclick="saveLinkAttachment()">Add</button>
+        </div>
+      `;
+      setTimeout(() => {
+        const inp = document.getElementById('link-url-input');
+        if (inp) inp.focus();
+      }, 100);
+    }
+
+    async function saveLinkAttachment() {
+      if (!currentDetailTaskId) return;
+      const input = document.getElementById('link-url-input');
+      if (!input) return;
+      const url = input.value.trim();
+      if (!url) return;
+
+      try {
+        let name = url;
+        try { name = new URL(url).hostname + new URL(url).pathname; } catch {}
+        await window.pocketAgent.kanbanAddAttachment(currentDetailTaskId, {
+          type: 'link',
+          path: url,
+          name: name
+        });
+        document.getElementById('link-input-container').innerHTML = '';
+        await openDetail(currentDetailTaskId);
+        showToast('Link attached', 'success');
+      } catch (err) {
+        showToast('Failed to attach link', 'error');
+      }
+    }
+
+    async function addFolderAttachment() {
+      if (!currentDetailTaskId) return;
+      try {
+        const result = await window.pocketAgent.kanbanSelectFileOrFolder({ properties: ['openDirectory'] });
+        if (result && result.success && result.filePath) {
+          const folderPath = result.filePath;
+          const folderName = folderPath.split('/').pop();
+          await window.pocketAgent.kanbanAddAttachment(currentDetailTaskId, {
+            type: 'folder',
+            path: folderPath,
+            name: folderName
+          });
+          await openDetail(currentDetailTaskId);
+          showToast('Folder attached', 'success');
+        }
+      } catch (err) {
+        showToast('Failed to attach folder', 'error');
+      }
+    }
+
+    async function deleteAttachment(id) {
+      if (!currentDetailTaskId) return;
+      try {
+        await window.pocketAgent.kanbanDeleteAttachment(id);
+        await openDetail(currentDetailTaskId);
+        showToast('Attachment removed', 'success');
+      } catch (err) {
+        showToast('Failed to remove attachment', 'error');
+      }
+    }
+
+    function renderAttachmentItem(att) {
+      const iconMap = { file: '&#x1F4C4;', screenshot: '&#x1F5BC;', link: '&#x1F517;', folder: '&#x1F4C1;' };
+      const icon = iconMap[att.type] || '&#x1F4CE;';
+      let thumbnailHtml = '';
+      if (att.type === 'screenshot' && att.path) {
+        thumbnailHtml = `<img class="attachment-thumbnail" src="file://${escapeAttr(att.path)}" alt="">`;
+      }
+      return `
+        <div class="attachment-item" onclick="openAttachment('${escapeAttr(att.type)}', '${escapeAttr(att.path)}')">
+          ${thumbnailHtml || `<span class="attachment-icon">${icon}</span>`}
+          <span class="attachment-name">${escapeHtml(att.name || att.path)}</span>
+          <button class="attachment-delete" onclick="event.stopPropagation();deleteAttachment(${att.id})" title="Remove">&times;</button>
+        </div>
+      `;
+    }
+
+    // ── Archive ──
+    function toggleArchive() {
+      showingArchive = !showingArchive;
+      const btn = document.getElementById('archive-btn');
+      if (showingArchive) {
+        btn.style.background = 'rgba(168,85,247,0.15)';
+        btn.style.borderColor = 'var(--accent)';
+        btn.style.color = 'var(--text-primary)';
+        renderArchiveView();
+      } else {
+        btn.style.background = '';
+        btn.style.borderColor = '';
+        btn.style.color = '';
+        renderBoard();
+      }
+    }
+
+    function renderArchiveView() {
+      if (!boardData || !boardData.columns) return;
+      const doneTasks = boardData.columns['done'] || [];
+      const area = document.getElementById('board-area');
+
+      if (doneTasks.length === 0) {
+        area.innerHTML = `
+          <div class="archive-view">
+            <div class="empty-state">
+              <p>No archived/done tasks yet.</p>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      let html = '<div class="archive-view">';
+      html += `<h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text-secondary);">Done Tasks (${doneTasks.length})</h3>`;
+      for (const task of doneTasks) {
+        const dateStr = task.updated_at ? formatTime(task.updated_at) : '';
+        html += `
+          <div class="archive-item" onclick="openDetail(${task.id})">
+            <span class="archive-item-title">${escapeHtml(task.title)}</span>
+            <span class="archive-item-date">${dateStr}</span>
+          </div>
+        `;
+      }
+      html += '</div>';
+      area.innerHTML = html;
+    }
+
+    // ── Search ──
+    function setupSearch() {
+      const input = document.getElementById('search-input');
+      const resultsDiv = document.getElementById('search-results');
+      if (!input || !resultsDiv) return;
+
+      let debounceTimer = null;
+
+      input.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        const query = input.value.trim();
+        if (query.length < 2) {
+          resultsDiv.classList.remove('open');
+          resultsDiv.innerHTML = '';
+          return;
+        }
+        debounceTimer = setTimeout(() => doSearch(query), 250);
+      });
+
+      input.addEventListener('blur', () => {
+        setTimeout(() => resultsDiv.classList.remove('open'), 200);
+      });
+
+      input.addEventListener('focus', () => {
+        if (resultsDiv.innerHTML.trim()) resultsDiv.classList.add('open');
+      });
+    }
+
+    async function doSearch(query) {
+      const resultsDiv = document.getElementById('search-results');
+
+      try {
+        // Search across ALL projects via backend
+        const results = await window.pocketAgent.kanbanSearchTasks(query);
+
+        if (!results || results.length === 0) {
+          resultsDiv.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:12px;">No results found</div>';
+        } else {
+          resultsDiv.innerHTML = results.slice(0, 15).map(task => {
+            const project = projects.find(p => p.id === task.project_id);
+            const projectName = project ? project.name : '';
+            const col = COLUMNS.find(c => c.key === task.status);
+            const statusLabel = col ? col.label : task.status;
+            return `
+              <div class="search-result-item" onmousedown="jumpToTask(${task.project_id}, ${task.id})">
+                <span class="search-result-title">${escapeHtml(task.title)}</span>
+                <span class="search-result-meta">
+                  <span>${escapeHtml(projectName)}</span>
+                  <span>${escapeHtml(statusLabel)}</span>
+                  ${task.priority ? `<span>${escapeHtml(task.priority)}</span>` : ''}
+                </span>
+              </div>
+            `;
+          }).join('');
+        }
+        resultsDiv.classList.add('open');
+      } catch {
+        resultsDiv.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:12px;">Search failed</div>';
+        resultsDiv.classList.add('open');
+      }
+    }
+
+    async function jumpToTask(projectId, taskId) {
+      // Switch to the project if needed, then open the task
+      if (projectId !== currentProjectId) {
+        currentProjectId = projectId;
+        document.getElementById('project-select').value = projectId;
+        await loadBoard();
+      }
+      openDetail(taskId);
+      document.getElementById('search-input').value = '';
+      document.getElementById('search-results').classList.remove('open');
+    }
+
+    // ── Workspace ──
+    async function openProjectWorkspace() {
+      if (!currentProjectId) return;
+      const project = projects.find(p => p.id === currentProjectId);
+      if (project && project.workspace_path) {
+        try {
+          await window.pocketAgent.openPath(project.workspace_path);
+        } catch (err) {
+          showToast('Failed to open workspace', 'error');
+        }
+      }
+    }
+
+    function updateWorkspaceButton() {
+      const btn = document.getElementById('workspace-btn');
+      if (!btn) return;
+      const project = projects.find(p => p.id === currentProjectId);
+      if (project && project.workspace_path) {
+        btn.style.display = '';
+      } else {
+        btn.style.display = 'none';
+      }
     }
 
     // ── Utilities ──

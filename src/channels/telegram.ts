@@ -1253,6 +1253,31 @@ multiline</pre>
   }
 
   /**
+   * Send a photo to a specific chat
+   */
+  async sendPhoto(chatId: number, photoPath: string, caption?: string): Promise<boolean> {
+    if (!this.isRunning) {
+      console.error('[Telegram] Bot not running, cannot send photo');
+      return false;
+    }
+
+    try {
+      const fs = await import('fs');
+      if (!fs.existsSync(photoPath)) {
+        console.error(`[Telegram] Photo not found: ${photoPath}`);
+        return false;
+      }
+      const photo = new InputFile(fs.readFileSync(photoPath));
+      await this.bot.api.sendPhoto(chatId, photo, caption ? { caption } : undefined);
+      console.log(`[Telegram] Sent photo to chat ${chatId}: ${photoPath}`);
+      return true;
+    } catch (error) {
+      console.error(`[Telegram] Failed to send photo to chat ${chatId}:`, error);
+      return false;
+    }
+  }
+
+  /**
    * Send a message to all active chats (broadcast)
    */
   async broadcast(text: string): Promise<number> {

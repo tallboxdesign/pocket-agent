@@ -1,5 +1,5 @@
 import { MemoryManager, Message, SmartContextOptions } from '../memory';
-import { buildMCPServers, buildSdkMcpServers, setMemoryManager, setSoulMemoryManager, ToolsConfig, validateToolsConfig, setCurrentSessionId } from '../tools';
+import { buildMCPServers, buildSdkMcpServers, setMemoryManager, setSoulMemoryManager, setPhotoToolMemoryManager, ToolsConfig, validateToolsConfig, setCurrentSessionId } from '../tools';
 import { closeBrowserManager } from '../browser';
 import { loadIdentity } from '../config/identity';
 import { loadInstructions } from '../config/instructions';
@@ -242,6 +242,7 @@ class AgentManagerClass extends EventEmitter {
     this.memory.setSummarizer(this.createSummary.bind(this));
     setMemoryManager(this.memory);
     setSoulMemoryManager(this.memory);
+    setPhotoToolMemoryManager(this.memory);
 
     console.log('[AgentManager] Initialized');
     console.log('[AgentManager] Project root:', this.projectRoot);
@@ -750,6 +751,21 @@ class AgentManagerClass extends EventEmitter {
         'mcp__pocket-agent__task_complete',
         'mcp__pocket-agent__task_delete',
         'mcp__pocket-agent__task_due',
+        // Custom MCP tools - kanban
+        'mcp__pocket-agent__kanban_create_project',
+        'mcp__pocket-agent__kanban_list_projects',
+        'mcp__pocket-agent__kanban_create_task',
+        'mcp__pocket-agent__kanban_update_task',
+        'mcp__pocket-agent__kanban_move_task',
+        'mcp__pocket-agent__kanban_get_board',
+        'mcp__pocket-agent__kanban_get_task',
+        'mcp__pocket-agent__kanban_delete_task',
+        'mcp__pocket-agent__kanban_add_comment',
+        'mcp__pocket-agent__kanban_review_task',
+        'mcp__pocket-agent__kanban_log_research',
+        'mcp__pocket-agent__kanban_add_attachment',
+        // Custom MCP tools - telegram
+        'mcp__pocket-agent__send_telegram_photo',
       ],
       persistSession: false,
     };
@@ -883,6 +899,18 @@ Set requires_auth=true for pages needing login.
 For CDP, user must start Chrome with: --remote-debugging-port=9222
 \`\`\`
 
+BROWSER BEST PRACTICES:
+- When asked to screenshot a page, navigate to the ACTUAL page first — never screenshot Google search results or intermediate pages.
+- If you search for something, click through to the real result page BEFORE taking a screenshot.
+- After navigating, wait for the page to load (use wait_for with a selector or a short delay) before taking the screenshot.
+- ALWAYS dismiss cookie consent popups before taking a screenshot. Use browser_click to click "Accept all", "Accept", "Essential cookies only", "Reject all", or similar buttons. Common selectors: button containing "Accept", button containing "Reject", button containing "Consent", [class*="cookie"] button, [id*="cookie"] button. Take the screenshot ONLY after the popup is gone.
+- Use extract action to get page data when you need text content; use screenshot when the user wants to SEE the page visually.
+
+MANDATORY after taking a screenshot — do NOT ask, just do it:
+1. Use send_telegram_photo to send the screenshot image to the user
+2. Use kanban_log_research to log the research with the screenshot attached
+Never ask "should I log this?" or "want me to send?" — always do both automatically.
+
 ### Native Notifications
 You can send native desktop notifications:
 
@@ -903,6 +931,27 @@ For interactive CLI commands that need a terminal:
 pty_exec(command="npm init")
 pty_exec(command="htop", timeout=30000)
 \`\`\`
+
+### Kanban Project Management
+You have a Kanban board for organizing projects and tasks:
+
+- kanban_create_project: Create a project with name, description, color
+- kanban_list_projects: List all projects with task counts
+- kanban_create_task: Add task to a project (backlog/todo/in_progress/review/done)
+- kanban_update_task: Update task fields
+- kanban_move_task: Move task between columns
+- kanban_get_board: See full board for a project
+- kanban_get_task: Get task details with activity log
+- kanban_delete_task: Remove a task
+- kanban_add_comment: Add notes to a task
+- kanban_review_task: Approve or reject tasks in Review column
+- kanban_log_research: Log completed research/work to the board
+- kanban_add_attachment: Attach files, links, screenshots, or folders to a task
+
+MANDATORY: After completing ANY research work (screenshots, web searches, analysis, data gathering),
+ALWAYS use kanban_log_research to log results automatically — do NOT ask the user first.
+This creates a task in the Review column of the Research project.
+Also ALWAYS send screenshots to the user via send_telegram_photo — never just show the file path.
 
 ### Limitations
 - Cannot send SMS or make calls

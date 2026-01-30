@@ -1169,6 +1169,14 @@ function setupIPC(): void {
     await shell.openExternal(url);
   });
 
+  ipcMain.handle('app:openPath', async (_, filePath: string) => {
+    await shell.openPath(filePath);
+  });
+
+  ipcMain.handle('app:showInFolder', async (_, filePath: string) => {
+    shell.showItemInFolder(filePath);
+  });
+
   // Customize - Identity
   ipcMain.handle('customize:getIdentity', async () => {
     return loadIdentity();
@@ -1728,6 +1736,34 @@ function setupIPC(): void {
 
   ipcMain.handle('kanban:searchTasks', async (_, query: string, projectId?: number) => {
     try { return KanbanService.searchTasks(query, projectId); } catch { return []; }
+  });
+
+  ipcMain.handle('kanban:addAttachment', async (_, taskId: number, attachment: Record<string, unknown>) => {
+    try {
+      return { success: true, attachment: KanbanService.addAttachment(taskId, attachment as Parameters<typeof KanbanService.addAttachment>[1]) };
+    } catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:getAttachments', async (_, taskId: number) => {
+    try { return KanbanService.getAttachments(taskId); } catch { return []; }
+  });
+
+  ipcMain.handle('kanban:deleteAttachment', async (_, id: number) => {
+    return { success: KanbanService.deleteAttachment(id) };
+  });
+
+  ipcMain.handle('kanban:selectFileOrFolder', async (_, options: { title?: string; properties?: string[] }) => {
+    const props: Array<'openFile' | 'openDirectory'> = [];
+    if (options.properties?.includes('openDirectory')) {
+      props.push('openDirectory');
+    } else {
+      props.push('openFile');
+    }
+    const result = await dialog.showOpenDialog({ title: options.title || 'Select', properties: props });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+    return { success: true, filePath: result.filePaths[0] };
   });
 
   // Skill setup handlers

@@ -51,9 +51,22 @@ export interface KanbanTask {
   updated_at: string;
 }
 
+export interface KanbanAttachment {
+  id: number;
+  task_id: number;
+  type: 'file' | 'screenshot' | 'link' | 'folder';
+  name: string;
+  path: string | null;
+  thumbnail: string | null;
+  size: number | null;
+  mime_type: string | null;
+  created_at: string;
+}
+
 export interface KanbanTaskDetail extends KanbanTask {
   subtasks: KanbanTask[];
   recent_activity: ActivityEntry[];
+  attachments: KanbanAttachment[];
 }
 
 export interface KanbanBoard {
@@ -203,6 +216,20 @@ function ensureTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_kanban_activity_task ON kanban_activity_log(task_id);
     CREATE INDEX IF NOT EXISTS idx_kanban_activity_project ON kanban_activity_log(project_id);
     CREATE INDEX IF NOT EXISTS idx_kanban_projects_status ON kanban_projects(status);
+
+    CREATE TABLE IF NOT EXISTS kanban_attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id INTEGER NOT NULL REFERENCES kanban_tasks(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK(type IN ('file','screenshot','link','folder')),
+      name TEXT NOT NULL,
+      path TEXT,
+      thumbnail TEXT,
+      size INTEGER,
+      mime_type TEXT,
+      created_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ')))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_kanban_attachments_task ON kanban_attachments(task_id);
   `);
 }
 
@@ -359,7 +386,11 @@ export const KanbanService = {
       SELECT * FROM kanban_activity_log WHERE task_id = ? ORDER BY created_at DESC LIMIT 10
     `).all(id) as ActivityEntry[];
 
-    return { ...task, subtasks, recent_activity };
+    const attachments = db.prepare(`
+      SELECT * FROM kanban_attachments WHERE task_id = ? ORDER BY created_at DESC
+    `).all(id) as KanbanAttachment[];
+
+    return { ...task, subtasks, recent_activity, attachments };
   },
 
   updateTask(id: number, updates: UpdateTaskInput, actor: string = 'agent'): KanbanTask | null {
@@ -522,6 +553,56 @@ export const KanbanService = {
     logActivity(id, task.project_id, 'rejected', 'review', 'in_progress', feedback, actor);
 
     return db.prepare('SELECT * FROM kanban_tasks WHERE id = ?').get(id) as KanbanTask;
+  },
+
+  // ---- Attachments ----
+
+  addAttachment(taskId: number, attachment: {
+    type: 'file' | 'screenshot' | 'link' | 'folder';
+    name: string;
+    path?: string;
+    thumbnail?: string;
+    size?: number;
+    mime_type?: string;
+  }): KanbanAttachment {
+    const db = getDb();
+    const task = db.prepare('SELECT project_id FROM kanban_tasks WHERE id = ?').get(taskId) as { project_id: number } | undefined;
+    if (!task) throw new Error(`Task ${taskId} not found`);
+
+    const result = db.prepare(`
+      INSERT INTO kanban_attachments (task_id, type, name, path, thumbnail, size, mime_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      taskId, attachment.type, attachment.name,
+      attachment.path || null, attachment.thumbnail || null,
+      attachment.size || null, attachment.mime_type || null
+    );
+
+    logActivity(taskId, task.project_id, 'attachment_added', null, attachment.name,
+      `Added ${attachment.type}: ${attachment.name}`, 'user');
+
+    return db.prepare('SELECT * FROM kanban_attachments WHERE id = ?')
+      .get(result.lastInsertRowid) as KanbanAttachment;
+  },
+
+  getAttachments(taskId: number): KanbanAttachment[] {
+    const db = getDb();
+    return db.prepare('SELECT * FROM kanban_attachments WHERE task_id = ? ORDER BY created_at DESC')
+      .all(taskId) as KanbanAttachment[];
+  },
+
+  deleteAttachment(id: number): boolean {
+    const db = getDb();
+    const att = db.prepare('SELECT * FROM kanban_attachments WHERE id = ?').get(id) as KanbanAttachment | undefined;
+    if (!att) return false;
+
+    const task = db.prepare('SELECT project_id FROM kanban_tasks WHERE id = ?').get(att.task_id) as { project_id: number } | undefined;
+    if (task) {
+      logActivity(att.task_id, task.project_id, 'attachment_removed', att.name, null,
+        `Removed ${att.type}: ${att.name}`, 'user');
+    }
+
+    return db.prepare('DELETE FROM kanban_attachments WHERE id = ?').run(id).changes > 0;
   },
 
   // ---- Search ----

@@ -423,7 +423,16 @@ export class CronScheduler {
     if (channel === 'telegram' && this.telegramBot && this.memory) {
       const linkedChatId = this.memory.getChatForSession(sessionId);
       if (linkedChatId) {
-        await this.telegramBot.sendMessage(linkedChatId, response);
+        // Check for screenshot paths in response and send as photos
+        const screenshotPaths = this.extractScreenshotPaths(response);
+        for (const photoPath of screenshotPaths) {
+          await this.telegramBot.sendPhoto(linkedChatId, photoPath);
+        }
+        // Send text response (strip screenshot paths for cleaner message)
+        const cleanResponse = this.stripScreenshotPaths(response);
+        if (cleanResponse.trim()) {
+          await this.telegramBot.sendMessage(linkedChatId, cleanResponse);
+        }
       }
       // No broadcast fallback - only send to session's linked chat
     }
@@ -652,6 +661,19 @@ export class CronScheduler {
   /**
    * Strip markdown formatting for plain text (notifications)
    */
+  private extractScreenshotPaths(text: string): string[] {
+    const pattern = /(?:\/[\w./-]+\/screenshots\/screenshot-\d+\.png)/g;
+    const matches = text.match(pattern);
+    return matches || [];
+  }
+
+  private stripScreenshotPaths(text: string): string {
+    return text
+      .replace(/(?:saved to |screenshot: )?\/[\w./-]+\/screenshots\/screenshot-\d+\.png/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   private stripMarkdown(text: string): string {
     return text
       // Remove headers

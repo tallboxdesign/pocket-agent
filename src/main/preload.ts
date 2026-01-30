@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   openCustomize: () => ipcRenderer.invoke('app:openCustomize'),
   openRoutines: () => ipcRenderer.invoke('app:openRoutines'),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
+  openPath: (filePath: string) => ipcRenderer.invoke('app:openPath', filePath),
+  showInFolder: (filePath: string) => ipcRenderer.invoke('app:showInFolder', filePath),
 
   // Customize
   getIdentity: () => ipcRenderer.invoke('customize:getIdentity'),
@@ -135,6 +137,14 @@ contextBridge.exposeInMainWorld('pocketAgent', {
     ipcRenderer.invoke('kanban:rejectTask', id, feedback),
   kanbanSearchTasks: (query: string, projectId?: number) =>
     ipcRenderer.invoke('kanban:searchTasks', query, projectId),
+  kanbanAddAttachment: (taskId: number, attachment: Record<string, unknown>) =>
+    ipcRenderer.invoke('kanban:addAttachment', taskId, attachment),
+  kanbanGetAttachments: (taskId: number) =>
+    ipcRenderer.invoke('kanban:getAttachments', taskId),
+  kanbanDeleteAttachment: (id: number) =>
+    ipcRenderer.invoke('kanban:deleteAttachment', id),
+  kanbanSelectFileOrFolder: (options?: { title?: string; properties?: string[] }) =>
+    ipcRenderer.invoke('kanban:selectFileOrFolder', options || {}),
 
   // Voice
   synthesizeTTS: (text: string) => ipcRenderer.invoke('voice:tts', text),
@@ -207,6 +217,8 @@ declare global {
       openCustomize: () => Promise<void>;
       openRoutines: () => Promise<void>;
       openExternal: (url: string) => Promise<void>;
+      openPath: (filePath: string) => Promise<void>;
+      showInFolder: (filePath: string) => Promise<void>;
       // Customize
       getIdentity: () => Promise<string>;
       saveIdentity: (content: string) => Promise<{ success: boolean }>;
@@ -263,6 +275,10 @@ declare global {
       kanbanApproveTask: (id: number) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
       kanbanRejectTask: (id: number, feedback: string) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
       kanbanSearchTasks: (query: string, projectId?: number) => Promise<Array<Record<string, unknown>>>;
+      kanbanAddAttachment: (taskId: number, attachment: Record<string, unknown>) => Promise<{ success: boolean; attachment?: Record<string, unknown>; error?: string }>;
+      kanbanGetAttachments: (taskId: number) => Promise<Array<Record<string, unknown>>>;
+      kanbanDeleteAttachment: (id: number) => Promise<{ success: boolean }>;
+      kanbanSelectFileOrFolder: (options?: { title?: string; properties?: string[] }) => Promise<{ success: boolean; canceled?: boolean; filePath?: string }>;
       // Voice
       synthesizeTTS: (text: string) => Promise<{ success: boolean; audioPath?: string; error?: string }>;
       requestMicPermission: () => Promise<{ granted: boolean }>;

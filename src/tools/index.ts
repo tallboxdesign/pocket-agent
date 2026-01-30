@@ -18,6 +18,10 @@ import { getCalendarTools } from './calendar-tools';
 import { getTaskTools } from './task-tools';
 import { getKanbanTools } from './kanban-tools';
 import {
+  getSendTelegramPhotoToolDefinition,
+  handleSendTelegramPhotoTool,
+} from './telegram-photo-tool';
+import {
   getNotifyToolDefinition,
   handleNotifyTool,
   getPtyExecToolDefinition,
@@ -34,6 +38,7 @@ setInterval(() => {
 
 export { setMemoryManager } from './memory-tools';
 export { setSoulMemoryManager } from './soul-tools';
+export { setPhotoToolMemoryManager } from './telegram-photo-tool';
 export { getSchedulerTools } from './scheduler-tools';
 export { getCalendarTools } from './calendar-tools';
 export { getTaskTools, closeTaskDb } from './task-tools';
@@ -360,6 +365,22 @@ export async function buildSdkMcpServers(
       tools.push(sdkTool);
     }
 
+    // Telegram photo tool
+    const wrappedPhotoHandler = wrapToolHandler('send_telegram_photo', handleSendTelegramPhotoTool, getToolTimeout('send_telegram_photo'));
+    const photoTool = tool(
+      'send_telegram_photo',
+      getSendTelegramPhotoToolDefinition().description,
+      {
+        photo_path: z.string(),
+        caption: z.string().optional(),
+      },
+      async (args) => {
+        const result = await wrappedPhotoHandler(args);
+        return { content: [{ type: 'text', text: result }] };
+      }
+    );
+    tools.push(photoTool);
+
     // Create the SDK MCP server
     const server = createSdkMcpServer({
       name: 'pocket-agent-tools',
@@ -483,6 +504,15 @@ export function getCustomTools(config: ToolsConfig): Array<{
       handler: tool.handler,
     });
   }
+
+  // Telegram photo tool
+  const photoDef = getSendTelegramPhotoToolDefinition();
+  tools.push({
+    name: photoDef.name,
+    description: photoDef.description,
+    input_schema: photoDef.input_schema as Record<string, unknown>,
+    handler: handleSendTelegramPhotoTool,
+  });
 
   return tools;
 }
