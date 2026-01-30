@@ -1,22 +1,28 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
+**Last Updated:** 2026-01-30
 **Status:** PLANNING — Not yet implemented
-**Architecture:** CEO (User) → Manager (Pocket Agent) → Workers (Claude CLI instances)
+**Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-4.7 (utility model)
 
 ---
 
 ## Table of Contents
 
 1. [GLM 4.7 Integration](#1-glm-47-integration)
-2. [Kanban Heartbeat System](#2-kanban-heartbeat-system)
+2. [Universal Heartbeat System](#2-universal-heartbeat-system)
 3. [Claude CLI Worker Spawning](#3-claude-cli-worker-spawning)
 4. [Task Scheduling (Overnight Builds)](#4-task-scheduling-overnight-builds)
 5. [Daily Summary Generation](#5-daily-summary-generation)
-6. [Enhanced Activity Tracking](#6-enhanced-activity-tracking)
+6. [Enhanced Activity Tracking & Token Counting](#6-enhanced-activity-tracking--token-counting)
 7. [Session Continuity & Context Recovery](#7-session-continuity--context-recovery)
 8. [Gmail Integration](#8-gmail-integration)
-9. [Project Selector in New Task Modal](#9-project-selector-in-new-task-modal)
+9. [Auto-Task Recording (General Inbox)](#9-auto-task-recording-general-inbox)
+10. [Project Folder Manager](#10-project-folder-manager)
+11. [Task Detail Panel Improvements](#11-task-detail-panel-improvements)
+12. [Actor Tracking & Audit Trail](#12-actor-tracking--audit-trail)
+13. [Tag & Assignee System](#13-tag--assignee-system)
+14. [Project Selector in New Task Modal](#14-project-selector-in-new-task-modal)
 
 ---
 
@@ -39,7 +45,13 @@
 ## 1. GLM 4.7 Integration
 
 ### What
-Use Zhipu AI GLM-4.7 (z.ai) as a lightweight model for summarization, email processing, and routine tasks — saving Claude tokens for complex work.
+Use Zhipu AI **GLM-4.7** (z.ai) as a lightweight utility model for:
+- Summarization (daily summaries, log processing)
+- Email classification and labeling
+- Periodic log review and compression
+- Routine processing that doesn't need Claude's intelligence
+
+Claude remains the primary agent/manager. GLM handles cheap background tasks.
 
 ### Current State
 - API key field exists in settings UI (`ui/settings.html` line 1105)
@@ -52,7 +64,7 @@ Use Zhipu AI GLM-4.7 (z.ai) as a lightweight model for summarization, email proc
 ```typescript
 // Zhipu AI GLM-4.7 API client
 // Endpoint: https://open.bigmodel.cn/api/paas/v4/chat/completions
-// Model: glm-4-0520 (or glm-4.7 when available)
+// Model: glm-4-0520 (verify exact ID for GLM-4.7)
 // Auth: API key from settings (zhipu.apiKey)
 
 export interface GLMMessage {
@@ -61,22 +73,27 @@ export interface GLMMessage {
 }
 
 export interface GLMOptions {
-  model?: string;        // default: 'glm-4-0520'
+  model?: string;        // default: GLM-4.7 model ID
   temperature?: number;  // default: 0.3 for summaries
   max_tokens?: number;   // default: 2048
 }
 
-export async function callGLM(messages: GLMMessage[], options?: GLMOptions): Promise<string>
-export async function summarizeWithGLM(text: string, prompt?: string): Promise<string>
-export async function classifyWithGLM(text: string, categories: string[]): Promise<string>
+export interface GLMResult {
+  content: string;
+  tokensUsed: { prompt: number; completion: number; total: number };
+}
+
+export async function callGLM(messages: GLMMessage[], options?: GLMOptions): Promise<GLMResult>
+export async function summarizeWithGLM(text: string, prompt?: string): Promise<GLMResult>
+export async function classifyWithGLM(text: string, categories: string[]): Promise<GLMResult>
 ```
 
-#### 1.2 Register as Provider — `src/agent/index.ts`
-- Add `'zhipu'` to provider list alongside `'anthropic'` and `'moonshot'`
-- GLM is NOT a primary agent provider — it's a utility model called by tools and scheduled jobs
+#### 1.2 GLM is a Utility, Not a Provider
+- GLM is NOT a primary agent provider — it's called by the manager and scheduled jobs
 - The main agent (Claude) delegates lightweight tasks to GLM
+- Every GLM call is logged to `event_log` with token counts
 
-#### 1.3 Agent Tool — `src/tools/glm-tools.ts`
+#### 1.3 Agent Tools — `src/tools/glm-tools.ts`
 ```typescript
 // Tool: glm_summarize — Summarize text using GLM (saves Claude tokens)
 // Tool: glm_classify — Classify text into categories
@@ -91,91 +108,96 @@ export async function classifyWithGLM(text: string, categories: string[]): Promi
 
 ---
 
-## 2. Kanban Heartbeat System
+## 2. Universal Heartbeat System
 
 ### What
-Every 15 minutes, the heartbeat checks what changed in the Kanban (by user or agent). The manager reflects on changes and pings the user on Telegram with suggestions — "Should we proceed with X?", "Task Y has been sitting in review for 2 hours", "Want to schedule Z for tonight?"
+The heartbeat is NOT just for Kanban. It's a **universal progress monitor** that activates whenever ANY work is running:
+- Worker building something → heartbeat pings progress to Telegram
+- Agent processing a complex task → heartbeat reports status
+- Scheduled job running → heartbeat monitors completion
+- Any active task → heartbeat pings at crucial moments
+
+When nothing is running, the heartbeat is silent.
 
 ### How It Works
 
 ```
-Every 15 min:
-  1. Query kanban_activity_log for changes since last heartbeat
-  2. If no changes → skip (silent)
-  3. If changes found:
-     a. Summarize changes (GLM-4.7 for efficiency)
-     b. Check for stale tasks (in review > 2h, in_progress > 1 day)
-     c. Check for tasks that could be scheduled overnight
-     d. Format a brief update
-     e. Send to Telegram (and/or desktop notification)
-     f. Log heartbeat to daily_logs
+Continuous loop (configurable interval):
+  1. Check: are there any active workers running?
+  2. Check: are there any scheduled jobs executing?
+  3. Check: is the agent currently processing something?
+  4. If ANY work is active:
+     a. Collect progress from all active work
+     b. Update the relevant Kanban cards with progress
+     c. At crucial moments (start, milestone, completion, error) → ping Telegram
+     d. Log heartbeat to event_log and daily_logs
+  5. If no work active → silent
 ```
+
+### Crucial Moments That Trigger Pings
+- Worker started (task X is now being built)
+- Worker hit a milestone (50% through, first test passed, etc.)
+- Worker completed successfully
+- Worker failed with error
+- Task has been in progress for too long (stale)
+- Scheduled task is about to execute
+- Something needs user approval
 
 ### Implementation
 
 #### 2.1 Heartbeat Service — `src/scheduler/heartbeat.ts`
 ```typescript
-export class KanbanHeartbeat {
-  private lastCheckAt: string;  // ISO timestamp of last check
+export class Heartbeat {
+  private lastCheckAt: string;
   private interval: NodeJS.Timeout;
 
-  start(intervalMs: number = 900000)  // 15 min default
+  start(intervalMs: number = 60000)  // Check every 60 seconds
   stop()
 
-  private async checkChanges(): Promise<HeartbeatResult>
-  private async getRecentActivity(since: string): Promise<ActivityEntry[]>
-  private async findStaleTasks(): Promise<KanbanTask[]>
-  private async generateSummary(activities: ActivityEntry[]): Promise<string>
-  private async notify(summary: string): Promise<void>
+  private async check(): Promise<void>
+  private async checkActiveWorkers(): Promise<HeartbeatUpdate[]>
+  private async checkRunningJobs(): Promise<HeartbeatUpdate[]>
+  private async checkStaleTasks(): Promise<HeartbeatUpdate[]>
+  private async checkPendingReviews(): Promise<HeartbeatUpdate[]>
+  private async notify(updates: HeartbeatUpdate[]): Promise<void>
+  private async updateKanbanCards(updates: HeartbeatUpdate[]): Promise<void>
 }
 ```
 
-#### 2.2 New Query — `src/kanban/index.ts`
-```typescript
-// Get all activity since a timestamp, across ALL projects
-getActivitySince(since: string): ActivityEntry[]
-
-// Get tasks that haven't moved in N hours
-getStaleTasks(hoursInStatus: number): KanbanTask[]
-
-// Get tasks in review that are pending approval
-getPendingReviewTasks(): KanbanTask[]
-```
-
-#### 2.3 Heartbeat Settings
+#### 2.2 Heartbeat Settings
 - `heartbeat.enabled` — on/off (default: on)
-- `heartbeat.intervalMinutes` — how often (default: 15)
+- `heartbeat.intervalSeconds` — how often to check (default: 60)
 - `heartbeat.quietHours` — e.g., "23:00-07:00" (no pings while sleeping)
-- `heartbeat.channels` — where to send: telegram, desktop, both
+- `heartbeat.channels` — telegram, desktop, both
 
 ### Files to Create/Modify
 - CREATE: `src/scheduler/heartbeat.ts`
-- MODIFY: `src/kanban/index.ts` — add cross-project activity queries
 - MODIFY: `src/main/index.ts` — start heartbeat on app launch
-- MODIFY: `src/settings/index.ts` — add heartbeat settings
-- MODIFY: `ui/settings.html` — add heartbeat config UI
+- MODIFY: `src/settings/index.ts` — heartbeat settings
+- MODIFY: `ui/settings.html` — heartbeat config UI
 
 ---
 
 ## 3. Claude CLI Worker Spawning
 
 ### What
-The manager (Pocket Agent) can spawn Claude Code CLI instances as workers to build websites, apps, fix bugs, etc. Each worker:
+The manager (Pocket Agent) spawns Claude Code CLI instances as workers to build websites, apps, fix bugs, etc. Each worker:
 - Runs in a specific project directory
 - Has a specific task from the Kanban
 - Streams progress back to the manager
-- Updates the Kanban card with results
-- Everything is tracked: success, failure, rejection, duration
+- Updates the Kanban card with results (via heartbeat)
+- Everything is tracked: success, failure, rejection, duration, tokens used
 
 ### Architecture
 
 ```
-User creates task → Schedules it → Manager picks it up
+User creates/schedules task → Manager picks it up
   → Spawns: claude --dangerously-skip-permissions -p "task prompt" --output-format json
   → Worker runs autonomously
-  → Manager monitors output
-  → On completion: updates Kanban card, notifies user
-  → On failure: logs error, marks task failed, notifies user
+  → Heartbeat monitors output, pings Telegram at crucial moments
+  → Heartbeat updates Kanban card with progress
+  → On completion: card updated, moved to review, user notified
+  → On failure: error logged, card marked failed, user notified
 ```
 
 ### Implementation
@@ -184,7 +206,7 @@ User creates task → Schedules it → Manager picks it up
 ```typescript
 export interface WorkerConfig {
   taskId: number;              // Kanban task ID
-  projectDir: string;          // Working directory
+  projectDir: string;          // Working directory (from project workspace_path)
   prompt: string;              // Task description for Claude CLI
   timeout?: number;            // Max execution time (default: 30 min)
   model?: string;              // Claude model to use
@@ -193,6 +215,7 @@ export interface WorkerConfig {
 export interface WorkerStatus {
   id: string;                  // Unique worker ID
   taskId: number;
+  projectId: number;
   pid: number;                 // Process ID
   status: 'running' | 'completed' | 'failed' | 'timeout' | 'cancelled';
   startedAt: string;
@@ -200,12 +223,13 @@ export interface WorkerStatus {
   output: string;              // Accumulated output
   error?: string;
   exitCode?: number;
+  tokensUsed?: number;         // Total tokens consumed
 }
 
 export class WorkerManager {
   private workers: Map<string, WorkerStatus>;
 
-  async spawnWorker(config: WorkerConfig): Promise<string>  // Returns worker ID
+  async spawnWorker(config: WorkerConfig): Promise<string>
   async cancelWorker(workerId: string): Promise<void>
   getWorkerStatus(workerId: string): WorkerStatus | null
   getActiveWorkers(): WorkerStatus[]
@@ -232,6 +256,7 @@ CREATE TABLE IF NOT EXISTS worker_executions (
   output TEXT,
   error TEXT,
   exit_code INTEGER,
+  tokens_used INTEGER,
   started_at TEXT NOT NULL,
   completed_at TEXT,
   duration_ms INTEGER,
@@ -249,7 +274,7 @@ CREATE INDEX IF NOT EXISTS idx_worker_project ON worker_executions(project_id);
 - New activity actions: `worker_started`, `worker_completed`, `worker_failed`
 - New task status: `scheduled` (between todo and in_progress)
 
-#### 3.4 Agent Tool — `src/tools/worker-tools.ts`
+#### 3.4 Agent Tools — `src/tools/worker-tools.ts`
 ```typescript
 // Tool: spawn_worker — Start a Claude CLI worker for a Kanban task
 // Tool: check_worker — Get status of a running worker
@@ -258,7 +283,7 @@ CREATE INDEX IF NOT EXISTS idx_worker_project ON worker_executions(project_id);
 ```
 
 #### 3.5 UI — Kanban card worker indicator
-- Show worker status badge on cards (spinner while running, checkmark when done, X when failed)
+- Show worker status badge on cards (spinner while running, check when done, X when failed)
 - Click to see worker output/logs
 - "Schedule" button on task detail panel
 
@@ -287,6 +312,7 @@ User opens task → Clicks "Schedule" → Picks time (tonight, tomorrow, custom)
   → Scheduler checks every minute for due tasks
   → When due: spawns Claude CLI worker
   → Worker executes task
+  → Heartbeat monitors progress, pings Telegram at milestones
   → Results logged to Kanban card
   → Task moves to "review" when done
   → User reviews in the morning
@@ -337,6 +363,8 @@ Every morning at 9 AM (configurable), GLM-4.7 generates a comprehensive summary 
 - What failed (worker failures, rejected tasks)
 - What's pending (in progress, scheduled, stale)
 - What needs attention (overdue, blocked)
+- Token usage across all tasks/projects
+- Who did what (actor trail: Claude, GLM, User)
 
 Sent to Telegram and stored in `daily_logs`.
 
@@ -345,32 +373,16 @@ Sent to Telegram and stored in `daily_logs`.
 #### 5.1 Daily Summary Job — `src/scheduler/daily-summary.ts`
 ```typescript
 export async function generateDailySummary(): Promise<string> {
-  // 1. Get all activity from previous day
-  const yesterday = getYesterdayRange();
-  const activities = KanbanService.getActivitySince(yesterday.start);
-
-  // 2. Get task status counts across all projects
-  const projects = KanbanService.listProjects();
-
-  // 3. Get worker execution history
-  const workerResults = WorkerHistory.getExecutionsSince(yesterday.start);
-
-  // 4. Get scheduler job results
-  const jobResults = getScheduler().getHistory();
-
-  // 5. Get daily log entries
-  const dailyLog = getDailyLog(yesterday.date);
-
-  // 6. Send to GLM-4.7 for summary
-  const summary = await summarizeWithGLM(allData, DAILY_SUMMARY_PROMPT);
-
-  // 7. Store in daily_logs
-  appendToDailyLog(`[DAILY SUMMARY]\n${summary}`);
-
-  // 8. Send to Telegram
-  await sendToTelegram(summary);
-
-  return summary;
+  // 1. All activity from previous day (kanban_activity_log)
+  // 2. Task status counts across all projects
+  // 3. Worker execution history (successes, failures, durations, tokens)
+  // 4. Scheduler job results
+  // 5. Daily log entries
+  // 6. Token usage per project/task
+  // 7. Untracked work (events without a task_id)
+  // 8. Send to GLM-4.7 for structured summary
+  // 9. Store in daily_logs
+  // 10. Send to Telegram
 }
 ```
 
@@ -381,35 +393,26 @@ Auto-created on first launch:
   name: 'daily_summary',
   schedule_type: 'cron',
   schedule: '0 9 * * *',  // 9 AM daily
-  prompt: 'INTERNAL:daily_summary',  // Special handler, not LLM prompt
+  prompt: 'INTERNAL:daily_summary',
   channel: 'telegram',
   enabled: true
 }
 ```
 
-#### 5.3 Settings
-- `dailySummary.enabled` — on/off
-- `dailySummary.time` — cron expression (default: "0 9 * * *")
-- `dailySummary.channel` — telegram, desktop, both
-
 ### Files to Create/Modify
 - CREATE: `src/scheduler/daily-summary.ts`
 - MODIFY: `src/scheduler/index.ts` — handle INTERNAL: prefix for system jobs
 - MODIFY: `src/main/index.ts` — auto-create daily_summary job on first launch
-- MODIFY: `src/settings/index.ts` — daily summary settings
 
 ---
 
-## 6. Enhanced Activity Tracking
+## 6. Enhanced Activity Tracking & Token Counting
 
 ### What
-Track EVERYTHING — not just Kanban mutations, but tool executions, worker runs, agent decisions, failures, session events. The goal: the agent can look back at any point in time and see exactly what happened.
+Track EVERYTHING at the system level — tool executions, worker runs, agent decisions, failures, GLM calls, token usage. The agent cannot skip this. It's middleware.
 
-### Current Gaps
-- Tool execution results: logged to console only, not persisted
-- Worker execution: doesn't exist yet
-- Agent reasoning: not stored
-- Failed operations: partially tracked (scheduler yes, tools no)
+### Token Counting Per Task
+Every API call (Claude or GLM) records tokens used, linked to the active task. The task detail panel shows cumulative token spend. Daily summaries include cost breakdowns.
 
 ### Implementation
 
@@ -418,11 +421,15 @@ Track EVERYTHING — not just Kanban mutations, but tool executions, worker runs
 CREATE TABLE IF NOT EXISTS event_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   event_type TEXT NOT NULL,
-  source TEXT NOT NULL,
+  source TEXT NOT NULL,        -- 'claude', 'glm', 'user', 'system', 'worker'
+  actor TEXT,                  -- who triggered: 'user', 'claude', 'glm', 'scheduler'
   session_id TEXT,
   project_id INTEGER,
   task_id INTEGER,
-  data TEXT,  -- JSON payload
+  data TEXT,                   -- JSON payload
+  tokens_prompt INTEGER,       -- prompt tokens used
+  tokens_completion INTEGER,   -- completion tokens used
+  tokens_total INTEGER,        -- total tokens used
   success INTEGER DEFAULT 1,
   error TEXT,
   duration_ms INTEGER,
@@ -433,94 +440,81 @@ CREATE INDEX IF NOT EXISTS idx_event_type ON event_log(event_type);
 CREATE INDEX IF NOT EXISTS idx_event_created ON event_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_event_source ON event_log(source);
 CREATE INDEX IF NOT EXISTS idx_event_project ON event_log(project_id);
+CREATE INDEX IF NOT EXISTS idx_event_task ON event_log(task_id);
+CREATE INDEX IF NOT EXISTS idx_event_actor ON event_log(actor);
 ```
 
 **Event types:**
-- `tool_call` — any tool execution (name, input, output, duration)
-- `worker_spawn` — worker started
-- `worker_complete` — worker finished (success/fail)
+- `tool_call` — any tool execution (name, input summary, output summary, duration)
+- `llm_call` — any LLM API call (model, tokens, cost)
+- `worker_spawn` / `worker_complete` / `worker_fail`
 - `heartbeat` — heartbeat check result
 - `daily_summary` — daily summary generated
-- `glm_call` — GLM API call
-- `gmail_check` — email check
 - `notification_sent` — Telegram/desktop notification
 - `session_start` / `session_end`
+- `task_auto_created` — auto-created inbox task
 - `error` — any unhandled error
 
-#### 6.2 Event Logger
+#### 6.2 Token Aggregation Queries
 ```typescript
-export function logEvent(type: string, source: string, data?: object, options?: {
-  sessionId?: string;
-  projectId?: number;
-  taskId?: number;
-  success?: boolean;
-  error?: string;
-  durationMs?: number;
-}): void
+// Get total tokens spent on a specific task
+getTokensByTask(taskId: number): { claude: number, glm: number, total: number }
 
-export function getEventsSince(since: string, type?: string): EventEntry[]
-export function getEventsByTask(taskId: number): EventEntry[]
-export function getEventsByProject(projectId: number): EventEntry[]
+// Get total tokens spent on a project
+getTokensByProject(projectId: number): { claude: number, glm: number, total: number }
+
+// Get tokens spent in a date range
+getTokensByDateRange(start: string, end: string): TokenBreakdown
+
+// Get tokens spent per day (for charts)
+getDailyTokenUsage(days: number): DailyTokenEntry[]
 ```
+
+#### 6.3 Middleware Integration
+In `src/tools/diagnostics.ts`, wrap every tool call to automatically log to `event_log`.
+In `src/agent/index.ts`, after every LLM response, log token usage to `event_log` linked to the active task.
 
 ### Files to Create/Modify
 - CREATE: `src/memory/event-log.ts`
-- MODIFY: `src/tools/diagnostics.ts` — log tool calls to event_log
-- MODIFY: `src/agent/index.ts` — log session events
+- MODIFY: `src/tools/diagnostics.ts` — auto-log tool calls to event_log
+- MODIFY: `src/agent/index.ts` — auto-log LLM calls with token counts
 
 ---
 
 ## 7. Session Continuity & Context Recovery
 
 ### What
-When the agent starts a new session (or context window resets), it automatically:
-1. Checks recent daily logs (last 3 days)
-2. Checks active Kanban tasks across all projects
-3. Checks recent event log for unfinished work
-4. Checks pending reviews and scheduled tasks
-5. Presents a briefing: "Here's where we left off..."
+When the agent starts a new session (or context window resets), it automatically knows where things left off. No user input needed — the data is in the database.
 
-### Current State
-- `getConversationContext()` already loads recent messages
-- `getDailyLogsContext()` returns last 3 days of daily logs
-- `getRecentMessages()` loads recent conversation
-- Session system supports multiple named sessions
+### How It Works
+
+```
+New session starts:
+  1. Read daily_logs (last 3 days) → knows what happened each day
+  2. Read kanban_activity_log (last 48 hours) → knows what tasks changed
+  3. Read event_log (last 48 hours) → knows every tool call, worker run, error
+  4. Read active tasks across ALL projects → knows what's in progress
+  5. Read pending reviews → knows what needs approval
+  6. Read scheduled tasks → knows what's coming up
+  7. Read recent worker executions → knows what was built overnight
+  8. Read untracked events → knows if anything slipped through without a task
+
+  → Agent presents: "Here's where we left off..."
+  → Agent asks: "Should we continue with X? Review Y? Schedule Z?"
+```
 
 ### Implementation
 
 #### 7.1 Context Briefing — `src/agent/briefing.ts`
 ```typescript
 export async function generateSessionBriefing(): Promise<string> {
-  // 1. Recent daily logs
-  const logs = getRecentDailyLogs(3);
-
-  // 2. Active tasks across all projects
-  const projects = KanbanService.listProjects();
-  const activeTasks = [];
-  for (const project of projects) {
-    const board = KanbanService.getBoard(project.id);
-    // Collect in_progress, review, scheduled tasks
-  }
-
-  // 3. Recent worker executions
-  const recentWorkers = WorkerHistory.getRecent(10);
-
-  // 4. Pending reviews
-  const pendingReviews = KanbanService.getPendingReviewTasks();
-
-  // 5. Scheduled tasks coming up
-  const scheduledTasks = KanbanService.getScheduledTasks();
-
-  // 6. Recent event log highlights
-  const recentEvents = getEventsSince(threeDaysAgo);
-
-  // Format briefing
-  return formatBriefing({ logs, activeTasks, recentWorkers, pendingReviews, scheduledTasks, recentEvents });
+  // All the above data sources, formatted into a concise briefing
+  // Injected into the agent's system prompt automatically
 }
 ```
 
 #### 7.2 Auto-inject into Agent System Prompt
-On each new session or context reset, prepend the briefing to the system prompt so the agent knows the full state.
+On each new session or context reset, prepend the briefing to the system prompt so the agent knows the full state without needing the conversation history.
 
 ### Files to Create/Modify
 - CREATE: `src/agent/briefing.ts`
@@ -541,10 +535,7 @@ Use GLM-4.7 to process incoming Gmail:
 
 #### 8.1 Gmail Client — `src/channels/gmail.ts`
 ```typescript
-// Uses Gmail API via OAuth2
-// Requires: googleapis npm package
-// Auth: OAuth2 flow stored in settings
-
+// Uses Gmail API via OAuth2 (googleapis npm package)
 export class GmailClient {
   async authenticate(): Promise<void>
   async getUnreadEmails(maxResults?: number): Promise<GmailMessage[]>
@@ -554,59 +545,263 @@ export class GmailClient {
 }
 ```
 
-#### 8.2 Email Processor — `src/channels/email-processor.ts`
-```typescript
-export class EmailProcessor {
-  async processNewEmails(): Promise<ProcessedEmail[]>
-  private async classifyEmail(email: GmailMessage): Promise<EmailClassification>
-  private async shouldNotify(classification: EmailClassification): Promise<boolean>
-  private async summarizeThread(thread: GmailThread): Promise<string>
-}
-```
-
-#### 8.3 Scheduled Job
-```typescript
-{
-  name: 'gmail_check',
-  schedule_type: 'every',
-  interval_ms: 300000,  // Every 5 minutes
-  prompt: 'INTERNAL:gmail_check',
-  channel: 'telegram'
-}
-```
-
-### Dependencies
-- `googleapis` npm package
-- OAuth2 credentials (Google Cloud Console)
-- Settings: `gmail.enabled`, `gmail.clientId`, `gmail.clientSecret`, `gmail.refreshToken`
+#### 8.2 Scheduled Job — every 5 minutes
+Classified by GLM-4.7. Urgent/important → Telegram ping. Everything logged to event_log.
 
 ### Files to Create/Modify
 - CREATE: `src/channels/gmail.ts`
 - CREATE: `src/channels/email-processor.ts`
-- MODIFY: `src/main/index.ts` — auto-create gmail_check job
-- MODIFY: `src/settings/index.ts` — Gmail settings
-- MODIFY: `ui/settings.html` — Gmail config UI + OAuth flow
 - MODIFY: `package.json` — add googleapis dependency
 
 ---
 
-## 9. Project Selector in New Task Modal
+## 9. Auto-Task Recording (General Inbox)
 
 ### What
-When creating a new task, allow selecting which project it belongs to (dropdown pre-filled with current project). Also add tag autocomplete from existing tags across all projects.
+The agent always works within a task context. If no task exists for the current work, the agent **auto-creates one in a "General Inbox" project**. This ensures nothing happens without being tracked.
+
+### How It Works
+
+```
+User asks agent to do something:
+  1. Is there an active Kanban task linked to this conversation? → Use it
+  2. Is there a project that matches this topic? → Create task there
+  3. Neither? → Create task in "General Inbox" project with descriptive title
+  4. Agent works under that task — all events tagged with task_id
+  5. Periodically, heartbeat checks inbox tasks and asks user:
+     "Task X has been in Inbox for 2 days. Want to move it to a project?"
+```
+
+### What's NOT a task
+Simple questions ("what time is it?", "how do I X?") don't create tasks. The agent uses judgment. But the event_log still records the interaction regardless.
+
+### Inbox Cleanup
+The heartbeat (or a daily GLM job) scans the General Inbox:
+- Tasks older than 2 days without a project → ping user to organize
+- Tasks that are clearly done → suggest archiving
+- Tasks that belong to an existing project → suggest moving
 
 ### Implementation
 
-#### 9.1 UI Changes — `ui/kanban.html`
-- Add project dropdown to New Task modal (populated from `kanbanListProjects()`)
-- Default to current project
-- Add tag input with autocomplete (suggestions from all existing tags)
-
-#### 9.2 Backend — `src/kanban/index.ts`
+#### 9.1 General Inbox Project
+Auto-created on first launch if it doesn't exist:
 ```typescript
-// Get all unique tags across all projects
-getAllTags(): string[]
+{
+  name: 'General Inbox',
+  description: 'Auto-created tasks from conversations. Organize into projects.',
+  workspace_path: null
+}
 ```
+
+#### 9.2 Active Task Context — `src/agent/task-context.ts`
+```typescript
+export class TaskContext {
+  private activeTaskId: number | null;
+  private activeProjectId: number | null;
+
+  setActiveTask(taskId: number): void
+  getActiveTask(): number | null
+  autoCreateTask(title: string, description: string): Promise<number>
+  shouldCreateTask(userMessage: string): boolean  // Agent judgment
+}
+```
+
+### Files to Create/Modify
+- CREATE: `src/agent/task-context.ts`
+- MODIFY: `src/agent/index.ts` — integrate task context
+- MODIFY: `src/main/index.ts` — auto-create General Inbox project
+
+---
+
+## 10. Project Folder Manager
+
+### What
+Every project/plan gets its own subfolder. Plans are not dumped into one folder. Each plan subfolder contains:
+- `PLAN.md` — the plan itself
+- `TODO.md` — auto-tracked checklist (done/not done)
+- `PROGRESS.md` — auto-updated progress log
+
+### Folder Structure
+```
+docs/
+  plans/
+    glm-integration/
+      PLAN.md
+      TODO.md
+      PROGRESS.md
+    worker-spawning/
+      PLAN.md
+      TODO.md
+      PROGRESS.md
+    gmail-integration/
+      PLAN.md
+      TODO.md
+      PROGRESS.md
+    ...
+  MASTER-PLAN.md          ← This file (overview)
+```
+
+### Auto-Tracking
+When work starts on a plan item, the TODO.md is updated:
+```markdown
+- [x] Create GLM client (completed 2026-02-01 by Claude)
+- [x] Register GLM tools (completed 2026-02-01 by Claude)
+- [ ] Add GLM settings UI
+- [ ] Test GLM summarization
+```
+
+PROGRESS.md gets appended with entries:
+```markdown
+### 2026-02-01
+- Created `src/agent/glm-client.ts` — GLM API client with token tracking
+- Registered 3 GLM tools in agent
+- Tokens used: 12,450 (Claude), 0 (GLM)
+```
+
+### Implementation
+
+#### 10.1 Plan Manager — `src/tools/plan-tools.ts`
+```typescript
+// Tool: create_plan — Create a new plan subfolder with PLAN.md, TODO.md, PROGRESS.md
+// Tool: update_plan_todo — Check/uncheck items in a plan's TODO.md
+// Tool: log_plan_progress — Append an entry to a plan's PROGRESS.md
+// Tool: list_plans — List all plans with their completion percentage
+```
+
+### Files to Create/Modify
+- CREATE: `src/tools/plan-tools.ts`
+- CREATE: `docs/plans/` directory structure
+- MODIFY: `src/agent/index.ts` — register plan tools
+
+---
+
+## 11. Task Detail Panel Improvements
+
+### What
+The current task detail panel is too small and only shows on the right side. Needs:
+- **Expandable full-screen modal** — click to expand for detailed work
+- **Left/right toggle** — button to flip panel to left or right side of screen
+- **Richer content display** — full description visible, not truncated
+- **Token usage display** — show tokens spent on this task
+- **Worker output viewer** — see full build logs
+- **Activity timeline with actors** — "Claude created", "User approved", "GLM processed"
+
+### Implementation
+
+#### 11.1 Panel Modes
+1. **Side panel** (current) — quick glance, slides in from right
+2. **Side panel left** — same but from left side
+3. **Expanded modal** — full-screen overlay for detailed work
+
+#### 11.2 UI Changes — `ui/kanban.html`
+- Add expand button (⤢) to panel header → opens full modal
+- Add left/right toggle button (⇆) to panel header → flips side
+- Store preference in localStorage
+- In expanded mode: full description editor, full activity timeline, worker logs, attachments grid, token counter
+
+#### 11.3 Token Display
+In task detail, show:
+```
+Tokens: 45,230 (Claude: 42,100 | GLM: 3,130)
+```
+Pulled from `event_log` aggregated by task_id.
+
+### Files to Modify
+- MODIFY: `ui/kanban.html` — panel toggle, expand modal, token display
+
+---
+
+## 12. Actor Tracking & Audit Trail
+
+### What
+Every action shows WHO did it. Not just "created 1 hour ago" but "Claude created 1 hour ago" or "User approved 30 min ago" or "GLM processed 2 hours ago".
+
+### Current State
+The `kanban_activity_log` has an `actor` field (default: 'user'). But:
+- It's not consistently set (often defaults to 'user' even for agent actions)
+- The UI doesn't display the actor
+
+### Implementation
+
+#### 12.1 Fix Actor Assignment
+Ensure every mutation correctly sets the actor:
+- `'user'` — user action in UI
+- `'claude'` — Claude agent tool call
+- `'glm'` — GLM processing
+- `'scheduler'` — scheduled job
+- `'worker:<id>'` — specific worker instance
+- `'system'` — auto-migration, auto-cleanup
+
+#### 12.2 Display in UI
+Activity timeline entries show:
+```
+Claude created · 1 hour ago
+User approved · 30 min ago
+Worker w-abc123 completed · 15 min ago
+GLM summarized · 5 min ago
+```
+
+In review cards and board cards, show the actor badge next to timestamps.
+
+### Files to Modify
+- MODIFY: `src/kanban/index.ts` — ensure actor is passed correctly
+- MODIFY: `src/tools/kanban-tools.ts` — set actor='claude' on all agent calls
+- MODIFY: `ui/kanban.html` — display actor in activity timeline and cards
+
+---
+
+## 13. Tag & Assignee System
+
+### What
+Tags and assignees are currently free-text — you can type anything. This needs structure.
+
+### Tags
+- **Autocomplete from existing tags** — when typing, suggest tags used across all projects
+- **Predefined system tags** — `bug`, `feature`, `research`, `urgent`, `documentation`
+- **Tag management** — view all tags, merge duplicates, delete unused
+- **Tag colors** — each tag gets a consistent color (hash-based)
+
+### Assignee Model
+Currently a text field. Should be a dropdown with known models:
+- `claude` — Claude (primary agent)
+- `glm` — GLM-4.7 (utility model)
+- `worker` — Claude CLI worker
+- `user` — User (manual task)
+
+Changing the assignee actually affects routing:
+- Assign to `worker` → shows "Schedule" button
+- Assign to `glm` → GLM handles it
+- Assign to `claude` → main agent handles it
+- Assign to `user` → just a reminder, no automation
+
+### Implementation
+
+#### 13.1 Backend — `src/kanban/index.ts`
+```typescript
+getAllTags(): string[]                    // Unique tags across all projects
+getTagUsageCounts(): { tag: string, count: number }[]
+```
+
+#### 13.2 UI — `ui/kanban.html`
+- Tag input with autocomplete dropdown
+- Assignee as dropdown select (claude/glm/worker/user)
+- Tags displayed with consistent colors
+
+### Files to Modify
+- MODIFY: `src/kanban/index.ts` — tag queries
+- MODIFY: `ui/kanban.html` — tag autocomplete, assignee dropdown
+
+---
+
+## 14. Project Selector in New Task Modal
+
+### What
+When creating a new task, allow selecting which project it belongs to (dropdown pre-filled with current project, but changeable). Combined with tag autocomplete.
+
+### Implementation
+- Add project dropdown to New Task modal (populated from `kanbanListProjects()`)
+- Default to current project but can switch
+- Tag input with autocomplete from existing tags
 
 ### Files to Modify
 - MODIFY: `ui/kanban.html` — project dropdown + tag autocomplete in modal
@@ -616,44 +811,52 @@ getAllTags(): string[]
 
 ## Implementation Order (Priority)
 
-### Phase 1 — Foundation
-1. GLM 4.7 client (`src/agent/glm-client.ts`)
-2. Enhanced event log (`src/memory/event-log.ts`)
-3. Project selector in New Task modal (quick win)
+### Phase 1 — Foundation (Data Layer)
+1. Universal event log with token tracking (`src/memory/event-log.ts`)
+2. GLM 4.7 client (`src/agent/glm-client.ts`)
+3. Actor tracking fixes across all Kanban operations
+4. Project selector in New Task modal (quick win)
 
-### Phase 2 — Workers
-4. Worker manager + execution DB (`src/workers/`)
-5. Claude CLI spawning + Kanban integration
-6. Task scheduling UI (schedule button, overnight picker)
-7. Scheduled task runner
+### Phase 2 — Workers & Scheduling
+5. Worker manager + execution DB (`src/workers/`)
+6. Claude CLI spawning + Kanban integration
+7. Task scheduling UI (schedule button, overnight picker)
+8. Scheduled task runner
 
-### Phase 3 — Intelligence
-8. Kanban heartbeat system
-9. Daily summary generation (GLM-4.7)
-10. Session continuity briefing
+### Phase 3 — Intelligence & Monitoring
+9. Universal heartbeat system
+10. Auto-task recording (General Inbox)
+11. Daily summary generation (GLM-4.7)
+12. Session continuity briefing
 
-### Phase 4 — Communication
-11. Gmail integration
-12. Email classification + Telegram notifications
+### Phase 4 — UI & Organization
+13. Task detail panel improvements (expand, left/right, tokens)
+14. Tag & assignee system (autocomplete, dropdown, colors)
+15. Project folder manager (plan subfolders, TODO tracking)
+
+### Phase 5 — Communication
+16. Gmail integration + email classification
+17. Telegram notifications for urgent emails
 
 ---
 
 ## Key Decisions Still Needed
 
-1. **Claude CLI path**: Is `claude` available globally or need full path?
+1. **Claude CLI path**: Is `claude` available globally? Run `which claude` to check.
 2. **Worker concurrency**: How many parallel workers? (Suggest: 2-3 max)
-3. **Gmail OAuth**: Who sets up the Google Cloud project? Need client credentials.
-4. **GLM-4.7 model ID**: Need to verify exact model string for z.ai API
+3. **Gmail OAuth**: Need Google Cloud Console project for credentials.
+4. **GLM-4.7 model ID**: Verify exact model string for z.ai API.
 5. **Worker timeout**: Default 30 min? Configurable per task?
 6. **Quiet hours**: What hours to suppress heartbeat notifications?
+7. **Token cost rates**: What are the per-token costs for Claude and GLM for cost display?
 
 ---
 
 ## Database Migrations Needed
 
 ```sql
--- 1. Worker executions table (new)
--- 2. Universal event log table (new)
+-- 1. Universal event log table (new)
+-- 2. Worker executions table (new)
 -- 3. kanban_tasks: ADD scheduled_at TEXT
 -- 4. kanban_tasks: ADD worker_id TEXT
 -- 5. kanban_tasks: UPDATE status CHECK to include 'scheduled'
