@@ -61,7 +61,11 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": true
+      "notarize": true,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Pocket Agent needs microphone access to record voice messages.",
+        "NSSpeechRecognitionUsageDescription": "Pocket Agent uses on-device speech recognition to transcribe your voice messages."
+      }
     },
     "dmg": {
       "artifactName": "Pocket-Agent-${version}-${arch}.${ext}",
@@ -114,6 +118,7 @@
     "electron-updater": "^6.7.3",
     "grammy": "^1.31.0",
     "node-cron": "^4.2.1",
+    "node-edge-tts": "^1.2.9",
     "openai": "^6.17.0",
     "puppeteer-core": "^24.36.1"
   },
