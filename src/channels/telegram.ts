@@ -2,6 +2,7 @@ import { Bot, Context } from 'grammy';
 import { BaseChannel } from './index';
 import { AgentManager, ImageContent } from '../agent';
 import { SettingsManager } from '../settings';
+import { transcribeAudio, isTranscriptionAvailable } from '../utils/transcribe';
 
 /**
  * Convert markdown to Telegram HTML format
@@ -219,6 +220,7 @@ export type MessageCallback = (data: {
   chatId: number;
   sessionId: string;
   hasAttachment?: boolean;
+  attachmentType?: 'photo' | 'voice' | 'audio';
 }) => void;
 
 export class TelegramBot extends BaseChannel {
@@ -696,12 +698,236 @@ multiline</pre>
             chatId,
             sessionId,
             hasAttachment: true,
+            attachmentType: 'photo',
           });
         }
       } catch (error) {
         console.error('[Telegram] Photo error:', error);
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
         await ctx.reply(`❌ Error processing photo: ${errorMsg}`);
+      } finally {
+        clearInterval(typingInterval);
+      }
+    });
+
+    // Handle voice messages
+    this.bot.on('message:voice', async (ctx: Context) => {
+      const chatId = ctx.chat?.id;
+      const voice = ctx.message?.voice;
+      const caption = ctx.message?.caption || '';
+
+      if (!chatId || !voice) return;
+
+      // Check if transcription is available before processing
+      if (!isTranscriptionAvailable()) {
+        await ctx.reply(
+          '🎤 Voice notes require an OpenAI API key for transcription.\n\n' +
+            'Add your OpenAI key in Settings → API Keys to enable voice messages.'
+        );
+        return;
+      }
+
+      // Show typing indicator
+      await ctx.replyWithChatAction('typing');
+
+      const typingInterval = setInterval(() => {
+        ctx.replyWithChatAction('typing').catch(() => {});
+      }, 4000);
+
+      try {
+        // Get file info from Telegram
+        const file = await ctx.api.getFile(voice.file_id);
+        if (!file.file_path) {
+          throw new Error('Could not get file path from Telegram');
+        }
+
+        // Download the voice file (Telegram voice notes are OGG/Opus)
+        const botToken = SettingsManager.get('telegram.botToken');
+        const fileUrl = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to download voice: ${response.statusText}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = Buffer.from(arrayBuffer);
+
+        // Determine format from file path (usually .oga or .ogg)
+        const format = file.file_path.split('.').pop() || 'ogg';
+
+        console.log(
+          `[Telegram] Processing voice: ${voice.duration}s, ${(audioBuffer.length / 1024).toFixed(1)}KB`
+        );
+
+        // Transcribe the audio
+        const transcription = await transcribeAudio(audioBuffer, format);
+
+        if (!transcription.success || !transcription.text) {
+          throw new Error(transcription.error || 'Transcription failed');
+        }
+
+        console.log(
+          `[Telegram] Transcribed in ${transcription.duration?.toFixed(1)}s: "${transcription.text.substring(0, 50)}..."`
+        );
+
+        // Build the prompt with transcript
+        const prompt = caption
+          ? `${caption}\n\nVoice message transcript:\n"${transcription.text}"`
+          : `Voice message transcript:\n"${transcription.text}"`;
+
+        // Look up which session this chat is linked to
+        const memory = AgentManager.getMemory();
+        const sessionId = memory?.getSessionForChat(chatId) || 'default';
+
+        const result = await AgentManager.processMessage(prompt, 'telegram', sessionId, undefined, {
+          hasAttachment: true,
+          attachmentType: 'voice',
+        });
+
+        // Send response
+        await this.sendResponse(ctx, result.response);
+
+        // Notify callback for cross-channel sync
+        if (this.onMessageCallback) {
+          // Show transcript preview in display message
+          const transcriptPreview =
+            transcription.text.length > 50
+              ? transcription.text.substring(0, 50) + '...'
+              : transcription.text;
+          const displayMessage = caption
+            ? `${caption} [🎤 "${transcriptPreview}"]`
+            : `🎤 "${transcriptPreview}"`;
+
+          this.onMessageCallback({
+            userMessage: displayMessage,
+            response: result.response,
+            channel: 'telegram',
+            chatId,
+            sessionId,
+            hasAttachment: true,
+            attachmentType: 'voice',
+          });
+        }
+      } catch (error) {
+        console.error('[Telegram] Voice error:', error);
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        await ctx.reply(`❌ Error processing voice message: ${errorMsg}`);
+      } finally {
+        clearInterval(typingInterval);
+      }
+    });
+
+    // Handle audio files (longer recordings, music, etc.)
+    this.bot.on('message:audio', async (ctx: Context) => {
+      const chatId = ctx.chat?.id;
+      const audio = ctx.message?.audio;
+      const caption = ctx.message?.caption || '';
+
+      if (!chatId || !audio) return;
+
+      // Check if transcription is available
+      if (!isTranscriptionAvailable()) {
+        await ctx.reply(
+          '🎵 Audio transcription requires an OpenAI API key.\n\n' +
+            'Add your OpenAI key in Settings → API Keys to enable audio transcription.'
+        );
+        return;
+      }
+
+      // Check file size (Whisper has a 25MB limit)
+      if (audio.file_size && audio.file_size > 25 * 1024 * 1024) {
+        await ctx.reply('❌ Audio file too large. Maximum size is 25MB for transcription.');
+        return;
+      }
+
+      // Show typing indicator
+      await ctx.replyWithChatAction('typing');
+
+      const typingInterval = setInterval(() => {
+        ctx.replyWithChatAction('typing').catch(() => {});
+      }, 4000);
+
+      try {
+        // Get file info from Telegram
+        const file = await ctx.api.getFile(audio.file_id);
+        if (!file.file_path) {
+          throw new Error('Could not get file path from Telegram');
+        }
+
+        // Download the audio file
+        const botToken = SettingsManager.get('telegram.botToken');
+        const fileUrl = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to download audio: ${response.statusText}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = Buffer.from(arrayBuffer);
+
+        // Get format from file path or mime type
+        const format = file.file_path.split('.').pop() || audio.mime_type?.split('/')[1] || 'mp3';
+
+        console.log(
+          `[Telegram] Processing audio: ${audio.duration}s, ${(audioBuffer.length / 1024).toFixed(1)}KB, ${audio.title || 'untitled'}`
+        );
+
+        // Transcribe the audio
+        const transcription = await transcribeAudio(audioBuffer, format);
+
+        if (!transcription.success || !transcription.text) {
+          throw new Error(transcription.error || 'Transcription failed');
+        }
+
+        console.log(
+          `[Telegram] Transcribed in ${transcription.duration?.toFixed(1)}s: "${transcription.text.substring(0, 50)}..."`
+        );
+
+        // Build the prompt with transcript and audio metadata
+        const audioInfo = audio.title ? `"${audio.title}"` : 'Audio file';
+        const durationStr = audio.duration ? ` (${audio.duration}s)` : '';
+        const prompt = caption
+          ? `${caption}\n\n${audioInfo}${durationStr} transcript:\n"${transcription.text}"`
+          : `${audioInfo}${durationStr} transcript:\n"${transcription.text}"`;
+
+        // Look up which session this chat is linked to
+        const memory = AgentManager.getMemory();
+        const sessionId = memory?.getSessionForChat(chatId) || 'default';
+
+        const result = await AgentManager.processMessage(prompt, 'telegram', sessionId, undefined, {
+          hasAttachment: true,
+          attachmentType: 'audio',
+        });
+
+        // Send response
+        await this.sendResponse(ctx, result.response);
+
+        // Notify callback for cross-channel sync
+        if (this.onMessageCallback) {
+          const transcriptPreview =
+            transcription.text.length > 50
+              ? transcription.text.substring(0, 50) + '...'
+              : transcription.text;
+          const displayMessage = caption
+            ? `${caption} [🎵 "${transcriptPreview}"]`
+            : `🎵 ${audio.title || 'Audio'}: "${transcriptPreview}"`;
+
+          this.onMessageCallback({
+            userMessage: displayMessage,
+            response: result.response,
+            channel: 'telegram',
+            chatId,
+            sessionId,
+            hasAttachment: true,
+            attachmentType: 'audio',
+          });
+        }
+      } catch (error) {
+        console.error('[Telegram] Audio error:', error);
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        await ctx.reply(`❌ Error processing audio: ${errorMsg}`);
       } finally {
         clearInterval(typingInterval);
       }

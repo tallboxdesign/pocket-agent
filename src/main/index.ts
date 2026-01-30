@@ -1885,6 +1885,7 @@ async function initializeAgent(): Promise<void> {
               chatId: data.chatId,
               sessionId: data.sessionId,
               hasAttachment: data.hasAttachment,
+              attachmentType: data.attachmentType,
             });
           }
           // Messages are already saved to SQLite, so they'll appear when user opens chat

@@ -17,8 +17,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
     ipcRenderer.on('scheduler:message', listener);
     return () => ipcRenderer.removeListener('scheduler:message', listener);
   },
-  onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, data: { userMessage: string; response: string; chatId: number; sessionId: string }) => callback(data);
+  onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio' }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio' }) => callback(data);
     ipcRenderer.on('telegram:message', listener);
     return () => ipcRenderer.removeListener('telegram:message', listener);
   },
@@ -153,7 +153,7 @@ declare global {
       onStatus: (callback: (status: { type: string; toolName?: string; toolInput?: string; message?: string }) => void) => () => void;
       saveAttachment: (name: string, dataUrl: string) => Promise<string>;
       onSchedulerMessage: (callback: (data: { jobName: string; prompt: string; response: string; sessionId: string }) => void) => () => void;
-      onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string }) => void) => () => void;
+      onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio' }) => void) => () => void;
       getHistory: (limit?: number, sessionId?: string) => Promise<Array<{ role: string; content: string; timestamp: string; metadata?: { source?: string; jobName?: string } }>>;
       getStats: (sessionId?: string) => Promise<{ messageCount: number; factCount: number; estimatedTokens: number; sessionCount?: number } | null>;
       clearConversation: (sessionId?: string) => Promise<{ success: boolean }>;

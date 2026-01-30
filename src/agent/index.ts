@@ -149,6 +149,12 @@ export interface ImageContent {
   data: string;  // base64 encoded
 }
 
+// Attachment info for tracking attachments in metadata
+export interface AttachmentInfo {
+  hasAttachment: boolean;
+  attachmentType?: 'photo' | 'voice' | 'audio';
+}
+
 // Content block types for SDK
 type TextBlock = { type: 'text'; text: string };
 type ImageBlock = { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
@@ -210,7 +216,7 @@ class AgentManagerClass extends EventEmitter {
   private abortControllersBySession: Map<string, AbortController> = new Map();
   private processingBySession: Map<string, boolean> = new Map();
   private lastSuggestedPrompt: string | undefined = undefined;
-  private messageQueueBySession: Map<string, Array<{ message: string; channel: string; images?: ImageContent[]; resolve: (result: ProcessResult) => void; reject: (error: Error) => void }>> = new Map();
+  private messageQueueBySession: Map<string, Array<{ message: string; channel: string; images?: ImageContent[]; attachmentInfo?: AttachmentInfo; resolve: (result: ProcessResult) => void; reject: (error: Error) => void }>> = new Map();
 
   private constructor() {
     super();
@@ -286,7 +292,8 @@ class AgentManagerClass extends EventEmitter {
     userMessage: string,
     channel: string = 'default',
     sessionId: string = 'default',
-    images?: ImageContent[]
+    images?: ImageContent[],
+    attachmentInfo?: AttachmentInfo
   ): Promise<ProcessResult> {
     if (!this.memory) {
       throw new Error('AgentManager not initialized - call initialize() first');
@@ -294,10 +301,10 @@ class AgentManagerClass extends EventEmitter {
 
     // If already processing, queue the message
     if (this.processingBySession.get(sessionId)) {
-      return this.queueMessage(userMessage, channel, sessionId, images);
+      return this.queueMessage(userMessage, channel, sessionId, images, attachmentInfo);
     }
 
-    return this.executeMessage(userMessage, channel, sessionId, images);
+    return this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo);
   }
 
   /**
@@ -307,7 +314,8 @@ class AgentManagerClass extends EventEmitter {
     userMessage: string,
     channel: string,
     sessionId: string,
-    images?: ImageContent[]
+    images?: ImageContent[],
+    attachmentInfo?: AttachmentInfo
   ): Promise<ProcessResult> {
     return new Promise((resolve, reject) => {
       // Get or create queue for this session
@@ -317,7 +325,7 @@ class AgentManagerClass extends EventEmitter {
       const queue = this.messageQueueBySession.get(sessionId)!;
 
       // Add to queue
-      queue.push({ message: userMessage, channel, images, resolve, reject });
+      queue.push({ message: userMessage, channel, images, attachmentInfo, resolve, reject });
 
       const queuePosition = queue.length;
       console.log(`[AgentManager] Message queued at position ${queuePosition} for session ${sessionId}`);
@@ -350,7 +358,7 @@ class AgentManagerClass extends EventEmitter {
     });
 
     try {
-      const result = await this.executeMessage(next.message, next.channel, sessionId, next.images);
+      const result = await this.executeMessage(next.message, next.channel, sessionId, next.images, next.attachmentInfo);
       next.resolve(result);
     } catch (error) {
       next.reject(error instanceof Error ? error : new Error(String(error)));
@@ -364,7 +372,8 @@ class AgentManagerClass extends EventEmitter {
     userMessage: string,
     channel: string,
     sessionId: string,
-    images?: ImageContent[]
+    images?: ImageContent[],
+    attachmentInfo?: AttachmentInfo
   ): Promise<ProcessResult> {
     // Memory should already be checked by processMessage, but guard anyway
     if (!this.memory) {
@@ -521,7 +530,10 @@ class AgentManagerClass extends EventEmitter {
         if (channel.startsWith('cron:')) {
           metadata = { source: 'scheduler', jobName: channel.slice(5) };
         } else if (channel === 'telegram') {
-          metadata = { source: 'telegram', hasAttachment: images && images.length > 0 };
+          // Use explicit attachmentInfo if provided, otherwise check for images
+          const hasAttachment = attachmentInfo?.hasAttachment ?? (images && images.length > 0);
+          const attachmentType = attachmentInfo?.attachmentType ?? (images && images.length > 0 ? 'photo' : undefined);
+          metadata = { source: 'telegram', hasAttachment, attachmentType };
         }
 
         const userMsgId = memory.saveMessage('user', messageToSave, sessionId, metadata);
