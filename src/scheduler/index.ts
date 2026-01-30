@@ -94,7 +94,8 @@ export class CronScheduler {
     }
 
     await this.loadJobsFromDatabase();
-    this.lastJobCount = this.jobs.size;
+    // Use DB count (includes timer-based jobs) not this.jobs.size (cron only)
+    this.lastJobCount = this.memory.getCronJobs(false).length;
     console.log(`[Scheduler] Initialized with ${this.jobs.size} jobs`);
 
     // Start periodic check for new jobs (every 60 seconds)
@@ -124,7 +125,7 @@ export class CronScheduler {
     if (currentCount !== this.lastJobCount) {
       console.log(`[Scheduler] Job count changed (${this.lastJobCount} -> ${currentCount}), reloading...`);
       await this.loadJobsFromDatabase();
-      this.lastJobCount = this.jobs.size;
+      this.lastJobCount = currentCount;
     }
   }
 
