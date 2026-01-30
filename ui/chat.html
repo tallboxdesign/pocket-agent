@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self' blob: file:;">
   <title>Pocket Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -594,6 +594,33 @@
       fill: currentColor;
     }
 
+    /* Voice message badge */
+    .message.from-voice {
+      position: relative;
+    }
+
+    .message.from-voice .voice-badge {
+      position: absolute;
+      top: -8px;
+      right: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: #ef4444;
+      background: var(--bg-secondary);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid #ef4444;
+    }
+
+    .message.from-voice .voice-badge svg {
+      width: 10px;
+      height: 10px;
+    }
+
     /* Queue indicator in status */
     .queue-indicator {
       display: flex;
@@ -941,6 +968,113 @@
     .attach-btn svg {
       width: 18px;
       height: 18px;
+    }
+
+    /* Voice recording button */
+    .voice-btn {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      flex-shrink: 0;
+    }
+
+    .voice-btn:hover {
+      background: var(--border);
+      color: var(--accent);
+      transform: scale(1.1);
+    }
+
+    .voice-btn.recording {
+      color: #ef4444;
+      animation: recording-pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes recording-pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.15); opacity: 0.7; }
+    }
+
+    .voice-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* TTS play button on assistant messages */
+    .tts-play-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      cursor: pointer;
+      color: var(--text-muted);
+      opacity: 0;
+      transition: all 0.2s ease;
+      margin-left: 4px;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+
+    .message.assistant:hover .tts-play-btn {
+      opacity: 1;
+    }
+
+    .tts-play-btn:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .tts-play-btn.playing {
+      color: var(--error);
+      opacity: 1;
+      border-color: var(--error);
+    }
+
+    .tts-play-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Auto-TTS toggle in header */
+    .tts-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+
+    .tts-toggle:hover {
+      background: var(--border);
+    }
+
+    .tts-toggle.active {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: rgba(168, 85, 247, 0.1);
+    }
+
+    .tts-toggle svg {
+      width: 14px;
+      height: 14px;
     }
 
     #message-input {
@@ -1317,6 +1451,12 @@
       <h1>Pocket Agent<span id="version-badge" class="version-badge"></span><span id="model-badge" class="model-badge"></span></h1>
     </div>
     <div class="header-right">
+      <button class="tts-toggle" id="tts-toggle" onclick="toggleAutoTTS()" title="Auto-read: OFF">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+        </svg>
+      </button>
       <div class="stats" id="stats"></div>
       <div class="hamburger-menu">
         <button class="hamburger-btn" onclick="toggleMenu()" id="hamburger-btn">
@@ -1407,6 +1547,14 @@
           <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
         </svg>
       </button>
+      <button class="voice-btn" id="voice-btn" onclick="toggleRecording()" title="Record voice message">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
       <div class="textarea-wrapper">
         <div id="ghost-suggestion"></div>
         <textarea
@@ -1483,6 +1631,304 @@
       }
     }
 
+    function autoResizeTextarea() {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 150) + 'px';
+    }
+
+    // ============ Voice Recording (Raw PCM capture + macOS Speech Recognition) ============
+
+    let recAudioContext = null;
+    let recSource = null;
+    let recProcessor = null;
+    let recStream = null;
+    let recChunks = [];
+    let isRecording = false;
+    let recordingTimer = null;
+    let recordingStartTime = null;
+    let nextMessageIsVoice = false;
+
+    function toggleRecording() {
+      if (isRecording) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
+    }
+
+    async function startRecording() {
+      // Request microphone permission from macOS first
+      try {
+        const permResult = await window.pocketAgent.requestMicPermission();
+        if (!permResult.granted) {
+          addMessage('error', 'Microphone access denied. Allow in System Settings > Privacy & Security > Microphone.');
+          return;
+        }
+      } catch (e) {
+        console.warn('Mic permission check failed:', e);
+      }
+
+      try {
+        recStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+        recChunks = [];
+
+        // Capture raw PCM samples directly (avoids webm format conversion issues)
+        recAudioContext = new AudioContext({ sampleRate: 16000 });
+        recSource = recAudioContext.createMediaStreamSource(recStream);
+        recProcessor = recAudioContext.createScriptProcessor(4096, 1, 1);
+
+        recProcessor.onaudioprocess = function(e) {
+          if (isRecording) {
+            var channelData = e.inputBuffer.getChannelData(0);
+            recChunks.push(new Float32Array(channelData));
+          }
+        };
+
+        recSource.connect(recProcessor);
+        recProcessor.connect(recAudioContext.destination);
+
+        isRecording = true;
+        recordingStartTime = Date.now();
+
+        var voiceBtn = document.getElementById('voice-btn');
+        voiceBtn.classList.add('recording');
+        voiceBtn.title = 'Stop recording';
+
+        updateRecordingTimer();
+        recordingTimer = setInterval(updateRecordingTimer, 1000);
+      } catch (err) {
+        console.error('Failed to start recording:', err);
+        addMessage('error', 'Failed to access microphone.');
+      }
+    }
+
+    async function stopRecording() {
+      if (!isRecording) { resetRecordingUI(); return; }
+      isRecording = false;
+
+      // Disconnect audio nodes
+      if (recProcessor) { recProcessor.disconnect(); recProcessor = null; }
+      if (recSource) { recSource.disconnect(); recSource = null; }
+      if (recAudioContext) { recAudioContext.close(); recAudioContext = null; }
+      if (recStream) { recStream.getTracks().forEach(function(t) { t.stop(); }); recStream = null; }
+
+      clearInterval(recordingTimer);
+      recordingTimer = null;
+
+      if (recChunks.length === 0) { resetRecordingUI(); return; }
+
+      input.placeholder = 'Transcribing...';
+      var voiceBtn = document.getElementById('voice-btn');
+      voiceBtn.classList.remove('recording');
+
+      try {
+        // Merge PCM chunks and encode as WAV
+        var wavBuffer = encodePcmToWav(recChunks, 16000);
+        recChunks = [];
+
+        var result = await window.pocketAgent.transcribeAudio(wavBuffer);
+        resetRecordingUI();
+
+        if (result.success && result.text) {
+          input.value = result.text;
+          autoResizeTextarea();
+          nextMessageIsVoice = true;
+          sendMessage();
+        } else {
+          addMessage('error', result.error || 'Transcription failed.');
+        }
+      } catch (err) {
+        console.error('Transcription error:', err);
+        resetRecordingUI();
+        addMessage('error', 'Failed to transcribe: ' + (err.message || err));
+      }
+    }
+
+    function resetRecordingUI() {
+      isRecording = false;
+      clearInterval(recordingTimer);
+      recordingTimer = null;
+      recChunks = [];
+
+      var voiceBtn = document.getElementById('voice-btn');
+      voiceBtn.classList.remove('recording');
+      voiceBtn.title = 'Record voice message';
+      input.placeholder = "what's on your mind? \u2728";
+    }
+
+    var MAX_RECORDING_SECS = 15 * 60; // 15 minutes
+
+    function updateRecordingTimer() {
+      var elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+      if (elapsed >= MAX_RECORDING_SECS) {
+        stopRecording();
+        return;
+      }
+      var remaining = MAX_RECORDING_SECS - elapsed;
+      var mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+      var secs = (elapsed % 60).toString().padStart(2, '0');
+      if (remaining <= 60) {
+        input.placeholder = '\uD83D\uDD34 Recording... ' + mins + ':' + secs + ' (' + remaining + 's left)';
+      } else {
+        input.placeholder = '\uD83D\uDD34 Recording... ' + mins + ':' + secs;
+      }
+    }
+
+    // Encode raw Float32 PCM chunks directly to WAV (no format conversion needed)
+    function encodePcmToWav(chunks, sampleRate) {
+      // Calculate total length
+      var totalSamples = 0;
+      for (var c = 0; c < chunks.length; c++) totalSamples += chunks[c].length;
+
+      var dataLength = totalSamples * 2; // 16-bit = 2 bytes per sample
+      var buffer = new ArrayBuffer(44 + dataLength);
+      var view = new DataView(buffer);
+
+      // WAV header
+      writeWavStr(view, 0, 'RIFF');
+      view.setUint32(4, 36 + dataLength, true);
+      writeWavStr(view, 8, 'WAVE');
+      writeWavStr(view, 12, 'fmt ');
+      view.setUint32(16, 16, true);       // chunk size
+      view.setUint16(20, 1, true);        // PCM format
+      view.setUint16(22, 1, true);        // mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true); // byte rate
+      view.setUint16(32, 2, true);        // block align
+      view.setUint16(34, 16, true);       // bits per sample
+      writeWavStr(view, 36, 'data');
+      view.setUint32(40, dataLength, true);
+
+      // Write PCM samples
+      var offset = 44;
+      for (var i = 0; i < chunks.length; i++) {
+        var chunk = chunks[i];
+        for (var j = 0; j < chunk.length; j++) {
+          var s = Math.max(-1, Math.min(1, chunk[j]));
+          view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+          offset += 2;
+        }
+      }
+
+      return buffer;
+    }
+
+    function writeWavStr(view, offset, str) {
+      for (var i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    }
+
+    // ============ Text-to-Speech (Edge TTS - Brian) ============
+
+    let autoTTSEnabled = false;
+    let currentTTSAudio = null;
+
+    async function initTTS() {
+      try {
+        const setting = await window.pocketAgent.getSetting('voice.ttsEnabled');
+        autoTTSEnabled = setting === 'true';
+        updateTTSToggleUI();
+      } catch (e) {
+        console.warn('Failed to init TTS setting:', e);
+      }
+    }
+
+    function updateTTSToggleUI() {
+      const toggle = document.getElementById('tts-toggle');
+      if (toggle) {
+        toggle.classList.toggle('active', autoTTSEnabled);
+        toggle.title = autoTTSEnabled ? 'Auto-read: ON' : 'Auto-read: OFF';
+      }
+    }
+
+    async function toggleAutoTTS() {
+      autoTTSEnabled = !autoTTSEnabled;
+      updateTTSToggleUI();
+      try {
+        await window.pocketAgent.setSetting('voice.ttsEnabled', autoTTSEnabled.toString());
+      } catch (e) {
+        console.warn('Failed to save TTS setting:', e);
+      }
+    }
+
+    var TTS_PLAY_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+    var TTS_STOP_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+    function setTTSButtonState(btn, playing) {
+      if (!btn) return;
+      if (playing) {
+        btn.classList.add('playing');
+        btn.innerHTML = TTS_STOP_ICON;
+        btn.title = 'Stop';
+      } else {
+        btn.classList.remove('playing');
+        btn.innerHTML = TTS_PLAY_ICON;
+        btn.title = 'Read aloud';
+      }
+    }
+
+    async function playTTS(text, buttonEl) {
+      // If already playing, stop
+      if (currentTTSAudio) {
+        currentTTSAudio.pause();
+        currentTTSAudio = null;
+        document.querySelectorAll('.tts-play-btn.playing').forEach(function(btn) { setTTSButtonState(btn, false); });
+        if (buttonEl && buttonEl.classList.contains('playing')) return;
+      }
+
+      try {
+        setTTSButtonState(buttonEl, true);
+
+        const result = await window.pocketAgent.synthesizeTTS(text);
+        if (!result.success) {
+          console.error('TTS failed:', result.error);
+          setTTSButtonState(buttonEl, false);
+          return;
+        }
+
+        const audio = new Audio('file://' + result.audioPath);
+        currentTTSAudio = audio;
+
+        audio.onended = function() {
+          currentTTSAudio = null;
+          setTTSButtonState(buttonEl, false);
+        };
+
+        audio.onerror = function() {
+          currentTTSAudio = null;
+          setTTSButtonState(buttonEl, false);
+          console.error('Failed to play TTS audio');
+        };
+
+        await audio.play();
+      } catch (err) {
+        currentTTSAudio = null;
+        setTTSButtonState(buttonEl, false);
+        console.error('TTS playback error:', err);
+      }
+    }
+
+    function addTTSButton(messageElement, text) {
+      const btn = document.createElement('button');
+      btn.className = 'tts-play-btn';
+      btn.title = 'Read aloud';
+      btn.innerHTML = TTS_PLAY_ICON;
+      btn.onclick = function(e) {
+        e.stopPropagation();
+        playTTS(text, btn);
+      };
+
+      // Add after the timestamp
+      const timestamp = messageElement.querySelector('.message-timestamp');
+      if (timestamp) {
+        timestamp.style.display = 'inline-block';
+        timestamp.parentNode.insertBefore(btn, timestamp.nextSibling);
+      } else {
+        messageElement.appendChild(btn);
+      }
+    }
+
     // Session state
     const MAX_TABS = 5;
     let sessions = [];
@@ -1526,8 +1972,9 @@
       updateStats();
       input.focus();
 
-      // Initialize notification sound
+      // Initialize notification sound and TTS
       initNotificationSound();
+      initTTS();
 
       // Listen for scheduler messages
       window.pocketAgent.onSchedulerMessage((data) => {
@@ -2046,7 +2493,19 @@
       clearAttachments();
 
       // Show user message - mark as queued if there's already a message processing
+      const isVoice = nextMessageIsVoice;
+      nextMessageIsVoice = false;
       const userMsgEl = addMessage('user', message, true, attachments);
+
+      // Add voice badge if sent via voice
+      if (isVoice) {
+        userMsgEl.classList.add('from-voice');
+        const badge = document.createElement('span');
+        badge.className = 'voice-badge';
+        badge.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg> voice';
+        userMsgEl.appendChild(badge);
+      }
+
       if (isQueued) {
         userMsgEl.classList.add('queued');
         userMsgEl.dataset.messageId = messageId;
@@ -2118,6 +2577,11 @@
 
           if (result.success) {
             addMessage('assistant', result.response);
+
+            // Auto-TTS if enabled
+            if (autoTTSEnabled && result.response) {
+              playTTS(result.response, null);
+            }
 
             // If there's a suggested prompt, show it as ghost text
             if (result.suggestedPrompt) {
@@ -2287,6 +2751,11 @@
       timestampDiv.className = 'message-timestamp';
       timestampDiv.textContent = formatTimestamp(ts);
       div.appendChild(timestampDiv);
+
+      // Add TTS play button for assistant messages
+      if (role === 'assistant' && content) {
+        addTTSButton(div, content);
+      }
 
       // Insert before status indicator if one exists (keeps indicator at bottom)
       const statusIndicator = messagesDiv.querySelector('.status-indicator');
@@ -2776,10 +3245,7 @@
     });
 
     // Auto-resize textarea
-    input.addEventListener('input', () => {
-      input.style.height = 'auto';
-      input.style.height = Math.min(input.scrollHeight, 150) + 'px';
-    });
+    input.addEventListener('input', autoResizeTextarea);
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {

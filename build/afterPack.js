@@ -62,6 +62,25 @@ exports.default = async function(context) {
     cleanDirectory(nodeModulesPath, ['.md', '.markdown']);
   }
 
+  // 4. Compile speech transcriber binary for the target architecture
+  const sourceFile = path.join(appPath, 'assets', 'transcribe-speech.m');
+  const binaryFile = path.join(appPath, 'assets', 'transcribe-speech');
+  if (fs.existsSync(sourceFile)) {
+    const { execSync } = require('child_process');
+    const target = arch === 'arm64' ? 'arm64-apple-macos13.0' : 'x86_64-apple-macos13.0';
+    try {
+      execSync(`clang -target ${target} -framework Speech -framework Foundation -O2 -o "${binaryFile}" "${sourceFile}"`, { stdio: 'pipe' });
+      console.log(`[afterPack] Compiled transcribe-speech for ${arch}`);
+      // Remove source file from bundle
+      fs.unlinkSync(sourceFile);
+      // Remove Swift source if present
+      const swiftFile = path.join(appPath, 'assets', 'transcribe-speech.swift');
+      if (fs.existsSync(swiftFile)) fs.unlinkSync(swiftFile);
+    } catch (err) {
+      console.warn(`[afterPack] Failed to compile transcribe-speech: ${err.message}`);
+    }
+  }
+
   console.log('[afterPack] Cleanup complete');
 };
 

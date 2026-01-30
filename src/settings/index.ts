@@ -342,6 +342,17 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     type: 'boolean',
   },
 
+  // Voice settings
+  {
+    key: 'voice.ttsEnabled',
+    defaultValue: 'false',
+    encrypted: false,
+    category: 'voice',
+    label: 'Auto TTS',
+    description: 'Automatically read agent responses aloud',
+    type: 'boolean',
+  },
+
   // Window state settings
   {
     key: 'window.chatBounds',

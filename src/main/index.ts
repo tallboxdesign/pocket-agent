@@ -1368,6 +1368,137 @@ function setupIPC(): void {
     }
   });
 
+  // Voice - microphone permission
+  ipcMain.handle('voice:micPermission', async () => {
+    try {
+      const { systemPreferences } = await import('electron');
+      const granted = await systemPreferences.askForMediaAccess('microphone');
+      return { granted };
+    } catch (error) {
+      console.error('[Voice] Mic permission error:', error);
+      return { granted: false };
+    }
+  });
+
+  // Voice - transcribe audio via macOS SFSpeechRecognizer (free, on-device)
+  // Splits long recordings into ~55s chunks for reliable recognition
+  ipcMain.handle('voice:transcribe', async (_, audioData: ArrayBuffer) => {
+    try {
+      const fs = await import('fs');
+      const { execFile } = await import('child_process');
+
+      const tempDir = path.join(app.getPath('temp'), 'pocket-agent-voice');
+      fs.mkdirSync(tempDir, { recursive: true });
+
+      // Find the transcriber binary
+      let binaryPath: string;
+      if (app.isPackaged) {
+        binaryPath = path.join(process.resourcesPath, 'app', 'assets', 'transcribe-speech');
+      } else {
+        binaryPath = path.join(__dirname, '..', '..', 'assets', 'transcribe-speech');
+      }
+
+      if (!fs.existsSync(binaryPath)) {
+        return { success: false, error: 'Speech transcriber not found. Rebuild the app.' };
+      }
+
+      const buffer = Buffer.from(audioData);
+
+      // Parse WAV header: sample rate at offset 24 (4 bytes LE), block align at offset 32 (2 bytes LE)
+      const sampleRate = buffer.readUInt32LE(24);
+      const blockAlign = buffer.readUInt16LE(32);
+      const dataStart = 44; // Standard WAV header size
+      const dataLength = buffer.length - dataStart;
+
+      // Split into ~55-second chunks
+      const chunkSeconds = 55;
+      const bytesPerChunk = sampleRate * blockAlign * chunkSeconds;
+      const chunkCount = Math.ceil(dataLength / bytesPerChunk);
+
+      console.log(`[Voice] Transcribing ${Math.round(dataLength / (sampleRate * blockAlign))}s audio in ${chunkCount} chunk(s)`);
+
+      // Helper to write a WAV chunk file
+      const writeChunkWav = (chunkIndex: number): string => {
+        const chunkStart = chunkIndex * bytesPerChunk;
+        const chunkEnd = Math.min(chunkStart + bytesPerChunk, dataLength);
+        const chunkDataLen = chunkEnd - chunkStart;
+        const chunkFile = path.join(tempDir, `chunk-${Date.now()}-${chunkIndex}.wav`);
+
+        // Build WAV with correct header for this chunk
+        const chunkBuf = Buffer.alloc(44 + chunkDataLen);
+        // Copy original header
+        buffer.copy(chunkBuf, 0, 0, 44);
+        // Fix sizes in header
+        chunkBuf.writeUInt32LE(36 + chunkDataLen, 4); // RIFF chunk size
+        chunkBuf.writeUInt32LE(chunkDataLen, 40);      // data chunk size
+        // Copy audio data
+        buffer.copy(chunkBuf, 44, dataStart + chunkStart, dataStart + chunkEnd);
+        fs.writeFileSync(chunkFile, chunkBuf);
+        return chunkFile;
+      };
+
+      // Transcribe a single chunk file
+      const transcribeChunk = (filePath: string): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          execFile(binaryPath, [filePath], { timeout: 90000 }, (error, stdout, stderr) => {
+            try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+            if (error) {
+              if (stderr?.includes('not authorized')) {
+                reject(new Error('Speech recognition permission denied. Allow in System Settings > Privacy & Security > Speech Recognition.'));
+              } else {
+                reject(new Error(stderr?.trim() || error.message));
+              }
+            } else {
+              resolve(stdout.trim());
+            }
+          });
+        });
+      };
+
+      // Process chunks sequentially (Apple rate-limits concurrent requests)
+      const results: string[] = [];
+      for (let i = 0; i < chunkCount; i++) {
+        const chunkFile = writeChunkWav(i);
+        try {
+          const text = await transcribeChunk(chunkFile);
+          if (text) results.push(text);
+        } catch (err) {
+          // Clean up remaining chunks on auth error
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (errMsg.includes('not authorized') || errMsg.includes('permission')) {
+            return { success: false, error: errMsg };
+          }
+          console.warn(`[Voice] Chunk ${i + 1}/${chunkCount} failed: ${errMsg}`);
+          // Continue with other chunks
+        }
+      }
+
+      const fullText = results.join(' ').trim();
+      if (!fullText) {
+        return { success: false, error: 'No speech detected. Try speaking louder or closer to the mic.' };
+      }
+      return { success: true, text: fullText };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Transcription failed';
+      console.error('[Voice] Transcription error:', errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  });
+
+  // Voice TTS
+  ipcMain.handle('voice:tts', async (_, text: string) => {
+    try {
+      const { synthesizeSpeech } = await import('../voice/tts');
+      const ttsDir = path.join(app.getPath('userData'), 'tts-cache');
+      const audioPath = await synthesizeSpeech(text, ttsDir);
+      return { success: true, audioPath };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'TTS failed';
+      console.error('[Voice] TTS error:', errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  });
+
   // Skills
   ipcMain.handle('skills:getStatus', async () => {
     const {
@@ -1808,6 +1939,34 @@ app.whenReady().then(async () => {
       if (fs.existsSync(dockIconPath)) {
         app.dock?.setIcon(dockIconPath);
       }
+    }
+
+    // Clean up voice/TTS audio files older than 24 hours
+    try {
+      const voiceDirs = [
+        path.join(app.getPath('temp'), 'pocket-agent-voice'),
+        path.join(app.getPath('userData'), 'tts-cache'),
+      ];
+      const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+      const now = Date.now();
+      for (const dir of voiceDirs) {
+        if (!fs.existsSync(dir)) continue;
+        const files = fs.readdirSync(dir);
+        let removed = 0;
+        for (const file of files) {
+          const filePath = path.join(dir, file);
+          try {
+            const stat = fs.statSync(filePath);
+            if (stat.isFile() && now - stat.mtimeMs > maxAge) {
+              fs.unlinkSync(filePath);
+              removed++;
+            }
+          } catch { /* skip */ }
+        }
+        if (removed > 0) console.log(`[Voice] Cleaned ${removed} old files from ${path.basename(dir)}`);
+      }
+    } catch (e) {
+      console.warn('[Voice] Cleanup error:', e);
     }
 
     const userDataPath = app.getPath('userData');

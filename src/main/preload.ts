@@ -110,6 +110,11 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   selectFile: (options?: { title?: string; filters?: Array<{ name: string; extensions: string[] }> }) =>
     ipcRenderer.invoke('skills:selectFile', options || {}),
 
+  // Voice
+  synthesizeTTS: (text: string) => ipcRenderer.invoke('voice:tts', text),
+  requestMicPermission: () => ipcRenderer.invoke('voice:micPermission'),
+  transcribeAudio: (audioData: ArrayBuffer) => ipcRenderer.invoke('voice:transcribe', audioData),
+
   // Updates
   checkForUpdates: () => ipcRenderer.invoke('updater:checkForUpdates'),
   downloadUpdate: () => ipcRenderer.invoke('updater:downloadUpdate'),
@@ -214,6 +219,10 @@ declare global {
       completeOAuth: (code: string) => Promise<{ success: boolean; error?: string }>;
       cancelOAuth: () => Promise<{ success: boolean }>;
       isOAuthPending: () => Promise<boolean>;
+      // Voice
+      synthesizeTTS: (text: string) => Promise<{ success: boolean; audioPath?: string; error?: string }>;
+      requestMicPermission: () => Promise<{ granted: boolean }>;
+      transcribeAudio: (audioData: ArrayBuffer) => Promise<{ success: boolean; text?: string; error?: string }>;
       // Skills
       getSkillsStatus: () => Promise<{
         skills: Array<{
