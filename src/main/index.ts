@@ -14,10 +14,10 @@ import { initializeUpdater, setupUpdaterIPC, setSettingsWindow } from './updater
 import cityTimezones from 'city-timezones';
 
 // Handle EPIPE errors gracefully (happens when stdout pipe is closed)
-process.stdout?.on('error', (err) => {
+process.stdout?.on('error', (err: Error & { code?: string }) => {
   if (err.code === 'EPIPE') return;
 });
-process.stderr?.on('error', (err) => {
+process.stderr?.on('error', (err: Error & { code?: string }) => {
   if (err.code === 'EPIPE') return;
 });
 process.on('uncaughtException', (err) => {
