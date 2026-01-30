@@ -772,9 +772,7 @@ multiline</pre>
         );
 
         // Build the prompt with transcript
-        const prompt = caption
-          ? `${caption}\n\nVoice message transcript:\n"${transcription.text}"`
-          : `Voice message transcript:\n"${transcription.text}"`;
+        const prompt = caption ? `${caption}\n\n${transcription.text}` : transcription.text;
 
         // Look up which session this chat is linked to
         const memory = AgentManager.getMemory();
@@ -796,8 +794,8 @@ multiline</pre>
               ? transcription.text.substring(0, 50) + '...'
               : transcription.text;
           const displayMessage = caption
-            ? `${caption} [🎤 "${transcriptPreview}"]`
-            : `🎤 "${transcriptPreview}"`;
+            ? `${caption}\n\n${transcriptPreview}`
+            : transcriptPreview;
 
           this.onMessageCallback({
             userMessage: displayMessage,
