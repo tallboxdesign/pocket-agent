@@ -1506,6 +1506,17 @@
           <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
         </svg>
       </button>
+      <button class="tts-toggle" onclick="openAllTasks()" title="All Tasks">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="9" y1="8" x2="18" y2="8"/>
+          <line x1="9" y1="12" x2="18" y2="12"/>
+          <line x1="9" y1="16" x2="18" y2="16"/>
+          <circle cx="6" cy="8" r="0.5" fill="currentColor"/>
+          <circle cx="6" cy="12" r="0.5" fill="currentColor"/>
+          <circle cx="6" cy="16" r="0.5" fill="currentColor"/>
+        </svg>
+      </button>
       <div class="stats" id="stats"></div>
       <div class="hamburger-menu">
         <button class="hamburger-btn" onclick="toggleMenu()" id="hamburger-btn">
@@ -1893,6 +1904,12 @@
       for (var i = 0; i < str.length; i++) {
         view.setUint8(offset + i, str.charCodeAt(i));
       }
+    }
+
+    // ============ All Tasks (opens Kanban) ============
+
+    function openAllTasks() {
+      window.pocketAgent.openKanban();
     }
 
     // ============ Text-to-Speech (Edge TTS - Brian) ============
