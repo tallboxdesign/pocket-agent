@@ -130,6 +130,10 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   kanbanUpdateTask: (id: number, updates: Record<string, unknown>) =>
     ipcRenderer.invoke('kanban:updateTask', id, updates),
   kanbanMoveTask: (id: number, status: string) => ipcRenderer.invoke('kanban:moveTask', id, status),
+  kanbanMoveTaskToProject: (id: number, projectId: number) =>
+    ipcRenderer.invoke('kanban:moveTaskToProject', id, projectId),
+  kanbanGetAllTasks: (statusFilter?: string[]) =>
+    ipcRenderer.invoke('kanban:getAllTasks', statusFilter),
   kanbanDeleteTask: (id: number) => ipcRenderer.invoke('kanban:deleteTask', id),
   kanbanAddComment: (taskId: number, comment: string) =>
     ipcRenderer.invoke('kanban:addComment', taskId, comment),
@@ -275,6 +279,8 @@ declare global {
       kanbanGetTask: (id: number) => Promise<Record<string, unknown> | null>;
       kanbanUpdateTask: (id: number, updates: Record<string, unknown>) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
       kanbanMoveTask: (id: number, status: string) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
+      kanbanMoveTaskToProject: (id: number, projectId: number) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;
+      kanbanGetAllTasks: (statusFilter?: string[]) => Promise<Array<Record<string, unknown>>>;
       kanbanDeleteTask: (id: number) => Promise<{ success: boolean }>;
       kanbanAddComment: (taskId: number, comment: string) => Promise<{ success: boolean; error?: string }>;
       kanbanGetActivity: (taskId: number, limit?: number) => Promise<Array<Record<string, unknown>>>;

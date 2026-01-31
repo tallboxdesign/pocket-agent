@@ -377,10 +377,10 @@
       font-size: 10px;
       font-weight: 500;
       color: var(--text-muted);
-      background: var(--bg-primary);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 2px 6px;
+      background: rgba(99, 99, 102, 0.15);
+      border: 1px solid transparent;
+      border-radius: 10px;
+      padding: 2px 8px;
     }
 
     .subtask-indicator {
@@ -609,6 +609,135 @@
       border-color: var(--accent);
     }
 
+    .detail-desc-view {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 12px;
+      line-height: 1.5;
+      min-height: 60px;
+      cursor: pointer;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .detail-desc-view:hover {
+      border-color: var(--accent);
+    }
+
+    .detail-desc-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .detail-desc-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .detail-desc-action-btn {
+      padding: 2px 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .detail-desc-action-btn:hover {
+      background: var(--border);
+      color: var(--text-primary);
+    }
+
+    .desc-pill {
+      display: inline;
+      background: rgba(168, 85, 247, 0.15);
+      color: var(--accent);
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .detail-tag-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .detail-tag-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--accent);
+      background: rgba(168, 85, 247, 0.1);
+      border-radius: 10px;
+      padding: 2px 6px 2px 8px;
+    }
+
+    .detail-tag-remove {
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1;
+      opacity: 0.6;
+      transition: opacity 0.15s;
+    }
+
+    .detail-tag-remove:hover {
+      opacity: 1;
+      color: var(--error);
+    }
+
+    .detail-tag-add-input {
+      padding: 3px 8px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-primary);
+      font-size: 10px;
+      font-family: inherit;
+      outline: none;
+      width: 80px;
+    }
+
+    .detail-tag-add-input:focus {
+      border-color: var(--accent);
+    }
+
+    .detail-assignee-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-primary);
+      background: rgba(99, 99, 102, 0.2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 3px 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .detail-assignee-pill:hover {
+      border-color: var(--accent);
+      background: rgba(168, 85, 247, 0.1);
+    }
+
     .detail-row {
       display: flex;
       gap: 12px;
@@ -760,6 +889,38 @@
       font-size: 12px;
       color: var(--text-secondary);
       line-height: 1.4;
+    }
+
+    .activity-actor {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 8px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    .activity-actor.actor-user {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+    }
+
+    .activity-actor.actor-agent,
+    .activity-actor.actor-claude {
+      background: rgba(168, 85, 247, 0.15);
+      color: var(--accent);
+    }
+
+    .activity-actor.actor-system,
+    .activity-actor.actor-scheduler {
+      background: rgba(99, 99, 102, 0.15);
+      color: #636366;
+    }
+
+    .activity-actor.actor-glm {
+      background: rgba(59, 130, 246, 0.15);
+      color: #3b82f6;
     }
 
     .activity-time {
@@ -1019,6 +1180,98 @@
     }
 
     /* ── Overview Modal ── */
+    .alltasks-modal {
+      width: 800px;
+      max-width: 95%;
+      max-height: 85vh;
+    }
+
+    .alltasks-modal .modal-body {
+      padding: 12px;
+      overflow-y: auto;
+      max-height: 65vh;
+    }
+
+    .alltasks-filters {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .alltasks-filter-btn {
+      padding: 4px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--bg-primary);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .alltasks-filter-btn:hover {
+      border-color: var(--accent);
+      color: var(--text-primary);
+    }
+
+    .alltasks-filter-btn.active {
+      background: rgba(168, 85, 247, 0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .alltasks-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .alltasks-table th {
+      text-align: left;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .alltasks-table td {
+      font-size: 12px;
+      padding: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: var(--text-primary);
+      vertical-align: middle;
+    }
+
+    .alltasks-table tr {
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    .alltasks-table tr:hover {
+      background: rgba(168, 85, 247, 0.06);
+    }
+
+    .alltasks-project-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    .alltasks-status-badge {
+      font-size: 10px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 8px;
+      white-space: nowrap;
+    }
+
     .overview-modal {
       width: 640px;
       max-width: 95%;
@@ -1588,6 +1841,7 @@
     </div>
     <div class="header-actions">
       <button onclick="openOverviewModal()" title="All projects overview" style="padding:6px 10px;font-size:15px;">&#x1F4CA;</button>
+      <button onclick="openAllTasksModal()" title="All tasks across projects" style="padding:6px 10px;font-size:15px;">&#x1F4CB;</button>
       <button onclick="toggleMute()" id="mute-btn" title="Mute sounds" style="padding:6px 10px;font-size:15px;">&#x1F50A;</button>
       <button onclick="toggleArchive()" id="archive-btn" title="View archived/done tasks">Archive</button>
       <button onclick="refreshBoard()" title="Refresh board" style="padding:6px 10px;font-size:15px;">&#x21bb;</button>
@@ -1760,12 +2014,42 @@
     </div>
   </div>
 
+  <!-- All Tasks Modal -->
+  <div class="modal-overlay" id="alltasks-modal-overlay">
+    <div class="modal alltasks-modal">
+      <div class="modal-header">All Tasks</div>
+      <div class="modal-body">
+        <div class="alltasks-filters" id="alltasks-filters">
+          <!-- Filled dynamically -->
+        </div>
+        <table class="alltasks-table">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Project</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="alltasks-body">
+            <!-- Filled dynamically -->
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-cancel-btn" onclick="closeAllTasksModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // ── State ──
     let projects = [];
     let currentProjectId = null;
     let boardData = null;
     let currentDetailTaskId = null;
+    let detailTaskProjectId = null;
     let detailPanelSide = localStorage.getItem('kanban_panel_side') || 'right';
     let detailExpanded = false;
     let detailTTSAudio = null;
@@ -2367,6 +2651,143 @@
       el.style.height = Math.max(60, el.scrollHeight) + 'px';
     }
 
+    function renderDescriptionWithPills(text) {
+      if (!text) return '<span style="color:var(--text-muted)">No description</span>';
+      var html = escapeHtml(text);
+      html = html.replace(/\*\*(.+?)\*\*/g, '<span class="desc-pill">$1</span>');
+      return html;
+    }
+
+    function toggleDescriptionEdit() {
+      var view = document.getElementById('detail-desc-view');
+      var textarea = document.getElementById('detail-desc');
+      var editBtn = document.getElementById('desc-edit-btn');
+      if (!view || !textarea) return;
+
+      if (textarea.style.display === 'none') {
+        view.style.display = 'none';
+        textarea.style.display = '';
+        autoGrowTextarea(textarea);
+        textarea.focus();
+        if (editBtn) editBtn.textContent = 'View';
+      } else {
+        exitDescriptionEdit();
+      }
+    }
+
+    function exitDescriptionEdit() {
+      var view = document.getElementById('detail-desc-view');
+      var textarea = document.getElementById('detail-desc');
+      var editBtn = document.getElementById('desc-edit-btn');
+      if (!view || !textarea) return;
+
+      view.innerHTML = renderDescriptionWithPills(textarea.value);
+      view.style.display = '';
+      textarea.style.display = 'none';
+      if (editBtn) editBtn.textContent = 'Edit';
+    }
+
+    function copyDescription() {
+      var textarea = document.getElementById('detail-desc');
+      if (!textarea) return;
+      var text = textarea.value || '';
+      navigator.clipboard.writeText(text).then(function() {
+        showToast('Description copied', 'success');
+      }).catch(function() {
+        showToast('Failed to copy', 'error');
+      });
+    }
+
+    function toggleAssigneeEdit() {
+      var pill = document.getElementById('detail-assignee-pill');
+      var input = document.getElementById('detail-assignee');
+      if (!pill || !input) return;
+      pill.style.display = 'none';
+      input.style.display = '';
+      input.focus();
+      input.select();
+    }
+
+    function exitAssigneeEdit() {
+      var pill = document.getElementById('detail-assignee-pill');
+      var input = document.getElementById('detail-assignee');
+      if (!pill || !input) return;
+      pill.textContent = input.value.trim() || 'claude';
+      pill.style.display = '';
+      input.style.display = 'none';
+    }
+
+    function removeTag(tagToRemove) {
+      var hidden = document.getElementById('detail-tags');
+      var tags = hidden.value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t && t !== tagToRemove; });
+      hidden.value = tags.join(', ');
+      refreshTagPills();
+    }
+
+    function addTag(newTag) {
+      var trimmed = newTag.trim();
+      if (!trimmed) return;
+      var hidden = document.getElementById('detail-tags');
+      var tags = hidden.value ? hidden.value.split(',').map(function(t) { return t.trim(); }).filter(Boolean) : [];
+      if (tags.includes(trimmed)) return;
+      tags.push(trimmed);
+      hidden.value = tags.join(', ');
+      refreshTagPills();
+    }
+
+    function refreshTagPills() {
+      var hidden = document.getElementById('detail-tags');
+      var container = document.getElementById('detail-tag-pills');
+      if (!container || !hidden) return;
+      var tags = hidden.value ? hidden.value.split(',').map(function(t) { return t.trim(); }).filter(Boolean) : [];
+      container.innerHTML = tags.map(function(t) {
+        return '<span class="detail-tag-pill">' + escapeHtml(t) + '<span class="detail-tag-remove" onclick="removeTag(\'' + escapeAttr(t) + '\')">&times;</span></span>';
+      }).join('') + '<input class="detail-tag-add-input" id="detail-tag-add" placeholder="+ tag" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addTag(this.value);this.value=\'\';}">';
+    }
+
+    function formatActivityText(a) {
+      var action = a.action || '';
+      var detail = a.details || '';
+      switch (action) {
+        case 'created': return 'Created task' + (a.new_value ? ' → ' + a.new_value : '');
+        case 'status_changed': return 'Moved ' + (a.old_value || '?') + ' → ' + (a.new_value || '?');
+        case 'priority_changed': return 'Priority ' + (a.old_value || '?') + ' → ' + (a.new_value || '?');
+        case 'title_changed': return 'Renamed to "' + (a.new_value || '') + '"';
+        case 'description_updated': return 'Updated description';
+        case 'assignee_changed': return 'Assigned to ' + (a.new_value || '?');
+        case 'moved_to_project': return 'Moved to project #' + (a.new_value || '?');
+        case 'approved': return 'Approved task';
+        case 'rejected': return 'Rejected' + (detail ? ': ' + detail : '');
+        case 'comment': return detail || 'Added a comment';
+        case 'deleted': return 'Deleted task';
+        case 'attachment_added': return 'Added attachment: ' + (a.new_value || '');
+        case 'attachment_removed': return 'Removed attachment: ' + (a.old_value || '');
+        default: return detail || action;
+      }
+    }
+
+    function getActorClass(actor) {
+      if (!actor) return 'actor-system';
+      var a = actor.toLowerCase();
+      if (a === 'user') return 'actor-user';
+      if (a === 'agent' || a === 'claude') return 'actor-claude';
+      if (a === 'glm') return 'actor-glm';
+      if (a === 'scheduler') return 'actor-scheduler';
+      if (a.startsWith('worker')) return 'actor-agent';
+      return 'actor-system';
+    }
+
+    function getActorLabel(actor) {
+      if (!actor) return 'System';
+      var a = actor.toLowerCase();
+      if (a === 'user') return 'You';
+      if (a === 'agent' || a === 'claude') return 'Agent';
+      if (a === 'glm') return 'GLM';
+      if (a === 'scheduler') return 'Scheduler';
+      if (a.startsWith('worker:')) return 'Worker';
+      return actor;
+    }
+
     function stopDetailTTS() {
       if (detailTTSAudio) {
         detailTTSAudio.pause();
@@ -2424,6 +2845,7 @@
           showToast('Task not found', 'error');
           return;
         }
+        detailTaskProjectId = task.project_id;
         renderDetail(task);
         applyPanelSide();
         document.getElementById('detail-overlay').classList.add('open');
@@ -2491,7 +2913,7 @@
                 <div class="activity-item">
                   <div class="activity-dot"></div>
                   <div class="activity-content">
-                    <div class="activity-text">${escapeHtml(a.action || a.comment || a.description || JSON.stringify(a))}</div>
+                    <div class="activity-text"><span class="activity-actor ${getActorClass(a.actor)}">${getActorLabel(a.actor)}</span>${escapeHtml(formatActivityText(a))}</div>
                     <div class="activity-time">${formatTime(a.created_at || a.timestamp)}</div>
                   </div>
                 </div>
@@ -2524,9 +2946,24 @@
           <input class="detail-title-input" id="detail-title" value="${escapeAttr(task.title || '')}">
         </div>
         <div>
-          <div class="detail-field-label">Description</div>
-          <textarea class="detail-desc-input" id="detail-desc" oninput="autoGrowTextarea(this)">${escapeHtml(task.description || '')}</textarea>
+          <div class="detail-desc-header">
+            <div class="detail-field-label" style="margin-bottom:0">Description</div>
+            <div class="detail-desc-actions">
+              <button class="detail-desc-action-btn" id="desc-copy-btn" onclick="copyDescription()" title="Copy all">Copy</button>
+              <button class="detail-desc-action-btn" id="desc-edit-btn" onclick="toggleDescriptionEdit()" title="Edit description">Edit</button>
+            </div>
+          </div>
+          <div class="detail-desc-view" id="detail-desc-view" onclick="toggleDescriptionEdit()">${renderDescriptionWithPills(task.description || '')}</div>
+          <textarea class="detail-desc-input" id="detail-desc" oninput="autoGrowTextarea(this)" onblur="exitDescriptionEdit()" style="display:none">${escapeHtml(task.description || '')}</textarea>
           ${ttsButtonHtml}
+        </div>
+        <div class="detail-row">
+          <div class="detail-field">
+            <div class="detail-field-label">Project</div>
+            <select class="detail-select" id="detail-project">
+              ${projects.map(p => `<option value="${p.id}" ${task.project_id === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+            </select>
+          </div>
         </div>
         <div class="detail-row">
           <div class="detail-field">
@@ -2548,11 +2985,18 @@
         <div class="detail-row">
           <div class="detail-field">
             <div class="detail-field-label">Assignee Model</div>
-            <input class="detail-tags-input" id="detail-assignee" value="${escapeAttr(task.assignee_model || '')}">
+            <span class="detail-assignee-pill" id="detail-assignee-pill" onclick="toggleAssigneeEdit()">${escapeHtml(task.assignee_model || 'claude')}</span>
+            <input class="detail-tags-input" id="detail-assignee" value="${escapeAttr(task.assignee_model || '')}" style="display:none" onblur="exitAssigneeEdit()" onkeydown="if(event.key==='Enter'){exitAssigneeEdit();}">
           </div>
           <div class="detail-field">
             <div class="detail-field-label">Tags</div>
-            <input class="detail-tags-input" id="detail-tags" value="${escapeAttr(tags)}" placeholder="comma-separated">
+            <div class="detail-tag-pills" id="detail-tag-pills">
+              ${(tags ? tags.split(',').filter(function(t) { return t.trim(); }) : []).map(function(t) {
+                return '<span class="detail-tag-pill">' + escapeHtml(t.trim()) + '<span class="detail-tag-remove" onclick="removeTag(\'' + escapeAttr(t.trim()) + '\')">&times;</span></span>';
+              }).join('')}
+              <input class="detail-tag-add-input" id="detail-tag-add" placeholder="+ tag" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag(this.value);this.value='';}">
+            </div>
+            <input type="hidden" id="detail-tags" value="${escapeAttr(tags)}">
           </div>
         </div>
         <button class="detail-save-btn" onclick="saveDetail()">Save Changes</button>
@@ -2572,9 +3016,6 @@
         ${activityHtml}
       `;
 
-      // Auto-grow description on initial render
-      const descEl = document.getElementById('detail-desc');
-      if (descEl) autoGrowTextarea(descEl);
     }
 
     async function saveDetail() {
@@ -2586,6 +3027,7 @@
       const priority = document.getElementById('detail-priority').value;
       const assignee_model = document.getElementById('detail-assignee').value.trim();
       const tags = document.getElementById('detail-tags').value.trim();
+      const newProjectId = parseInt(document.getElementById('detail-project').value);
 
       if (!title) {
         showToast('Title is required', 'error');
@@ -2593,11 +3035,22 @@
       }
 
       try {
+        // Move to different project if changed
+        if (newProjectId && detailTaskProjectId && newProjectId !== detailTaskProjectId) {
+          const moveResult = await window.pocketAgent.kanbanMoveTaskToProject(currentDetailTaskId, newProjectId);
+          if (!moveResult || !moveResult.success) {
+            showToast('Failed to move task to project', 'error');
+            return;
+          }
+          detailTaskProjectId = newProjectId;
+        }
+
         const result = await window.pocketAgent.kanbanUpdateTask(currentDetailTaskId, {
           title, description, status, priority, assignee_model, tags
         });
         if (result && result.success) {
           showToast('Task updated', 'success');
+          await loadProjects();
           await loadBoard();
         } else {
           showToast('Failed to update task', 'error');
@@ -2754,6 +3207,72 @@
       const select = document.getElementById('project-select');
       if (select) select.value = projectId;
       loadBoard();
+    }
+
+    // ── All Tasks Modal ──
+    let allTasksFilter = null; // null = all statuses
+
+    async function openAllTasksModal() {
+      allTasksFilter = null;
+      document.getElementById('alltasks-modal-overlay').classList.add('open');
+      await renderAllTasks();
+    }
+
+    function closeAllTasksModal() {
+      document.getElementById('alltasks-modal-overlay').classList.remove('open');
+    }
+
+    async function toggleAllTasksFilter(status) {
+      allTasksFilter = allTasksFilter === status ? null : status;
+      await renderAllTasks();
+    }
+
+    async function renderAllTasks() {
+      var filtersEl = document.getElementById('alltasks-filters');
+      var bodyEl = document.getElementById('alltasks-body');
+
+      var statuses = ['todo', 'in_progress', 'review', 'backlog', 'done'];
+      filtersEl.innerHTML = statuses.map(function(s) {
+        var label = s === 'in_progress' ? 'In Progress' : s.charAt(0).toUpperCase() + s.slice(1);
+        var cls = allTasksFilter === s ? 'alltasks-filter-btn active' : 'alltasks-filter-btn';
+        return '<button class="' + cls + '" onclick="toggleAllTasksFilter(\'' + s + '\')">' + label + '</button>';
+      }).join('');
+
+      try {
+        var filter = allTasksFilter ? [allTasksFilter] : null;
+        var tasks = await window.pocketAgent.kanbanGetAllTasks(filter);
+
+        if (!tasks || tasks.length === 0) {
+          bodyEl.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">No tasks found</td></tr>';
+          return;
+        }
+
+        var statusColors = {
+          todo: 'rgba(59,130,246,0.15);color:#3b82f6',
+          in_progress: 'rgba(168,85,247,0.15);color:var(--accent)',
+          review: 'rgba(245,158,11,0.15);color:#f59e0b',
+          done: 'rgba(34,197,94,0.15);color:#22c55e',
+          backlog: 'rgba(99,99,102,0.15);color:#636366'
+        };
+
+        var priorityLabels = { urgent: '🔴', high: '🟠', medium: '🟡', low: '⚪' };
+
+        bodyEl.innerHTML = tasks.map(function(t) {
+          var statusStyle = statusColors[t.status] || statusColors.backlog;
+          var statusLabel = t.status === 'in_progress' ? 'In Progress' : (t.status || '').charAt(0).toUpperCase() + (t.status || '').slice(1);
+          var prio = priorityLabels[t.priority] || '';
+          return '<tr onclick="closeAllTasksModal();switchFromOverview(' + t.project_id + ');setTimeout(function(){openDetail(' + t.id + ')},300)">' +
+            '<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(t.title) + '</td>' +
+            '<td><span class="alltasks-project-dot" style="background:' + escapeAttr(t.project_color || '#a855f7') + '"></span>' + escapeHtml(t.project_name || '') + '</td>' +
+            '<td><span class="alltasks-status-badge" style="background:' + statusStyle + '">' + statusLabel + '</span></td>' +
+            '<td style="text-align:center">' + prio + '</td>' +
+            '<td style="font-size:10px;color:var(--text-muted);white-space:nowrap">' + formatTime(t.updated_at) + '</td>' +
+            '</tr>';
+        }).join('');
+      } catch (err) {
+        bodyEl.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--error)">Failed to load tasks</td></tr>';
+        console.error('[Kanban] All tasks load failed:', err);
+      }
     }
 
     // ── New Task Modal ──
@@ -2997,11 +3516,16 @@
       document.getElementById('overview-modal-overlay').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) closeOverviewModal();
       });
+      document.getElementById('alltasks-modal-overlay').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeAllTasksModal();
+      });
 
       // Keyboard shortcuts
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-          if (document.getElementById('overview-modal-overlay').classList.contains('open')) {
+          if (document.getElementById('alltasks-modal-overlay').classList.contains('open')) {
+            closeAllTasksModal();
+          } else if (document.getElementById('overview-modal-overlay').classList.contains('open')) {
             closeOverviewModal();
           } else if (document.getElementById('reject-modal-overlay').classList.contains('open')) {
             closeRejectModal();

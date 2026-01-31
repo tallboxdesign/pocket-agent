@@ -541,6 +541,43 @@ export const KanbanService = {
     return this.updateTask(id, { status: newStatus }, actor);
   },
 
+  moveTaskToProject(id: number, newProjectId: number, actor: string = 'user'): KanbanTask | null {
+    const db = getDb();
+    const existing = db.prepare('SELECT * FROM kanban_tasks WHERE id = ?').get(id) as KanbanTask | undefined;
+    if (!existing) return null;
+
+    const targetProject = db.prepare('SELECT * FROM kanban_projects WHERE id = ?').get(newProjectId) as KanbanProject | undefined;
+    if (!targetProject) return null;
+
+    if (existing.project_id === newProjectId) return existing;
+
+    const oldProjectId = existing.project_id;
+
+    // Get max position in target project's column
+    const maxPos = db.prepare(`
+      SELECT COALESCE(MAX(position), -1) as max_pos FROM kanban_tasks
+      WHERE project_id = ? AND status = ?
+    `).get(newProjectId, existing.status) as { max_pos: number };
+
+    db.prepare(`
+      UPDATE kanban_tasks SET project_id = ?, position = ?,
+        updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ'))
+      WHERE id = ?
+    `).run(newProjectId, maxPos.max_pos + 1, id);
+
+    logActivity(id, newProjectId, 'moved_to_project',
+      String(oldProjectId), String(newProjectId),
+      `Moved from project #${oldProjectId} to project #${newProjectId}`, actor);
+
+    // Touch updated_at on both projects
+    db.prepare("UPDATE kanban_projects SET updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ')) WHERE id = ?")
+      .run(oldProjectId);
+    db.prepare("UPDATE kanban_projects SET updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ')) WHERE id = ?")
+      .run(newProjectId);
+
+    return db.prepare('SELECT * FROM kanban_tasks WHERE id = ?').get(id) as KanbanTask;
+  },
+
   deleteTask(id: number): boolean {
     const db = getDb();
     const task = db.prepare('SELECT * FROM kanban_tasks WHERE id = ?').get(id) as KanbanTask | undefined;
@@ -681,6 +718,26 @@ export const KanbanService = {
   },
 
   // ---- Search ----
+
+  getAllTasks(statusFilter?: KanbanStatus[]): Array<KanbanTask & { project_name: string; project_color: string }> {
+    const db = getDb();
+    let query = `
+      SELECT t.*, p.name as project_name, p.color as project_color
+      FROM kanban_tasks t
+      JOIN kanban_projects p ON t.project_id = p.id
+      WHERE p.status = 'active' AND t.parent_task_id IS NULL
+    `;
+    const params: string[] = [];
+
+    if (statusFilter && statusFilter.length > 0) {
+      query += ` AND t.status IN (${statusFilter.map(() => '?').join(',')})`;
+      params.push(...statusFilter);
+    }
+
+    query += ' ORDER BY t.updated_at DESC';
+
+    return db.prepare(query).all(...params) as Array<KanbanTask & { project_name: string; project_color: string }>;
+  },
 
   searchTasks(query: string, projectId?: number): KanbanTask[] {
     const db = getDb();

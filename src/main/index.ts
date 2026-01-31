@@ -428,6 +428,10 @@ function updateTrayMenu(): void {
     ? `Messages: ${stats?.messageCount || 0} | Facts: ${stats?.factCount || 0}`
     : 'Not initialized';
 
+  const telegramStatus = telegramBot
+    ? (telegramBot.isRunning ? 'Telegram: Connected' : 'Telegram: Disconnected')
+    : 'Telegram: Not configured';
+
   // Load menu icon
   const menuIconPath = path.join(__dirname, '../../assets/menu-icon.png');
   let menuIcon: Electron.NativeImage | undefined;
@@ -462,6 +466,10 @@ function updateTrayMenu(): void {
     { type: 'separator' },
     {
       label: statusText,
+      enabled: false,
+    },
+    {
+      label: telegramStatus,
       enabled: false,
     },
     { type: 'separator' },
@@ -1801,6 +1809,16 @@ function setupIPC(): void {
   ipcMain.handle('kanban:moveTask', async (_, id: number, status: string) => {
     try { return { success: true, task: KanbanService.moveTask(id, status as KanbanStatus) }; }
     catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:moveTaskToProject', async (_, id: number, projectId: number) => {
+    try { return { success: true, task: KanbanService.moveTaskToProject(id, projectId) }; }
+    catch (e) { return { success: false, error: (e as Error).message }; }
+  });
+
+  ipcMain.handle('kanban:getAllTasks', async (_, statusFilter?: string[]) => {
+    try { return KanbanService.getAllTasks(statusFilter as import('../kanban').KanbanStatus[]); }
+    catch { return []; }
   });
 
   ipcMain.handle('kanban:deleteTask', async (_, id: number) => {

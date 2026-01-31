@@ -1,8 +1,8 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
-**Last Updated:** 2026-01-30
-**Status:** PLANNING — Not yet implemented
+**Last Updated:** 2026-01-31
+**Status:** IN PROGRESS — Phase 1.5 (Kanban Polish & Telegram)
 **Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-4.7 (utility model)
 
 ---
@@ -1182,42 +1182,57 @@ async function migrateTasksToKanban() {
 2. ✅ Session state persistence (`ui/chat.html`)
 3. ✅ Stopped query bug fix (`ui/chat.html`)
 
-### Phase 0.5 — Task Consolidation
-4. Auto-create "Personal" Kanban project on startup
+### Phase 0.5 — Task Consolidation — Partially ✅
+4. ✅ Auto-create "Personal" Kanban project on startup
 5. Rewire `task_add/list/complete/delete` tools → Kanban operations in Personal project
-6. Migrate existing `tasks` table rows → Personal project cards (one-time)
-7. Add `due_date`, `action_type`, `notify_channels`, `recurrence` columns to `kanban_tasks`
+6. ✅ Migrate existing `tasks` table rows → Personal project cards (one-time)
+7. ✅ Schema columns: `due_date`, `action_type`, `notify_channels`, `recurrence`, `last_run_at`
 
-### Phase 1 — Foundation (Data Layer)
-8. Universal event log with token tracking (`src/memory/event-log.ts`) — ✅ DONE
-9. GLM 4.7 client (`src/agent/glm-client.ts`)
+### Phase 1 — Foundation (Data Layer) — Partially ✅
+8. ✅ Universal event log with token tracking (`src/memory/event-log.ts`)
+9. ✅ GLM 4.7 client + worker tools (`src/tools/glm-client.ts`, `src/tools/glm-worker.ts`)
 10. Actor tracking fixes across all Kanban operations
 11. Project selector in New Task modal (quick win)
 
-### Phase 2 — Workers & Research
-12. Worker manager + execution DB (`src/workers/`)
-13. Claude CLI spawning + Kanban integration
-14. Multi-agent research orchestrator (`src/agent/research.ts`)
-15. Research tools + Kanban research filter
+### Phase 1.5 — Kanban Polish & Telegram ← CURRENT
+12. ✅ Move Task to Project (backend + UI dropdown + agent tool)
+13. ✅ Description markdown pills + Copy button
+14. ✅ Tag & Assignee pills in detail panel
+15. ✅ Cross-project overview modal (chart icon button)
+16. ✅ Kanban Activity Log — show actor (user/agent/model) on each action
+17. ✅ Cross-project All Tasks view — see ALL tasks from ALL projects in one view
+18. ✅ Telegram "tasks" command — formatted overview of active tasks, project-grouped
+19. ✅ Tray status — show "Telegram: Connected/Disconnected" in system tray menu
 
-### Phase 3 — Scheduling & Monitoring
-16. Kanban TaskScheduler — execute/remind on due_date (`src/scheduler/task-scheduler.ts`)
-17. Task detail panel — schedule section (due date, action type, channels, recurrence)
-18. Universal heartbeat system
-19. Auto-task recording (Personal project)
+### Phase 2 — Scheduling & Monitoring
+20. Kanban TaskScheduler — execute/remind on due_date (`src/scheduler/task-scheduler.ts`)
+21. Task detail panel — schedule section (due date, action type, channels, recurrence)
+22. Universal heartbeat system
+23. Auto-task recording (Personal project)
 
-### Phase 4 — Intelligence & Continuity
-20. Daily summary generation (GLM-4.7)
-21. Session continuity briefing (3-day context injection)
-22. GLM project prioritization (morning recommendations)
+### Phase 3 — Intelligence & Continuity
+24. Daily summary generation (GLM-4.7)
+25. Session continuity briefing (3-day context injection)
+26. GLM project prioritization (morning recommendations)
 
-### Phase 5 — UI & Organization
-23. Tag & assignee system (autocomplete, dropdown, colors, research filter)
-24. Project folder manager (plan subfolders, TODO tracking)
+### Phase 4 — UI & Organization
+27. Tag & assignee system (autocomplete, dropdown, colors, research filter)
+28. Project folder manager (plan subfolders, TODO tracking)
 
-### Phase 6 — Communication
-25. Gmail integration + email classification + outbound email from routines
-26. Telegram notifications for urgent emails
+### Phase 5 — Communication
+29. ✅ Gmail integration (gog CLI — 8 tools, multi-account)
+30. Telegram notifications for urgent emails
+
+### Phase 6 — Workers & Research (needs full foundation first)
+31. Worker manager + execution DB (`src/workers/`)
+32. Claude CLI spawning + Kanban integration
+33. Multi-agent research orchestrator (`src/agent/research.ts`)
+34. Research tools + Kanban research filter
+
+### Phase 7 — Cloud Backup & Sync
+35. Upload all Pocket Agent data (DB, attachments, photos) to cloud storage
+36. Enable migration to another computer with full state restore
+37. Choose backend (S3, Google Drive, or iCloud)
 
 ---
 

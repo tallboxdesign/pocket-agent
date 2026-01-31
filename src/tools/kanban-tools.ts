@@ -254,6 +254,50 @@ export async function handleKanbanMoveTaskTool(input: unknown): Promise<string> 
 }
 
 // ============================================================================
+// kanban_move_task_to_project
+// ============================================================================
+
+export function getKanbanMoveTaskToProjectToolDefinition() {
+  return {
+    name: 'kanban_move_task_to_project',
+    description: `Move a task to a different project on the Kanban board.
+
+The task keeps its current status and priority but gets a new position in the target project.
+Use kanban_list_projects first to find available project IDs.
+
+Examples:
+- kanban_move_task_to_project(task_id=5, project_id=2)`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        task_id: { type: 'number', description: 'Task ID to move' },
+        project_id: { type: 'number', description: 'Target project ID' },
+      },
+      required: ['task_id', 'project_id'],
+    },
+  };
+}
+
+export async function handleKanbanMoveTaskToProjectTool(input: unknown): Promise<string> {
+  const params = input as { task_id: number; project_id: number };
+  if (!params.task_id || !params.project_id) {
+    return JSON.stringify({ error: 'task_id and project_id are required' });
+  }
+
+  try {
+    const task = KanbanService.moveTaskToProject(params.task_id, params.project_id, 'agent');
+    if (!task) return JSON.stringify({ error: `Task ${params.task_id} or project ${params.project_id} not found` });
+
+    return JSON.stringify({
+      success: true,
+      task: { id: task.id, title: task.title, project_id: task.project_id, status: task.status },
+    });
+  } catch (error) {
+    return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to move task to project' });
+  }
+}
+
+// ============================================================================
 // kanban_get_board
 // ============================================================================
 
@@ -688,6 +732,7 @@ export function getKanbanTools() {
     { ...getKanbanCreateTaskToolDefinition(), handler: handleKanbanCreateTaskTool },
     { ...getKanbanUpdateTaskToolDefinition(), handler: handleKanbanUpdateTaskTool },
     { ...getKanbanMoveTaskToolDefinition(), handler: handleKanbanMoveTaskTool },
+    { ...getKanbanMoveTaskToProjectToolDefinition(), handler: handleKanbanMoveTaskToProjectTool },
     { ...getKanbanGetBoardToolDefinition(), handler: handleKanbanGetBoardTool },
     { ...getKanbanGetTaskToolDefinition(), handler: handleKanbanGetTaskTool },
     { ...getKanbanDeleteTaskToolDefinition(), handler: handleKanbanDeleteTaskTool },

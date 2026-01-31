@@ -619,7 +619,7 @@ export class TelegramBot extends BaseChannel {
       }
     });
 
-    // Handle /tasks command - show active tasks
+    // Handle /tasks command - show active tasks across all projects
     this.bot.command('tasks', async (ctx) => {
       try {
         const { KanbanService } = await import('../kanban');
@@ -630,8 +630,13 @@ export class TelegramBot extends BaseChannel {
           return;
         }
 
-        const lines: string[] = ['<b>Active Tasks</b>\n'];
-        for (const project of projects.slice(0, 5)) {
+        const priorityIcon: Record<string, string> = { urgent: '🔴', high: '🟠', medium: '🟡', low: '⚪' };
+        const statusIcon: Record<string, string> = { in_progress: '🔧', review: '👀', todo: '📝', backlog: '📦', done: '✅' };
+        let totalActive = 0;
+
+        const lines: string[] = ['<b>📋 Tasks Overview</b>\n'];
+
+        for (const project of projects) {
           const board = KanbanService.getBoard(project.id);
           if (!board) continue;
 
@@ -642,19 +647,31 @@ export class TelegramBot extends BaseChannel {
           ];
 
           if (activeTasks.length === 0) continue;
+          totalActive += activeTasks.length;
 
-          lines.push(`<b>${project.name}</b>`);
-          for (const task of activeTasks.slice(0, 10)) {
-            const statusIcon = task.status === 'in_progress' ? '🔧' : task.status === 'review' ? '👀' : '📝';
-            lines.push(`${statusIcon} #${task.id} ${task.title}`);
+          const counts: string[] = [];
+          if (board.columns.in_progress.length > 0) counts.push(`${board.columns.in_progress.length} active`);
+          if (board.columns.review.length > 0) counts.push(`${board.columns.review.length} review`);
+          if (board.columns.todo.length > 0) counts.push(`${board.columns.todo.length} todo`);
+
+          lines.push(`<b>${project.name}</b> (${counts.join(', ')})`);
+          for (const task of activeTasks.slice(0, 8)) {
+            const si = statusIcon[task.status] || '📝';
+            const pi = priorityIcon[task.priority] || '';
+            lines.push(`  ${si} ${pi} <code>#${task.id}</code> ${task.title}`);
+          }
+          if (activeTasks.length > 8) {
+            lines.push(`  <i>... +${activeTasks.length - 8} more</i>`);
           }
           lines.push('');
         }
 
-        if (lines.length === 1) {
-          await ctx.reply('No active tasks.');
+        if (totalActive === 0) {
+          await ctx.reply('No active tasks across any project.');
           return;
         }
+
+        lines.push(`<b>Total: ${totalActive} active tasks across ${projects.length} projects</b>`);
 
         await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
       } catch (error) {

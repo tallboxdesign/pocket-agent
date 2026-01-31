@@ -3008,8 +3008,13 @@
         );
         // Make other file paths clickable (non-image or non-screenshot files)
         html = html.replace(
-          /(?<!")(?<!=)(?<!src="file:\/\/)(?<!data-path=")(\/(?:Users|tmp|var|home|Library|Applications)[^\s<>"'`\)]*\.(?:png|jpg|jpeg|gif|webp|pdf|html|txt|json|csv|mp3|mp4|mov|zip))/gi,
+          /(?<!")(?<!=)(?<!src="file:\/\/)(?<!data-path=")(\/(?:Users|tmp|var|home|Library|Applications)[^\s<>"'`\)]*\.(?:png|jpg|jpeg|gif|webp|pdf|html|txt|json|csv|mp3|mp4|mov|zip|ts|js|md|py|sh|yaml|yml|xml|sql|db|log))/gi,
           '<a href="#" class="file-link" data-path="$1" title="Click to open, right-click to show in Finder">$1</a>'
+        );
+        // Make directory/folder paths clickable (paths ending with /)
+        html = html.replace(
+          /(?<!")(?<!=)(?<!data-path=")(\/(?:Users|tmp|var|home|Library|Applications|Documents|Desktop)[^\s<>"'`\)]*\/)/gi,
+          '<a href="#" class="file-link" data-path="$1" title="Click to open folder, right-click to show in Finder">$1</a>'
         );
         return html;
       }
