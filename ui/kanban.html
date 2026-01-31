@@ -599,8 +599,10 @@
       font-family: inherit;
       outline: none;
       min-height: 60px;
-      resize: vertical;
+      resize: none;
       line-height: 1.5;
+      overflow: hidden;
+      transition: height 0.1s ease;
     }
 
     .detail-desc-input:focus {
@@ -812,6 +814,116 @@
     }
 
     .detail-comment-send svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* ── Detail Panel: Header Right Buttons ── */
+    .detail-header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .detail-header-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .detail-header-btn:hover {
+      background: var(--border);
+      color: var(--text-primary);
+    }
+
+    .detail-header-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* ── Detail Panel: Left Side ── */
+    .detail-panel.left {
+      right: auto;
+      left: 0;
+      border-left: none;
+      border-right: 1px solid var(--border);
+      transform: translateX(-100%);
+    }
+
+    .detail-panel.left.open {
+      transform: translateX(0);
+    }
+
+    /* ── Detail Panel: Expanded Modal ── */
+    .detail-panel.expanded {
+      top: 5vh;
+      left: 10vw;
+      right: 10vw;
+      bottom: 5vh;
+      width: auto;
+      max-width: none;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      transform: none;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .detail-panel.expanded.open {
+      transform: none;
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .detail-panel.expanded .detail-body {
+      padding: 24px 40px;
+    }
+
+    .detail-panel.expanded .detail-desc-input {
+      min-height: 180px;
+    }
+
+    .detail-panel.expanded .detail-side-toggle-btn {
+      display: none;
+    }
+
+    /* ── Detail Panel: TTS Button ── */
+    .detail-tts-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-top: 4px;
+    }
+
+    .detail-tts-btn:hover {
+      background: var(--border);
+      color: var(--text-primary);
+    }
+
+    .detail-tts-btn.playing {
+      color: var(--error);
+      border-color: var(--error);
+    }
+
+    .detail-tts-btn svg {
       width: 14px;
       height: 14px;
     }
@@ -1346,6 +1458,8 @@
       <div class="project-selector">
         <select id="project-select"></select>
       </div>
+      <button onclick="openEditProjectModal()" class="attachment-add-btn" title="Edit project" style="padding:6px 10px;font-size:13px;">&#x270F;</button>
+      <button onclick="confirmDeleteProject()" class="attachment-add-btn" title="Delete project" style="padding:6px 10px;font-size:13px;color:var(--error);">&#x1F5D1;</button>
       <span id="workspace-btn" style="display:none;">
         <button onclick="openProjectWorkspace()" class="attachment-add-btn" title="Open workspace folder" style="padding:6px 10px;">&#x1F4C1;</button>
       </span>
@@ -1380,11 +1494,23 @@
         </button>
         <span style="font-size:13px;font-weight:600;">Task Details</span>
       </div>
-      <button class="detail-delete-btn" id="detail-delete-btn" onclick="deleteCurrentTask()">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-        </svg>
-      </button>
+      <div class="detail-header-right">
+        <button class="detail-header-btn detail-side-toggle-btn" id="detail-side-toggle-btn" onclick="togglePanelSide()" title="Toggle panel side">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 7l-5 5 5 5"/><path d="M16 7l5 5-5 5"/>
+          </svg>
+        </button>
+        <button class="detail-header-btn detail-expand-btn" id="detail-expand-btn" onclick="toggleExpandDetail()" title="Expand to full screen">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+        </button>
+        <button class="detail-delete-btn" id="detail-delete-btn" onclick="deleteCurrentTask()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
+      </div>
     </div>
     <div class="detail-body" id="detail-body">
       <!-- Filled dynamically -->
@@ -1443,10 +1569,10 @@
     </div>
   </div>
 
-  <!-- New Project Modal -->
+  <!-- Project Modal (Create / Edit) -->
   <div class="modal-overlay" id="project-modal-overlay">
     <div class="modal">
-      <div class="modal-header">New Project</div>
+      <div class="modal-header" id="project-modal-header">New Project</div>
       <div class="modal-body">
         <div class="modal-field">
           <label>Name</label>
@@ -1479,7 +1605,7 @@
       </div>
       <div class="modal-footer">
         <button class="modal-cancel-btn" onclick="closeProjectModal()">Cancel</button>
-        <button class="modal-save-btn" onclick="saveNewProject()">Create Project</button>
+        <button class="modal-save-btn" id="project-modal-save-btn" onclick="saveProject()">Create Project</button>
       </div>
     </div>
   </div>
@@ -1507,7 +1633,12 @@
     let currentProjectId = null;
     let boardData = null;
     let currentDetailTaskId = null;
+    let detailPanelSide = localStorage.getItem('kanban_panel_side') || 'right';
+    let detailExpanded = false;
+    let detailTTSAudio = null;
+    let detailTTSSynthesizing = false;
     let rejectTaskId = null;
+    let editingProjectId = null;
     let showingArchive = false;
 
     const COLUMNS = [
@@ -1751,6 +1882,7 @@
       setupColumnDragAndDrop();
       setupBoardScroll();
       updateWorkspaceButton();
+      applyPanelSide();
     }
 
     function formatDayLabel(dateStr) {
@@ -1873,7 +2005,7 @@
       }
 
       return `
-        <div class="task-card" draggable="true" data-task-id="${task.id}" onclick="openDetail(${task.id})">
+        <div class="task-card" draggable="true" data-task-id="${task.id}" ondblclick="openDetail(${task.id})">
           <button class="task-card-delete" onclick="event.stopPropagation();quickDeleteTask(${task.id})" title="Delete task">&times;</button>
           <div class="task-card-title">${escapeHtml(task.title)}</div>
           <div class="task-card-meta">${metaHtml}</div>
@@ -2025,18 +2157,133 @@
       const wrapper = document.querySelector('.board-wrapper');
       if (!wrapper) return;
 
-      // Mouse wheel scrolls horizontally on the board
+      // Shift+wheel or horizontal trackpad = horizontal scroll on the board
       wrapper.addEventListener('wheel', (e) => {
-        // If scrolling vertically and board can scroll horizontally, convert to horizontal
-        if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && wrapper.scrollWidth > wrapper.clientWidth) {
+        if (wrapper.scrollWidth <= wrapper.clientWidth) return;
+        // Shift+scroll → horizontal
+        if (e.shiftKey && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
           e.preventDefault();
           wrapper.scrollLeft += e.deltaY;
+          return;
         }
+        // Horizontal trackpad gesture (deltaX) passes through naturally
       }, { passive: false });
+
+      // Click-drag to scroll: works on board background, column headers, and empty column areas
+      let isDown = false;
+      let startX = 0;
+      let scrollStart = 0;
+
+      wrapper.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        // Don't grab on cards, buttons, or inputs
+        const target = e.target;
+        if (target.closest('.task-card, button, input, textarea, select, .search-container')) return;
+        isDown = true;
+        startX = e.pageX;
+        scrollStart = wrapper.scrollLeft;
+        wrapper.classList.add('grabbing');
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDown) return;
+        e.preventDefault();
+        wrapper.scrollLeft = scrollStart - (e.pageX - startX);
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (isDown) { isDown = false; wrapper.classList.remove('grabbing'); }
+      });
     }
 
     // ── Detail Panel ──
+    function applyPanelSide() {
+      const panel = document.getElementById('detail-panel');
+      if (detailPanelSide === 'left') {
+        panel.classList.add('left');
+      } else {
+        panel.classList.remove('left');
+      }
+    }
+
+    function togglePanelSide() {
+      detailPanelSide = (detailPanelSide === 'right') ? 'left' : 'right';
+      localStorage.setItem('kanban_panel_side', detailPanelSide);
+      applyPanelSide();
+    }
+
+    function toggleExpandDetail() {
+      const panel = document.getElementById('detail-panel');
+      const expandBtn = document.getElementById('detail-expand-btn');
+      detailExpanded = !detailExpanded;
+      if (detailExpanded) {
+        panel.classList.add('expanded');
+        expandBtn.title = 'Collapse to side panel';
+        expandBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+      } else {
+        panel.classList.remove('expanded');
+        expandBtn.title = 'Expand to full screen';
+        expandBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+      }
+      const desc = document.getElementById('detail-desc');
+      if (desc) autoGrowTextarea(desc);
+    }
+
+    function autoGrowTextarea(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.max(60, el.scrollHeight) + 'px';
+    }
+
+    function stopDetailTTS() {
+      if (detailTTSAudio) {
+        detailTTSAudio.pause();
+        detailTTSAudio = null;
+      }
+      detailTTSSynthesizing = false;
+      const btn = document.getElementById('detail-tts-btn');
+      if (btn) {
+        btn.classList.remove('playing');
+        btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> Read aloud';
+      }
+    }
+
+    async function toggleDetailTTS() {
+      const btn = document.getElementById('detail-tts-btn');
+      if (!btn) return;
+      if (detailTTSAudio || detailTTSSynthesizing) {
+        stopDetailTTS();
+        return;
+      }
+      const descEl = document.getElementById('detail-desc');
+      const text = descEl ? descEl.value.trim() : '';
+      if (!text) {
+        showToast('No description to read', 'error');
+        return;
+      }
+      detailTTSSynthesizing = true;
+      btn.classList.add('playing');
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Stop';
+      try {
+        const result = await window.pocketAgent.synthesizeTTS(text);
+        if (!detailTTSSynthesizing) return;
+        if (!result.success) {
+          console.error('TTS failed:', result.error);
+          stopDetailTTS();
+          return;
+        }
+        const audio = new Audio('file://' + result.audioPath);
+        detailTTSAudio = audio;
+        audio.onended = function() { stopDetailTTS(); };
+        audio.onerror = function() { stopDetailTTS(); };
+        await audio.play();
+      } catch (err) {
+        stopDetailTTS();
+        console.error('TTS playback error:', err);
+      }
+    }
+
     async function openDetail(taskId) {
+      stopDetailTTS();
       currentDetailTaskId = taskId;
       try {
         const task = await window.pocketAgent.kanbanGetTask(taskId);
@@ -2045,6 +2292,7 @@
           return;
         }
         renderDetail(task);
+        applyPanelSide();
         document.getElementById('detail-overlay').classList.add('open');
         document.getElementById('detail-panel').classList.add('open');
       } catch (err) {
@@ -2054,13 +2302,33 @@
     }
 
     function closeDetail() {
+      const panel = document.getElementById('detail-panel');
       document.getElementById('detail-overlay').classList.remove('open');
-      document.getElementById('detail-panel').classList.remove('open');
+      panel.classList.remove('open');
+      if (detailExpanded) {
+        detailExpanded = false;
+        panel.classList.remove('expanded');
+        const expandBtn = document.getElementById('detail-expand-btn');
+        if (expandBtn) {
+          expandBtn.title = 'Expand to full screen';
+          expandBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+        }
+      }
+      stopDetailTTS();
       currentDetailTaskId = null;
     }
 
     function renderDetail(task) {
       const tags = task.tags ? (typeof task.tags === 'string' ? task.tags : task.tags.join(', ')) : '';
+
+      // Check for research tag → show TTS button
+      const tagsArray = task.tags
+        ? (typeof task.tags === 'string' ? task.tags.split(',').map(function(t) { return t.trim().toLowerCase(); }) : task.tags.map(function(t) { return t.toLowerCase(); }))
+        : [];
+      const isResearch = tagsArray.includes('research');
+      const ttsButtonHtml = isResearch
+        ? '<button class="detail-tts-btn" id="detail-tts-btn" onclick="toggleDetailTTS()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> Read aloud</button>'
+        : '';
 
       let subtasksHtml = '';
       if (task.subtasks && task.subtasks.length > 0) {
@@ -2124,7 +2392,8 @@
         </div>
         <div>
           <div class="detail-field-label">Description</div>
-          <textarea class="detail-desc-input" id="detail-desc">${escapeHtml(task.description || '')}</textarea>
+          <textarea class="detail-desc-input" id="detail-desc" oninput="autoGrowTextarea(this)">${escapeHtml(task.description || '')}</textarea>
+          ${ttsButtonHtml}
         </div>
         <div class="detail-row">
           <div class="detail-field">
@@ -2169,6 +2438,10 @@
         ${subtasksHtml}
         ${activityHtml}
       `;
+
+      // Auto-grow description on initial render
+      const descEl = document.getElementById('detail-desc');
+      if (descEl) autoGrowTextarea(descEl);
     }
 
     async function saveDetail() {
@@ -2359,6 +2632,9 @@
 
     // ── New Project Modal ──
     function openNewProjectModal() {
+      editingProjectId = null;
+      document.getElementById('project-modal-header').textContent = 'New Project';
+      document.getElementById('project-modal-save-btn').textContent = 'Create Project';
       document.getElementById('project-name-input').value = '';
       document.getElementById('project-desc-input').value = '';
       document.getElementById('project-workspace-input').value = '';
@@ -2370,6 +2646,54 @@
 
       document.getElementById('project-modal-overlay').classList.add('open');
       setTimeout(() => document.getElementById('project-name-input').focus(), 200);
+    }
+
+    function openEditProjectModal() {
+      if (!currentProjectId) return;
+      const project = projects.find(p => p.id === currentProjectId);
+      if (!project) return;
+
+      editingProjectId = currentProjectId;
+      document.getElementById('project-modal-header').textContent = 'Edit Project';
+      document.getElementById('project-modal-save-btn').textContent = 'Save Changes';
+      document.getElementById('project-name-input').value = project.name || '';
+      document.getElementById('project-desc-input').value = project.description || '';
+      document.getElementById('project-workspace-input').value = project.workspace_path || '';
+
+      // Set color picker to current color
+      const currentColor = project.color || '#a855f7';
+      document.querySelectorAll('#color-picker .color-dot').forEach(dot => {
+        dot.classList.toggle('selected', dot.dataset.color === currentColor);
+      });
+
+      document.getElementById('project-modal-overlay').classList.add('open');
+      setTimeout(() => document.getElementById('project-name-input').focus(), 200);
+    }
+
+    async function confirmDeleteProject() {
+      if (!currentProjectId) return;
+      const project = projects.find(p => p.id === currentProjectId);
+      if (!project) return;
+
+      const taskCount = project.total_tasks || 0;
+      const msg = taskCount > 0
+        ? 'Delete "' + project.name + '" and all ' + taskCount + ' tasks? This cannot be undone.'
+        : 'Delete "' + project.name + '"? This cannot be undone.';
+
+      if (!confirm(msg)) return;
+
+      try {
+        const result = await window.pocketAgent.kanbanDeleteProject(currentProjectId);
+        if (result && result.success) {
+          showToast('Project deleted', 'success');
+          currentProjectId = null;
+          await loadProjects();
+        } else {
+          showToast('Failed to delete project', 'error');
+        }
+      } catch (err) {
+        showToast('Failed to delete project', 'error');
+      }
     }
 
     async function pickProjectWorkspace() {
@@ -2385,9 +2709,10 @@
 
     function closeProjectModal() {
       document.getElementById('project-modal-overlay').classList.remove('open');
+      editingProjectId = null;
     }
 
-    async function saveNewProject() {
+    async function saveProject() {
       const name = document.getElementById('project-name-input').value.trim();
       if (!name) {
         showToast('Project name is required', 'error');
@@ -2400,25 +2725,42 @@
       const workspacePath = document.getElementById('project-workspace-input').value.trim();
 
       try {
-        const result = await window.pocketAgent.kanbanCreateProject(name, description || undefined, color);
-        if (result && result.success) {
-          // If workspace path was provided, update the project with it
-          if (workspacePath && result.project && result.project.id) {
-            try {
-              await window.pocketAgent.kanbanUpdateProject(result.project.id, { workspace_path: workspacePath });
-            } catch {}
+        if (editingProjectId) {
+          // Update existing project
+          const result = await window.pocketAgent.kanbanUpdateProject(editingProjectId, {
+            name,
+            description: description || '',
+            color,
+            workspace_path: workspacePath || '',
+          });
+          if (result && result.success) {
+            closeProjectModal();
+            showToast('Project updated', 'success');
+            await loadProjects();
+          } else {
+            showToast('Failed to update project', 'error');
           }
-          closeProjectModal();
-          showToast('Project created', 'success');
-          if (result.project) {
-            currentProjectId = result.project.id;
-          }
-          await loadProjects();
         } else {
-          showToast('Failed to create project', 'error');
+          // Create new project
+          const result = await window.pocketAgent.kanbanCreateProject(name, description || undefined, color);
+          if (result && result.success) {
+            if (workspacePath && result.project && result.project.id) {
+              try {
+                await window.pocketAgent.kanbanUpdateProject(result.project.id, { workspace_path: workspacePath });
+              } catch {}
+            }
+            closeProjectModal();
+            showToast('Project created', 'success');
+            if (result.project) {
+              currentProjectId = result.project.id;
+            }
+            await loadProjects();
+          } else {
+            showToast('Failed to create project', 'error');
+          }
         }
       } catch (err) {
-        showToast('Failed to create project', 'error');
+        showToast(editingProjectId ? 'Failed to update project' : 'Failed to create project', 'error');
       }
     }
 

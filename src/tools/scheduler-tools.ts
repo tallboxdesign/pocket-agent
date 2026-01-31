@@ -244,7 +244,7 @@ Write it as a command, not as formatted output.
         },
         channel: {
           type: 'string',
-          description: 'Where to send: "desktop" or "telegram" (default: desktop)',
+          description: 'Where to send: "desktop", "telegram", "email", or combos like "desktop,email" (default: desktop)',
         },
       },
       required: ['name', 'schedule', 'prompt'],
@@ -442,7 +442,7 @@ Compose a friendly, complete reminder message - it will be displayed directly wi
         },
         channel: {
           type: 'string',
-          description: 'Where to send: "desktop" or "telegram" (default: desktop)',
+          description: 'Where to send: "desktop", "telegram", "email", or combos like "desktop,email" (default: desktop)',
         },
       },
       required: ['name', 'schedule', 'reminder'],

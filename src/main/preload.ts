@@ -92,6 +92,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   validateTelegramToken: (token: string) => ipcRenderer.invoke('settings:validateTelegram', token),
   getAvailableModels: () => ipcRenderer.invoke('settings:getAvailableModels'),
   restartAgent: () => ipcRenderer.invoke('agent:restart'),
+  glmHealthCheck: () => ipcRenderer.invoke('glm:healthCheck'),
+  gogStatus: () => ipcRenderer.invoke('gog:status'),
   openSettings: () => ipcRenderer.invoke('app:openSettings'),
   openChat: () => ipcRenderer.invoke('app:openChat'),
   startOAuth: () => ipcRenderer.invoke('auth:startOAuth'),
@@ -119,6 +121,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   kanbanCreateProject: (name: string, description?: string, color?: string) =>
     ipcRenderer.invoke('kanban:createProject', name, description, color),
   kanbanArchiveProject: (id: number) => ipcRenderer.invoke('kanban:archiveProject', id),
+  kanbanDeleteProject: (id: number) => ipcRenderer.invoke('kanban:deleteProject', id),
   kanbanUpdateProject: (id: number, updates: Record<string, string>) =>
     ipcRenderer.invoke('kanban:updateProject', id, updates),
   kanbanGetBoard: (projectId: number) => ipcRenderer.invoke('kanban:getBoard', projectId),
@@ -251,6 +254,8 @@ declare global {
       validateTelegramToken: (token: string) => Promise<{ valid: boolean; error?: string; botInfo?: unknown }>;
       getAvailableModels: () => Promise<Array<{ id: string; name: string; provider: string }>>;
       restartAgent: () => Promise<{ success: boolean }>;
+      glmHealthCheck: () => Promise<{ ok: boolean; models?: string[]; error?: string }>;
+      gogStatus: () => Promise<{ ok: boolean; accounts?: string; error?: string }>;
       openSettings: () => Promise<void>;
       openChat: () => Promise<void>;
       startOAuth: () => Promise<{ success: boolean; error?: string }>;
@@ -263,6 +268,7 @@ declare global {
       kanbanGetProject: (id: number) => Promise<Record<string, unknown> | null>;
       kanbanCreateProject: (name: string, description?: string, color?: string) => Promise<{ success: boolean; project?: Record<string, unknown>; error?: string }>;
       kanbanArchiveProject: (id: number) => Promise<{ success: boolean }>;
+      kanbanDeleteProject: (id: number) => Promise<{ success: boolean; error?: string }>;
       kanbanUpdateProject: (id: number, updates: Record<string, string>) => Promise<{ success: boolean; project?: Record<string, unknown>; error?: string }>;
       kanbanGetBoard: (projectId: number) => Promise<Record<string, unknown> | null>;
       kanbanCreateTask: (input: Record<string, unknown>) => Promise<{ success: boolean; task?: Record<string, unknown>; error?: string }>;

@@ -4,7 +4,7 @@ import { AgentManager, ImageContent } from '../agent';
 import { SettingsManager } from '../settings';
 import { transcribeAudio, isTranscriptionAvailable } from '../utils/transcribe';
 import { synthesizeSpeech, stripMarkdown } from '../voice/tts';
-import { app } from 'electron';
+import { app, Notification } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -234,6 +234,14 @@ export class TelegramBot extends BaseChannel {
   private activeChatIds: Set<number> = new Set();
   private onMessageCallback: MessageCallback | null = null;
 
+  // Reconnection state
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private lastSuccessfulPoll: number = Date.now();
+  private intentionalStop = false;
+
   constructor() {
     super();
     const botToken = SettingsManager.get('telegram.botToken');
@@ -293,6 +301,9 @@ export class TelegramBot extends BaseChannel {
   private setupHandlers(): void {
     // Middleware to check allowed users (if configured)
     this.bot.use(async (ctx, next) => {
+      // Track that polling is alive
+      this.lastSuccessfulPoll = Date.now();
+
       const userId = ctx.from?.id;
       const chatId = ctx.chat?.id;
 
@@ -1077,9 +1088,10 @@ multiline</pre>
       }
     });
 
-    // Error handler
+    // Error handler — means polling is still alive
     this.bot.catch((err) => {
       console.error('[Telegram] Bot error:', err);
+      this.lastSuccessfulPoll = Date.now();
     });
   }
 
@@ -1333,6 +1345,7 @@ multiline</pre>
 
   async start(): Promise<void> {
     if (this.isRunning) return;
+    this.intentionalStop = false;
 
     const botToken = SettingsManager.get('telegram.botToken');
     if (!botToken) {
@@ -1341,31 +1354,119 @@ multiline</pre>
     }
 
     try {
-      // Start bot - note: bot.start() is a long-running operation that doesn't resolve
-      // until the bot stops, so we set isRunning in onStart callback
+      // Start bot - bot.start() is long-running, resolves when bot stops
       this.bot.start({
         onStart: (botInfo) => {
           this.isRunning = true;
+          this.reconnectAttempts = 0;
+          this.lastSuccessfulPoll = Date.now();
           try {
             console.log(`[Telegram] Bot @${botInfo.username} started`);
             console.log(`[Telegram] Authorized users: ${Array.from(this.allowedUserIds).join(', ')}`);
           } catch {
-            // Ignore EPIPE errors from console.log
+            // Ignore EPIPE errors
           }
         },
+      }).then(() => {
+        // bot.start() resolved = bot stopped
+        this.isRunning = false;
+        if (!this.intentionalStop) {
+          console.log('[Telegram] Bot polling ended unexpectedly');
+          this.scheduleReconnect('Polling loop ended');
+        }
+      }).catch((error) => {
+        // bot.start() rejected = bot crashed
+        this.isRunning = false;
+        if (!this.intentionalStop) {
+          console.error('[Telegram] Bot polling crashed:', error);
+          this.scheduleReconnect(`Polling error: ${error instanceof Error ? error.message : String(error)}`);
+        }
       });
+
+      this.startHealthCheck();
     } catch (error) {
       console.error('[Telegram] Failed to start bot:', error);
       this.isRunning = false;
-      throw error;
+      if (!this.intentionalStop) {
+        this.scheduleReconnect(`Start failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
   async stop(): Promise<void> {
+    this.intentionalStop = true;
+    this.stopHealthCheck();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (!this.isRunning) return;
     await this.bot.stop();
     this.isRunning = false;
     console.log('[Telegram] Bot stopped');
+  }
+
+  /**
+   * Schedule a reconnection attempt with exponential backoff
+   */
+  private scheduleReconnect(reason: string): void {
+    if (this.intentionalStop) return;
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error(`[Telegram] Max reconnect attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
+      try {
+        if (Notification.isSupported()) {
+          new Notification({
+            title: 'Telegram Disconnected',
+            body: 'Could not reconnect after multiple attempts. Use Reboot from tray menu.',
+          }).show();
+        }
+      } catch { /* Notification may not be available */ }
+      return;
+    }
+
+    // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s cap
+    const delay = Math.min(2000 * Math.pow(2, this.reconnectAttempts), 60000);
+    this.reconnectAttempts++;
+
+    console.log(`[Telegram] Reconnect #${this.reconnectAttempts} in ${delay}ms (reason: ${reason})`);
+
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+      console.log(`[Telegram] Reconnect attempt #${this.reconnectAttempts}...`);
+
+      try {
+        // grammy Bot can't restart after stopping — create a fresh instance
+        const botToken = SettingsManager.get('telegram.botToken');
+        if (!botToken) {
+          console.error('[Telegram] No bot token, cannot reconnect');
+          return;
+        }
+        this.bot = new Bot(botToken);
+        this.setupHandlers();
+        await this.start();
+      } catch (error) {
+        console.error('[Telegram] Reconnect failed:', error);
+        this.scheduleReconnect(`Reconnect failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }, delay);
+  }
+
+  private startHealthCheck(): void {
+    this.stopHealthCheck();
+    this.healthCheckTimer = setInterval(() => {
+      if (!this.isRunning || this.intentionalStop) return;
+      const elapsed = Date.now() - this.lastSuccessfulPoll;
+      if (elapsed > 120_000) {
+        console.warn(`[Telegram] No activity for ${Math.round(elapsed / 1000)}s — connection may be stale`);
+      }
+    }, 60_000);
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+    }
   }
 }
 
@@ -1386,4 +1487,21 @@ export function createTelegramBot(): TelegramBot | null {
     }
   }
   return telegramBotInstance;
+}
+
+export async function restartTelegramBot(): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (telegramBotInstance) {
+      await telegramBotInstance.stop();
+      telegramBotInstance = null;
+    }
+    telegramBotInstance = new TelegramBot();
+    await telegramBotInstance.start();
+    console.log('[Telegram] Bot restarted successfully');
+    return { success: true };
+  } catch (error) {
+    console.error('[Telegram] Restart failed:', error);
+    telegramBotInstance = null;
+    return { success: false, error: error instanceof Error ? error.message : 'Restart failed' };
+  }
 }

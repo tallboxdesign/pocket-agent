@@ -25,6 +25,8 @@
 14. [Project Selector in New Task Modal](#14-project-selector-in-new-task-modal)
 15. [Multi-Agent Research System](#15-multi-agent-research-system)
 16. [GLM Project Prioritization](#16-glm-project-prioritization)
+17. [Upstream Ports](#17-upstream-ports-from-kenkaiiipocket-agent)
+18. [Task Consolidation & Kanban Automation](#18-task-consolidation--kanban-automation)
 
 ---
 
@@ -539,11 +541,27 @@ On each new session or context reset, prepend the GLM-compressed briefing to the
 ## 8. Gmail Integration
 
 ### What
-Use GLM-4.7 to process incoming Gmail:
+The manager has its own Gmail account. Two directions:
+
+**Inbound:** Use GLM-4.7 to process incoming Gmail:
 - Read new emails
 - Classify and label them (urgent, important, newsletter, spam)
 - Ping user on Telegram for urgent/important emails
 - Summarize email threads
+
+**Outbound:** Routines and agent actions can send emails:
+- Scheduled routines can output to email (e.g., daily report emailed to user)
+- Agent can compose and send emails on behalf of the manager
+- Email drafts require user approval before sending (unless auto-approved in settings)
+
+### Routine Output Channels
+Currently routines only output to chat. With Gmail, routines get a `channel` field:
+- `chat` — response goes to the chat window (current behavior)
+- `telegram` — response sent to Telegram
+- `email` — response composed as email and sent to configured recipient(s)
+- Multiple channels allowed (e.g., `chat+email` — show in chat AND email)
+
+The Routines UI gets a "Send to" picker when creating/editing a routine: Chat, Telegram, Email, or any combination.
 
 ### Implementation
 
@@ -556,23 +574,46 @@ export class GmailClient {
   async labelEmail(messageId: string, labels: string[]): Promise<void>
   async getThread(threadId: string): Promise<GmailThread>
   async markAsRead(messageId: string): Promise<void>
+  async sendEmail(to: string, subject: string, body: string): Promise<void>
+  async createDraft(to: string, subject: string, body: string): Promise<string>
 }
 ```
 
-#### 8.2 Scheduled Job — every 5 minutes
+#### 8.2 Inbound — Scheduled Job (every 5 minutes)
 Classified by GLM-4.7. Urgent/important → Telegram ping. Everything logged to event_log.
+
+#### 8.3 Outbound — Routine Email Delivery
+When a routine has `channel: 'email'`:
+1. Routine runs as normal (agent executes the prompt)
+2. Agent output is formatted as email body
+3. Email sent to configured recipient(s) via Gmail API
+4. Logged to event_log with `event_type: 'email_sent'`
+
+#### 8.4 Scheduler Schema Extension
+```sql
+ALTER TABLE cron_jobs ADD COLUMN channel TEXT DEFAULT 'chat';
+-- Values: 'chat', 'telegram', 'email', 'chat+email', 'chat+telegram', etc.
+ALTER TABLE cron_jobs ADD COLUMN email_recipients TEXT;
+-- JSON array of email addresses for email channel
+```
 
 ### Files to Create/Modify
 - CREATE: `src/channels/gmail.ts`
 - CREATE: `src/channels/email-processor.ts`
 - MODIFY: `package.json` — add googleapis dependency
+- MODIFY: `src/scheduler/index.ts` — route routine output to configured channel(s)
+- MODIFY: `ui/cron.html` — "Send to" channel picker in routine creation form
 
 ---
 
-## 9. Auto-Task Recording (General Inbox)
+## 9. Auto-Task Recording (Personal Project)
 
 ### What
-The agent always works within a task context. If no task exists for the current work, the agent **auto-creates one in a "General Inbox" project**. This ensures nothing happens without being tracked.
+The agent always works within a task context. If no task exists for the current work, the agent **auto-creates one in the "Personal" project** (see Section 18). This ensures nothing happens without being tracked.
+
+The "Personal" project serves dual purpose:
+1. **Inbox** for auto-created tasks from conversations
+2. **Home** for simple todos redirected from `task_add` (Section 18.1)
 
 ### How It Works
 
@@ -580,29 +621,29 @@ The agent always works within a task context. If no task exists for the current 
 User asks agent to do something:
   1. Is there an active Kanban task linked to this conversation? → Use it
   2. Is there a project that matches this topic? → Create task there
-  3. Neither? → Create task in "General Inbox" project with descriptive title
+  3. Neither? → Create task in "Personal" project with descriptive title
   4. Agent works under that task — all events tagged with task_id
-  5. Periodically, heartbeat checks inbox tasks and asks user:
-     "Task X has been in Inbox for 2 days. Want to move it to a project?"
+  5. Periodically, heartbeat checks Personal project tasks and asks user:
+     "Task X has been in Personal for 2 days. Want to move it to a project?"
 ```
 
 ### What's NOT a task
 Simple questions ("what time is it?", "how do I X?") don't create tasks. The agent uses judgment. But the event_log still records the interaction regardless.
 
 ### Inbox Cleanup
-The heartbeat (or a daily GLM job) scans the General Inbox:
-- Tasks older than 2 days without a project → ping user to organize
+The heartbeat (or a daily GLM job) scans the Personal project:
+- Tasks older than 2 days without being moved to a real project → ping user to organize
 - Tasks that are clearly done → suggest archiving
 - Tasks that belong to an existing project → suggest moving
 
 ### Implementation
 
-#### 9.1 General Inbox Project
-Auto-created on first launch if it doesn't exist:
+#### 9.1 Personal Project
+Auto-created on first launch if it doesn't exist (shared with Section 18):
 ```typescript
 {
-  name: 'General Inbox',
-  description: 'Auto-created tasks from conversations. Organize into projects.',
+  name: 'Personal',
+  description: 'Your tasks, todos, and auto-created items. Move to projects as needed.',
   workspace_path: null
 }
 ```
@@ -623,7 +664,7 @@ export class TaskContext {
 ### Files to Create/Modify
 - CREATE: `src/agent/task-context.ts`
 - MODIFY: `src/agent/index.ts` — integrate task context
-- MODIFY: `src/main/index.ts` — auto-create General Inbox project
+- MODIFY: `src/main/index.ts` — auto-create Personal project (shared with Section 18)
 
 ---
 
@@ -938,39 +979,245 @@ Part of the daily summary (Section 5). GLM receives project data and returns a r
 
 ---
 
+## 17. Upstream Ports (from KenKaiii/pocket-agent)
+
+### What
+Cherry-pick valuable improvements from the original repo without adopting the cat theme, click sounds, or splash screen. Manual port to avoid merge conflicts with our Kanban, voice, and TTS work.
+
+### 17.1 Skills Setup — Inline API Key Entry
+**Source:** `c770b6d` (upstream)
+- 5 new skill setup wizards: 1Password, Gemini, Himalaya (email), Notion, Trello
+- Inline API key modal on the Superpowers page — no need to navigate to Settings
+- Per-env-var input fields with "Get key" links to provider pages
+- **Method:** Take upstream `ui/skills-setup.html` directly (we never modified this file)
+
+### 17.2 Session State Persistence
+**Source:** `c770b6d` (upstream)
+- Per-session input text — draft text saved when switching tabs, restored when switching back
+- Per-session attachments — dragged-in files preserved per tab
+- Per-session suggestions — ghost text suggestions preserved per tab
+- Per-session queued messages — pending message tracking per tab
+- Per-session pending user messages — unsaved messages re-rendered on tab switch
+- **Method:** Manually port the Map-based state refactoring into our `ui/chat.html`, skipping cat theme and click sounds
+
+### 17.3 Stopped Query Bug Fix
+**Source:** `c770b6d` (upstream)
+- Suppress "Aborted" error messages when user intentionally stops a query
+- Add `showTimestamp` parameter to `addMessage()` — stopped messages shown without timestamp
+- **Method:** Small targeted edit in our `ui/chat.html`
+
+### What We Skip
+- Splash screen with shimmer animation (`ui/splash.html`)
+- Click sounds on every button (`assets/click.mp3`, `assets/normal-click.mp3`)
+- "Franky the Cat" identity (pixel cat spinner, paw print send button, Pixelify Sans font)
+- Cat-themed status messages in `src/agent/index.ts`
+- These can be revisited later if desired
+
+### Files to Modify
+- REPLACE: `ui/skills-setup.html` — take upstream version
+- MODIFY: `ui/chat.html` — session state Maps + stopped query fix (manual port)
+
+---
+
+## 18. Task Consolidation & Kanban Automation
+
+### Problem
+Four overlapping systems confuse the user:
+- `tasks` table — simple todos via chat, **no UI window**
+- `calendar_events` table — appointments via chat, **no UI window**
+- `cron_jobs` table — routines + reminders, has Routines UI
+- `kanban_tasks` table — project management, has Projects UI
+
+User asks "where are my tasks?" and the answer is "scattered across 4 tables."
+
+### Solution
+
+#### 18.1 Consolidate Tasks into Kanban
+**Redirect `task_add` → Kanban.** All user tasks go to a "Personal" Kanban project.
+
+- Auto-create a **"Personal"** Kanban project on first launch (if not exists)
+- Rewire `task_add` tool → creates a `kanban_tasks` entry in the Personal project
+- Rewire `task_list` → queries `kanban_tasks` from Personal project
+- Rewire `task_complete` → moves card to Done column
+- Rewire `task_delete` → deletes the Kanban card
+- `task_due` → queries Kanban tasks with due_date in range
+- Old `tasks` table stays intact (no data loss), stops receiving new data
+- One-time migration on startup: move existing `tasks` rows → Personal project cards
+
+#### 18.2 Keep Calendar Events Separate
+Calendar events are fundamentally different (start/end time, location, all-day flag). They stay in `calendar_events` and will later connect to Google Calendar / Apple Calendar. They need a UI eventually (dedicated Calendar window or section in Routines).
+
+#### 18.3 Keep Cron Jobs As-Is
+Standalone routines and simple reminders ("remind me to drink water in 1 hour") stay in `cron_jobs`. These are lightweight, don't need a Kanban card.
+
+#### 18.4 Kanban Task Automation — The Unified Pipeline
+Every Kanban card can optionally become an automated job. A card gains scheduling powers:
+
+**New fields on `kanban_tasks`:**
+```sql
+ALTER TABLE kanban_tasks ADD COLUMN due_date TEXT;           -- ISO timestamp
+ALTER TABLE kanban_tasks ADD COLUMN reminder_minutes INTEGER; -- notify N minutes before due
+ALTER TABLE kanban_tasks ADD COLUMN action_type TEXT DEFAULT 'none'; -- none/reminder/execute
+ALTER TABLE kanban_tasks ADD COLUMN notify_channels TEXT;     -- 'telegram,email,desktop' (comma-sep)
+ALTER TABLE kanban_tasks ADD COLUMN recurrence TEXT;           -- null, 'daily', 'weekly', cron expr
+ALTER TABLE kanban_tasks ADD COLUMN last_run_at TEXT;          -- for recurring tasks
+```
+
+**Three action types:**
+
+| Action Type | Trigger | What Happens |
+|-------------|---------|-------------|
+| `none` | No automation | Card is passive, user manages manually |
+| `reminder` | At due_date (minus reminder_minutes) | Ping user via notify_channels: "Reminder: Buy coffee" |
+| `execute` | At due_date | Agent picks up card description as prompt, executes it, reports results |
+
+**Execution flow for `execute` tasks:**
+```
+1. Scheduler scans kanban_tasks with due_date every 60 seconds
+2. Task is due and action_type = 'execute':
+   a. Send notification: "Starting work on: [task title]"
+   b. Card moves to In Progress
+   c. Agent executes the task description as a prompt
+   d. For code tasks → spawn CLI worker (Section 3)
+   e. For research tasks → spawn research agents (Section 15)
+   f. For simple tasks → main agent handles directly
+   g. On success:
+      - Results added as comment on the card
+      - Card moves to Review (or Done if auto-approved)
+      - Notification: "Done: [task title]. Results ready for review."
+   h. On failure:
+      - Error logged as comment
+      - Card stays In Progress with error tag
+      - Notification: "Failed: [task title]. Error: ..."
+   i. Heartbeat monitors progress, sends milestone updates
+```
+
+**Recurring `execute` tasks:**
+```
+Task: "Check my emails every morning" + recurrence: 'daily'
+  → First run at due_date
+  → Each run: agent executes, adds comment with results
+  → Card tracks cumulative history (each run = new comment)
+  → last_run_at updated after each execution
+  → Never moves to Done (recurring)
+  → Next run calculated from recurrence pattern
+```
+
+#### 18.5 Task Detail Panel — Schedule Section
+The task detail panel (Section 11) gains a "Schedule" section:
+- Date/time picker for due date
+- Dropdown for action type: None / Reminder / Execute
+- Channel checkboxes: Telegram, Email, Desktop
+- Reminder offset: At the time / 15 min before / 30 min / 1 hour / 1 day
+- Recurrence: One-time / Daily / Weekly / Weekdays / Custom cron
+- For `execute` tasks: the card description IS the prompt the agent will run
+
+#### 18.6 Task Scheduler Service — `src/scheduler/task-scheduler.ts`
+```typescript
+export class TaskScheduler {
+  private checkInterval: NodeJS.Timeout;
+
+  start(intervalMs: number = 60000)  // Check every 60 seconds
+  stop()
+
+  private async checkDueTasks(): Promise<void>
+  private async checkReminders(): Promise<void>  // Tasks with reminder_minutes approaching
+  private async executeTask(task: KanbanTask): Promise<void>
+  private async handleRecurrence(task: KanbanTask): Promise<void>
+  private async notify(task: KanbanTask, message: string): Promise<void>
+}
+```
+
+Runs alongside the existing `CronScheduler` (which handles `cron_jobs`). They are independent:
+- `CronScheduler` → fires standalone routines and simple reminders
+- `TaskScheduler` → fires Kanban card automations
+
+#### 18.7 Tool Rewiring — `src/tools/task-tools.ts`
+```typescript
+// Before: creates row in `tasks` table
+// After: creates Kanban card in Personal project
+
+task_add(title, priority?, due_date?) → kanbanCreateTask({
+  projectId: personalProjectId,
+  title,
+  priority,
+  due_date,
+  action_type: due_date ? 'reminder' : 'none',
+  status: 'todo'
+})
+
+task_list(status?) → kanbanGetBoard(personalProjectId, { status filter })
+task_complete(id) → kanbanMoveTask(id, 'done')
+task_delete(id) → kanbanDeleteTask(id)
+task_due(hours) → kanbanGetTasksDueSoon(hours)
+```
+
+#### 18.8 Startup Migration
+On app launch, one-time migration:
+```typescript
+async function migrateTasksToKanban() {
+  // 1. Ensure "Personal" project exists
+  // 2. Read all rows from `tasks` table
+  // 3. For each: create kanban_tasks entry in Personal project
+  //    - Map priority, due_date, status
+  //    - Mark as migrated (add column `migrated_at` to tasks table)
+  // 4. Log migration to event_log
+}
+```
+
+### Files to Create/Modify
+- CREATE: `src/scheduler/task-scheduler.ts` — Kanban task automation runner
+- MODIFY: `src/tools/task-tools.ts` — redirect to Kanban operations
+- MODIFY: `src/kanban/index.ts` — add due_date, action_type, notify_channels, recurrence fields + migration
+- MODIFY: `src/main/index.ts` — auto-create Personal project, run migration, start TaskScheduler
+- MODIFY: `ui/kanban.html` — schedule section in task detail panel
+- MODIFY: `src/scheduler/index.ts` — TaskScheduler alongside CronScheduler
+
+---
+
 ## Implementation Order (Priority)
 
+### Phase 0 — Upstream Ports (Bug Fixes & UX) ✅ DONE
+1. ✅ Skills setup: 5 new wizards + inline API key modal (`ui/skills-setup.html`)
+2. ✅ Session state persistence (`ui/chat.html`)
+3. ✅ Stopped query bug fix (`ui/chat.html`)
+
+### Phase 0.5 — Task Consolidation
+4. Auto-create "Personal" Kanban project on startup
+5. Rewire `task_add/list/complete/delete` tools → Kanban operations in Personal project
+6. Migrate existing `tasks` table rows → Personal project cards (one-time)
+7. Add `due_date`, `action_type`, `notify_channels`, `recurrence` columns to `kanban_tasks`
+
 ### Phase 1 — Foundation (Data Layer)
-1. Universal event log with token tracking (`src/memory/event-log.ts`)
-2. GLM 4.7 client (`src/agent/glm-client.ts`)
-3. Actor tracking fixes across all Kanban operations
-4. Project selector in New Task modal (quick win)
+8. Universal event log with token tracking (`src/memory/event-log.ts`) — ✅ DONE
+9. GLM 4.7 client (`src/agent/glm-client.ts`)
+10. Actor tracking fixes across all Kanban operations
+11. Project selector in New Task modal (quick win)
 
 ### Phase 2 — Workers & Research
-5. Worker manager + execution DB (`src/workers/`)
-6. Claude CLI spawning + Kanban integration
-7. Multi-agent research orchestrator (`src/agent/research.ts`)
-8. Research tools + Kanban research filter
+12. Worker manager + execution DB (`src/workers/`)
+13. Claude CLI spawning + Kanban integration
+14. Multi-agent research orchestrator (`src/agent/research.ts`)
+15. Research tools + Kanban research filter
 
 ### Phase 3 — Scheduling & Monitoring
-9. Task scheduling UI (schedule button, overnight picker)
-10. Scheduled task runner
-11. Universal heartbeat system
-12. Auto-task recording (General Inbox)
+16. Kanban TaskScheduler — execute/remind on due_date (`src/scheduler/task-scheduler.ts`)
+17. Task detail panel — schedule section (due date, action type, channels, recurrence)
+18. Universal heartbeat system
+19. Auto-task recording (Personal project)
 
 ### Phase 4 — Intelligence & Continuity
-13. Daily summary generation (GLM-4.7)
-14. Session continuity briefing (3-day context injection)
-15. GLM project prioritization (morning recommendations)
+20. Daily summary generation (GLM-4.7)
+21. Session continuity briefing (3-day context injection)
+22. GLM project prioritization (morning recommendations)
 
 ### Phase 5 — UI & Organization
-16. Task detail panel improvements (expand, left/right, tokens, voice summary)
-17. Tag & assignee system (autocomplete, dropdown, colors, research filter)
-18. Project folder manager (plan subfolders, TODO tracking)
+23. Tag & assignee system (autocomplete, dropdown, colors, research filter)
+24. Project folder manager (plan subfolders, TODO tracking)
 
 ### Phase 6 — Communication
-19. Gmail integration + email classification
-20. Telegram notifications for urgent emails
+25. Gmail integration + email classification + outbound email from routines
+26. Telegram notifications for urgent emails
 
 ---
 
@@ -989,11 +1236,20 @@ Part of the daily summary (Section 5). GLM receives project data and returns a r
 ## Database Migrations Needed
 
 ```sql
--- 1. Universal event log table (new)
+-- 1. Universal event log table (new) — ✅ DONE
 -- 2. Worker executions table (new)
 -- 3. kanban_tasks: ADD scheduled_at TEXT
 -- 4. kanban_tasks: ADD worker_id TEXT
 -- 5. kanban_tasks: UPDATE status CHECK to include 'scheduled'
+-- 6. cron_jobs: ADD channel TEXT DEFAULT 'chat'
+-- 7. cron_jobs: ADD email_recipients TEXT
+-- 8. kanban_tasks: ADD due_date TEXT
+-- 9. kanban_tasks: ADD reminder_minutes INTEGER
+-- 10. kanban_tasks: ADD action_type TEXT DEFAULT 'none'
+-- 11. kanban_tasks: ADD notify_channels TEXT
+-- 12. kanban_tasks: ADD recurrence TEXT
+-- 13. kanban_tasks: ADD last_run_at TEXT
+-- 14. tasks: ADD migrated_at TEXT (mark migrated rows)
 ```
 
 All migrations use `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN` for backwards compatibility.

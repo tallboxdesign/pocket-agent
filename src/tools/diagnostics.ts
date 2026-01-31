@@ -7,6 +7,9 @@
  * - Catch and report errors
  */
 
+import { logEvent } from '../memory/event-log';
+import { getCurrentSessionId } from './session-context';
+
 const TOOL_TIMEOUT_MS = 30000; // 30 second default timeout
 
 interface ToolTiming {
@@ -82,6 +85,18 @@ export function wrapToolHandler<T>(
       const resultStr = result.length > 200 ? result.slice(0, 200) + '...' : result;
       logTool('info', `END ${toolName}`, { callId, duration: `${timing.duration}ms`, result: resultStr });
 
+      try {
+        logEvent({
+          event_type: 'tool_call',
+          source: 'claude',
+          actor: 'claude',
+          session_id: getCurrentSessionId(),
+          data: { tool: toolName, input: truncatedInput },
+          success: true,
+          duration_ms: timing.duration,
+        });
+      } catch { /* don't let event logging break tool execution */ }
+
       return result;
     } catch (error) {
       clearTimeout(timeoutId!);
@@ -95,6 +110,19 @@ export function wrapToolHandler<T>(
         duration: `${timing.duration}ms`,
         error: timing.error
       });
+
+      try {
+        logEvent({
+          event_type: 'tool_call',
+          source: 'claude',
+          actor: 'claude',
+          session_id: getCurrentSessionId(),
+          data: { tool: toolName, input: truncatedInput },
+          success: false,
+          error: timing.error,
+          duration_ms: timing.duration,
+        });
+      } catch { /* don't let event logging break tool execution */ }
 
       // Return error as JSON so agent can see it
       return JSON.stringify({

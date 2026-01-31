@@ -4,6 +4,7 @@ import { closeBrowserManager } from '../browser';
 import { loadIdentity } from '../config/identity';
 import { loadInstructions } from '../config/instructions';
 import { SettingsManager } from '../settings';
+import { logEvent } from '../memory/event-log';
 import { EventEmitter } from 'events';
 
 // Token limits - defaults, can be overridden by settings
@@ -91,6 +92,50 @@ function configureProviderEnvironment(model: string): void {
 
     console.log('[AgentManager] Provider configured: Anthropic');
   }
+}
+
+/**
+ * Classify whether an error is recoverable (can retry/fallback) or fatal
+ */
+type ErrorType = 'auth' | 'rate_limit' | 'network' | 'api' | 'fatal';
+
+function classifyError(error: unknown): { recoverable: boolean; type: ErrorType; message: string } {
+  const msg = error instanceof Error ? error.message : String(error);
+  const lower = msg.toLowerCase();
+
+  // Auth errors
+  if (lower.includes('401') || lower.includes('403') ||
+      lower.includes('unauthorized') || lower.includes('forbidden') ||
+      (lower.includes('invalid') && lower.includes('key')) ||
+      lower.includes('api key not configured')) {
+    return { recoverable: true, type: 'auth', message: msg };
+  }
+
+  // Rate limiting
+  if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests')) {
+    return { recoverable: true, type: 'rate_limit', message: msg };
+  }
+
+  // Network errors
+  if (lower.includes('econnrefused') || lower.includes('etimedout') ||
+      lower.includes('enotfound') || lower.includes('fetch failed') ||
+      lower.includes('network') || lower.includes('socket hang up') ||
+      lower.includes('econnreset') || lower.includes('enetunreach')) {
+    return { recoverable: true, type: 'network', message: msg };
+  }
+
+  // API server errors
+  if (lower.includes('overloaded') || lower.includes('500') ||
+      lower.includes('502') || lower.includes('503') || lower.includes('504')) {
+    return { recoverable: true, type: 'api', message: msg };
+  }
+
+  // User abort — not really an error
+  if (lower.includes('aborted') || lower.includes('stopped by user')) {
+    return { recoverable: true, type: 'api', message: msg };
+  }
+
+  return { recoverable: false, type: 'fatal', message: msg };
 }
 
 // Get smart context options from settings
@@ -391,6 +436,7 @@ class AgentManagerClass extends EventEmitter {
 
     // Set session context for MCP tools to use
     setCurrentSessionId(sessionId);
+    const executionStartTime = Date.now();
 
     try {
       // Use smart context: recent messages + rolling summary + semantic retrieval
@@ -504,6 +550,20 @@ class AgentManagerClass extends EventEmitter {
         response = 'I processed your request but have no text response.';
       }
 
+      // Log LLM call to event log
+      try {
+        const llmDuration = Date.now() - executionStartTime;
+        logEvent({
+          event_type: 'llm_call',
+          source: 'claude',
+          actor: 'claude',
+          session_id: sessionId,
+          data: { model: this.model, channel, responseLength: response.length },
+          success: true,
+          duration_ms: llmDuration,
+        });
+      } catch { /* don't let event logging break the agent */ }
+
       // Skip saving HEARTBEAT_OK responses from scheduled jobs to memory/chat
       const isScheduledJob = channel.startsWith('cron:');
       const isHeartbeat = response.toUpperCase().includes('HEARTBEAT_OK');
@@ -561,12 +621,117 @@ class AgentManagerClass extends EventEmitter {
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      const errorClass = classifyError(error);
       console.error('[AgentManager] Query failed:', errorMsg);
+      console.error('[AgentManager] Error type:', errorClass.type, 'Recoverable:', errorClass.recoverable);
       if (error instanceof Error && error.stack) {
         console.error('[AgentManager] Stack trace:', error.stack);
       }
-      // Log full error object for debugging
       console.error('[AgentManager] Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
+      // Log error to event log
+      try {
+        logEvent({
+          event_type: 'error',
+          source: 'claude',
+          actor: 'claude',
+          session_id: sessionId,
+          data: { model: this.model, channel, errorType: errorClass.type },
+          success: false,
+          error: errorMsg,
+          duration_ms: Date.now() - executionStartTime,
+        });
+      } catch { /* don't let event logging break error handling */ }
+
+      // === FALLBACK LOGIC ===
+      const fallbackModel = SettingsManager.get('agent.fallbackModel');
+      if (errorClass.recoverable && fallbackModel && fallbackModel !== this.model) {
+        console.log(`[AgentManager] Attempting fallback: ${this.model} → ${fallbackModel} (reason: ${errorClass.type})`);
+        this.emitStatus({ type: 'thinking', message: 'Primary model failed, switching to backup...' });
+
+        try {
+          configureProviderEnvironment(fallbackModel);
+          const query = await loadSDK();
+          if (!query) throw new Error('Failed to load SDK for fallback');
+
+          const fallbackOptions = await this.buildOptions(
+            memory.getFactsForContext(),
+            memory.getSoulContext(),
+            abortController,
+            undefined
+          );
+          fallbackOptions.model = fallbackModel;
+
+          // Rebuild prompt context
+          const smartCtx = await memory.getSmartContext(sessionId, getSmartContextOptions(userMessage));
+          const parts: string[] = [];
+          if (smartCtx.rollingSummary) parts.push(`[Summary of previous conversations]\n${smartCtx.rollingSummary}`);
+          if (smartCtx.relevantMessages.length > 0) {
+            parts.push(`[Relevant past context]\n${smartCtx.relevantMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n')}`);
+          }
+          if (smartCtx.recentMessages.length > 0) {
+            parts.push(`[Recent conversation]\n${smartCtx.recentMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n')}`);
+          }
+          const fallbackPrompt = parts.length > 0
+            ? `${parts.join('\n\n---\n\n')}\n\n---\n\nUser: ${userMessage}`
+            : userMessage;
+
+          const fallbackResult = query({ prompt: fallbackPrompt, options: fallbackOptions });
+          let fallbackResponse = '';
+          for await (const message of fallbackResult) {
+            if (abortController.signal.aborted) throw new Error('Query stopped by user');
+            this.processStatusFromMessage(message);
+            fallbackResponse = this.extractFromMessage(message, fallbackResponse);
+          }
+
+          this.emitStatus({ type: 'done' });
+          if (!fallbackResponse) fallbackResponse = 'I processed your request but have no text response.';
+
+          // Prepend fallback notice
+          fallbackResponse = `_[Backup model: ${fallbackModel} — primary model was unavailable]_\n\n${fallbackResponse}`;
+
+          // Log fallback success
+          try {
+            logEvent({
+              event_type: 'llm_call',
+              source: 'claude',
+              actor: 'claude',
+              session_id: sessionId,
+              data: { model: fallbackModel, channel, fallbackFrom: this.model, reason: errorClass.type },
+              success: true,
+              duration_ms: Date.now() - executionStartTime,
+            });
+          } catch { /* ignore */ }
+
+          // Save messages
+          const userMsgId = memory.saveMessage('user', userMessage, sessionId);
+          const assistantMsgId = memory.saveMessage('assistant', fallbackResponse, sessionId);
+          memory.embedMessage(userMsgId).catch(e => console.error('[AgentManager] Embed failed:', e));
+          memory.embedMessage(assistantMsgId).catch(e => console.error('[AgentManager] Embed failed:', e));
+          this.extractAndStoreFacts(userMessage);
+
+          return {
+            response: fallbackResponse,
+            tokensUsed: memory.getStats().estimatedTokens,
+            wasCompacted,
+            suggestedPrompt: this.lastSuggestedPrompt,
+          };
+        } catch (fallbackError) {
+          console.error('[AgentManager] Fallback also failed:', fallbackError);
+          try {
+            logEvent({
+              event_type: 'error',
+              source: 'claude',
+              actor: 'claude',
+              session_id: sessionId,
+              data: { model: fallbackModel, fallbackFailed: true },
+              success: false,
+              error: fallbackError instanceof Error ? fallbackError.message : 'Fallback failed',
+            });
+          } catch { /* ignore */ }
+        }
+      }
+      // === END FALLBACK ===
 
       // Only save user message if not aborted
       if (!abortController.signal.aborted) {

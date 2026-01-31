@@ -2,6 +2,8 @@ import cron, { ScheduledTask } from 'node-cron';
 import Database from 'better-sqlite3';
 import { AgentManager } from '../agent';
 import { MemoryManager, CronJob } from '../memory';
+import { SettingsManager } from '../settings';
+import { sendEmail as gogSendEmail } from '../tools/gog-wrapper';
 import type { TelegramBot } from '../channels/telegram';
 
 /**
@@ -178,13 +180,15 @@ export class CronScheduler {
         db.prepare('UPDATE calendar_events SET reminded = 1 WHERE id = ?').run(event.id);
       }
 
-      // Check tasks with due dates
+      // Check kanban tasks with due dates
       const tasks = db.prepare(`
-        SELECT id, title, description, due_date, priority, reminder_minutes, channel, session_id
-        FROM tasks
-        WHERE status != 'completed'
+        SELECT id, title, description, due_date, priority, reminder_minutes,
+          COALESCE(notify_channels, 'desktop') as channel
+        FROM kanban_tasks
+        WHERE status != 'done'
           AND reminded = 0
           AND reminder_minutes IS NOT NULL
+          AND due_date IS NOT NULL
           AND datetime(due_date, '-' || reminder_minutes || ' minutes') <= datetime(?)
           AND datetime(due_date) > datetime(?)
       `).all(now.toISOString(), now.toISOString()) as Task[];
@@ -199,7 +203,7 @@ export class CronScheduler {
         } else {
           message += ' due now';
         }
-        if (task.priority === 'high') {
+        if (task.priority === 'high' || task.priority === 'urgent') {
           message += ' (High Priority)';
         }
 
@@ -207,7 +211,7 @@ export class CronScheduler {
         await this.sendReminder('task', task.title, message, task.channel, sessionId);
 
         // Mark as reminded
-        db.prepare('UPDATE tasks SET reminded = 1 WHERE id = ?').run(task.id);
+        db.prepare('UPDATE kanban_tasks SET reminded = 1 WHERE id = ?').run(task.id);
       }
 
       // Check for due cron jobs
@@ -419,28 +423,38 @@ export class CronScheduler {
       this.onChatMessage(jobName, prompt, response, sessionId);
     }
 
-    // Also send to Telegram if configured AND session has a linked chat
-    if (channel === 'telegram' && this.telegramBot && this.memory) {
+    // Also send to Telegram if channel includes 'telegram'
+    if (channel.includes('telegram') && this.telegramBot && this.memory) {
       const linkedChatId = this.memory.getChatForSession(sessionId);
-      if (linkedChatId) {
+      const fallbackChatId = linkedChatId || parseInt(SettingsManager.get('telegram.defaultChatId') || '', 10) || null;
+      if (fallbackChatId) {
         // Check for screenshot paths in response and send as photos
         const screenshotPaths = this.extractScreenshotPaths(response);
         for (const photoPath of screenshotPaths) {
-          await this.telegramBot.sendPhoto(linkedChatId, photoPath);
+          await this.telegramBot.sendPhoto(fallbackChatId, photoPath);
         }
         // Send text response (strip screenshot paths for cleaner message)
         const cleanResponse = this.stripScreenshotPaths(response);
         if (cleanResponse.trim()) {
-          await this.telegramBot.sendMessage(linkedChatId, cleanResponse);
+          await this.telegramBot.sendMessage(fallbackChatId, cleanResponse);
         }
       }
-      // No broadcast fallback - only send to session's linked chat
+    }
+
+    // Also send to email if channel includes 'email'
+    if (channel.includes('email')) {
+      const gmailEnabled = SettingsManager.getBoolean('gmail.enabled');
+      const recipient = SettingsManager.get('gmail.defaultRecipient');
+      if (gmailEnabled && recipient) {
+        gogSendEmail({ to: recipient, subject: `Pocket Agent: ${jobName}`, body: plainResponse })
+          .catch(err => console.error('[Scheduler] Email send failed:', err));
+      }
     }
   }
 
   /**
    * Send a reminder notification.
-   * Always sends to desktop (to the correct session), and also to Telegram if configured.
+   * Always sends to desktop (to the correct session), and also to Telegram/email if configured.
    */
   private async sendReminder(type: 'calendar' | 'task', title: string, message: string, channel: string, sessionId: string = 'default'): Promise<void> {
     console.log(`[Scheduler] Sending ${type} reminder: ${title} (session: ${sessionId})`);
@@ -453,13 +467,24 @@ export class CronScheduler {
       this.onChatMessage(`${type}_reminder`, message, message, sessionId);
     }
 
-    // Also send to Telegram if configured AND session has a linked chat
-    if (channel === 'telegram' && this.telegramBot && this.memory) {
+    // Also send to Telegram if channel includes 'telegram'
+    if (channel.includes('telegram') && this.telegramBot && this.memory) {
       const linkedChatId = this.memory.getChatForSession(sessionId);
-      if (linkedChatId) {
-        await this.telegramBot.sendMessage(linkedChatId, `${type === 'calendar' ? '📅' : '✓'} ${message}`);
+      const fallbackChatId = linkedChatId || parseInt(SettingsManager.get('telegram.defaultChatId') || '', 10) || null;
+      if (fallbackChatId) {
+        await this.telegramBot.sendMessage(fallbackChatId, `${type === 'calendar' ? '📅' : '✓'} ${message}`);
       }
-      // No broadcast fallback - only send to session's linked chat
+    }
+
+    // Also send to email if channel includes 'email'
+    if (channel.includes('email')) {
+      const gmailEnabled = SettingsManager.getBoolean('gmail.enabled');
+      const recipient = SettingsManager.get('gmail.defaultRecipient');
+      if (gmailEnabled && recipient) {
+        const prefix = type === 'calendar' ? '[Calendar]' : '[Task]';
+        gogSendEmail({ to: recipient, subject: `${prefix} ${title}`, body: message })
+          .catch(err => console.error('[Scheduler] Email reminder failed:', err));
+      }
     }
 
     // Log to history
@@ -636,6 +661,16 @@ export class CronScheduler {
         if (linkedChatId) {
           await this.telegramBot.sendMessage(linkedChatId, `📅 ${job.name}\n\n${response}`);
         }
+      }
+    }
+
+    // Also send to email if channel includes 'email'
+    if (job.channel?.includes('email')) {
+      const gmailEnabled = SettingsManager.getBoolean('gmail.enabled');
+      const recipient = SettingsManager.get('gmail.defaultRecipient');
+      if (gmailEnabled && recipient) {
+        gogSendEmail({ to: recipient, subject: `Pocket Agent: ${job.name}`, body: plainResponse })
+          .catch(err => console.error('[Scheduler] Email send failed:', err));
       }
     }
   }

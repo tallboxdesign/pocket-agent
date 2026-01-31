@@ -1,77 +1,19 @@
 /**
  * Task/Todo tools for the agent
  *
- * MCP tools for managing tasks with priorities and due dates
- *
- * Uses a shared database connection to prevent SQLite locks
+ * MCP tools for managing tasks with priorities and due dates.
+ * Rewired to use KanbanService (Personal project) instead of direct SQL on tasks table.
  */
 
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
 import { getCurrentSessionId } from './session-context';
-
-// Shared database connection (singleton pattern to prevent locks)
-let sharedDb: Database.Database | null = null;
-let dbInitialized = false;
-
-function getDbPath(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  const possiblePaths = [
-    path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
-    path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
-    path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
-  ];
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) return p;
-  }
-  return possiblePaths[0];
-}
+import { KanbanService, type KanbanStatus, type KanbanPriority, type KanbanTask } from '../kanban';
 
 /**
- * Get or create shared database connection
- * Uses WAL mode for better concurrent access
- */
-function getDb(): Database.Database {
-  if (sharedDb && !dbInitialized) {
-    // Connection exists but table not initialized
-    ensureTable(sharedDb);
-    dbInitialized = true;
-    return sharedDb;
-  }
-
-  if (sharedDb) {
-    return sharedDb;
-  }
-
-  const dbPath = getDbPath();
-  if (!fs.existsSync(dbPath)) {
-    throw new Error('Database not found. Start Pocket Agent first.');
-  }
-
-  console.log('[TaskTools] Opening shared database connection');
-  sharedDb = new Database(dbPath);
-
-  // Enable WAL mode for better concurrent access
-  sharedDb.pragma('journal_mode = WAL');
-  sharedDb.pragma('busy_timeout = 5000'); // Wait up to 5s if locked
-
-  ensureTable(sharedDb);
-  dbInitialized = true;
-
-  return sharedDb;
-}
-
-/**
- * Close shared database connection (call on app shutdown)
+ * Close legacy task database connection (no-op since tasks now use KanbanService)
  */
 export function closeTaskDb(): void {
-  if (sharedDb) {
-    console.log('[TaskTools] Closing shared database connection');
-    sharedDb.close();
-    sharedDb = null;
-    dbInitialized = false;
-  }
+  // Legacy tasks table is no longer used directly.
+  // KanbanService manages its own DB connection via closeKanbanDb().
 }
 
 function parseDateTime(input: string): string | null {
@@ -164,26 +106,27 @@ function formatDateTime(isoString: string | null): string | null {
   });
 }
 
-function ensureTable(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS tasks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      description TEXT,
-      due_date TEXT,
-      priority TEXT DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high')),
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed')),
-      reminder_minutes INTEGER,
-      reminded INTEGER DEFAULT 0,
-      channel TEXT DEFAULT 'desktop',
-      session_id TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
-    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-    CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
-  `);
+// ============================================================================
+// Status mapping helpers
+// ============================================================================
+
+function reverseStatusMap(kanbanStatus: KanbanStatus): string {
+  switch (kanbanStatus) {
+    case 'backlog':
+    case 'todo':
+      return 'pending';
+    case 'in_progress':
+    case 'review':
+      return 'in_progress';
+    case 'done':
+      return 'completed';
+  }
+}
+
+function toPriority(p: string | undefined): KanbanPriority {
+  const val = p?.toLowerCase();
+  if (val === 'low' || val === 'medium' || val === 'high' || val === 'urgent') return val;
+  return 'medium';
 }
 
 // ============================================================================
@@ -240,29 +183,29 @@ export async function handleTaskAddTool(input: unknown): Promise<string> {
     return JSON.stringify({ error: `Could not parse due date: "${params.due}"` });
   }
 
-  const priority = params.priority?.toLowerCase() || 'medium';
-  if (!['low', 'medium', 'high'].includes(priority)) {
-    return JSON.stringify({ error: 'Priority must be: low, medium, or high' });
-  }
-
-  const channel = params.channel || 'desktop';
+  const priority = toPriority(params.priority);
 
   try {
-    const db = getDb();
-    const sessionId = getCurrentSessionId();
+    const personal = KanbanService.getOrCreatePersonalProject();
 
-    const result = db.prepare(`
-      INSERT INTO tasks (title, description, due_date, priority, reminder_minutes, channel, session_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(params.title, params.description || null, dueDate, priority, params.reminder_minutes || null, channel, sessionId);
+    const task = KanbanService.createTask({
+      project_id: personal.id,
+      title: params.title,
+      description: params.description,
+      status: 'todo',
+      priority,
+      due_date: dueDate || undefined,
+      reminder_minutes: params.reminder_minutes,
+      notify_channels: params.channel || 'desktop',
+    });
 
     return JSON.stringify({
       success: true,
-      id: result.lastInsertRowid,
-      title: params.title,
+      id: task.id,
+      title: task.title,
       due: dueDate ? formatDateTime(dueDate) : null,
       priority,
-      session_id: sessionId,
+      session_id: getCurrentSessionId(),
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -301,39 +244,45 @@ export async function handleTaskListTool(input: unknown): Promise<string> {
   const statusFilter = params.status || 'pending';
 
   try {
-    const db = getDb();
-    const sessionId = getCurrentSessionId();
-
-    let query = 'SELECT * FROM tasks WHERE session_id = ?';
-    const queryParams: string[] = [sessionId];
-
-    if (statusFilter !== 'all') {
-      query += ' AND status = ?';
-      queryParams.push(statusFilter);
+    const personal = KanbanService.getOrCreatePersonalProject();
+    const board = KanbanService.getBoard(personal.id);
+    if (!board) {
+      return JSON.stringify({ success: true, filter: statusFilter, count: 0, tasks: [] });
     }
 
-    query +=
-      " ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, due_date ASC NULLS LAST";
+    // Collect tasks from all columns
+    let allTasks: KanbanTask[] = [];
+    for (const tasks of Object.values(board.columns)) {
+      allTasks = allTasks.concat(tasks);
+    }
 
-    const tasks = db.prepare(query).all(...queryParams) as Array<{
-      id: number;
-      title: string;
-      due_date: string | null;
-      priority: string;
-      status: string;
-      reminder_minutes: number | null;
-    }>;
+    // Filter by requested status
+    if (statusFilter !== 'all') {
+      allTasks = allTasks.filter(t => reverseStatusMap(t.status) === statusFilter);
+    }
+
+    // Sort by priority then due_date
+    const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+    allTasks.sort((a, b) => {
+      const pa = priorityOrder[a.priority] ?? 2;
+      const pb = priorityOrder[b.priority] ?? 2;
+      if (pa !== pb) return pa - pb;
+      if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+      if (a.due_date) return -1;
+      if (b.due_date) return 1;
+      return 0;
+    });
 
     return JSON.stringify({
       success: true,
       filter: statusFilter,
-      count: tasks.length,
-      tasks: tasks.map(t => ({
+      count: allTasks.length,
+      tasks: allTasks.map(t => ({
         id: t.id,
         title: t.title,
         due: formatDateTime(t.due_date),
         priority: t.priority,
-        status: t.status,
+        status: reverseStatusMap(t.status),
       })),
     });
   } catch (error) {
@@ -369,13 +318,8 @@ export async function handleTaskCompleteTool(input: unknown): Promise<string> {
   }
 
   try {
-    const db = getDb();
-
-    const result = db
-      .prepare(`UPDATE tasks SET status = 'completed', updated_at = datetime('now') WHERE id = ?`)
-      .run(params.id);
-
-    if (result.changes > 0) {
+    const result = KanbanService.moveTask(params.id, 'done', 'agent');
+    if (result) {
       return JSON.stringify({ success: true, message: `Task ${params.id} completed` });
     } else {
       return JSON.stringify({ success: false, error: `Task ${params.id} not found` });
@@ -413,10 +357,8 @@ export async function handleTaskDeleteTool(input: unknown): Promise<string> {
   }
 
   try {
-    const db = getDb();
-
-    const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(params.id);
-    if (result.changes > 0) {
+    const success = KanbanService.deleteTask(params.id);
+    if (success) {
       return JSON.stringify({ success: true, message: `Task ${params.id} deleted` });
     } else {
       return JSON.stringify({ success: false, error: `Task ${params.id} not found` });
@@ -455,26 +397,15 @@ export async function handleTaskDueTool(input: unknown): Promise<string> {
   const hours = params.hours ?? 24;
 
   try {
-    const db = getDb();
-    const sessionId = getCurrentSessionId();
+    const personal = KanbanService.getOrCreatePersonalProject();
 
     const now = new Date();
     const later = new Date(now.getTime() + hours * 3600000);
 
-    const tasks = db.prepare(`
-      SELECT * FROM tasks
-      WHERE session_id = ? AND status != 'completed' AND due_date IS NOT NULL AND due_date <= ?
-      ORDER BY due_date ASC
-    `).all(sessionId, later.toISOString()) as Array<{
-      id: number;
-      title: string;
-      due_date: string;
-      priority: string;
-      status: string;
-    }>;
+    const tasks = KanbanService.getTasksDueSoon(personal.id, later.toISOString());
 
-    const overdue = tasks.filter(t => new Date(t.due_date) < now);
-    const upcoming = tasks.filter(t => new Date(t.due_date) >= now);
+    const overdue = tasks.filter(t => new Date(t.due_date!) < now);
+    const upcoming = tasks.filter(t => new Date(t.due_date!) >= now);
 
     return JSON.stringify({
       success: true,

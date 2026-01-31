@@ -407,6 +407,17 @@
       animation: none;
     }
 
+    .job-item.reminder .job-status {
+      background: var(--warning);
+      box-shadow: 0 0 8px var(--warning);
+    }
+
+    .job-item.reminder.past .job-status {
+      background: var(--text-muted);
+      box-shadow: none;
+      animation: none;
+    }
+
     .job-info {
       flex: 1;
       min-width: 0;
@@ -673,6 +684,18 @@
           </div>
         </div>
 
+        <div class="setting-row">
+          <label>Notify via</label>
+          <select id="job-channel" style="width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font-size: 13px;">
+            <option value="desktop">Desktop</option>
+            <option value="telegram">Telegram</option>
+            <option value="email">Email</option>
+            <option value="desktop,telegram">Desktop + Telegram</option>
+            <option value="desktop,email">Desktop + Email</option>
+            <option value="desktop,telegram,email">All Channels</option>
+          </select>
+        </div>
+
         <div class="setting-row schedule-row">
           <label>When</label>
           <div class="schedule-tabs">
@@ -770,6 +793,15 @@
             Let's Go!
           </button>
         </div>
+      </div>
+    </section>
+
+    <section class="section" id="reminders-section" style="display:none;">
+      <h2 class="section-title">Upcoming Reminders</h2>
+      <p class="section-desc">One-time reminders you've set.</p>
+
+      <div class="settings-grid">
+        <div id="reminders-list" class="jobs-list"></div>
       </div>
     </section>
 
@@ -1000,6 +1032,8 @@
     }
 
     const jobsList = document.getElementById('jobs-list');
+    const remindersList = document.getElementById('reminders-list');
+    const remindersSection = document.getElementById('reminders-section');
     let sessionsMap = {}; // Map session_id to session name
 
     window.addEventListener('DOMContentLoaded', async () => {
@@ -1026,12 +1060,53 @@
     async function loadJobs() {
       try {
         const allJobs = await window.pocketAgent.getCronJobs();
-        // Filter to only show recurring jobs (cron and every types), not one-time 'at' jobs
-        const jobs = allJobs.filter(job => {
+        // Split into recurring routines and one-time reminders
+        const jobs = [];
+        const reminders = [];
+        const now = new Date();
+        for (const job of allJobs) {
           const scheduleType = job.schedule_type || 'cron';
-          return scheduleType !== 'at';
+          if (scheduleType === 'at') {
+            reminders.push(job);
+          } else {
+            jobs.push(job);
+          }
+        }
+
+        // Sort reminders by fire time (soonest first)
+        reminders.sort((a, b) => {
+          const aTime = a.run_at ? parseDbTimestamp(a.run_at).getTime() : 0;
+          const bTime = b.run_at ? parseDbTimestamp(b.run_at).getTime() : 0;
+          return aTime - bTime;
         });
 
+        // Render reminders section
+        if (reminders.length > 0) {
+          remindersSection.style.display = '';
+          remindersList.innerHTML = reminders.map((job, i) => {
+            const isPast = job.run_at && parseDbTimestamp(job.run_at).getTime() < now.getTime();
+            return `
+            <div class="job-item reminder ${isPast ? 'past' : ''}" style="animation-delay: ${i * 50}ms">
+              <div class="job-status"></div>
+              <div class="job-info">
+                <div class="job-name">${escapeHtml(job.name)}</div>
+                <div class="job-schedule">${scheduleToHuman(job)}${isPast ? ' (done)' : ''}</div>
+                <div class="job-prompt">${escapeHtml(job.prompt)}</div>
+              </div>
+              <div class="job-actions">
+                <button class="icon-btn danger" onclick="deleteJob('${escapeAttr(job.name)}')" title="Cancel reminder">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          `}).join('');
+        } else {
+          remindersSection.style.display = 'none';
+        }
+
+        // Render routines section
         if (jobs.length === 0) {
           jobsList.innerHTML = `
             <div class="empty-state">
@@ -1042,39 +1117,38 @@
               <p>nothing scheduled yet!</p>
             </div>
           `;
-          return;
+        } else {
+          jobsList.innerHTML = jobs.map((job, i) => {
+            const sessionName = sessionsMap[job.session_id] || job.session_id || 'Default';
+            return `
+            <div class="job-item ${job.enabled ? '' : 'disabled'}" style="animation-delay: ${i * 50}ms">
+              <div class="job-status"></div>
+              <div class="job-info">
+                <div class="job-name">${escapeHtml(job.name)}<span class="job-session-badge">${escapeHtml(sessionName)}</span>${job.channel && job.channel !== 'desktop' ? `<span class="job-session-badge" style="background: var(--accent-dim);">${escapeHtml(job.channel)}</span>` : ''}</div>
+                <div class="job-schedule">${scheduleToHuman(job)}</div>
+                <div class="job-prompt">${escapeHtml(job.prompt)}</div>
+              </div>
+              <div class="job-actions">
+                <button class="icon-btn" onclick="toggleJob('${escapeAttr(job.name)}', ${!job.enabled})" title="${job.enabled ? 'Pause' : 'Resume'}">
+                  ${job.enabled
+                    ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
+                    : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
+                  }
+                </button>
+                <button class="icon-btn" onclick="runJob('${escapeAttr(job.name)}')" title="Test run">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 3h6v5l3 9H6l3-9V3z"/><path d="M9 3h6"/><path d="M10 12h4"/>
+                  </svg>
+                </button>
+                <button class="icon-btn danger" onclick="deleteJob('${escapeAttr(job.name)}')" title="Delete">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          `}).join('');
         }
-
-        jobsList.innerHTML = jobs.map((job, i) => {
-          const sessionName = sessionsMap[job.session_id] || job.session_id || 'Default';
-          return `
-          <div class="job-item ${job.enabled ? '' : 'disabled'}" style="animation-delay: ${i * 50}ms">
-            <div class="job-status"></div>
-            <div class="job-info">
-              <div class="job-name">${escapeHtml(job.name)}<span class="job-session-badge">${escapeHtml(sessionName)}</span></div>
-              <div class="job-schedule">${scheduleToHuman(job)}</div>
-              <div class="job-prompt">${escapeHtml(job.prompt)}</div>
-            </div>
-            <div class="job-actions">
-              <button class="icon-btn" onclick="toggleJob('${escapeAttr(job.name)}', ${!job.enabled})" title="${job.enabled ? 'Pause' : 'Resume'}">
-                ${job.enabled
-                  ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
-                  : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
-                }
-              </button>
-              <button class="icon-btn" onclick="runJob('${escapeAttr(job.name)}')" title="Test run">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M9 3h6v5l3 9H6l3-9V3z"/><path d="M9 3h6"/><path d="M10 12h4"/>
-                </svg>
-              </button>
-              <button class="icon-btn danger" onclick="deleteJob('${escapeAttr(job.name)}')" title="Delete">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        `}).join('');
       } catch (err) {
         jobsList.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
       }
@@ -1093,7 +1167,8 @@
       const schedule = buildCronExpression();
 
       try {
-        const result = await window.pocketAgent.createCronJob(name, schedule, prompt, 'default', sessionId);
+        const channel = document.getElementById('job-channel').value || 'desktop';
+        const result = await window.pocketAgent.createCronJob(name, schedule, prompt, channel, sessionId);
         if (result.success) {
           document.getElementById('job-name').value = '';
           document.getElementById('job-prompt').value = '';

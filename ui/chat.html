@@ -1659,12 +1659,30 @@
     const fileInput = document.getElementById('file-input');
 
     let isLoadingBySession = new Map(); // Track loading state per session
-    let pendingAttachments = []; // { file, name, type, size, dataUrl, content }
+    let pendingAttachmentsBySession = new Map(); // Track attachments per session
     let statusCleanupBySession = new Map(); // Track status listeners per session
     let statusElBySession = new Map(); // Track status elements per session
-    let currentSuggestion = null; // Stores the suggested prompt from the agent
+    let suggestionBySession = new Map(); // Track ghost suggestions per session
+    let inputTextBySession = new Map(); // Track input text per session
+    let queuedMessageIdsBySession = new Map(); // Track queued message IDs per session
+    let pendingUserMessagesBySession = new Map(); // Track pending user message content per session
     const ghostSuggestion = document.getElementById('ghost-suggestion');
     let queuedMessageElements = new Map(); // Track queued message DOM elements by a unique ID
+
+    // Helper to get current session's pending attachments
+    function getPendingAttachments() {
+      return pendingAttachmentsBySession.get(currentSessionId) || [];
+    }
+    function setPendingAttachments(attachments) {
+      pendingAttachmentsBySession.set(currentSessionId, attachments);
+    }
+    // Helper to get current session's suggestion
+    function getCurrentSuggestion() {
+      return suggestionBySession.get(currentSessionId) || null;
+    }
+    function setCurrentSuggestion(suggestion) {
+      suggestionBySession.set(currentSessionId, suggestion);
+    }
 
     // Notification sound
     let notificationSound = null;
@@ -2202,13 +2220,63 @@
     async function switchSession(sessionId) {
       if (sessionId === currentSessionId) return;
 
+      // Save current session state before switching
+      inputTextBySession.set(currentSessionId, input.value);
+
+      // Switch to new session
       currentSessionId = sessionId;
       renderTabs();
       messagesDiv.innerHTML = '';
       await loadHistory();
+
+      // Restore pending user messages that haven't been saved to history yet
+      const pendingMsgs = pendingUserMessagesBySession.get(sessionId);
+      if (pendingMsgs && pendingMsgs.size > 0) {
+        pendingMsgs.forEach((msgData, msgId) => {
+          const userMsgEl = addMessage('user', msgData.content, true, msgData.attachments);
+          userMsgEl.dataset.messageId = msgId;
+          // Check if this was a queued message
+          const queuedIds = queuedMessageIdsBySession.get(sessionId) || new Set();
+          if (queuedIds.has(msgId)) {
+            userMsgEl.classList.add('queued');
+            queuedMessageElements.set(msgId, userMsgEl);
+          }
+        });
+      }
+
       updateStats();
+
+      // Restore input text for this session
+      input.value = inputTextBySession.get(sessionId) || '';
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 150) + 'px';
+
+      // Restore ghost suggestion for this session
+      const savedSuggestion = getCurrentSuggestion();
+      if (savedSuggestion) {
+        ghostSuggestion.innerHTML = escapeHtml(savedSuggestion) + '<span class="tab-hint">Tab to accept</span>';
+        ghostSuggestion.style.display = 'block';
+      } else {
+        ghostSuggestion.innerHTML = '';
+        ghostSuggestion.style.display = 'none';
+      }
+
+      // Restore attachment previews for this session
+      renderAttachmentPreviews();
+
       // Update button state based on whether THIS session is loading
-      setButtonState(isLoadingBySession.get(sessionId) || false);
+      const isLoading = isLoadingBySession.get(sessionId) || false;
+      setButtonState(isLoading);
+
+      // Restore status indicator if this session has an active query
+      if (isLoading) {
+        const existingStatusEl = statusElBySession.get(sessionId);
+        if (!existingStatusEl || !messagesDiv.contains(existingStatusEl)) {
+          const statusEl = addStatusIndicator('hmm let me think...');
+          statusElBySession.set(sessionId, statusEl);
+        }
+      }
+
       input.focus();
     }
 
@@ -2546,7 +2614,7 @@
         queuedMsgs.forEach(msg => msg.classList.remove('queued'));
         queuedMessageElements.clear();
 
-        addMessage('system', 'Query stopped.');
+        addMessage('system', 'query stopped', true, [], null, false);
 
         isLoadingBySession.set(sessionId, false);
         renderTabs(); // Update tab loading indicator
@@ -2560,7 +2628,7 @@
 
     async function sendMessage() {
       const message = input.value.trim();
-      const attachments = [...pendingAttachments];
+      const attachments = [...getPendingAttachments()];
       const sessionId = currentSessionId; // Capture session at start
 
       if (!message && attachments.length === 0) return;
@@ -2593,10 +2661,22 @@
         userMsgEl.appendChild(badge);
       }
 
+      userMsgEl.dataset.messageId = messageId;
+
+      // Track pending user message for session state restoration
+      if (!pendingUserMessagesBySession.has(sessionId)) {
+        pendingUserMessagesBySession.set(sessionId, new Map());
+      }
+      pendingUserMessagesBySession.get(sessionId).set(messageId, { content: message, attachments: attachments });
+
       if (isQueued) {
         userMsgEl.classList.add('queued');
-        userMsgEl.dataset.messageId = messageId;
         queuedMessageElements.set(messageId, userMsgEl);
+        // Track queued message ID for session state restoration
+        if (!queuedMessageIdsBySession.has(sessionId)) {
+          queuedMessageIdsBySession.set(sessionId, new Set());
+        }
+        queuedMessageIdsBySession.get(sessionId).add(messageId);
       }
 
       // If not already processing, show status indicator and set loading state
@@ -2635,7 +2715,14 @@
             msgEl.classList.remove('queued');
           }
           queuedMessageElements.delete(messageId);
+          // Remove from session tracking
+          const queuedIds = queuedMessageIdsBySession.get(sessionId);
+          if (queuedIds) queuedIds.delete(messageId);
         }
+
+        // Remove from pending user messages (message is now saved to history)
+        const pendingMsgs = pendingUserMessagesBySession.get(sessionId);
+        if (pendingMsgs) pendingMsgs.delete(messageId);
 
         // Only update UI if still on same session
         if (currentSessionId === sessionId) {
@@ -2675,7 +2762,11 @@
               setSuggestion(result.suggestedPrompt);
             }
           } else {
-            addMessage('error', result.error);
+            // Don't show stop/abort related errors - they're already handled
+            const errorMsg = result.error || '';
+            if (!errorMsg.includes('stopped') && !errorMsg.includes('aborted') && !errorMsg.includes('Aborted')) {
+              addMessage('error', errorMsg);
+            }
           }
 
           updateStats();
@@ -2689,7 +2780,14 @@
             msgEl.classList.remove('queued');
           }
           queuedMessageElements.delete(messageId);
+          // Remove from session tracking
+          const queuedIds = queuedMessageIdsBySession.get(sessionId);
+          if (queuedIds) queuedIds.delete(messageId);
         }
+
+        // Remove from pending user messages (message is now saved to history)
+        const pendingMsgsErr = pendingUserMessagesBySession.get(sessionId);
+        if (pendingMsgsErr) pendingMsgsErr.delete(messageId);
 
         // Check if there are more queued messages
         const hasMoreQueued = queuedMessageElements.size > 0;
@@ -2713,8 +2811,8 @@
           setButtonState(false);
         }
 
-        // Only show error if still on same session and not stopped/cleared
-        if (currentSessionId === sessionId && !err.message?.includes('stopped') && !err.message?.includes('cleared')) {
+        // Only show error if still on same session and not stopped/cleared/aborted
+        if (currentSessionId === sessionId && !err.message?.includes('stopped') && !err.message?.includes('cleared') && !err.message?.includes('aborted') && !err.message?.includes('Aborted')) {
           addMessage('error', err.message || 'Something went wrong');
         }
 
@@ -2793,7 +2891,7 @@
       }
     }
 
-    function addMessage(role, content, animate = true, attachments = [], timestamp = null) {
+    function addMessage(role, content, animate = true, attachments = [], timestamp = null, showTimestamp = true) {
       const div = document.createElement('div');
       div.className = `message ${role}`;
       if (!animate) div.style.animation = 'none';
@@ -2832,12 +2930,14 @@
         }
       }
 
-      // Add timestamp
-      const ts = timestamp ? parseSqliteTimestamp(timestamp) : new Date();
-      const timestampDiv = document.createElement('div');
-      timestampDiv.className = 'message-timestamp';
-      timestampDiv.textContent = formatTimestamp(ts);
-      div.appendChild(timestampDiv);
+      // Add timestamp (unless explicitly disabled)
+      if (showTimestamp) {
+        const ts = timestamp ? parseSqliteTimestamp(timestamp) : new Date();
+        const timestampDiv = document.createElement('div');
+        timestampDiv.className = 'message-timestamp';
+        timestampDiv.textContent = formatTimestamp(ts);
+        div.appendChild(timestampDiv);
+      }
 
       // Add TTS play button for assistant messages
       if (role === 'assistant' && content) {
@@ -3069,7 +3169,7 @@
 
     function handleKeydown(e) {
       // Tab: Accept the suggestion and place cursor at end
-      if (e.key === 'Tab' && currentSuggestion && !input.value.trim()) {
+      if (e.key === 'Tab' && getCurrentSuggestion() && !input.value.trim()) {
         e.preventDefault();
         acceptSuggestion();
         return;
@@ -3079,8 +3179,8 @@
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         // If there's a suggestion and no user input, send the suggestion
-        if (currentSuggestion && !input.value.trim()) {
-          input.value = currentSuggestion;
+        if (getCurrentSuggestion() && !input.value.trim()) {
+          input.value = getCurrentSuggestion();
           clearSuggestion();
         }
         sendMessage();
@@ -3088,7 +3188,7 @@
       }
 
       // Escape: Clear the suggestion
-      if (e.key === 'Escape' && currentSuggestion) {
+      if (e.key === 'Escape' && getCurrentSuggestion()) {
         e.preventDefault();
         clearSuggestion();
         return;
@@ -3097,7 +3197,7 @@
 
     function handleInput(e) {
       // When user types, clear the suggestion
-      if (currentSuggestion && input.value.trim()) {
+      if (getCurrentSuggestion() && input.value.trim()) {
         clearSuggestion();
       }
       autoResizeTextarea();
@@ -3108,22 +3208,22 @@
         clearSuggestion();
         return;
       }
-      currentSuggestion = text;
+      setCurrentSuggestion(text);
       ghostSuggestion.innerHTML = escapeHtml(text) + '<span class="tab-hint">Tab to accept</span>';
       ghostSuggestion.style.display = 'block';
       input.classList.add('has-suggestion');
     }
 
     function clearSuggestion() {
-      currentSuggestion = null;
+      setCurrentSuggestion(null);
       ghostSuggestion.innerHTML = '';
       ghostSuggestion.style.display = 'none';
       input.classList.remove('has-suggestion');
     }
 
     function acceptSuggestion() {
-      if (!currentSuggestion) return;
-      input.value = currentSuggestion;
+      if (!getCurrentSuggestion()) return;
+      input.value = getCurrentSuggestion();
       clearSuggestion();
       autoResizeTextarea();
       // Place cursor at the end
@@ -3156,7 +3256,9 @@
 
         try {
           const attachment = await readFile(file, ext);
-          pendingAttachments.push(attachment);
+          const currentAttachments = getPendingAttachments();
+          currentAttachments.push(attachment);
+          setPendingAttachments(currentAttachments);
         } catch (err) {
           addMessage('system', `Failed to read file: ${file.name}`);
         }
@@ -3209,13 +3311,14 @@
       const existing = document.querySelector('.attachments-container');
       if (existing) existing.remove();
 
-      if (pendingAttachments.length === 0) return;
+      const attachments = getPendingAttachments();
+      if (attachments.length === 0) return;
 
       // Create container
       const container = document.createElement('div');
       container.className = 'attachments-container';
 
-      pendingAttachments.forEach((att, index) => {
+      attachments.forEach((att, index) => {
         const preview = document.createElement('div');
         preview.className = 'attachment-preview';
 
@@ -3251,7 +3354,9 @@
     }
 
     function removeAttachment(index) {
-      pendingAttachments.splice(index, 1);
+      const attachments = getPendingAttachments();
+      attachments.splice(index, 1);
+      setPendingAttachments(attachments);
       renderAttachmentPreviews();
     }
 
@@ -3262,7 +3367,7 @@
     }
 
     function clearAttachments() {
-      pendingAttachments = [];
+      setPendingAttachments([]);
       renderAttachmentPreviews();
     }
 
@@ -3332,7 +3437,9 @@
 
         try {
           const attachment = await readFile(file, ext);
-          pendingAttachments.push(attachment);
+          const currentAttachments = getPendingAttachments();
+          currentAttachments.push(attachment);
+          setPendingAttachments(currentAttachments);
         } catch (err) {
           addMessage('system', `Failed to read file: ${file.name}`);
         }

@@ -964,6 +964,10 @@
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         Telegram
       </div>
+      <div class="nav-item" data-section="gmail">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+        Gmail
+      </div>
       <div class="nav-item" data-section="memory">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         Memory
@@ -1036,6 +1040,30 @@
           </div>
         </div>
 
+        <h3 class="subsection-title" style="margin-top: 24px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">GLM Worker (Zhipu)</h3>
+        <div class="settings-grid" id="glm-worker-section">
+          <div class="setting-row">
+            <label>Worker Model</label>
+            <select id="zhipu.model">
+              <option value="glm-4.7">GLM-4.7</option>
+              <option value="glm-4.7-flash">GLM-4.7 Flash</option>
+              <option value="glm-4.7-flashx">GLM-4.7 FlashX</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Flash Model</label>
+            <select id="zhipu.flashModel">
+              <option value="glm-4.7-flash">GLM-4.7 Flash</option>
+              <option value="glm-4.7-flashx">GLM-4.7 FlashX</option>
+              <option value="glm-4.7">GLM-4.7</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Status</label>
+            <span class="setting-desc" id="glm-worker-status">—</span>
+          </div>
+        </div>
+
         <h3 class="subsection-title" style="margin-top: 24px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">Model Settings</h3>
         <div class="settings-grid" id="brain-power-section">
           <div class="setting-row">
@@ -1044,6 +1072,12 @@
               <option value="claude-opus-4-5-20251101">Opus 4.5</option>
               <option value="claude-sonnet-4-5-20250929">Sonnet 4.5</option>
               <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Backup Model</label>
+            <select id="agent.fallbackModel">
+              <option value="">None (no fallback)</option>
             </select>
           </div>
           <div class="setting-row">
@@ -1206,11 +1240,56 @@
           </div>
           <div class="setting-row">
             <label>Voice Replies</label>
-            <label class="toggle">
-              <input type="checkbox" id="telegram.voiceReplies" onchange="toggleSetting('telegram.voiceReplies')">
+            <div class="toggle" id="telegram.voiceReplies-toggle" onclick="toggleSetting('telegram.voiceReplies')"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Gmail Section -->
+      <section id="gmail" class="section">
+        <h2 class="section-title">Gmail</h2>
+        <p class="section-desc">Send and receive emails via gog CLI (Google Workspace).</p>
+
+        <div class="settings-grid">
+          <div class="setting-row">
+            <div>
+              <label>Enable Gmail</label>
+              <span class="setting-desc">Allow the agent and routines to send emails</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="gmail-enabled-toggle" onchange="toggleGmailEnabled(this)">
               <span class="slider"></span>
             </label>
           </div>
+        </div>
+
+        <div class="settings-grid" id="gmail-config" style="margin-top: 10px;">
+          <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+            <label>Gmail Address</label>
+            <span class="setting-desc">Your Gmail address (must match gog auth account)</span>
+            <div class="key-input">
+              <input type="text" id="gmail-user-email" placeholder="you@gmail.com">
+              <button onclick="saveGmailSetting('gmail.userEmail', 'gmail-user-email')">Save</button>
+            </div>
+          </div>
+          <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+            <label>Default Recipient</label>
+            <span class="setting-desc">Default email address for routine/reminder notifications</span>
+            <div class="key-input">
+              <input type="text" id="gmail-default-recipient" placeholder="recipient@example.com">
+              <button onclick="saveGmailSetting('gmail.defaultRecipient', 'gmail-default-recipient')">Save</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <label>gog CLI Status</label>
+              <span class="setting-desc" id="gog-status">Checking...</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 12px; color: var(--text-muted);">
+          <strong>Setup:</strong> Install gog CLI with <code>brew install steipete/tap/gogcli</code>, then authenticate with <code>gog auth add you@gmail.com --services gmail</code>
         </div>
       </section>
 
@@ -1353,6 +1432,8 @@
       setupNavigation();
       setupAutoSave();
       loadSkillsSummary();
+      checkGlmStatus();
+      checkGogStatus();
     });
 
     async function loadAppVersion() {
@@ -1361,6 +1442,42 @@
         document.getElementById('current-version').textContent = `v${version}`;
       } catch (err) {
         console.error('Failed to load app version:', err);
+      }
+    }
+
+    async function checkGlmStatus() {
+      const el = document.getElementById('glm-worker-status');
+      if (!el) return;
+      try {
+        const result = await window.pocketAgent.glmHealthCheck();
+        if (result.ok) {
+          el.textContent = '✓ Connected';
+          el.style.color = 'var(--success)';
+        } else {
+          el.textContent = result.error || 'Not configured';
+          el.style.color = 'var(--text-muted)';
+        }
+      } catch {
+        el.textContent = 'Not configured';
+        el.style.color = 'var(--text-muted)';
+      }
+    }
+
+    async function checkGogStatus() {
+      const el = document.getElementById('gog-status');
+      if (!el) return;
+      try {
+        const result = await window.pocketAgent.gogStatus();
+        if (result.ok) {
+          el.textContent = '✓ gog CLI available';
+          el.style.color = 'var(--success)';
+        } else {
+          el.textContent = result.error || 'Not available';
+          el.style.color = 'var(--text-muted)';
+        }
+      } catch {
+        el.textContent = 'Not available';
+        el.style.color = 'var(--text-muted)';
       }
     }
 
@@ -1438,6 +1555,20 @@
           dropdown.value = models[0].id;
           await window.pocketAgent.setSetting('agent.model', models[0].id);
         }
+
+        // Populate fallback model dropdown
+        const fallbackDropdown = document.getElementById('agent.fallbackModel');
+        if (fallbackDropdown) {
+          const savedFallback = settings['agent.fallbackModel'] || await window.pocketAgent.getSetting('agent.fallbackModel');
+          fallbackDropdown.innerHTML = '<option value="">None (no fallback)</option>';
+          for (const model of models) {
+            const opt = document.createElement('option');
+            opt.value = model.id;
+            opt.textContent = model.name + ' (' + model.provider + ')';
+            fallbackDropdown.appendChild(opt);
+          }
+          if (savedFallback) fallbackDropdown.value = savedFallback;
+        }
       } catch (err) {
         console.error('Failed to refresh model dropdown:', err);
       }
@@ -1469,11 +1600,31 @@
       telegramToggle.classList.toggle('active', telegramEnabled);
       document.getElementById('telegram-config').style.opacity = telegramEnabled ? '1' : '0.5';
 
+      // Gmail toggle + fields
+      const gmailToggle = document.getElementById('gmail-enabled-toggle');
+      if (gmailToggle) {
+        const gmailEnabled = settings['gmail.enabled'] === 'true';
+        gmailToggle.checked = gmailEnabled;
+        const gmailConfig = document.getElementById('gmail-config');
+        if (gmailConfig) gmailConfig.style.opacity = gmailEnabled ? '1' : '0.5';
+      }
+      const gmailEmail = document.getElementById('gmail-user-email');
+      if (gmailEmail && settings['gmail.userEmail']) gmailEmail.value = settings['gmail.userEmail'];
+      const gmailRecipient = document.getElementById('gmail-default-recipient');
+      if (gmailRecipient && settings['gmail.defaultRecipient']) gmailRecipient.value = settings['gmail.defaultRecipient'];
+
       // Browser toggle
       const browserToggle = document.getElementById('browser.enabled-toggle');
       const browserEnabled = settings['browser.enabled'] === 'true';
       browserToggle.classList.toggle('active', browserEnabled);
       document.getElementById('browser-config').style.opacity = browserEnabled ? '1' : '0.5';
+
+      // Telegram voice replies toggle
+      const voiceToggle = document.getElementById('telegram.voiceReplies-toggle');
+      if (voiceToggle) {
+        const voiceEnabled = settings['telegram.voiceReplies'] === 'true';
+        voiceToggle.classList.toggle('active', voiceEnabled);
+      }
 
       // Updates auto-check toggle (defaults to true)
       const updatesToggle = document.getElementById('updates.autoCheck-toggle');
@@ -1542,7 +1693,8 @@
         'anthropic.apiKey', 'openai.apiKey', 'gemini.apiKey', 'zhipu.apiKey',
         'google.placesApiKey', 'notion.apiKey', 'trello.apiKey',
         'trello.token', 'elevenlabs.apiKey', 'auth-api-key', 'oauth-code',
-        'telegram.allowedUserIds', 'telegram.defaultChatId'
+        'telegram.allowedUserIds', 'telegram.defaultChatId',
+        'gmail-user-email', 'gmail-default-recipient'
       ];
 
       const inputs = document.querySelectorAll('input, select');
@@ -1562,7 +1714,7 @@
             await window.pocketAgent.setSetting(key, value);
             showToast('Got it!', 'success');
             // Activate reboot for settings that require restart
-            const rebootSettings = ['agent.model', 'telegram.allowedUserIds', 'telegram.botToken', 'telegram.enabled'];
+            const rebootSettings = ['agent.model', 'agent.fallbackModel', 'telegram.allowedUserIds', 'telegram.botToken', 'telegram.enabled'];
             if (rebootSettings.includes(key)) {
               activateReboot();
             }
@@ -1802,6 +1954,36 @@
       } catch (err) {
         console.error('Failed to save telegram setting:', err);
         showToast('Save failed, try again?', 'error');
+      }
+    }
+
+    async function saveGmailSetting(settingKey, inputId) {
+      const input = document.getElementById(inputId);
+      const value = input.value.trim();
+      try {
+        await window.pocketAgent.setSetting(settingKey, value);
+        settings[settingKey] = value;
+        showToast('Saved!', 'success');
+        activateReboot();
+      } catch (err) {
+        console.error('Failed to save gmail setting:', err);
+        showToast('Save failed, try again?', 'error');
+      }
+    }
+
+    async function toggleGmailEnabled(checkbox) {
+      const newValue = checkbox.checked.toString();
+      try {
+        await window.pocketAgent.setSetting('gmail.enabled', newValue);
+        settings['gmail.enabled'] = newValue;
+        const configEl = document.getElementById('gmail-config');
+        if (configEl) configEl.style.opacity = checkbox.checked ? '1' : '0.5';
+        showToast('Got it!', 'success');
+        activateReboot();
+      } catch (err) {
+        console.error('Failed to toggle gmail:', err);
+        showToast('Save failed', 'error');
+        checkbox.checked = !checkbox.checked;
       }
     }
 

@@ -17,6 +17,8 @@ import { getSchedulerTools } from './scheduler-tools';
 import { getCalendarTools } from './calendar-tools';
 import { getTaskTools } from './task-tools';
 import { getKanbanTools } from './kanban-tools';
+import { getGmailTools } from './gmail-tools';
+import { getGlmWorkerTools } from './glm-worker';
 import {
   getSendTelegramPhotoToolDefinition,
   handleSendTelegramPhotoTool,
@@ -43,6 +45,8 @@ export { getSchedulerTools } from './scheduler-tools';
 export { getCalendarTools } from './calendar-tools';
 export { getTaskTools, closeTaskDb } from './task-tools';
 export { getKanbanTools } from './kanban-tools';
+export { getGmailTools } from './gmail-tools';
+export { getGlmWorkerTools } from './glm-worker';
 export { closeKanbanDb } from '../kanban';
 export { showNotification, execWithPty } from './macos';
 export { setCurrentSessionId, getCurrentSessionId } from './session-context';
@@ -365,6 +369,54 @@ export async function buildSdkMcpServers(
       tools.push(sdkTool);
     }
 
+    // Gmail tools (with diagnostics wrapper)
+    const gmailTools = getGmailTools();
+    for (const gmailTool of gmailTools) {
+      const wrappedHandler = wrapToolHandler(gmailTool.name, gmailTool.handler, getToolTimeout(gmailTool.name));
+      const sdkTool = tool(
+        gmailTool.name,
+        gmailTool.description,
+        Object.fromEntries(
+          Object.entries(gmailTool.input_schema.properties || {}).map(([key, value]: [string, unknown]) => {
+            const prop = value as { type?: string };
+            if (prop.type === 'string') return [key, z.string().optional()];
+            if (prop.type === 'number') return [key, z.number().optional()];
+            if (prop.type === 'boolean') return [key, z.boolean().optional()];
+            return [key, z.any().optional()];
+          })
+        ),
+        async (args) => {
+          const result = await wrappedHandler(args);
+          return { content: [{ type: 'text', text: result }] };
+        }
+      );
+      tools.push(sdkTool);
+    }
+
+    // GLM Worker tools (with diagnostics wrapper)
+    const glmWorkerTools = getGlmWorkerTools();
+    for (const glmTool of glmWorkerTools) {
+      const wrappedHandler = wrapToolHandler(glmTool.name, glmTool.handler, getToolTimeout(glmTool.name));
+      const sdkTool = tool(
+        glmTool.name,
+        glmTool.description,
+        Object.fromEntries(
+          Object.entries(glmTool.input_schema.properties || {}).map(([key, value]: [string, unknown]) => {
+            const prop = value as { type?: string };
+            if (prop.type === 'string') return [key, z.string().optional()];
+            if (prop.type === 'number') return [key, z.number().optional()];
+            if (prop.type === 'boolean') return [key, z.boolean().optional()];
+            return [key, z.any().optional()];
+          })
+        ),
+        async (args) => {
+          const result = await wrappedHandler(args);
+          return { content: [{ type: 'text', text: result }] };
+        }
+      );
+      tools.push(sdkTool);
+    }
+
     // Telegram photo tool
     const wrappedPhotoHandler = wrapToolHandler('send_telegram_photo', handleSendTelegramPhotoTool, getToolTimeout('send_telegram_photo'));
     const photoTool = tool(
@@ -505,6 +557,28 @@ export function getCustomTools(config: ToolsConfig): Array<{
     });
   }
 
+  // Gmail tools
+  const gmailToolsCustom = getGmailTools();
+  for (const gmailTool of gmailToolsCustom) {
+    tools.push({
+      name: gmailTool.name,
+      description: gmailTool.description,
+      input_schema: gmailTool.input_schema as Record<string, unknown>,
+      handler: gmailTool.handler,
+    });
+  }
+
+  // GLM Worker tools
+  const glmWorkerToolsCustom = getGlmWorkerTools();
+  for (const glmTool of glmWorkerToolsCustom) {
+    tools.push({
+      name: glmTool.name,
+      description: glmTool.description,
+      input_schema: glmTool.input_schema as Record<string, unknown>,
+      handler: glmTool.handler,
+    });
+  }
+
   // Telegram photo tool
   const photoDef = getSendTelegramPhotoToolDefinition();
   tools.push({
@@ -512,6 +586,22 @@ export function getCustomTools(config: ToolsConfig): Array<{
     description: photoDef.description,
     input_schema: photoDef.input_schema as Record<string, unknown>,
     handler: handleSendTelegramPhotoTool,
+  });
+
+  // Telegram restart tool
+  tools.push({
+    name: 'restart_telegram',
+    description: 'Restart the Telegram bot connection. Use when Telegram is unresponsive or disconnected.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] },
+    handler: async () => {
+      try {
+        const { restartTelegramBot } = await import('../channels/telegram');
+        const result = await restartTelegramBot();
+        return JSON.stringify(result);
+      } catch (error) {
+        return JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Failed to restart Telegram' });
+      }
+    },
   });
 
   return tools;

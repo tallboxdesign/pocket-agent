@@ -47,6 +47,13 @@ export interface KanbanTask {
   approval_status: ApprovalStatus | null;
   approval_feedback: string | null;
   tags: string | null;
+  due_date: string | null;
+  reminder_minutes: number | null;
+  reminded: number;
+  action_type: string | null;
+  notify_channels: string | null;
+  recurrence: string | null;
+  last_run_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -96,6 +103,11 @@ export interface CreateTaskInput {
   parent_task_id?: number;
   tags?: string;
   estimated_minutes?: number;
+  due_date?: string;
+  reminder_minutes?: number;
+  notify_channels?: string;
+  recurrence?: string;
+  action_type?: string;
 }
 
 export interface UpdateTaskInput {
@@ -132,6 +144,7 @@ function getDbPath(): string {
 function getDb(): Database.Database {
   if (sharedDb && !dbInitialized) {
     ensureTables(sharedDb);
+    migrateKanbanSchema(sharedDb);
     dbInitialized = true;
     return sharedDb;
   }
@@ -152,6 +165,7 @@ function getDb(): Database.Database {
   sharedDb.pragma('foreign_keys = ON');
 
   ensureTables(sharedDb);
+  migrateKanbanSchema(sharedDb);
   dbInitialized = true;
 
   return sharedDb;
@@ -233,6 +247,41 @@ function ensureTables(db: Database.Database): void {
   `);
 }
 
+function migrateKanbanSchema(db: Database.Database): void {
+  const columns = db.pragma('table_info(kanban_tasks)') as Array<{ name: string }>;
+  const has = (col: string) => columns.some(c => c.name === col);
+
+  if (!has('due_date')) {
+    db.exec('ALTER TABLE kanban_tasks ADD COLUMN due_date TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_kanban_tasks_due ON kanban_tasks(due_date)');
+    console.log('[Kanban] Added due_date column');
+  }
+  if (!has('reminder_minutes')) {
+    db.exec('ALTER TABLE kanban_tasks ADD COLUMN reminder_minutes INTEGER');
+    console.log('[Kanban] Added reminder_minutes column');
+  }
+  if (!has('reminded')) {
+    db.exec('ALTER TABLE kanban_tasks ADD COLUMN reminded INTEGER DEFAULT 0');
+    console.log('[Kanban] Added reminded column');
+  }
+  if (!has('action_type')) {
+    db.exec('ALTER TABLE kanban_tasks ADD COLUMN action_type TEXT');
+    console.log('[Kanban] Added action_type column');
+  }
+  if (!has('notify_channels')) {
+    db.exec("ALTER TABLE kanban_tasks ADD COLUMN notify_channels TEXT DEFAULT 'desktop'");
+    console.log('[Kanban] Added notify_channels column');
+  }
+  if (!has('recurrence')) {
+    db.exec('ALTER TABLE kanban_tasks ADD COLUMN recurrence TEXT');
+    console.log('[Kanban] Added recurrence column');
+  }
+  if (!has('last_run_at')) {
+    db.exec('ALTER TABLE kanban_tasks ADD COLUMN last_run_at TEXT');
+    console.log('[Kanban] Added last_run_at column');
+  }
+}
+
 // ============================================================================
 // Activity Logging (automatic on every mutation)
 // ============================================================================
@@ -274,6 +323,18 @@ export const KanbanService = {
     return project;
   },
 
+  getOrCreatePersonalProject(): KanbanProject {
+    const db = getDb();
+    const existing = db.prepare(
+      "SELECT * FROM kanban_projects WHERE name = 'Personal' AND status = 'active'"
+    ).get() as KanbanProject | undefined;
+
+    if (existing) return existing;
+
+    console.log('[Kanban] Creating Personal project');
+    return this.createProject('Personal', 'Your personal tasks and todos', '#22c55e');
+  },
+
   getProject(id: number): KanbanProject | null {
     const db = getDb();
     return (db.prepare('SELECT * FROM kanban_projects WHERE id = ?').get(id) as KanbanProject) || null;
@@ -313,6 +374,15 @@ export const KanbanService = {
     return result.changes > 0;
   },
 
+  deleteProject(id: number): boolean {
+    const db = getDb();
+    // Delete all tasks in this project first (cascade doesn't always work with WAL)
+    db.prepare('DELETE FROM kanban_tasks WHERE project_id = ?').run(id);
+    const result = db.prepare('DELETE FROM kanban_projects WHERE id = ?').run(id);
+    console.log(`[Kanban] Deleted project #${id}`);
+    return result.changes > 0;
+  },
+
   updateProject(id: number, updates: { name?: string; description?: string; color?: string; workspace_path?: string }): KanbanProject | null {
     const db = getDb();
     const setClauses: string[] = [];
@@ -344,8 +414,8 @@ export const KanbanService = {
     `).get(input.project_id, input.status || 'backlog') as { max_pos: number };
 
     const result = db.prepare(`
-      INSERT INTO kanban_tasks (project_id, parent_task_id, title, description, status, priority, assignee_model, position, tags, estimated_minutes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO kanban_tasks (project_id, parent_task_id, title, description, status, priority, assignee_model, position, tags, estimated_minutes, due_date, reminder_minutes, notify_channels, recurrence, action_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.project_id,
       input.parent_task_id || null,
@@ -356,7 +426,12 @@ export const KanbanService = {
       input.assignee_model || 'claude',
       maxPos.max_pos + 1,
       input.tags || null,
-      input.estimated_minutes || null
+      input.estimated_minutes || null,
+      input.due_date || null,
+      input.reminder_minutes || null,
+      input.notify_channels || null,
+      input.recurrence || null,
+      input.action_type || null
     );
 
     const task = db.prepare('SELECT * FROM kanban_tasks WHERE id = ?')
@@ -625,4 +700,84 @@ export const KanbanService = {
       ORDER BY updated_at DESC LIMIT 50
     `).all(pattern, pattern, pattern) as KanbanTask[];
   },
+
+  getTasksDueSoon(projectId: number, beforeDate: string): KanbanTask[] {
+    const db = getDb();
+    return db.prepare(`
+      SELECT * FROM kanban_tasks
+      WHERE project_id = ? AND status != 'done'
+        AND due_date IS NOT NULL AND due_date <= ?
+      ORDER BY due_date ASC
+    `).all(projectId, beforeDate) as KanbanTask[];
+  },
 };
+
+// ============================================================================
+// Migration: tasks table → kanban_tasks (Personal project)
+// ============================================================================
+
+export function migrateTasksToKanban(): void {
+  const db = getDb();
+
+  // Check if old tasks table exists
+  const tableExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'"
+  ).get();
+  if (!tableExists) return;
+
+  // Check if migration already ran (look for legacy-migrated tag)
+  const personal = KanbanService.getOrCreatePersonalProject();
+  const alreadyMigrated = db.prepare(
+    "SELECT id FROM kanban_tasks WHERE project_id = ? AND tags LIKE '%legacy-migrated%' LIMIT 1"
+  ).get(personal.id);
+  if (alreadyMigrated) return;
+
+  // Read pending/in_progress tasks from old table
+  const oldTasks = db.prepare(
+    "SELECT * FROM tasks WHERE status != 'completed'"
+  ).all() as Array<{
+    id: number;
+    title: string;
+    description: string | null;
+    due_date: string | null;
+    priority: string;
+    status: string;
+    reminder_minutes: number | null;
+    channel: string | null;
+  }>;
+
+  if (oldTasks.length === 0) {
+    console.log('[Kanban] No legacy tasks to migrate');
+    return;
+  }
+
+  const statusMap: Record<string, KanbanStatus> = {
+    pending: 'todo',
+    in_progress: 'in_progress',
+    completed: 'done',
+  };
+
+  const priorityMap: Record<string, KanbanPriority> = {
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+  };
+
+  let count = 0;
+  for (const task of oldTasks) {
+    KanbanService.createTask({
+      project_id: personal.id,
+      title: task.title,
+      description: task.description || undefined,
+      status: statusMap[task.status] || 'todo',
+      priority: priorityMap[task.priority] || 'medium',
+      tags: 'legacy-migrated',
+      due_date: task.due_date || undefined,
+      reminder_minutes: task.reminder_minutes || undefined,
+      notify_channels: task.channel || undefined,
+    });
+    count++;
+  }
+
+  console.log(`[Kanban] Migrated ${count} legacy tasks to Personal project`);
+}

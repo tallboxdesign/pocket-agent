@@ -10,7 +10,7 @@ import { SettingsManager } from '../settings';
 import { loadIdentity, saveIdentity, getIdentityPath } from '../config/identity';
 import { loadInstructions, saveInstructions, getInstructionsPath } from '../config/instructions';
 import { closeTaskDb, closeKanbanDb } from '../tools';
-import { KanbanService, type KanbanStatus } from '../kanban';
+import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
 import { initializeUpdater, setupUpdaterIPC, setSettingsWindow } from './updater';
 import cityTimezones from 'city-timezones';
 
@@ -23,7 +23,27 @@ process.stderr?.on('error', (err: Error & { code?: string }) => {
 });
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('EPIPE')) return;
-  console.error('Uncaught Exception:', err);
+  console.error('[Main] Uncaught Exception:', err);
+
+  // Check if this is a recoverable error (API/network/auth)
+  const msg = err.message?.toLowerCase() || '';
+  const isRecoverable =
+    msg.includes('401') || msg.includes('403') || msg.includes('429') ||
+    msg.includes('unauthorized') || msg.includes('rate limit') ||
+    msg.includes('econnrefused') || msg.includes('etimedout') ||
+    msg.includes('enotfound') || msg.includes('fetch failed') ||
+    msg.includes('socket hang up') || msg.includes('econnreset') ||
+    msg.includes('api key') || msg.includes('overloaded') ||
+    msg.includes('network') || msg.includes('aborted') ||
+    msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504');
+
+  if (isRecoverable) {
+    console.error('[Main] Recoverable error caught at process level — NOT exiting');
+    return;
+  }
+
+  // Fatal error — exit
+  console.error('[Main] FATAL uncaught exception — exiting');
   process.exit(1);
 });
 
@@ -483,6 +503,7 @@ function openChatWindow(): void {
   console.log('[Main] Opening chat window...');
   if (chatWindow && !chatWindow.isDestroyed()) {
     console.log('[Main] Chat window already exists, focusing');
+    chatWindow.show();
     chatWindow.focus();
     return;
   }
@@ -543,6 +564,7 @@ function openChatWindow(): void {
 
 function openCronWindow(): void {
   if (cronWindow && !cronWindow.isDestroyed()) {
+    cronWindow.show();
     cronWindow.focus();
     return;
   }
@@ -595,8 +617,8 @@ function openCronWindow(): void {
 
 function openSettingsWindow(tab?: string): void {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show();
     settingsWindow.focus();
-    // If a specific tab is requested, navigate to it
     if (tab) {
       settingsWindow.webContents.send('navigate-tab', tab);
     }
@@ -659,6 +681,7 @@ function openSettingsWindow(tab?: string): void {
 
 function openSetupWindow(): void {
   if (setupWindow && !setupWindow.isDestroyed()) {
+    setupWindow.show();
     setupWindow.focus();
     return;
   }
@@ -696,6 +719,7 @@ function openSetupWindow(): void {
 
 function openFactsGraphWindow(): void {
   if (factsGraphWindow && !factsGraphWindow.isDestroyed()) {
+    factsGraphWindow.show();
     factsGraphWindow.focus();
     return;
   }
@@ -748,6 +772,7 @@ function openFactsGraphWindow(): void {
 
 function openCustomizeWindow(): void {
   if (customizeWindow && !customizeWindow.isDestroyed()) {
+    customizeWindow.show();
     customizeWindow.focus();
     return;
   }
@@ -800,6 +825,7 @@ function openCustomizeWindow(): void {
 
 function openFactsWindow(): void {
   if (factsWindow && !factsWindow.isDestroyed()) {
+    factsWindow.show();
     factsWindow.focus();
     return;
   }
@@ -852,6 +878,7 @@ function openFactsWindow(): void {
 
 function openSoulWindow(): void {
   if (soulWindow && !soulWindow.isDestroyed()) {
+    soulWindow.show();
     soulWindow.focus();
     return;
   }
@@ -904,6 +931,7 @@ function openSoulWindow(): void {
 
 function createSkillsSetupWindow(): void {
   if (skillsSetupWindow && !skillsSetupWindow.isDestroyed()) {
+    skillsSetupWindow.show();
     skillsSetupWindow.focus();
     return;
   }
@@ -956,6 +984,7 @@ function createSkillsSetupWindow(): void {
 
 function openKanbanWindow(): void {
   if (kanbanWindow && !kanbanWindow.isDestroyed()) {
+    kanbanWindow.show();
     kanbanWindow.focus();
     return;
   }
@@ -1363,6 +1392,64 @@ function setupIPC(): void {
     return models;
   });
 
+  ipcMain.handle('glm:healthCheck', async () => {
+    const { glmHealthCheck, isGlmConfigured } = await import('../tools/glm-client');
+    if (!isGlmConfigured()) return { ok: false, error: 'No API key' };
+    return glmHealthCheck();
+  });
+
+  ipcMain.handle('gog:status', async () => {
+    const { isGogAvailable } = await import('../tools/gog-wrapper');
+    try {
+      const available = await isGogAvailable();
+      if (!available) return { ok: false, error: 'gog CLI not found' };
+      const { gogExec } = await import('../tools/gog-wrapper');
+      const authList = await gogExec(['auth', 'list']);
+      return { ok: true, accounts: authList };
+    } catch {
+      return { ok: false, error: 'gog check failed' };
+    }
+  });
+
+  ipcMain.handle('telegram:restart', async () => {
+    try {
+      if (telegramBot) {
+        await telegramBot.stop();
+        telegramBot = null;
+      }
+      const telegramEnabled = SettingsManager.getBoolean('telegram.enabled');
+      const telegramToken = SettingsManager.get('telegram.botToken');
+      if (!telegramEnabled || !telegramToken) {
+        return { success: false, error: 'Telegram not enabled or no token configured' };
+      }
+      telegramBot = createTelegramBot();
+      if (!telegramBot) {
+        return { success: false, error: 'Failed to create Telegram bot' };
+      }
+      telegramBot.setOnMessageCallback((data) => {
+        if (chatWindow && !chatWindow.isDestroyed()) {
+          chatWindow.webContents.send('telegram:message', {
+            userMessage: data.userMessage,
+            response: data.response,
+            chatId: data.chatId,
+            sessionId: data.sessionId,
+            hasAttachment: data.hasAttachment,
+            attachmentType: data.attachmentType,
+          });
+        }
+      });
+      await telegramBot.start();
+      if (scheduler) {
+        scheduler.setTelegramBot(telegramBot);
+      }
+      console.log('[Main] Telegram restarted via IPC');
+      return { success: true };
+    } catch (error) {
+      console.error('[Main] Telegram restart failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+
   ipcMain.handle('agent:restart', async () => {
     try {
       await restartAgent();
@@ -1680,6 +1767,11 @@ function setupIPC(): void {
 
   ipcMain.handle('kanban:archiveProject', async (_, id: number) => {
     return { success: KanbanService.archiveProject(id) };
+  });
+
+  ipcMain.handle('kanban:deleteProject', async (_, id: number) => {
+    try { return { success: KanbanService.deleteProject(id) }; }
+    catch (e) { return { success: false, error: (e as Error).message }; }
   });
 
   ipcMain.handle('kanban:updateProject', async (_, id: number, updates: Record<string, string>) => {
@@ -2159,6 +2251,14 @@ app.whenReady().then(async () => {
     console.log('[Main] Initializing memory...');
     memory = new MemoryManager(dbPath);
     console.log('[Main] Memory initialized');
+
+    // Auto-create Personal project and migrate legacy tasks
+    try {
+      KanbanService.getOrCreatePersonalProject();
+      migrateTasksToKanban();
+    } catch (e) {
+      console.warn('[Main] Task consolidation failed (non-fatal):', e);
+    }
 
     setupIPC();
     setupUpdaterIPC();

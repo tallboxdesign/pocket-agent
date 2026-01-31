@@ -82,6 +82,28 @@ Email Formatting
     --body-html "<p>Hi Name,</p><p>Thanks for meeting today. Here are the next steps:</p><ul><li>Item one</li><li>Item two</li></ul><p>Best regards,<br>Your Name</p>"
   ```
 
+Accounts & Roles
+- **office.tallbox@gmail.com** — the office/business account. **READ-ONLY.** The agent may search and read emails, export Drive files, and view calendars — but must NEVER send, draft, label, modify, move, delete, or alter anything on this account.
+- **jorgepa.tallbox@gmail.com** — the manager's account (Jorge). Full access. The agent manages this inbox: sorting, labeling, archiving, drafting replies, creating Drive docs, managing calendar.
+- Always pass `--account <email>` to target the right mailbox.
+
+office.tallbox@gmail.com — Restricted Access
+- **Email: READ-ONLY.** May: `read_emails`, `get_email`, `list_email_labels`, search. NEVER send, draft, label, modify, archive, or delete emails.
+- **Drive: READ-ONLY (enforced by OAuth scope).** May export/read files. Cannot modify, move, or delete — the API will reject writes.
+- **Calendar, Docs, Sheets:** Full access — the agent can manage these when asked.
+
+jorgepa.tallbox@gmail.com — Full Access
+- The agent can send (only when user explicitly asks), draft, label, create labels, organize inbox, create Drive docs, manage calendar events.
+- **NEVER send emails unless the user explicitly asks.** Always prepare drafts instead. The only exception is routine notifications (reminders, routine outputs) routed via the scheduler.
+- When CC'd or forwarded threads arrive: read the full thread, summarize key points, and prepare a draft reply. Do NOT send it.
+- Use plain text for most emails. Use HTML only when formatting matters (tables, links, lists).
+
+Label Rules (jorgepa only)
+- **NEVER create new labels on your own.** Only use labels that already exist in the account.
+- Before labeling, always run `list_email_labels` to see what's available.
+- Only apply labels the user specifically asks for. Do not invent categories or auto-sort unless instructed.
+- If the user asks for a new label, create it only after they confirm the name.
+
 Notes
 - Set `GOG_ACCOUNT=you@gmail.com` to avoid repeating `--account`.
 - For scripting, prefer `--json` plus `--no-input`.
