@@ -939,6 +939,320 @@
       border-color: var(--accent);
       outline: none;
     }
+
+    /* Email Processing */
+    .ep-subsection {
+      margin-top: 20px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg-secondary);
+      overflow: hidden;
+    }
+    .ep-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .ep-header:hover { background: var(--bg-tertiary); }
+    .ep-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .ep-header-left .ep-title {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .ep-status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .ep-status-dot.active { background: var(--success); }
+    .ep-status-dot.error { background: var(--error); }
+    .ep-chevron {
+      transition: transform 0.2s;
+      color: var(--text-muted);
+    }
+    .ep-subsection.open .ep-chevron { transform: rotate(180deg); }
+    .ep-body {
+      display: none;
+      padding: 0 14px 14px;
+    }
+    .ep-subsection.open .ep-body { display: block; }
+    .ep-group {
+      margin-top: 12px;
+    }
+    .ep-group-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .ep-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+    .ep-row + .ep-row { border-top: 1px solid var(--border); }
+    .ep-row label {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .ep-row select, .ep-row input[type="number"], .ep-row input[type="text"] {
+      width: 120px;
+      padding: 5px 8px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+    .ep-row select {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12' fill='%23636366'%3E%3Cpath d='M6 8L2 4h8L6 8z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 24px;
+    }
+    .ep-check-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .ep-check-grid label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .ep-check-grid label:hover { border-color: var(--accent); color: var(--text-primary); }
+    .ep-check-grid input:checked + span { color: var(--text-primary); }
+    .ep-check-grid input { accent-color: var(--accent); }
+    .ep-btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .ep-btn {
+      padding: 7px 14px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .ep-btn:hover { background: var(--border); color: var(--text-primary); }
+    .ep-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .ep-btn.primary {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-secondary) 100%);
+      color: white;
+      border: none;
+    }
+    .ep-btn.primary:hover { opacity: 0.9; }
+    .ep-status-box {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .ep-status-box .ep-run {
+      padding: 6px 0;
+    }
+    .ep-status-box .ep-run + .ep-run { border-top: 1px solid var(--border); }
+    .ep-status-box .ep-run-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+    .ep-status-box .ep-run-detail {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .ep-no-data { color: var(--text-muted); font-style: italic; }
+
+    /* Label config (Pass 2) */
+    .ep-label-list {
+      max-height: 400px;
+      overflow-y: auto;
+      margin-top: 8px;
+    }
+    .ep-label-item {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: var(--bg-primary);
+    }
+    .ep-label-item.configured { border-color: var(--accent); border-left: 3px solid var(--accent); }
+    .ep-label-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .ep-label-name {
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .ep-label-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .ep-label-fields input[type="text"] {
+      width: 100%;
+      padding: 5px 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+    .ep-label-fields input:focus { border-color: var(--accent); outline: none; }
+    .ep-label-notify {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+    .ep-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .ep-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+    .ep-pill .ep-pill-x {
+      cursor: pointer;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+    .ep-pill .ep-pill-x:hover { color: var(--error); }
+
+    /* Example picker modal */
+    .ep-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .ep-modal-overlay.open { display: flex; }
+    .ep-modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 480px;
+      max-height: 70vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .ep-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ep-modal-header h3 { font-size: 14px; font-weight: 600; }
+    .ep-modal-close {
+      background: none; border: none;
+      color: var(--text-muted); cursor: pointer;
+      font-size: 18px;
+    }
+    .ep-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+    .ep-email-item {
+      padding: 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .ep-email-item:hover { background: var(--bg-tertiary); }
+    .ep-email-item .ep-email-from {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+    .ep-email-item .ep-email-subj {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 1px;
+    }
+    .ep-email-item .ep-email-date {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .ep-email-item .ep-email-snippet {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ep-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 4px;
+    }
+    .ep-tab {
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .ep-tab:hover { color: var(--text-secondary); }
+    .ep-tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+    .ep-tab-panel { display: none; }
+    .ep-tab-panel.active { display: block; }
   </style>
 </head>
 <body>
@@ -1291,6 +1605,153 @@
         <div style="margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 12px; color: var(--text-muted);">
           <strong>Setup:</strong> Install gog CLI with <code>brew install steipete/tap/gogcli</code>, then authenticate with <code>gog auth add you@gmail.com --services gmail</code>
         </div>
+
+        <!-- Email Processing Sub-section -->
+        <div class="ep-subsection" id="ep-section">
+          <div class="ep-header" onclick="epToggleSection()">
+            <div class="ep-header-left">
+              <div class="ep-status-dot" id="ep-dot"></div>
+              <span class="ep-title">Email Processing</span>
+              <span style="font-size:11px;color:var(--text-muted)">GLM auto-classification</span>
+            </div>
+            <svg class="ep-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+          <div class="ep-body">
+            <!-- Tabs -->
+            <div class="ep-tabs">
+              <div class="ep-tab active" data-tab="ep-basics" onclick="epSwitchTab(this)">Basics</div>
+              <div class="ep-tab" data-tab="ep-labels" onclick="epSwitchTab(this)">Labels</div>
+              <div class="ep-tab" data-tab="ep-advanced" onclick="epSwitchTab(this)">Advanced</div>
+              <div class="ep-tab" data-tab="ep-status-tab" onclick="epSwitchTab(this)">Status</div>
+            </div>
+
+            <!-- BASICS TAB -->
+            <div class="ep-tab-panel active" id="ep-basics">
+              <div class="ep-group">
+                <div class="ep-row">
+                  <label>Enable Processing</label>
+                  <label class="switch" style="display:flex;align-items:center;gap:0;">
+                    <input type="checkbox" id="ep-enabled" onchange="epToggleEnabled(this)">
+                    <span style="font-size:11px;color:var(--text-muted);margin-left:8px;" id="ep-enabled-label">Off</span>
+                  </label>
+                </div>
+                <div class="ep-row">
+                  <label>Scan Interval</label>
+                  <select id="ep-interval" onchange="epSaveSetting('gmail.emailProcessing.intervalMin', this.value)">
+                    <option value="1">1 min (testing)</option>
+                    <option value="20">20 min</option>
+                    <option value="30" selected>30 min</option>
+                    <option value="60">60 min</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="ep-group">
+                <div class="ep-group-title">Accounts to Monitor</div>
+                <div id="ep-accounts-list" class="ep-check-grid">
+                  <span class="ep-no-data">Detecting accounts...</span>
+                </div>
+              </div>
+
+              <div class="ep-group">
+                <div class="ep-group-title">Categories (optional filter)</div>
+                <div class="ep-check-grid" id="ep-categories">
+                  <label><input type="checkbox" value="primary" onchange="epSaveCategories()"><span>Primary</span></label>
+                  <label><input type="checkbox" value="updates" onchange="epSaveCategories()"><span>Updates</span></label>
+                  <label><input type="checkbox" value="social" onchange="epSaveCategories()"><span>Social</span></label>
+                  <label><input type="checkbox" value="promotions" onchange="epSaveCategories()"><span>Promotions</span></label>
+                  <label><input type="checkbox" value="forums" onchange="epSaveCategories()"><span>Forums</span></label>
+                </div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Unchecked = process all inbox emails</div>
+              </div>
+
+              <div class="ep-btn-row">
+                <button class="ep-btn" onclick="epFetchLabels()">Fetch Labels</button>
+                <button class="ep-btn primary" onclick="epRunNow()">Run Now</button>
+                <button class="ep-btn" onclick="epRefreshStatus()">Refresh Status</button>
+              </div>
+            </div>
+
+            <!-- LABELS TAB -->
+            <div class="ep-tab-panel" id="ep-labels">
+              <div class="ep-group">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <div class="ep-group-title" style="margin:0;">Label Configuration</div>
+                  <button class="ep-btn" onclick="epFetchLabels()" style="padding:4px 10px;font-size:11px;">Refresh Labels</button>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;margin-bottom:8px;">
+                  Add descriptions, toggle notifications, and pick example emails for each label. Labels with config are used for classification.
+                </div>
+                <div id="ep-label-list" class="ep-label-list">
+                  <span class="ep-no-data">Click "Fetch Labels" to load your Gmail labels</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- ADVANCED TAB -->
+            <div class="ep-tab-panel" id="ep-advanced">
+              <div class="ep-group">
+                <div class="ep-row">
+                  <label>Processed Label</label>
+                  <input type="text" id="ep-processed-label" value="AI/Processed" onchange="epSaveSetting('gmail.emailProcessing.processedLabel', this.value)">
+                </div>
+                <div class="ep-row">
+                  <label>Review Label</label>
+                  <input type="text" id="ep-review-label" value="AI/Review" onchange="epSaveSetting('gmail.emailProcessing.reviewLabel', this.value)">
+                </div>
+                <div class="ep-row">
+                  <label>Max Emails/Run</label>
+                  <input type="number" id="ep-max-emails" value="100" min="10" max="500" onchange="epSaveSetting('gmail.emailProcessing.maxEmailsPerRun', this.value)">
+                </div>
+                <div class="ep-row">
+                  <label>Lookback Days</label>
+                  <input type="number" id="ep-lookback" value="7" min="1" max="30" onchange="epSaveSetting('gmail.emailProcessing.lookbackDays', this.value)">
+                </div>
+                <div class="ep-row">
+                  <label>Gmail Concurrency</label>
+                  <input type="number" id="ep-gmail-conc" value="4" min="1" max="10" onchange="epSaveSetting('gmail.emailProcessing.gmailConcurrency', this.value)">
+                </div>
+                <div class="ep-row">
+                  <label>GLM Concurrency</label>
+                  <input type="number" id="ep-glm-conc" value="3" min="1" max="10" onchange="epSaveSetting('gmail.emailProcessing.glmConcurrency', this.value)">
+                </div>
+              </div>
+            </div>
+
+            <!-- STATUS TAB -->
+            <div class="ep-tab-panel" id="ep-status-tab">
+              <div class="ep-group">
+                <div class="ep-group-title">Checkpoints</div>
+                <div id="ep-checkpoints" class="ep-status-box">
+                  <span class="ep-no-data">No checkpoints yet</span>
+                </div>
+              </div>
+              <div class="ep-group">
+                <div class="ep-group-title">Recent Runs</div>
+                <div id="ep-runs" class="ep-status-box">
+                  <span class="ep-no-data">No runs yet</span>
+                </div>
+              </div>
+              <div class="ep-btn-row">
+                <button class="ep-btn" onclick="epRefreshStatus()">Refresh</button>
+                <button class="ep-btn primary" onclick="epRunNow()">Run Now</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Example Picker Modal -->
+        <div class="ep-modal-overlay" id="ep-modal">
+          <div class="ep-modal">
+            <div class="ep-modal-header">
+              <h3>Pick Example Email for: <span id="ep-modal-label"></span></h3>
+              <button class="ep-modal-close" onclick="epCloseModal()">&times;</button>
+            </div>
+            <div class="ep-modal-body" id="ep-modal-emails">
+              <span class="ep-no-data">Loading recent emails...</span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- Memory Section -->
@@ -1434,6 +1895,7 @@
       loadSkillsSummary();
       checkGlmStatus();
       checkGogStatus();
+      epInit();
     });
 
     async function loadAppVersion() {
@@ -1694,7 +2156,9 @@
         'google.placesApiKey', 'notion.apiKey', 'trello.apiKey',
         'trello.token', 'elevenlabs.apiKey', 'auth-api-key', 'oauth-code',
         'telegram.allowedUserIds', 'telegram.defaultChatId',
-        'gmail-user-email', 'gmail-default-recipient'
+        'gmail-user-email', 'gmail-default-recipient',
+        'ep-enabled', 'ep-interval', 'ep-processed-label', 'ep-review-label',
+        'ep-max-emails', 'ep-lookback', 'ep-gmail-conc', 'ep-glm-conc'
       ];
 
       const inputs = document.querySelectorAll('input, select');
@@ -1986,6 +2450,402 @@
         checkbox.checked = !checkbox.checked;
       }
     }
+
+    // ====================================================================
+    // Email Processing UI
+    // ====================================================================
+
+    let epLabelConfig = {};   // Current label config from settings
+    let epGmailLabels = [];   // Raw labels fetched from Gmail
+    let epModalTarget = null; // Label name for example picker
+    let epModalAccount = null;
+
+    function epToggleSection() {
+      document.getElementById('ep-section').classList.toggle('open');
+    }
+
+    async function epInit() {
+      // Load saved settings into UI
+      const enabled = settings['gmail.emailProcessing.enabled'] === 'true';
+      const el = document.getElementById('ep-enabled');
+      if (el) {
+        el.checked = enabled;
+        document.getElementById('ep-enabled-label').textContent = enabled ? 'On' : 'Off';
+      }
+      const dot = document.getElementById('ep-dot');
+      if (dot) dot.classList.toggle('active', enabled);
+
+      // Interval
+      const interval = settings['gmail.emailProcessing.intervalMin'] || '30';
+      const intSel = document.getElementById('ep-interval');
+      if (intSel) intSel.value = interval;
+
+      // Categories
+      const cats = epParseJson(settings['gmail.emailProcessing.categories'], []);
+      document.querySelectorAll('#ep-categories input').forEach(cb => {
+        cb.checked = cats.includes(cb.value);
+      });
+
+      // Advanced fields
+      const advFields = {
+        'ep-processed-label': 'gmail.emailProcessing.processedLabel',
+        'ep-review-label': 'gmail.emailProcessing.reviewLabel',
+        'ep-max-emails': 'gmail.emailProcessing.maxEmailsPerRun',
+        'ep-lookback': 'gmail.emailProcessing.lookbackDays',
+        'ep-gmail-conc': 'gmail.emailProcessing.gmailConcurrency',
+        'ep-glm-conc': 'gmail.emailProcessing.glmConcurrency',
+      };
+      for (const [elId, key] of Object.entries(advFields)) {
+        const field = document.getElementById(elId);
+        if (field && settings[key]) field.value = settings[key];
+      }
+
+      // Label config
+      epLabelConfig = epParseJson(settings['gmail.emailProcessing.labelConfig'], {});
+
+      // Detect accounts
+      await epDetectAccounts();
+
+      // Auto-load status
+      await epRefreshStatus();
+    }
+
+    function epParseJson(str, fallback) {
+      if (!str) return fallback;
+      try { return JSON.parse(str); } catch { return fallback; }
+    }
+
+    async function epSaveSetting(key, value) {
+      try {
+        await window.pocketAgent.setSetting(key, value);
+        settings[key] = value;
+        showToast('Saved!', 'success');
+      } catch (err) {
+        console.error('[EP] Save failed:', err);
+        showToast('Save failed', 'error');
+      }
+    }
+
+    async function epToggleEnabled(checkbox) {
+      const val = checkbox.checked.toString();
+      try {
+        await window.pocketAgent.setSetting('gmail.emailProcessing.enabled', val);
+        settings['gmail.emailProcessing.enabled'] = val;
+        document.getElementById('ep-enabled-label').textContent = checkbox.checked ? 'On' : 'Off';
+        document.getElementById('ep-dot').classList.toggle('active', checkbox.checked);
+        showToast(checkbox.checked ? 'Email processing enabled' : 'Email processing disabled', 'success');
+      } catch (err) {
+        console.error('[EP] Toggle failed:', err);
+        showToast('Failed to toggle', 'error');
+        checkbox.checked = !checkbox.checked;
+      }
+    }
+
+    async function epDetectAccounts() {
+      const container = document.getElementById('ep-accounts-list');
+      try {
+        const result = await window.pocketAgent.gogStatus();
+        if (!result.ok || !result.accounts) {
+          container.innerHTML = '<span class="ep-no-data">gog CLI not available. Install and authenticate first.</span>';
+          return;
+        }
+        // Parse account emails from gog auth list output
+        const lines = result.accounts.split('\n').filter(l => l.trim());
+        const emails = [];
+        for (const line of lines) {
+          const match = line.match(/[\w.+-]+@[\w.-]+\.\w+/);
+          if (match) emails.push(match[0]);
+        }
+        if (emails.length === 0) {
+          container.innerHTML = '<span class="ep-no-data">No authenticated accounts found. Run <code>gog auth add</code> first.</span>';
+          return;
+        }
+        const saved = epParseJson(settings['gmail.emailProcessing.accounts'], []);
+        container.innerHTML = emails.map(email => `
+          <label>
+            <input type="checkbox" value="${email}" ${saved.includes(email) ? 'checked' : ''} onchange="epSaveAccounts()">
+            <span>${email}</span>
+          </label>
+        `).join('');
+      } catch (err) {
+        container.innerHTML = '<span class="ep-no-data">Failed to detect accounts</span>';
+      }
+    }
+
+    async function epSaveAccounts() {
+      const checked = [...document.querySelectorAll('#ep-accounts-list input:checked')].map(cb => cb.value);
+      await epSaveSetting('gmail.emailProcessing.accounts', JSON.stringify(checked));
+    }
+
+    async function epSaveCategories() {
+      const checked = [...document.querySelectorAll('#ep-categories input:checked')].map(cb => cb.value);
+      await epSaveSetting('gmail.emailProcessing.categories', JSON.stringify(checked));
+    }
+
+    function epSwitchTab(tabEl) {
+      const tabId = tabEl.dataset.tab;
+      document.querySelectorAll('#ep-section .ep-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('#ep-section .ep-tab-panel').forEach(p => p.classList.remove('active'));
+      tabEl.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+    }
+
+    async function epRunNow() {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+      try {
+        const result = await window.pocketAgent.gmailRunEmailProcessor();
+        if (result.ok) {
+          showToast('Email processing complete', 'success');
+        } else {
+          showToast(result.error || 'Processing failed', 'error');
+        }
+        await epRefreshStatus();
+      } catch (err) {
+        showToast('Run failed: ' + err.message, 'error');
+      }
+      btn.disabled = false;
+      btn.textContent = 'Run Now';
+    }
+
+    async function epRefreshStatus() {
+      try {
+        const status = await window.pocketAgent.gmailGetProcessingStatus();
+        // Render checkpoints
+        const cpBox = document.getElementById('ep-checkpoints');
+        if (status.checkpoints && status.checkpoints.length > 0) {
+          cpBox.innerHTML = status.checkpoints.map(cp => {
+            const dateStr = cp.last_internal_date_ms
+              ? new Date(cp.last_internal_date_ms).toLocaleString()
+              : 'never';
+            return `<div class="ep-run">
+              <div class="ep-run-header">
+                <span style="color:var(--text-primary)">${cp.account}</span>
+                <span>Checkpoint: ${dateStr}</span>
+              </div>
+              ${cp.updated_at ? `<div class="ep-run-detail">Updated: ${cp.updated_at}</div>` : ''}
+            </div>`;
+          }).join('');
+        } else {
+          cpBox.innerHTML = '<span class="ep-no-data">No checkpoints yet</span>';
+        }
+
+        // Render runs
+        const runsBox = document.getElementById('ep-runs');
+        if (status.runs && status.runs.length > 0) {
+          const dot = document.getElementById('ep-dot');
+          const lastRun = status.runs[0];
+          if (dot) {
+            if (lastRun.success === 0) dot.classList.add('error');
+            else dot.classList.remove('error');
+          }
+          runsBox.innerHTML = status.runs.slice(0, 10).map(run => {
+            const ok = run.success !== 0;
+            const labelsObj = epParseJson(run.labels_applied, {});
+            const labelStr = Object.entries(labelsObj).map(([k,v]) => `${k}: ${v}`).join(', ') || 'none';
+            const dur = run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : '?';
+            return `<div class="ep-run">
+              <div class="ep-run-header">
+                <span style="color:${ok ? 'var(--success)' : 'var(--error)'}">${ok ? 'OK' : 'FAIL'} &mdash; ${run.account || 'unknown'}</span>
+                <span>${run.started_at || ''}</span>
+              </div>
+              <div class="ep-run-detail">
+                Fetched: ${run.emails_fetched || 0} | Classified: ${run.emails_classified || 0} | Skipped: ${run.emails_skipped || 0} | GLM: ${run.glm_calls || 0} | ${dur}
+              </div>
+              <div class="ep-run-detail">Labels: ${labelStr}</div>
+              ${run.error ? `<div class="ep-run-detail" style="color:var(--error)">${run.error}</div>` : ''}
+            </div>`;
+          }).join('');
+        } else {
+          runsBox.innerHTML = '<span class="ep-no-data">No runs yet. Click "Run Now" to test.</span>';
+        }
+      } catch (err) {
+        console.error('[EP] Status refresh failed:', err);
+      }
+    }
+
+    // ---- Label Config (Pass 2) ----
+
+    async function epFetchLabels() {
+      const accounts = epParseJson(settings['gmail.emailProcessing.accounts'], []);
+      const account = accounts[0] || undefined;
+      epModalAccount = account;
+
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = 'Fetching...';
+
+      try {
+        const result = await window.pocketAgent.gmailFetchLabels(account);
+        if (!result.success || !result.labels) {
+          showToast(result.error || 'Failed to fetch labels', 'error');
+          btn.disabled = false;
+          btn.textContent = btn.closest('.ep-tab-panel') ? 'Refresh Labels' : 'Fetch Labels';
+          return;
+        }
+
+        const labels = JSON.parse(result.labels);
+        // Filter out system labels (INBOX, SENT, DRAFT, SPAM, TRASH, etc.)
+        const systemPrefixes = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'UNREAD', 'IMPORTANT', 'CATEGORY_'];
+        epGmailLabels = labels.filter(l => {
+          const name = typeof l === 'string' ? l : (l.name || l.id || '');
+          return !systemPrefixes.some(p => name.startsWith(p));
+        }).map(l => typeof l === 'string' ? l : (l.name || l.id || ''));
+
+        epRenderLabels();
+        showToast(`Loaded ${epGmailLabels.length} labels`, 'success');
+
+        // Auto-switch to labels tab if on basics
+        const labelsTab = document.querySelector('[data-tab="ep-labels"]');
+        if (labelsTab && !labelsTab.classList.contains('active')) {
+          epSwitchTab(labelsTab);
+        }
+      } catch (err) {
+        showToast('Label fetch failed: ' + err.message, 'error');
+      }
+      btn.disabled = false;
+      btn.textContent = btn.closest('#ep-labels') ? 'Refresh Labels' : 'Fetch Labels';
+    }
+
+    function epRenderLabels() {
+      const container = document.getElementById('ep-label-list');
+      if (epGmailLabels.length === 0) {
+        container.innerHTML = '<span class="ep-no-data">No labels found</span>';
+        return;
+      }
+
+      // Sort: configured labels first, then alphabetical
+      const sorted = [...epGmailLabels].sort((a, b) => {
+        const aCfg = epLabelConfig[a] ? 0 : 1;
+        const bCfg = epLabelConfig[b] ? 0 : 1;
+        if (aCfg !== bCfg) return aCfg - bCfg;
+        return a.localeCompare(b);
+      });
+
+      container.innerHTML = sorted.map(name => {
+        const cfg = epLabelConfig[name] || {};
+        const isConfigured = cfg.description || cfg.notify || (cfg.examples && cfg.examples.length > 0);
+        const desc = cfg.description || '';
+        const notify = cfg.notify || false;
+        const examples = cfg.examples || [];
+
+        const pillsHtml = examples.map((ex, i) => `
+          <span class="ep-pill">
+            <span>${ex.subject || ex.messageId || ('Example ' + (i + 1))}</span>
+            <span class="ep-pill-x" onclick="epRemoveExample('${name.replace(/'/g, "\\'")}', ${i})">&times;</span>
+          </span>
+        `).join('');
+
+        return `<div class="ep-label-item ${isConfigured ? 'configured' : ''}" data-label="${name}">
+          <div class="ep-label-head">
+            <span class="ep-label-name">${name}</span>
+            <label class="ep-label-notify">
+              <input type="checkbox" ${notify ? 'checked' : ''} onchange="epToggleLabelNotify('${name.replace(/'/g, "\\'")}', this.checked)">
+              Notify
+            </label>
+          </div>
+          <div class="ep-label-fields">
+            <input type="text" placeholder="Description (e.g. 'Emails from clients about projects')"
+              value="${desc.replace(/"/g, '&quot;')}"
+              onchange="epSetLabelDesc('${name.replace(/'/g, "\\'")}', this.value)">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:11px;color:var(--text-muted);">Examples:</span>
+              <div class="ep-pills">${pillsHtml || '<span style="font-size:10px;color:var(--text-muted)">none</span>'}</div>
+              <button class="ep-btn" style="padding:3px 8px;font-size:10px;" onclick="epOpenModal('${name.replace(/'/g, "\\'")}')">+ Add</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    async function epSaveLabelConfig() {
+      const json = JSON.stringify(epLabelConfig);
+      await epSaveSetting('gmail.emailProcessing.labelConfig', json);
+    }
+
+    function epSetLabelDesc(labelName, desc) {
+      if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
+      epLabelConfig[labelName].description = desc;
+      epSaveLabelConfig();
+    }
+
+    function epToggleLabelNotify(labelName, checked) {
+      if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
+      epLabelConfig[labelName].notify = checked;
+      epSaveLabelConfig();
+    }
+
+    function epRemoveExample(labelName, index) {
+      if (!epLabelConfig[labelName]?.examples) return;
+      epLabelConfig[labelName].examples.splice(index, 1);
+      epSaveLabelConfig();
+      epRenderLabels();
+    }
+
+    async function epOpenModal(labelName) {
+      epModalTarget = labelName;
+      document.getElementById('ep-modal-label').textContent = labelName;
+      const overlay = document.getElementById('ep-modal');
+      overlay.classList.add('open');
+      const body = document.getElementById('ep-modal-emails');
+      body.innerHTML = '<span class="ep-no-data">Loading recent emails...</span>';
+
+      try {
+        const result = await window.pocketAgent.gmailFetchRecentEmails(epModalAccount);
+        if (!result.success || !result.emails) {
+          body.innerHTML = '<span class="ep-no-data">Failed to load emails</span>';
+          return;
+        }
+        const emails = JSON.parse(result.emails);
+        if (emails.length === 0) {
+          body.innerHTML = '<span class="ep-no-data">No recent emails found</span>';
+          return;
+        }
+        body.innerHTML = emails.map(email => {
+          const from = email.from || email.sender || 'Unknown';
+          const subject = email.subject || '(no subject)';
+          const date = email.date || email.internalDate || '';
+          const snippet = email.snippet || '';
+          const msgId = email.id || email.messageId || '';
+          return `<div class="ep-email-item" onclick="epPickExample('${msgId}', '${subject.replace(/'/g, "\\'")}', '${from.replace(/'/g, "\\'")}')">
+            <div class="ep-email-from">${from}</div>
+            <div class="ep-email-subj">${subject}</div>
+            <div class="ep-email-date">${date}</div>
+            ${snippet ? `<div class="ep-email-snippet">${snippet}</div>` : ''}
+          </div>`;
+        }).join('');
+      } catch (err) {
+        body.innerHTML = `<span class="ep-no-data">Error: ${err.message}</span>`;
+      }
+    }
+
+    function epCloseModal() {
+      document.getElementById('ep-modal').classList.remove('open');
+      epModalTarget = null;
+    }
+
+    function epPickExample(messageId, subject, from) {
+      if (!epModalTarget) return;
+      if (!epLabelConfig[epModalTarget]) epLabelConfig[epModalTarget] = {};
+      if (!epLabelConfig[epModalTarget].examples) epLabelConfig[epModalTarget].examples = [];
+
+      // Prevent duplicates
+      if (epLabelConfig[epModalTarget].examples.some(e => e.messageId === messageId)) {
+        showToast('Already added', 'error');
+        return;
+      }
+
+      epLabelConfig[epModalTarget].examples.push({ messageId, subject, from });
+      epSaveLabelConfig();
+      epRenderLabels();
+      epCloseModal();
+      showToast('Example added', 'success');
+    }
+
+    // ====================================================================
+    // End Email Processing UI
+    // ====================================================================
 
     async function toggleSetting(key) {
       const currentValue = settings[key] === 'true';
