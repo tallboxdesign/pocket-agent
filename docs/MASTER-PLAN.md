@@ -1206,43 +1206,49 @@ async function migrateTasksToKanban() {
 20. ✅ SVG icons — replaced emoji icons with clean inline SVGs in Kanban + Chat headers
 21. ✅ All Tasks button in Chat header — opens Kanban window from chat
 
-### Phase 2 — Unified Task System ← CURRENT
-_Foundation: everything routes through Kanban, data is clean_
+### Phase 2 — Unified Task System & Data Completeness ← CURRENT
+_Foundation: everything routes through Kanban, data is clean, nothing lost_
 22. Rewire `task_add/list/complete/delete` tools → Kanban Personal project (unifies all tasks into one system)
 23. Actor tracking fixes — ensure every Kanban mutation correctly sets actor (user/claude/glm/system)
-24. Project selector in New Task modal (quick win, depends on unified task system)
-25. Auto-task recording — agent auto-creates Kanban task when no task context exists
+24. Store tool output in event_log — save first 2000 chars of every tool result (closes the last data gap)
+25. Project selector in New Task modal (quick win, depends on unified task system)
+26. Auto-task recording — agent auto-creates Kanban task when no task context exists
+27. `/continue` command — shows list of all active projects with status/issues, user picks one to resume
 
-### Phase 3 — Scheduling & Automation
-_Depends on: unified tasks (Phase 2) — scheduler needs all tasks in Kanban_
-26. Kanban TaskScheduler — execute/remind on `due_date` (`src/scheduler/task-scheduler.ts`)
-27. Task detail panel — schedule section (due date, action type, channels, recurrence)
-28. Telegram notifications for urgent emails (uses same notify pipeline as scheduler)
+### Phase 3 — GLM Background Loop & Scheduling
+_Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
+_GLM runs every 30 min doing two parallel jobs:_
+28. **GLM Email Labeling (ongoing, every 30 min)** — read new/unlabeled emails, classify (urgent/important/newsletter/receipt/spam), apply labels, ping Telegram on urgent
+29. **GLM Session Notes (ongoing, every 30 min)** — read messages + event_log + activity_log from last window, produce structured notes per session/worker (what worked, what failed, what user complained about, decisions made), save to `session_notes` table
+30. GLM event triggers — instant notes on: worker failure, user complaint (negative sentiment), task blocked (don't wait for 30-min sweep)
+31. Kanban TaskScheduler — execute/remind on `due_date` (`src/scheduler/task-scheduler.ts`)
+32. Task detail panel — schedule section (due date, action type, channels, recurrence)
+33. Telegram notifications for urgent emails (uses same notify pipeline as scheduler)
 
 ### Phase 4 — Intelligence & Continuity
-_Depends on: event log (done), activity log (done), GLM client (done), scheduler (Phase 3)_
-29. Daily summary generation — GLM-4.7 summarizes previous day's activity, sent to Telegram
-30. Session continuity briefing — 3-day context injection on new session (uses daily summaries)
-31. GLM project prioritization — morning recommendations ("what should I work on today?")
+_Depends on: session_notes (Phase 3), GLM loop running_
+34. **Session briefing on startup** — read session_notes + kanban state + event_log errors → GLM compresses into ~800 token briefing → injected into system prompt. Manager knows everything from previous sessions.
+35. Daily summary generation — GLM compiles all session_notes from previous day into morning digest, sent to Telegram
+36. GLM project prioritization — morning recommendations ("what should I work on today?") based on unresolved issues, stale tasks, momentum
 
 ### Phase 5 — Monitoring & Organization
 _Depends on: scheduler (Phase 3), intelligence (Phase 4)_
-32. Universal heartbeat system — monitors active workers/jobs, pings Telegram at milestones
-33. Tag & assignee system — autocomplete, dropdown, colors, routing (assign to worker/glm/claude)
-34. Project folder manager — plan subfolders with PLAN.md, TODO.md, PROGRESS.md
+37. Universal heartbeat system — monitors active workers/jobs, pings Telegram at milestones
+38. Tag & assignee system — autocomplete, dropdown, colors, routing (assign to worker/glm/claude)
+39. Project folder manager — plan subfolders with PLAN.md, TODO.md, PROGRESS.md
 
 ### Phase 6 — Workers & Research
 _Depends on: heartbeat (Phase 5), tag routing (Phase 5), scheduler (Phase 3)_
-35. Worker manager + execution DB (`src/workers/`)
-36. Claude CLI spawning + Kanban integration (workers build code, heartbeat monitors)
-37. Multi-agent research orchestrator (`src/agent/research.ts`)
-38. Research tools + Kanban research filter
+40. Worker manager + execution DB (`src/workers/`)
+41. Claude CLI spawning + Kanban integration (workers build code, heartbeat monitors)
+42. Multi-agent research orchestrator (`src/agent/research.ts`)
+43. Research tools + Kanban research filter
 
 ### Phase 7 — Cloud Backup & Sync
 _Depends on: stable system — all data in Kanban/SQLite, nothing scattered_
-39. Upload all Pocket Agent data (DB, attachments, photos) to cloud storage
-40. Enable migration to another computer with full state restore
-41. Choose backend (S3, Google Drive, or iCloud)
+44. Upload all Pocket Agent data (DB, attachments, photos) to cloud storage
+45. Enable migration to another computer with full state restore
+46. Choose backend (S3, Google Drive, or iCloud)
 
 ### Completed Phases
 - ✅ Phase 5 (old) — Gmail integration (gog CLI — 8 tools, multi-account)
