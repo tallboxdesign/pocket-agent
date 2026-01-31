@@ -1137,7 +1137,9 @@ Also ALWAYS send screenshots to the user via send_telegram_photo — never just 
         if (suggestion) {
           this.lastSuggestedPrompt = suggestion;
         }
-        return cleanedText;
+        // Only update if we got actual text — tool-only messages return empty
+        // and should not overwrite previously accumulated text
+        return cleanedText || current;
       }
     }
 
@@ -1149,7 +1151,7 @@ Also ALWAYS send screenshots to the user via send_telegram_photo — never just 
         if (suggestion) {
           this.lastSuggestedPrompt = suggestion;
         }
-        return cleanedText;
+        return cleanedText || current;
       }
     }
 

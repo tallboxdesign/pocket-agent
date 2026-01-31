@@ -1018,6 +1018,123 @@
       line-height: 1.4;
     }
 
+    /* ── Overview Modal ── */
+    .overview-modal {
+      width: 640px;
+      max-width: 95%;
+      max-height: 80vh;
+    }
+
+    .overview-modal .modal-body {
+      padding: 12px;
+      overflow-y: auto;
+      max-height: 60vh;
+    }
+
+    .overview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .overview-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      cursor: pointer;
+      transition: border-color 0.15s, transform 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .overview-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    .overview-card-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+    }
+
+    .overview-card-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      padding-top: 2px;
+    }
+
+    .overview-card-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .overview-counts {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .overview-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .overview-badge.review {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+    }
+
+    .overview-badge.in_progress {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+    }
+
+    .overview-badge.todo {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+    }
+
+    .overview-badge.done {
+      background: rgba(34, 197, 94, 0.1);
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .overview-badge.backlog {
+      background: rgba(99, 99, 102, 0.1);
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .overview-actionable {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 8px;
+      font-weight: 500;
+    }
+
+    .overview-empty {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 30px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
     .priority-buttons {
       display: flex;
       gap: 6px;
@@ -1470,6 +1587,7 @@
       <div class="search-results" id="search-results"></div>
     </div>
     <div class="header-actions">
+      <button onclick="openOverviewModal()" title="All projects overview" style="padding:6px 10px;font-size:15px;">&#x1F4CA;</button>
       <button onclick="toggleMute()" id="mute-btn" title="Mute sounds" style="padding:6px 10px;font-size:15px;">&#x1F50A;</button>
       <button onclick="toggleArchive()" id="archive-btn" title="View archived/done tasks">Archive</button>
       <button onclick="refreshBoard()" title="Refresh board" style="padding:6px 10px;font-size:15px;">&#x21bb;</button>
@@ -1623,6 +1741,21 @@
       <div class="modal-footer">
         <button class="modal-cancel-btn" onclick="closeRejectModal()">Cancel</button>
         <button class="modal-save-btn" onclick="confirmReject()">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overview Modal -->
+  <div class="modal-overlay" id="overview-modal-overlay">
+    <div class="modal overview-modal">
+      <div class="modal-header">All Projects</div>
+      <div class="modal-body">
+        <div class="overview-grid" id="overview-grid">
+          <!-- Filled dynamically -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-cancel-btn" onclick="closeOverviewModal()">Close</button>
       </div>
     </div>
   </div>
@@ -2562,6 +2695,67 @@
       }
     }
 
+    // ── Overview Modal ──
+    async function openOverviewModal() {
+      const grid = document.getElementById('overview-grid');
+      grid.innerHTML = '<div class="overview-empty">Loading...</div>';
+      document.getElementById('overview-modal-overlay').classList.add('open');
+
+      try {
+        const allProjects = await window.pocketAgent.kanbanListProjects();
+        if (!allProjects || allProjects.length === 0) {
+          grid.innerHTML = '<div class="overview-empty">No projects yet</div>';
+          return;
+        }
+
+        grid.innerHTML = allProjects.map(p => {
+          const counts = p.task_counts || {};
+          const review = counts.review || 0;
+          const inProgress = counts.in_progress || 0;
+          const todo = counts.todo || 0;
+          const done = counts.done || 0;
+          const backlog = counts.backlog || 0;
+          const actionable = review + inProgress + todo;
+          const color = p.color || '#a855f7';
+
+          const badges = [];
+          if (review > 0) badges.push(`<span class="overview-badge review">${review} Review</span>`);
+          if (inProgress > 0) badges.push(`<span class="overview-badge in_progress">${inProgress} In Progress</span>`);
+          if (todo > 0) badges.push(`<span class="overview-badge todo">${todo} Todo</span>`);
+          if (done > 0) badges.push(`<span class="overview-badge done">${done} Done</span>`);
+          if (backlog > 0) badges.push(`<span class="overview-badge backlog">${backlog} Backlog</span>`);
+
+          const desc = p.description ? escapeHtml(p.description) : 'No description';
+          const activeLabel = actionable > 0
+            ? `${actionable} actionable`
+            : 'No active tasks';
+
+          return `<div class="overview-card" onclick="switchFromOverview(${p.id})">
+            <div class="overview-card-bar" style="background:${color}"></div>
+            <div class="overview-card-name">${escapeHtml(p.name)}</div>
+            <div class="overview-card-desc">${desc}</div>
+            <div class="overview-counts">${badges.length > 0 ? badges.join('') : '<span style="color:var(--text-muted);font-size:11px;">Empty</span>'}</div>
+            <div class="overview-actionable">${activeLabel}</div>
+          </div>`;
+        }).join('');
+      } catch (err) {
+        grid.innerHTML = '<div class="overview-empty">Failed to load projects</div>';
+        console.error('[Kanban] Overview load failed:', err);
+      }
+    }
+
+    function closeOverviewModal() {
+      document.getElementById('overview-modal-overlay').classList.remove('open');
+    }
+
+    function switchFromOverview(projectId) {
+      closeOverviewModal();
+      currentProjectId = projectId;
+      const select = document.getElementById('project-select');
+      if (select) select.value = projectId;
+      loadBoard();
+    }
+
     // ── New Task Modal ──
     let newTaskDefaultStatus = 'backlog';
 
@@ -2800,11 +2994,16 @@
       document.getElementById('reject-modal-overlay').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) closeRejectModal();
       });
+      document.getElementById('overview-modal-overlay').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeOverviewModal();
+      });
 
       // Keyboard shortcuts
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-          if (document.getElementById('reject-modal-overlay').classList.contains('open')) {
+          if (document.getElementById('overview-modal-overlay').classList.contains('open')) {
+            closeOverviewModal();
+          } else if (document.getElementById('reject-modal-overlay').classList.contains('open')) {
             closeRejectModal();
           } else if (document.getElementById('task-modal-overlay').classList.contains('open')) {
             closeTaskModal();

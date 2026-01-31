@@ -817,13 +817,22 @@ multiline</pre>
         }
 
         const arrayBuffer = await response.arrayBuffer();
-        const base64Data = Buffer.from(arrayBuffer).toString('base64');
+        const imageBuffer = Buffer.from(arrayBuffer);
+        const base64Data = imageBuffer.toString('base64');
 
-        // Determine media type from file path
+        // Determine media type and extension from file path
         let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg';
-        if (file.file_path.endsWith('.png')) mediaType = 'image/png';
-        else if (file.file_path.endsWith('.gif')) mediaType = 'image/gif';
-        else if (file.file_path.endsWith('.webp')) mediaType = 'image/webp';
+        let ext = '.jpg';
+        if (file.file_path.endsWith('.png')) { mediaType = 'image/png'; ext = '.png'; }
+        else if (file.file_path.endsWith('.gif')) { mediaType = 'image/gif'; ext = '.gif'; }
+        else if (file.file_path.endsWith('.webp')) { mediaType = 'image/webp'; ext = '.webp'; }
+
+        // Save image to disk so the agent can reference the file path
+        const attachmentsDir = path.join(app.getPath('userData'), 'attachments');
+        fs.mkdirSync(attachmentsDir, { recursive: true });
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const savedPath = path.join(attachmentsDir, `telegram-${timestamp}${ext}`);
+        fs.writeFileSync(savedPath, imageBuffer);
 
         const imageContent: ImageContent = {
           type: 'base64',
@@ -831,13 +840,16 @@ multiline</pre>
           data: base64Data,
         };
 
-        console.log(`[Telegram] Processing photo: ${largestPhoto.width}x${largestPhoto.height}, ${(base64Data.length / 1024).toFixed(1)}KB`);
+        console.log(`[Telegram] Processing photo: ${largestPhoto.width}x${largestPhoto.height}, ${(base64Data.length / 1024).toFixed(1)}KB, saved to ${savedPath}`);
 
         // Look up which session this chat is linked to
         const memory = AgentManager.getMemory();
         const sessionId = memory?.getSessionForChat(chatId) || 'default';
 
-        const result = await AgentManager.processMessage(caption, 'telegram', sessionId, [imageContent]);
+        // Include saved file path in prompt so agent can reference it
+        const promptWithPath = `${caption}\n\n[Image saved to: ${savedPath}]`;
+
+        const result = await AgentManager.processMessage(promptWithPath, 'telegram', sessionId, [imageContent]);
 
         // Send response
         await this.sendResponse(ctx, result.response);
