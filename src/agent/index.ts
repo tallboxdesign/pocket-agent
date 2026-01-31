@@ -929,8 +929,24 @@ class AgentManagerClass extends EventEmitter {
         'mcp__pocket-agent__kanban_review_task',
         'mcp__pocket-agent__kanban_log_research',
         'mcp__pocket-agent__kanban_add_attachment',
+        'mcp__pocket-agent__kanban_move_task_to_project',
         // Custom MCP tools - telegram
         'mcp__pocket-agent__send_telegram_photo',
+        'mcp__pocket-agent__restart_telegram',
+        // Custom MCP tools - gmail (gog CLI)
+        'mcp__pocket-agent__read_emails',
+        'mcp__pocket-agent__get_email',
+        'mcp__pocket-agent__send_email',
+        'mcp__pocket-agent__list_email_labels',
+        'mcp__pocket-agent__create_email_label',
+        'mcp__pocket-agent__modify_email_labels',
+        'mcp__pocket-agent__create_email_draft',
+        'mcp__pocket-agent__list_email_drafts',
+        // Custom MCP tools - GLM worker
+        'mcp__pocket-agent__summarize_text',
+        'mcp__pocket-agent__classify_content',
+        'mcp__pocket-agent__extract_info',
+        'mcp__pocket-agent__bulk_process',
       ],
       persistSession: false,
     };
@@ -1117,6 +1133,42 @@ MANDATORY: After completing ANY research work (screenshots, web searches, analys
 ALWAYS use kanban_log_research to log results automatically — do NOT ask the user first.
 This creates a task in the Review column of the Research project.
 Also ALWAYS send screenshots to the user via send_telegram_photo — never just show the file path.
+
+### Gmail (via gog CLI)
+You have DIRECT access to Gmail — use these tools, do NOT use the browser for email.
+Two accounts are authenticated and ready:
+- **office.tallbox@gmail.com** (primary work account)
+- **jorgepa.tallbox@gmail.com** (secondary account)
+
+Tools:
+- read_emails: List recent emails (default: last 24h). Use account= to specify which account.
+- get_email: Read full email body by message ID
+- send_email: Send an email
+- create_email_draft: Create a draft
+- list_email_drafts: List drafts
+- list_email_labels: List all labels for an account
+- create_email_label: Create a new label
+- modify_email_labels: Add/remove labels on emails
+
+Examples:
+- read_emails() — last 24h from default account
+- read_emails(account="jorgepa.tallbox@gmail.com", query="subject:blog newer_than:12h")
+- read_emails(query="is:unread label:important")
+
+IMPORTANT: Always use these tools for email. Never suggest browser or Chrome debugging for Gmail access.
+
+### GLM Worker (Utility Model)
+You can delegate lightweight tasks to GLM-4.7 to save tokens:
+- summarize_text: Summarize long text
+- classify_content: Classify text into categories (e.g., email labeling)
+- extract_info: Extract structured data from text
+- bulk_process: Process multiple items in one call
+
+Use GLM for: email classification, log summarization, data extraction, routine processing.
+Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
+
+### Self-Healing
+- restart_telegram: Restart Telegram connection if it disconnects
 
 ### Limitations
 - Cannot send SMS or make calls
