@@ -1220,26 +1220,32 @@ _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
 _Central service: `src/scheduler/glm-loop.ts` — orchestrates all parallel GLM jobs_
 _Control panel: Settings → GLM Background Jobs — toggle/configure each job_
 
-#### 3A. GLM Email Processor (every 30 min, configurable)
+#### 3A. GLM Email Processor (every 20-30 min, configurable) — v2 with Codex reliability fixes
 28. **Email Processing Service** — `src/scheduler/email-processor.ts`
-    - Fetch user's real labels from Gmail API (`list_email_labels`)
-    - Fetch ALL new emails since last run (full body via `get_email`, not snippets)
-    - Batch emails into groups of 5 (full body per email)
-    - Fire ALL batches to GLM in parallel (`Promise.all`)
-    - GLM reads full content + user's label list → classifies each email to best-fit label
-    - Apply labels via `modify_email_labels`
-    - If no label fits → GLM suggests new label name → auto-create or flag for user
-    - Notify Telegram for emails classified as urgent/important (configurable)
-    - Log results to event_log
-    - Scaling: 55 emails = 11 parallel GLM calls, ~3 seconds, ~$0.03
+    - **Checkpoint-based tracking**: per-account `last_internal_date_ms` in SQLite, NOT `newer_than:Xm`. Survives app offline/restart.
+    - **Idempotent via `AI/Processed` label**: auto-created, applied to every classified email. Fetch query excludes `-label:AI/Processed`. Safe across crashes, reinstalls, multi-machine.
+    - **Base query: `in:inbox`** (not categories). Categories are optional filter. Works even with categories disabled.
+    - **Full email bodies** via `gog gmail get [messageId]` (not snippets)
+    - **Concurrency-limited**: Gmail getMessage max 4 concurrent, GLM classify max 3 concurrent
+    - **Retry with exponential backoff**: 2s → 4s → 8s, max 3 retries for transient errors
+    - **GLM returns messageId** (not index). Must match exact label names. Low confidence → `AI/Review` label.
+    - **Batch of 5**: group emails, fire batches to GLM Flash in parallel
+    - **Few-shot examples**: 2-3 example emails per label (user picks from recent emails in settings)
+    - **Label application**: predicted label + `AI/Processed` marker via `gog gmail labels modify`
+    - **Notification rules**: notify for labels with `notify: true` AND high/medium confidence. Always notify for `AI/Review`.
+    - **3 SQLite tables**: `email_processing_checkpoints`, `email_processing_state`, `email_processing_runs`
+    - **11 settings keys**: enabled, intervalMin, accounts, categories, labelConfig, processedLabel, reviewLabel, maxEmailsPerRun, gmailConcurrency, glmConcurrency, lookbackDays
+    - Scaling: 55 emails = 11 batches, 4 GLM rounds (conc:3), ~5s, ~$0.03. Monthly: ~$1-2.
 29. **Email Settings UI** — `ui/settings.html` Email Processing section
-    - Accounts to monitor (checkboxes, fetched from settings)
-    - Categories to scan (primary/updates/social/promotions/forums)
-    - Scan frequency dropdown (20/30/60 min)
-    - Which labels trigger Telegram notification (fetched from Gmail, checkboxes)
-    - Agent can create new labels on user's verbal command
-    - "Fetch Labels" button to refresh label list from Gmail API
     - Enable/disable toggle for the whole email processing job
+    - Accounts to monitor (checkboxes, fetched from gog auth)
+    - Categories to scan (optional: primary/updates/social/promotions/forums)
+    - Scan frequency dropdown (20/30/60 min)
+    - "Fetch Labels" button to refresh label list from Gmail API
+    - Per-label configuration: description, notify toggle, 2-3 example emails
+    - "Pick from Recent Emails" modal for adding examples
+    - Advanced section: processed/review label names, concurrency, lookback days
+    - Processing status: last run time, emails processed, next run, "Run Now" button
 
 #### 3B. GLM Session Notes (every 30 min)
 30. **Session Notes Service** — `src/scheduler/session-notes.ts`
