@@ -2668,9 +2668,15 @@
     // ---- Label Config (Pass 2) ----
 
     async function epFetchLabels() {
-      const accounts = epParseJson(settings['gmail.emailProcessing.accounts'], []);
-      const account = accounts[0] || undefined;
+      // Read directly from checked account checkboxes (not settings cache which may be stale)
+      const checkedAccounts = [...document.querySelectorAll('#ep-accounts-list input:checked')].map(cb => cb.value);
+      const account = checkedAccounts[0] || undefined;
       epModalAccount = account;
+
+      if (!account) {
+        showToast('Select at least one account first', 'error');
+        return;
+      }
 
       const btn = event.target;
       btn.disabled = true;
