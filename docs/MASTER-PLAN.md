@@ -2,7 +2,7 @@
 
 **Created:** 2026-01-30
 **Last Updated:** 2026-01-31
-**Status:** IN PROGRESS — Phase 1.5 (Kanban Polish & Telegram)
+**Status:** IN PROGRESS — Phase 2 (Scheduling & Monitoring)
 **Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-4.7 (utility model)
 
 ---
@@ -1194,7 +1194,7 @@ async function migrateTasksToKanban() {
 10. Actor tracking fixes across all Kanban operations
 11. Project selector in New Task modal (quick win)
 
-### Phase 1.5 — Kanban Polish & Telegram ← CURRENT
+### Phase 1.5 — Kanban Polish & Telegram ✅ DONE
 12. ✅ Move Task to Project (backend + UI dropdown + agent tool)
 13. ✅ Description markdown pills + Copy button
 14. ✅ Tag & Assignee pills in detail panel
@@ -1203,8 +1203,10 @@ async function migrateTasksToKanban() {
 17. ✅ Cross-project All Tasks view — see ALL tasks from ALL projects in one view
 18. ✅ Telegram "tasks" command — formatted overview of active tasks, project-grouped
 19. ✅ Tray status — show "Telegram: Connected/Disconnected" in system tray menu
+20. ✅ SVG icons — replaced emoji icons with clean inline SVGs in Kanban + Chat headers
+21. ✅ All Tasks button in Chat header — opens Kanban window from chat
 
-### Phase 2 — Scheduling & Monitoring
+### Phase 2 — Scheduling & Monitoring ← CURRENT
 20. Kanban TaskScheduler — execute/remind on due_date (`src/scheduler/task-scheduler.ts`)
 21. Task detail panel — schedule section (due date, action type, channels, recurrence)
 22. Universal heartbeat system
