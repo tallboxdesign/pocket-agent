@@ -81,12 +81,19 @@ function getReadEmailsToolDefinition() {
 Returns email subjects, senders, dates, and snippets as JSON.
 Uses Gmail search syntax for queries.
 
+Gmail categories: category:primary, category:updates, category:social, category:promotions, category:forums
+Combine with OR: "category:primary OR category:updates"
+
 Examples:
-- read_emails() — emails from last 24 hours
+- read_emails() — emails from last 24 hours (all folders)
+- read_emails(query="category:primary newer_than:1d") — primary inbox only
+- read_emails(query="category:primary OR category:updates newer_than:1d") — primary + updates
 - read_emails(query="from:alice@example.com")
 - read_emails(query="is:unread", max=5)
 - read_emails(query="subject:invoice newer_than:7d")
-- read_emails(account="other@gmail.com") — read from a different account`,
+- read_emails(account="jorgepa.tallbox@gmail.com") — read from secondary account
+
+When user asks to "check emails", search category:primary and category:updates by default.`,
     input_schema: {
       type: 'object' as const,
       properties: {
