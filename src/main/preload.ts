@@ -94,6 +94,13 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   restartAgent: () => ipcRenderer.invoke('agent:restart'),
   glmHealthCheck: () => ipcRenderer.invoke('glm:healthCheck'),
   gogStatus: () => ipcRenderer.invoke('gog:status'),
+
+  // Gmail Email Processing
+  gmailFetchLabels: (account?: string) => ipcRenderer.invoke('gmail:fetchLabels', account),
+  gmailFetchRecentEmails: (account?: string) => ipcRenderer.invoke('gmail:fetchRecentEmails', account),
+  gmailGetEmailPreview: (messageId: string, account?: string) => ipcRenderer.invoke('gmail:getEmailPreview', messageId, account),
+  gmailRunEmailProcessor: () => ipcRenderer.invoke('gmail:runEmailProcessor'),
+  gmailGetProcessingStatus: () => ipcRenderer.invoke('gmail:getProcessingStatus'),
   openSettings: () => ipcRenderer.invoke('app:openSettings'),
   openChat: () => ipcRenderer.invoke('app:openChat'),
   startOAuth: () => ipcRenderer.invoke('auth:startOAuth'),
@@ -260,6 +267,11 @@ declare global {
       restartAgent: () => Promise<{ success: boolean }>;
       glmHealthCheck: () => Promise<{ ok: boolean; models?: string[]; error?: string }>;
       gogStatus: () => Promise<{ ok: boolean; accounts?: string; error?: string }>;
+      gmailFetchLabels: (account?: string) => Promise<{ success: boolean; labels?: string; error?: string }>;
+      gmailFetchRecentEmails: (account?: string) => Promise<{ success: boolean; emails?: string; error?: string }>;
+      gmailGetEmailPreview: (messageId: string, account?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+      gmailRunEmailProcessor: () => Promise<{ ok: boolean; error?: string }>;
+      gmailGetProcessingStatus: () => Promise<{ runs: unknown[]; checkpoints: unknown[] }>;
       openSettings: () => Promise<void>;
       openChat: () => Promise<void>;
       startOAuth: () => Promise<{ success: boolean; error?: string }>;

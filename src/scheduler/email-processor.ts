@@ -1,0 +1,808 @@
+/**
+ * Email Processing Service
+ *
+ * GLM-4.7 Flash reads full email bodies, classifies them into user's Gmail labels
+ * using few-shot examples, applies labels, and notifies on important emails.
+ *
+ * Reliability features (Codex v2):
+ * - Checkpoint-based tracking (survives offline/restart)
+ * - AI/Processed marker label (idempotent across crashes)
+ * - Concurrency-limited Gmail + GLM calls
+ * - Exponential backoff retry on transient errors
+ * - Strict GLM output validation with AI/Review fallback
+ */
+
+import Database from 'better-sqlite3';
+import { SettingsManager } from '../settings';
+import {
+  readEmails, getMessage, listLabels, modifyLabels, createLabel,
+} from '../tools/gog-wrapper';
+import { glmFlash } from '../tools/glm-client';
+import { logEvent } from '../memory/event-log';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+type Confidence = 'high' | 'medium' | 'low';
+
+type LabelConfig = Record<string, {
+  notify?: boolean;
+  description?: string;
+  examples?: string[];
+}>;
+
+interface EmailListItem {
+  id: string;
+  threadId?: string;
+  internalDate?: string | number;
+  date?: string;
+  subject?: string;
+  from?: string;
+}
+
+interface FullEmail {
+  id: string;
+  threadId?: string;
+  internalDateMs: number;
+  from: string;
+  subject: string;
+  body: string;
+}
+
+interface ClassificationResult {
+  messageId: string;
+  threadId?: string;
+  label: string;
+  confidence: Confidence;
+  subject?: string;
+  from?: string;
+}
+
+interface ProcessingRunStats {
+  emailsFetched: number;
+  emailsClassified: number;
+  emailsSkipped: number;
+  labelsApplied: Record<string, number>;
+  glmCalls: number;
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+function safeJsonParse<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function isTransientError(err: unknown): boolean {
+  const msg = String((err as Error)?.message || err || '').toLowerCase();
+  return (
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('rate') ||
+    msg.includes('429') ||
+    msg.includes('network') ||
+    msg.includes('econnreset') ||
+    msg.includes('temporar')
+  );
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelayMs = 2000,
+): Promise<T> {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (err) {
+      attempt += 1;
+      if (attempt > maxRetries || !isTransientError(err)) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt - 1);
+      console.warn(`[EmailProcessor] Retry ${attempt}/${maxRetries} after ${delay}ms`);
+      await sleep(delay);
+    }
+  }
+}
+
+async function withConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let idx = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    for (;;) {
+      const current = idx;
+      idx += 1;
+      if (current >= items.length) return;
+      results[current] = await fn(items[current]);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+function toInternalDateMs(item: EmailListItem): number {
+  const raw = item.internalDate ?? item.date;
+  if (!raw) return 0;
+  if (typeof raw === 'number') return raw;
+  const n = Number(raw);
+  if (!Number.isNaN(n) && n > 0) return n;
+  const t = new Date(raw).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+// ============================================================================
+// Email Parsing
+// ============================================================================
+
+function adaptFullEmail(msgRes: { success: boolean; message?: string }): FullEmail | null {
+  if (!msgRes.success || !msgRes.message) return null;
+
+  const raw = safeJsonParse<Record<string, unknown>>(msgRes.message, {});
+
+  const id = String(raw.id || raw.messageId || '');
+  const threadId = String(raw.threadId || raw.thread_id || '') || undefined;
+
+  let internalDateMs = 0;
+  const iDate = raw.internalDate ?? raw.internalDateMs ?? raw.date;
+  if (iDate) {
+    const n = Number(iDate);
+    if (!Number.isNaN(n) && n > 0) {
+      internalDateMs = n;
+    } else {
+      const t = new Date(String(iDate)).getTime();
+      if (Number.isFinite(t)) internalDateMs = t;
+    }
+  }
+
+  const from = String(raw.from || raw.sender || '');
+  const subject = String(raw.subject || '');
+  const body = String(raw.bodyText || raw.body_text || raw.body || raw.snippet || '');
+
+  return { id, threadId, internalDateMs, from, subject, body };
+}
+
+// ============================================================================
+// GLM Prompt Building
+// ============================================================================
+
+function buildLabelList(
+  allLabels: unknown[],
+  labelConfig: LabelConfig,
+): { name: string; desc: string }[] {
+  const items: { name: string; desc: string }[] = [];
+  for (const l of allLabels) {
+    const lObj = l as Record<string, unknown>;
+    const name = String(lObj.name || lObj.label || l || '').trim();
+    if (!name) continue;
+    // Skip system labels
+    if (name.startsWith('CATEGORY_') || name === 'INBOX' || name === 'SENT' ||
+        name === 'DRAFT' || name === 'SPAM' || name === 'TRASH' || name === 'STARRED' ||
+        name === 'IMPORTANT' || name === 'UNREAD') continue;
+    const cfg = labelConfig[name];
+    items.push({ name, desc: cfg?.description || '' });
+  }
+  return items;
+}
+
+function buildGlmPrompt(
+  allowed: { name: string; desc: string }[],
+  examplesByLabel: Record<string, FullEmail[]>,
+  batch: FullEmail[],
+  reviewLabel: string,
+): string {
+  const lines: string[] = [];
+
+  lines.push('You are an email classifier. Classify each email into exactly ONE label from the list below.');
+  lines.push('');
+  lines.push('RULES:');
+  lines.push('- Output JSON only, no extra text.');
+  lines.push('- The "label" must exactly match one of the AVAILABLE LABELS.');
+  lines.push('- Use the messageId provided for each email.');
+  lines.push(`- If unsure, set confidence to "low" and label to "${reviewLabel}".`);
+  lines.push('');
+  lines.push('AVAILABLE LABELS:');
+  for (const l of allowed) {
+    lines.push(l.desc ? `- ${l.name}: ${l.desc}` : `- ${l.name}`);
+  }
+  lines.push('');
+
+  const exampleLabels = Object.keys(examplesByLabel);
+  if (exampleLabels.length > 0) {
+    lines.push('EXAMPLES:');
+    for (const label of exampleLabels) {
+      for (const ex of examplesByLabel[label] || []) {
+        lines.push(`--- Label: ${label} ---`);
+        lines.push(`From: ${ex.from} | Subject: ${ex.subject}`);
+        lines.push(`Body: ${ex.body.slice(0, 500)}`);
+        lines.push('');
+      }
+    }
+  }
+
+  lines.push('CLASSIFY THESE EMAILS:');
+  lines.push('');
+  for (const e of batch) {
+    lines.push(`[messageId: ${e.id}] From: ${e.from} | Subject: ${e.subject}`);
+    lines.push(`Body: ${e.body}`);
+    lines.push('');
+  }
+
+  lines.push('Respond with JSON array only:');
+  lines.push('[{"messageId":"...","label":"...","confidence":"high|medium|low"}]');
+
+  return lines.join('\n');
+}
+
+function validateGlmResponse(
+  raw: string,
+  batch: FullEmail[],
+  allowedLabels: Set<string>,
+  reviewLabel: string,
+): ClassificationResult[] {
+  // Try to extract JSON from response (GLM may wrap in ```json blocks)
+  let jsonStr = raw.trim();
+  const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+  if (jsonMatch) jsonStr = jsonMatch[0];
+
+  const parsed = safeJsonParse<unknown[]>(jsonStr, []);
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    // Complete parse failure — everything goes to review
+    return batch.map((e) => ({
+      messageId: e.id,
+      threadId: e.threadId,
+      label: reviewLabel,
+      confidence: 'low' as Confidence,
+      subject: e.subject,
+      from: e.from,
+    }));
+  }
+
+  const batchIds = new Set(batch.map((b) => b.id));
+  const out: ClassificationResult[] = [];
+
+  for (const item of parsed) {
+    const obj = item as Record<string, unknown>;
+    const messageId = String(obj?.messageId || '');
+    const label = String(obj?.label || '');
+    const conf = String(obj?.confidence || 'low');
+    const confidence = (['high', 'medium', 'low'].includes(conf) ? conf : 'low') as Confidence;
+
+    if (!batchIds.has(messageId)) continue;
+
+    const email = batch.find((b) => b.id === messageId);
+    if (!allowedLabels.has(label)) {
+      out.push({ messageId, threadId: email?.threadId, label: reviewLabel, confidence: 'low', subject: email?.subject, from: email?.from });
+    } else {
+      out.push({ messageId, threadId: email?.threadId, label, confidence, subject: email?.subject, from: email?.from });
+    }
+  }
+
+  // Ensure every email in batch is covered
+  const covered = new Set(out.map((o) => o.messageId));
+  for (const e of batch) {
+    if (!covered.has(e.id)) {
+      out.push({ messageId: e.id, threadId: e.threadId, label: reviewLabel, confidence: 'low', subject: e.subject, from: e.from });
+    }
+  }
+
+  return out;
+}
+
+// ============================================================================
+// Email Processor Class
+// ============================================================================
+
+export class EmailProcessor {
+  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private running = false;
+  private db: Database.Database;
+
+  constructor(dbPath: string) {
+    this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('busy_timeout = 5000');
+    this.createTables();
+  }
+
+  // ---------- Lifecycle ----------
+
+  start(): void {
+    const intervalMin = parseInt(SettingsManager.get('gmail.emailProcessing.intervalMin') || '30', 10) || 30;
+    const intervalMs = intervalMin * 60_000;
+
+    console.log(`[EmailProcessor] Starting with ${intervalMin}min interval`);
+    void this.processEmails();
+    this.intervalId = setInterval(() => void this.processEmails(), intervalMs);
+  }
+
+  stop(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+    console.log('[EmailProcessor] Stopped');
+  }
+
+  restart(): void {
+    this.stop();
+    this.start();
+  }
+
+  // ---------- Schema ----------
+
+  private createTables(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS email_processing_checkpoints (
+        account TEXT PRIMARY KEY,
+        last_internal_date_ms INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS email_processing_state (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        thread_id TEXT,
+        internal_date_ms INTEGER,
+        subject TEXT,
+        sender TEXT,
+        label_applied TEXT,
+        confidence TEXT CHECK(confidence IN ('high','medium','low')),
+        processed_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(account, message_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS email_processing_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        emails_fetched INTEGER DEFAULT 0,
+        emails_classified INTEGER DEFAULT 0,
+        emails_skipped INTEGER DEFAULT 0,
+        labels_applied TEXT,
+        glm_calls INTEGER DEFAULT 0,
+        duration_ms INTEGER,
+        error TEXT,
+        success INTEGER DEFAULT 1
+      );
+    `);
+
+    // Create indexes if they don't exist
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_eps_account ON email_processing_state(account);
+      CREATE INDEX IF NOT EXISTS idx_eps_processed ON email_processing_state(processed_at);
+    `);
+  }
+
+  // ---------- Checkpoint ----------
+
+  private getCheckpoint(account: string): number {
+    const row = this.db
+      .prepare('SELECT last_internal_date_ms FROM email_processing_checkpoints WHERE account = ?')
+      .get(account) as { last_internal_date_ms: number } | undefined;
+    return row?.last_internal_date_ms ?? 0;
+  }
+
+  private setCheckpoint(account: string, ms: number): void {
+    this.db.prepare(`
+      INSERT INTO email_processing_checkpoints(account, last_internal_date_ms, updated_at)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(account) DO UPDATE SET
+        last_internal_date_ms = excluded.last_internal_date_ms,
+        updated_at = datetime('now')
+    `).run(account, ms);
+  }
+
+  // ---------- State ----------
+
+  private isAlreadyProcessed(account: string, messageId: string): boolean {
+    const row = this.db
+      .prepare('SELECT 1 FROM email_processing_state WHERE account = ? AND message_id = ? LIMIT 1')
+      .get(account, messageId);
+    return Boolean(row);
+  }
+
+  private saveProcessed(
+    account: string,
+    email: FullEmail,
+    appliedLabel: string,
+    confidence: Confidence,
+  ): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO email_processing_state
+      (account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(account, email.id, email.threadId ?? null, email.internalDateMs,
+      email.subject ?? null, email.from ?? null, appliedLabel, confidence);
+  }
+
+  // ---------- Run History ----------
+
+  private startRun(account: string): number {
+    const info = this.db.prepare(
+      'INSERT INTO email_processing_runs(account, started_at) VALUES (?, ?)',
+    ).run(account, new Date().toISOString());
+    return Number(info.lastInsertRowid);
+  }
+
+  private finishRun(runId: number, stats: ProcessingRunStats, durationMs: number, error?: string): void {
+    this.db.prepare(`
+      UPDATE email_processing_runs SET
+        completed_at = datetime('now'),
+        emails_fetched = ?,
+        emails_classified = ?,
+        emails_skipped = ?,
+        labels_applied = ?,
+        glm_calls = ?,
+        duration_ms = ?,
+        error = ?,
+        success = ?
+      WHERE id = ?
+    `).run(
+      stats.emailsFetched, stats.emailsClassified, stats.emailsSkipped,
+      JSON.stringify(stats.labelsApplied), stats.glmCalls,
+      durationMs, error ?? null, error ? 0 : 1, runId,
+    );
+  }
+
+  // ---------- Label Helpers ----------
+
+  private async ensureLabel(labelName: string, account: string): Promise<void> {
+    try {
+      const res = await listLabels({ account });
+      if (!res.success) return;
+      const labels = safeJsonParse<unknown[]>(res.labels || '[]', []);
+      const exists = labels.some((l) => {
+        const obj = l as Record<string, unknown>;
+        return (obj.name || obj.label || l) === labelName;
+      });
+      if (!exists) {
+        await createLabel({ name: labelName, account });
+        console.log(`[EmailProcessor] Created label: ${labelName}`);
+      }
+    } catch (err) {
+      console.warn(`[EmailProcessor] Could not ensure label ${labelName}:`, err);
+    }
+  }
+
+  // ---------- Few-Shot Examples ----------
+
+  private async fetchFewShotExamples(
+    account: string,
+    labelConfig: LabelConfig,
+  ): Promise<Record<string, FullEmail[]>> {
+    const result: Record<string, FullEmail[]> = {};
+
+    for (const [label, cfg] of Object.entries(labelConfig)) {
+      const ids = (cfg.examples || []).slice(0, 3);
+      if (ids.length === 0) continue;
+
+      const emails: FullEmail[] = [];
+      for (const messageId of ids) {
+        try {
+          const msgRes = await withRetry(() => getMessage({ messageId, account }));
+          const email = adaptFullEmail(msgRes);
+          if (email) emails.push(email);
+        } catch {
+          // Skip failed example fetches
+        }
+      }
+      if (emails.length > 0) result[label] = emails;
+    }
+
+    return result;
+  }
+
+  // ---------- Main Processing Loop ----------
+
+  async processEmails(): Promise<void> {
+    if (this.running) {
+      console.log('[EmailProcessor] Already running, skipping');
+      return;
+    }
+    this.running = true;
+
+    const enabled = SettingsManager.get('gmail.emailProcessing.enabled') === 'true';
+    if (!enabled) {
+      this.running = false;
+      return;
+    }
+
+    const accounts = safeJsonParse<string[]>(SettingsManager.get('gmail.emailProcessing.accounts') || '[]', []);
+    const categories = safeJsonParse<string[]>(SettingsManager.get('gmail.emailProcessing.categories') || '[]', []);
+    const labelConfig = safeJsonParse<LabelConfig>(SettingsManager.get('gmail.emailProcessing.labelConfig') || '{}', {});
+    const processedLabel = SettingsManager.get('gmail.emailProcessing.processedLabel') || 'AI/Processed';
+    const reviewLabel = SettingsManager.get('gmail.emailProcessing.reviewLabel') || 'AI/Review';
+    const lookbackDays = SettingsManager.get('gmail.emailProcessing.lookbackDays') || '7';
+    const maxEmails = parseInt(SettingsManager.get('gmail.emailProcessing.maxEmailsPerRun') || '100', 10) || 100;
+    const gmailConc = parseInt(SettingsManager.get('gmail.emailProcessing.gmailConcurrency') || '4', 10) || 4;
+    const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '3', 10) || 3;
+
+    if (accounts.length === 0) {
+      console.log('[EmailProcessor] No accounts configured');
+      this.running = false;
+      return;
+    }
+
+    for (const account of accounts) {
+      const runId = this.startRun(account);
+      const started = Date.now();
+      const stats: ProcessingRunStats = {
+        emailsFetched: 0, emailsClassified: 0, emailsSkipped: 0,
+        labelsApplied: {}, glmCalls: 0,
+      };
+
+      try {
+        // 1. Load checkpoint
+        const checkpoint = this.getCheckpoint(account);
+
+        // 2. Ensure marker labels exist
+        await this.ensureLabel(processedLabel, account);
+        await this.ensureLabel(reviewLabel, account);
+
+        // 3. Build query
+        let query: string;
+        if (categories.length > 0) {
+          const catFilter = categories.map((c: string) => `category:${c}`).join(' OR ');
+          query = `(${catFilter}) newer_than:${lookbackDays}d -label:${processedLabel}`;
+        } else {
+          query = `in:inbox newer_than:${lookbackDays}d -label:${processedLabel}`;
+        }
+
+        // 4. Fetch email list
+        const listRes = await withRetry(() => readEmails({ query, max: maxEmails, account }));
+        if (!listRes.success) {
+          throw new Error(`readEmails failed: ${listRes.error}`);
+        }
+        const emailList = safeJsonParse<EmailListItem[]>(listRes.emails || '[]', []);
+        stats.emailsFetched = emailList.length;
+
+        // 5. Local filter by checkpoint
+        const candidates = emailList.filter((e) => {
+          const ms = toInternalDateMs(e);
+          return ms > checkpoint;
+        });
+
+        // 6. Dedup via state table
+        const notProcessed = candidates.filter((e) => {
+          if (this.isAlreadyProcessed(account, e.id)) {
+            stats.emailsSkipped += 1;
+            return false;
+          }
+          return true;
+        });
+
+        if (notProcessed.length === 0) {
+          console.log(`[EmailProcessor] ${account}: No new emails (${stats.emailsFetched} fetched, ${stats.emailsSkipped} skipped)`);
+          this.finishRun(runId, stats, Date.now() - started);
+          continue;
+        }
+
+        console.log(`[EmailProcessor] ${account}: Processing ${notProcessed.length} new emails`);
+
+        // 7. Fetch full bodies (concurrency limited)
+        const fullEmails = (await withConcurrency(
+          notProcessed,
+          gmailConc,
+          async (item) => {
+            const msgRes = await withRetry(() => getMessage({ messageId: item.id, account }));
+            return adaptFullEmail(msgRes);
+          },
+        )).filter((e): e is FullEmail => e !== null);
+
+        if (fullEmails.length === 0) {
+          this.finishRun(runId, stats, Date.now() - started);
+          continue;
+        }
+
+        // 8. Fetch labels for classification
+        const labelsRes = await withRetry(() => listLabels({ account }));
+        const allLabels = safeJsonParse<unknown[]>(labelsRes.labels || '[]', []);
+        const promptLabels = buildLabelList(allLabels, labelConfig);
+        const allowedLabelSet = new Set(promptLabels.map((x) => x.name));
+        allowedLabelSet.add(reviewLabel);
+
+        // 9. Fetch few-shot examples
+        const examplesByLabel = await this.fetchFewShotExamples(account, labelConfig);
+
+        // 10. Classify in batches (concurrency limited)
+        const batches = chunk(fullEmails, 5);
+        const batchResults = await withConcurrency(
+          batches,
+          glmConc,
+          async (batch) => {
+            const prompt = buildGlmPrompt(promptLabels, examplesByLabel, batch, reviewLabel);
+            stats.glmCalls += 1;
+
+            const glmRes = await withRetry(() => glmFlash({
+              messages: [{ role: 'user', content: prompt }],
+              maxTokens: 300,
+              temperature: 0.1,
+            }));
+
+            if (!glmRes.success || !glmRes.content) {
+              // GLM failure — all go to review
+              return batch.map((e) => ({
+                messageId: e.id,
+                threadId: e.threadId,
+                label: reviewLabel,
+                confidence: 'low' as Confidence,
+                subject: e.subject,
+                from: e.from,
+              }));
+            }
+
+            return validateGlmResponse(glmRes.content, batch, allowedLabelSet, reviewLabel);
+          },
+        );
+
+        const flat = batchResults.flat();
+        stats.emailsClassified = flat.length;
+
+        // 11. Apply labels
+        for (const r of flat) {
+          const email = fullEmails.find((e) => e.id === r.messageId);
+          if (!email) continue;
+
+          const labelToApply = r.confidence === 'low' ? reviewLabel : r.label;
+          const addLabels = `${labelToApply},${processedLabel}`;
+
+          try {
+            await withRetry(() => modifyLabels({
+              threadIds: email.threadId ? [email.threadId] : [],
+              add: addLabels,
+              account,
+            }));
+          } catch (err) {
+            console.warn(`[EmailProcessor] Failed to apply label to ${r.messageId}:`, err);
+          }
+
+          stats.labelsApplied[labelToApply] = (stats.labelsApplied[labelToApply] || 0) + 1;
+          this.saveProcessed(account, email, labelToApply, r.confidence);
+        }
+
+        // 12. Advance checkpoint
+        const maxMs = Math.max(...fullEmails.map((e) => e.internalDateMs));
+        if (Number.isFinite(maxMs) && maxMs > checkpoint) {
+          this.setCheckpoint(account, maxMs);
+        }
+
+        // 13. Log to event_log
+        logEvent({
+          event_type: 'email_processing',
+          source: 'glm',
+          actor: 'glm',
+          session_id: 'system',
+          data: {
+            account,
+            emailsFetched: stats.emailsFetched,
+            emailsClassified: stats.emailsClassified,
+            emailsSkipped: stats.emailsSkipped,
+            labelsApplied: stats.labelsApplied,
+            glmCalls: stats.glmCalls,
+            checkpointAdvanced: maxMs > checkpoint,
+          },
+          success: true,
+          duration_ms: Date.now() - started,
+        });
+
+        this.finishRun(runId, stats, Date.now() - started);
+
+        console.log(`[EmailProcessor] ${account}: Done — ${stats.emailsClassified} classified, ${stats.glmCalls} GLM calls, ${Date.now() - started}ms`);
+
+        // 14. Send notifications
+        await this.sendNotifications(flat, labelConfig, reviewLabel, account);
+
+      } catch (err) {
+        const errorText = err instanceof Error ? err.message : String(err);
+        console.error(`[EmailProcessor] Failed for ${account}:`, errorText);
+
+        logEvent({
+          event_type: 'email_processing',
+          source: 'glm',
+          actor: 'glm',
+          session_id: 'system',
+          data: { account, error: errorText },
+          success: false,
+          error: errorText,
+          duration_ms: Date.now() - started,
+        });
+
+        this.finishRun(runId, stats, Date.now() - started, errorText);
+      }
+    }
+
+    this.running = false;
+  }
+
+  // ---------- Notifications ----------
+
+  private async sendNotifications(
+    results: ClassificationResult[],
+    labelConfig: LabelConfig,
+    reviewLabel: string,
+    account: string,
+  ): Promise<void> {
+    const toNotify: Record<string, ClassificationResult[]> = {};
+
+    for (const r of results) {
+      const isReview = r.label === reviewLabel;
+      const isNotifyEnabled = labelConfig[r.label]?.notify === true;
+      const isHighConfidence = r.confidence !== 'low';
+
+      if (isReview || (isNotifyEnabled && isHighConfidence)) {
+        if (!toNotify[r.label]) toNotify[r.label] = [];
+        toNotify[r.label].push(r);
+      }
+    }
+
+    if (Object.keys(toNotify).length === 0) return;
+
+    // Build notification message
+    const lines: string[] = [`New emails classified (${account}):`];
+    for (const [label, emails] of Object.entries(toNotify)) {
+      const prefix = label === reviewLabel ? 'Needs Review' : label;
+      lines.push(`  ${prefix} (${emails.length}):`);
+      for (const e of emails.slice(0, 5)) {
+        lines.push(`    ${e.subject || '(no subject)'} — ${e.from || 'unknown'}`);
+      }
+      if (emails.length > 5) {
+        lines.push(`    ... and ${emails.length - 5} more`);
+      }
+    }
+
+    const message = lines.join('\n');
+    console.log(`[EmailProcessor] Notification:\n${message}`);
+
+    // TODO: Send via Telegram when TelegramBot is accessible from here
+    // For now, log as event — the agent's capabilities prompt mentions it can read event_log
+    logEvent({
+      event_type: 'notification_sent',
+      source: 'system',
+      actor: 'glm',
+      session_id: 'system',
+      data: { channel: 'email_processor', message, account },
+      success: true,
+    });
+  }
+
+  // ---------- Status Query (for IPC) ----------
+
+  getProcessingStatus(): {
+    runs: unknown[];
+    checkpoints: unknown[];
+  } {
+    const runs = this.db
+      .prepare('SELECT * FROM email_processing_runs ORDER BY id DESC LIMIT 20')
+      .all();
+    const checkpoints = this.db
+      .prepare('SELECT * FROM email_processing_checkpoints')
+      .all();
+    return { runs, checkpoints };
+  }
+}

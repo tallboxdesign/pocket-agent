@@ -169,6 +169,7 @@ let tray: Tray | null = null;
 let memory: MemoryManager | null = null;
 let scheduler: CronScheduler | null = null;
 let telegramBot: TelegramBot | null = null;
+let emailProcessor: import('../scheduler/email-processor').EmailProcessor | null = null;
 let chatWindow: BrowserWindow | null = null;
 let cronWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
@@ -1333,6 +1334,29 @@ function setupIPC(): void {
         await setupBirthdayCronJobs(value);
       }
 
+      // Email processor lifecycle: start/stop/restart on settings change
+      if (key === 'gmail.emailProcessing.enabled') {
+        if (value === 'true') {
+          if (!emailProcessor) {
+            const { EmailProcessor } = await import('../scheduler/email-processor');
+            const epDbPath = path.join(app.getPath('userData'), 'pocket-agent.db');
+            emailProcessor = new EmailProcessor(epDbPath);
+          }
+          emailProcessor.start();
+          console.log('[Main] Email processor started via settings');
+        } else {
+          if (emailProcessor) {
+            emailProcessor.stop();
+            console.log('[Main] Email processor stopped via settings');
+          }
+        }
+      } else if (key === 'gmail.emailProcessing.intervalMin') {
+        if (emailProcessor && SettingsManager.getBoolean('gmail.emailProcessing.enabled')) {
+          emailProcessor.restart();
+          console.log('[Main] Email processor restarted with new interval');
+        }
+      }
+
       return { success: true };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -1417,6 +1441,49 @@ function setupIPC(): void {
     } catch {
       return { ok: false, error: 'gog check failed' };
     }
+  });
+
+  // Gmail Email Processing IPC handlers
+  ipcMain.handle('gmail:fetchLabels', async (_evt: unknown, account?: string) => {
+    const { listLabels } = await import('../tools/gog-wrapper');
+    try {
+      return await listLabels({ account });
+    } catch {
+      return { success: false, error: 'Failed to fetch labels' };
+    }
+  });
+
+  ipcMain.handle('gmail:fetchRecentEmails', async (_evt: unknown, account?: string) => {
+    const { readEmails } = await import('../tools/gog-wrapper');
+    try {
+      return await readEmails({ query: 'in:inbox newer_than:7d', max: 50, account });
+    } catch {
+      return { success: false, error: 'Failed to fetch emails' };
+    }
+  });
+
+  ipcMain.handle('gmail:getEmailPreview', async (_evt: unknown, messageId: string, account?: string) => {
+    const { getMessage } = await import('../tools/gog-wrapper');
+    try {
+      return await getMessage({ messageId, account });
+    } catch {
+      return { success: false, error: 'Failed to fetch email' };
+    }
+  });
+
+  ipcMain.handle('gmail:runEmailProcessor', async () => {
+    if (!emailProcessor) return { ok: false, error: 'Email processor not initialized' };
+    try {
+      await emailProcessor.processEmails();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  });
+
+  ipcMain.handle('gmail:getProcessingStatus', async () => {
+    if (!emailProcessor) return { runs: [], checkpoints: [] };
+    return emailProcessor.getProcessingStatus();
   });
 
   ipcMain.handle('telegram:restart', async () => {
@@ -2145,6 +2212,18 @@ async function initializeAgent(): Promise<void> {
     }
   }
 
+  // Initialize email processor
+  if (SettingsManager.getBoolean('gmail.emailProcessing.enabled')) {
+    try {
+      const { EmailProcessor } = await import('../scheduler/email-processor');
+      emailProcessor = new EmailProcessor(dbPath);
+      emailProcessor.start();
+      console.log('[Main] Email processor started');
+    } catch (error) {
+      console.error('[Main] Failed to start email processor:', error);
+    }
+  }
+
   // Initialize Telegram
   const telegramEnabled = SettingsManager.getBoolean('telegram.enabled');
   const telegramToken = SettingsManager.get('telegram.botToken');
@@ -2198,6 +2277,10 @@ async function stopAgent(): Promise<void> {
   if (scheduler) {
     scheduler.stopAll();
     scheduler = null;
+  }
+  if (emailProcessor) {
+    emailProcessor.stop();
+    emailProcessor = null;
   }
   // Cleanup browser resources
   AgentManager.cleanup();

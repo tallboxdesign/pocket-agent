@@ -30,6 +30,7 @@ export type EventType =
   | 'task_auto_created'
   | 'research_start'
   | 'research_complete'
+  | 'email_processing'
   | 'error';
 
 export type EventSource = 'claude' | 'glm' | 'user' | 'system' | 'worker';
