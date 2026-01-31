@@ -2685,9 +2685,11 @@
           return;
         }
 
-        const labels = JSON.parse(result.labels);
+        const parsed = JSON.parse(result.labels);
+        // gog returns { "labels": [...] } wrapper
+        const labels = Array.isArray(parsed) ? parsed : (parsed.labels || []);
         // Filter out system labels (INBOX, SENT, DRAFT, SPAM, TRASH, etc.)
-        const systemPrefixes = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'UNREAD', 'IMPORTANT', 'CATEGORY_'];
+        const systemPrefixes = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'UNREAD', 'IMPORTANT', 'CATEGORY_', 'CHAT'];
         epGmailLabels = labels.filter(l => {
           const name = typeof l === 'string' ? l : (l.name || l.id || '');
           return !systemPrefixes.some(p => name.startsWith(p));
@@ -2797,7 +2799,9 @@
           body.innerHTML = '<span class="ep-no-data">Failed to load emails</span>';
           return;
         }
-        const emails = JSON.parse(result.emails);
+        const emailsParsed = JSON.parse(result.emails);
+        // gog returns { "messages": [...] } wrapper
+        const emails = Array.isArray(emailsParsed) ? emailsParsed : (emailsParsed.messages || []);
         if (emails.length === 0) {
           body.innerHTML = '<span class="ep-no-data">No recent emails found</span>';
           return;

@@ -79,6 +79,16 @@ function safeJsonParse<T>(raw: string, fallback: T): T {
   }
 }
 
+/** Unwrap gog JSON responses: gog wraps arrays in objects like { "labels": [...] } or { "messages": [...] } */
+function unwrapGogArray(raw: string, key: string): unknown[] {
+  const parsed = safeJsonParse<unknown>(raw, []);
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === 'object' && key in (parsed as Record<string, unknown>)) {
+    return (parsed as Record<string, unknown>)[key] as unknown[];
+  }
+  return [];
+}
+
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -476,7 +486,7 @@ export class EmailProcessor {
     try {
       const res = await listLabels({ account });
       if (!res.success) return;
-      const labels = safeJsonParse<unknown[]>(res.labels || '[]', []);
+      const labels = unwrapGogArray(res.labels || '[]', 'labels');
       const exists = labels.some((l) => {
         const obj = l as Record<string, unknown>;
         return (obj.name || obj.label || l) === labelName;
@@ -579,7 +589,7 @@ export class EmailProcessor {
         if (!listRes.success) {
           throw new Error(`readEmails failed: ${listRes.error}`);
         }
-        const emailList = safeJsonParse<EmailListItem[]>(listRes.emails || '[]', []);
+        const emailList = unwrapGogArray(listRes.emails || '[]', 'messages') as EmailListItem[];
         stats.emailsFetched = emailList.length;
 
         // 5. Local filter by checkpoint
@@ -622,7 +632,7 @@ export class EmailProcessor {
 
         // 8. Fetch labels for classification
         const labelsRes = await withRetry(() => listLabels({ account }));
-        const allLabels = safeJsonParse<unknown[]>(labelsRes.labels || '[]', []);
+        const allLabels = unwrapGogArray(labelsRes.labels || '[]', 'labels');
         const promptLabels = buildLabelList(allLabels, labelConfig);
         const allowedLabelSet = new Set(promptLabels.map((x) => x.name));
         allowedLabelSet.add(reviewLabel);
