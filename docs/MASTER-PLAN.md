@@ -1217,13 +1217,59 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
-_GLM runs every 30 min doing two parallel jobs:_
-28. **GLM Email Labeling (ongoing, every 30 min)** — read new/unlabeled emails, classify (urgent/important/newsletter/receipt/spam), apply labels, ping Telegram on urgent
-29. **GLM Session Notes (ongoing, every 30 min)** — read messages + event_log + activity_log from last window, produce structured notes per session/worker (what worked, what failed, what user complained about, decisions made), save to `session_notes` table
-30. GLM event triggers — instant notes on: worker failure, user complaint (negative sentiment), task blocked (don't wait for 30-min sweep)
-31. Kanban TaskScheduler — execute/remind on `due_date` (`src/scheduler/task-scheduler.ts`)
-32. Task detail panel — schedule section (due date, action type, channels, recurrence)
-33. Telegram notifications for urgent emails (uses same notify pipeline as scheduler)
+_Central service: `src/scheduler/glm-loop.ts` — orchestrates all parallel GLM jobs_
+_Control panel: Settings → GLM Background Jobs — toggle/configure each job_
+
+#### 3A. GLM Email Processor (every 30 min, configurable)
+28. **Email Processing Service** — `src/scheduler/email-processor.ts`
+    - Fetch user's real labels from Gmail API (`list_email_labels`)
+    - Fetch ALL new emails since last run (full body via `get_email`, not snippets)
+    - Batch emails into groups of 5 (full body per email)
+    - Fire ALL batches to GLM in parallel (`Promise.all`)
+    - GLM reads full content + user's label list → classifies each email to best-fit label
+    - Apply labels via `modify_email_labels`
+    - If no label fits → GLM suggests new label name → auto-create or flag for user
+    - Notify Telegram for emails classified as urgent/important (configurable)
+    - Log results to event_log
+    - Scaling: 55 emails = 11 parallel GLM calls, ~3 seconds, ~$0.03
+29. **Email Settings UI** — `ui/settings.html` Email Processing section
+    - Accounts to monitor (checkboxes, fetched from settings)
+    - Categories to scan (primary/updates/social/promotions/forums)
+    - Scan frequency dropdown (20/30/60 min)
+    - Which labels trigger Telegram notification (fetched from Gmail, checkboxes)
+    - Agent can create new labels on user's verbal command
+    - "Fetch Labels" button to refresh label list from Gmail API
+    - Enable/disable toggle for the whole email processing job
+
+#### 3B. GLM Session Notes (every 30 min)
+30. **Session Notes Service** — `src/scheduler/session-notes.ts`
+    - For each active session: read messages + event_log + activity_log
+    - For each active worker: read output + events
+    - Fire all session/worker note jobs to GLM in parallel
+    - GLM produces structured notes: what worked, what failed, user complaints, decisions
+    - Save to `session_notes` table (session_id, task_id, worker_id, notes JSON, timestamp)
+    - One global merge pass: cross-session summary
+31. **GLM Event Triggers** — instant notes (don't wait for 30-min sweep)
+    - Worker failure → GLM summarizes immediately
+    - User complaint (negative sentiment) → GLM flags as unresolved
+    - Task moved to blocked → note saved
+
+#### 3C. Scheduling & Notifications
+32. Kanban TaskScheduler — execute/remind on `due_date` (`src/scheduler/task-scheduler.ts`)
+33. Task detail panel — schedule section (due date, action type, channels, recurrence)
+34. Telegram notifications for urgent emails (uses email processor notify pipeline)
+
+#### GLM Parallel Architecture
+All GLM jobs use `Promise.all` for maximum parallelism. In a single 30-min sweep:
+```
+Email labeling:      11 calls (55 emails × full body, batches of 5)
+Session notes:        3 calls (3 active sessions)
+Worker monitoring:    2 calls (2 CLI workers)
+─────────────────────
+Total:               16 parallel GLM calls
+Time:                2-3 seconds
+Cost:                ~$0.03 per sweep, ~$1.50/day
+```
 
 ### Phase 4 — Intelligence & Continuity
 _Depends on: session_notes (Phase 3), GLM loop running_
