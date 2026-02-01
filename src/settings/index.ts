@@ -536,6 +536,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: 'Safety net: fetch emails from last N days (filtered locally by checkpoint)',
     type: 'string',
   },
+  {
+    key: 'gmail.emailProcessing.activeLabels',
+    defaultValue: '[]',
+    encrypted: false,
+    category: 'gmail',
+    label: 'Active Labels',
+    description: 'JSON array of label names to classify into (empty = all user labels)',
+    type: 'string',
+  },
 
   // Window state settings
   {

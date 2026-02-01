@@ -1134,12 +1134,14 @@
       font-size: 12px;
     }
     .ep-label-fields input:focus { border-color: var(--accent); outline: none; }
-    .ep-label-notify {
+    .ep-label-classify, .ep-label-notify {
       display: flex;
       align-items: center;
       gap: 6px;
       font-size: 11px;
       color: var(--text-secondary);
+      cursor: pointer;
+      white-space: nowrap;
     }
     .ep-pills {
       display: flex;
@@ -1253,6 +1255,77 @@
     .ep-tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
     .ep-tab-panel { display: none; }
     .ep-tab-panel.active { display: block; }
+
+    /* History tab */
+    .ep-history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    .ep-history-table th {
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 2px solid var(--border);
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      position: sticky;
+      top: 0;
+      background: var(--bg-secondary);
+    }
+    .ep-history-table td {
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-secondary);
+      vertical-align: top;
+    }
+    .ep-history-table tr:hover td { background: var(--bg-tertiary); }
+    .ep-history-table .ep-label-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 500;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+    }
+    .ep-label-badge.high { border-color: var(--success); color: var(--success); }
+    .ep-label-badge.medium { border-color: var(--accent); color: var(--accent); }
+    .ep-label-badge.low { border-color: #e8a317; color: #e8a317; }
+    .ep-label-badge.invalid { border-color: var(--error); color: var(--error); }
+    .ep-label-badge.corrected { border-color: #2196f3; color: #2196f3; }
+    .ep-fail-badge { display: inline-block; padding: 1px 5px; border-radius: 6px; font-size: 9px; font-weight: 600; margin-left: 4px; }
+    .ep-fail-badge.red { background: rgba(239,83,80,0.15); color: var(--error); }
+    .ep-fail-badge.orange { background: rgba(232,163,23,0.15); color: #e8a317; }
+    .ep-fail-badge.yellow { background: rgba(232,163,23,0.1); color: #e8a317; }
+    .ep-correct-popover {
+      position: fixed; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); min-width: 200px;
+    }
+    .ep-correct-popover select { width: 100%; padding: 5px 8px; margin-bottom: 8px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
+    .ep-correct-popover label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; cursor: pointer; }
+    .ep-correct-popover .ep-correct-actions { display: flex; gap: 6px; justify-content: flex-end; }
+    .ep-correct-popover .ep-correct-actions button { padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer; }
+    .ep-correct-popover .ep-correct-actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .ep-label-click:hover { opacity: 0.8; }
+    .ep-history-scroll {
+      max-height: 400px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-primary);
+    }
+    .ep-history-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .ep-history-nav { display: flex; gap: 6px; }
   </style>
 </head>
 <body>
@@ -1631,6 +1704,7 @@
               <div class="ep-tab" data-tab="ep-labels" onclick="epSwitchTab(this)">Labels</div>
               <div class="ep-tab" data-tab="ep-advanced" onclick="epSwitchTab(this)">Advanced</div>
               <div class="ep-tab" data-tab="ep-status-tab" onclick="epSwitchTab(this)">Status</div>
+              <div class="ep-tab" data-tab="ep-history-tab" onclick="epSwitchTab(this); epLoadHistory()">History</div>
             </div>
 
             <!-- BASICS TAB -->
@@ -1688,7 +1762,7 @@
                   <button class="ep-btn" onclick="epFetchLabels()" style="padding:4px 10px;font-size:11px;">Refresh Labels</button>
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:4px;margin-bottom:8px;">
-                  Add descriptions, toggle notifications, and pick example emails for each label. Labels with config are used for classification.
+                  Check "Classify" to include a label in GLM classification. Classifying into <strong id="ep-active-count">all labels</strong>.
                 </div>
                 <div id="ep-label-list" class="ep-label-list">
                   <span class="ep-no-data">Click "Fetch Labels" to load your Gmail labels</span>
@@ -1743,6 +1817,39 @@
               <div class="ep-btn-row">
                 <button class="ep-btn" onclick="epRefreshStatus()">Refresh</button>
                 <button class="ep-btn primary" onclick="epRunNow()">Run Now</button>
+              </div>
+            </div>
+
+            <!-- HISTORY TAB -->
+            <div class="ep-tab-panel" id="ep-history-tab">
+              <div class="ep-group">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <div class="ep-group-title" style="margin:0;">Processed Emails</div>
+                  <button class="ep-btn" onclick="epLoadHistory()" style="padding:4px 10px;font-size:11px;">Refresh</button>
+                </div>
+                <div class="ep-history-scroll" style="margin-top:8px;">
+                  <table class="ep-history-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>From</th>
+                        <th>Subject</th>
+                        <th>Label Applied</th>
+                        <th>Conf.</th>
+                      </tr>
+                    </thead>
+                    <tbody id="ep-history-body">
+                      <tr><td colspan="5" class="ep-no-data" style="text-align:center;padding:20px;">Click Refresh to load history</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="ep-history-footer">
+                  <span id="ep-history-count"></span>
+                  <div class="ep-history-nav">
+                    <button class="ep-btn" id="ep-history-prev" onclick="epHistoryPage(-1)" disabled style="padding:3px 8px;font-size:11px;">Prev</button>
+                    <button class="ep-btn" id="ep-history-next" onclick="epHistoryPage(1)" style="padding:3px 8px;font-size:11px;">Next</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2465,6 +2572,7 @@
 
     let epLabelConfig = {};   // Current label config from settings
     let epGmailLabels = [];   // Raw labels fetched from Gmail
+    let epActiveLabels = [];  // Labels selected for classification
     let epModalTarget = null; // Label name for example picker
     let epModalAccount = null;
 
@@ -2482,6 +2590,26 @@
       }
       const dot = document.getElementById('ep-dot');
       if (dot) dot.classList.toggle('active', enabled);
+
+      // Listen for live progress events from the email processor
+      if (window.pocketAgent.onEmailProgress) {
+        window.pocketAgent.onEmailProgress((data) => {
+          const liveStatus = document.getElementById('ep-live-status');
+          if (liveStatus && data.status) {
+            const isDone = data.status.startsWith('Done');
+            const color = isDone ? 'var(--success)' : 'var(--accent)';
+            let text = data.status;
+            if (data.subjects && Array.isArray(data.subjects)) {
+              text += '<br><span style="font-size:10px;color:var(--text-muted)">' + data.subjects.slice(0, 3).join(' | ') + '</span>';
+            }
+            liveStatus.innerHTML = '<span style="color:' + color + '">' + text + '</span>';
+            if (isDone) {
+              epRefreshStatus();
+              epUpdateLiveStatus();
+            }
+          }
+        });
+      }
 
       // Interval
       const interval = settings['gmail.emailProcessing.intervalMin'] || '30';
@@ -2510,6 +2638,7 @@
 
       // Label config
       epLabelConfig = epParseJson(settings['gmail.emailProcessing.labelConfig'], {});
+      epActiveLabels = epParseJson(settings['gmail.emailProcessing.activeLabels'], []);
 
       // Detect accounts
       await epDetectAccounts();
@@ -2776,48 +2905,69 @@
         return;
       }
 
-      // Sort: configured labels first, then alphabetical
+      // Sort: active labels first, then configured, then alphabetical
       const sorted = [...epGmailLabels].sort((a, b) => {
+        const aActive = epActiveLabels.includes(a) ? 0 : 1;
+        const bActive = epActiveLabels.includes(b) ? 0 : 1;
+        if (aActive !== bActive) return aActive - bActive;
         const aCfg = epLabelConfig[a] ? 0 : 1;
         const bCfg = epLabelConfig[b] ? 0 : 1;
         if (aCfg !== bCfg) return aCfg - bCfg;
         return a.localeCompare(b);
       });
 
-      container.innerHTML = sorted.map(name => {
+      // Add separator between active and inactive labels
+      const firstInactiveIdx = sorted.findIndex(n => !epActiveLabels.includes(n));
+      const hasActive = epActiveLabels.length > 0 && firstInactiveIdx > 0;
+
+      container.innerHTML = sorted.map((name, idx) => {
         const cfg = epLabelConfig[name] || {};
-        const isConfigured = cfg.description || cfg.notify || (cfg.examples && cfg.examples.length > 0);
+        const isActive = epActiveLabels.includes(name);
+        const isConfigured = isActive || cfg.description || cfg.notify || (cfg.examples && cfg.examples.length > 0);
         const desc = cfg.description || '';
         const notify = cfg.notify || false;
         const examples = cfg.examples || [];
+        const escapedName = name.replace(/'/g, "\\'");
 
         const pillsHtml = examples.map((ex, i) => `
           <span class="ep-pill">
             <span>${ex.subject || ex.messageId || ('Example ' + (i + 1))}</span>
-            <span class="ep-pill-x" onclick="epRemoveExample('${name.replace(/'/g, "\\'")}', ${i})">&times;</span>
+            <span class="ep-pill-x" onclick="epRemoveExample('${escapedName}', ${i})">&times;</span>
           </span>
         `).join('');
 
-        return `<div class="ep-label-item ${isConfigured ? 'configured' : ''}" data-label="${name}">
+        const separator = hasActive && idx === firstInactiveIdx
+          ? '<div style="border-top:1px solid var(--border);margin:8px 0;"></div>'
+          : '';
+
+        return `${separator}<div class="ep-label-item ${isConfigured ? 'configured' : ''}" data-label="${name}">
           <div class="ep-label-head">
+            <label class="ep-label-classify" title="Include in GLM classification">
+              <input type="checkbox" ${isActive ? 'checked' : ''} onchange="epToggleActiveLabel('${escapedName}', this.checked)">
+              Classify
+            </label>
             <span class="ep-label-name">${name}</span>
             <label class="ep-label-notify">
-              <input type="checkbox" ${notify ? 'checked' : ''} onchange="epToggleLabelNotify('${name.replace(/'/g, "\\'")}', this.checked)">
+              <input type="checkbox" ${notify ? 'checked' : ''} onchange="epToggleLabelNotify('${escapedName}', this.checked)">
               Notify
             </label>
           </div>
           <div class="ep-label-fields">
             <input type="text" placeholder="Description (e.g. 'Emails from clients about projects')"
               value="${desc.replace(/"/g, '&quot;')}"
-              onchange="epSetLabelDesc('${name.replace(/'/g, "\\'")}', this.value)">
+              onchange="epSetLabelDesc('${escapedName}', this.value)">
             <div style="display:flex;align-items:center;gap:6px;">
               <span style="font-size:11px;color:var(--text-muted);">Examples:</span>
               <div class="ep-pills">${pillsHtml || '<span style="font-size:10px;color:var(--text-muted)">none</span>'}</div>
-              <button class="ep-btn" style="padding:3px 8px;font-size:10px;" onclick="epOpenModal('${name.replace(/'/g, "\\'")}')">+ Add</button>
+              <button class="ep-btn" style="padding:3px 8px;font-size:10px;" onclick="epOpenModal('${escapedName}')">+ Add</button>
             </div>
           </div>
         </div>`;
       }).join('');
+
+      // Update active count display
+      const countEl = document.getElementById('ep-active-count');
+      if (countEl) countEl.textContent = epActiveLabels.length > 0 ? `${epActiveLabels.length} active` : 'all labels';
     }
 
     async function epSaveLabelConfig() {
@@ -2835,6 +2985,16 @@
       if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
       epLabelConfig[labelName].notify = checked;
       epSaveLabelConfig();
+    }
+
+    function epToggleActiveLabel(labelName, checked) {
+      if (checked) {
+        if (!epActiveLabels.includes(labelName)) epActiveLabels.push(labelName);
+      } else {
+        epActiveLabels = epActiveLabels.filter(n => n !== labelName);
+      }
+      epSaveSetting('gmail.emailProcessing.activeLabels', JSON.stringify(epActiveLabels));
+      epRenderLabels();
     }
 
     function epRemoveExample(labelName, index) {
@@ -2904,6 +3064,161 @@
       epRenderLabels();
       epCloseModal();
       showToast('Example added', 'success');
+    }
+
+    // ---- Correction Popover ----
+
+    let epCorrectPopover = null;
+
+    function epCloseCorrectPopover() {
+      if (epCorrectPopover) {
+        epCorrectPopover.remove();
+        epCorrectPopover = null;
+      }
+    }
+
+    function epOpenCorrectPopover(el) {
+      epCloseCorrectPopover();
+      const msgId = el.dataset.msgid;
+      const account = el.dataset.account;
+      const currentLabel = el.dataset.current;
+
+      // Build list of active labels (or all fetched labels)
+      const labels = epActiveLabels.length > 0 ? epActiveLabels : epGmailLabels;
+      if (labels.length === 0) {
+        showToast('Fetch labels first (Labels tab)', 'error');
+        return;
+      }
+
+      const popover = document.createElement('div');
+      popover.className = 'ep-correct-popover';
+
+      const options = labels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === currentLabel ? 'selected' : ''}>${l}</option>`).join('');
+      popover.innerHTML = `
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Correct label:</div>
+        <select id="ep-correct-select">${options}</select>
+        <label><input type="checkbox" id="ep-correct-example"> Use as training example</label>
+        <div class="ep-correct-actions">
+          <button onclick="epCloseCorrectPopover()">Cancel</button>
+          <button class="primary" onclick="epSaveCorrection('${msgId.replace(/'/g, "\\'")}', '${account.replace(/'/g, "\\'")}')">Save</button>
+        </div>
+      `;
+
+      // Position below the clicked element
+      const rect = el.getBoundingClientRect();
+      popover.style.top = (rect.bottom + 4) + 'px';
+      popover.style.left = Math.max(8, rect.left - 50) + 'px';
+      document.body.appendChild(popover);
+      epCorrectPopover = popover;
+
+      // Close on outside click
+      setTimeout(() => {
+        document.addEventListener('click', function handler(ev) {
+          if (epCorrectPopover && !epCorrectPopover.contains(ev.target) && ev.target !== el) {
+            epCloseCorrectPopover();
+            document.removeEventListener('click', handler);
+          }
+        });
+      }, 0);
+    }
+
+    async function epSaveCorrection(msgId, account) {
+      const select = document.getElementById('ep-correct-select');
+      const exampleCb = document.getElementById('ep-correct-example');
+      const newLabel = select.value;
+      const useAsExample = exampleCb.checked;
+
+      epCloseCorrectPopover();
+
+      try {
+        const result = await window.pocketAgent.gmailCorrectLabel(msgId, account, newLabel, useAsExample);
+        if (result.ok) {
+          showToast('Label corrected' + (useAsExample ? ' + example saved' : ''), 'success');
+          epLoadHistory();
+        } else {
+          showToast(result.error || 'Correction failed', 'error');
+        }
+      } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+      }
+    }
+
+    // ---- History Tab ----
+
+    let epHistoryOffset = 0;
+    const EP_HISTORY_PAGE = 50;
+
+    async function epLoadHistory() {
+      const tbody = document.getElementById('ep-history-body');
+      const countEl = document.getElementById('ep-history-count');
+      tbody.innerHTML = '<tr><td colspan="5" class="ep-no-data" style="text-align:center;padding:16px;">Loading...</td></tr>';
+
+      try {
+        const { emails, total } = await window.pocketAgent.gmailGetProcessedEmails(EP_HISTORY_PAGE, epHistoryOffset);
+        if (!emails || emails.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="ep-no-data" style="text-align:center;padding:20px;">No processed emails yet. Run the processor first.</td></tr>';
+          countEl.textContent = '0 emails';
+          document.getElementById('ep-history-prev').disabled = true;
+          document.getElementById('ep-history-next').disabled = true;
+          return;
+        }
+
+        tbody.innerHTML = emails.map(e => {
+          const date = e.processed_at ? new Date(e.processed_at + 'Z').toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '?';
+          const from = (e.sender || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const subject = (e.subject || '(no subject)').replace(/</g, '&lt;');
+          const displayLabel = (e.corrected_label || e.label_applied || '?').replace(/</g, '&lt;');
+          const conf = e.confidence || 'low';
+          const failReason = e.fail_reason || null;
+          const isCorrected = !!e.corrected_label;
+          const msgId = (e.message_id || '').replace(/"/g, '&quot;');
+          const acct = (e.account || '').replace(/"/g, '&quot;');
+
+          // Build fail reason badge
+          let failBadge = '';
+          if (conf === 'invalid') {
+            const reasons = {
+              'batch_429': ['GLM 429', 'red'],
+              'batch_error': ['GLM Error', 'red'],
+              'empty_content': ['GLM Empty', 'red'],
+              'json_parse_fail': ['Parse Error', 'red'],
+              'label_mismatch': ['Bad Label', 'orange'],
+              'missing_msgid': ['Missing ID', 'orange'],
+            };
+            const r = reasons[failReason] || ['Invalid', 'red'];
+            failBadge = `<span class="ep-fail-badge ${r[1]}">${r[0]}</span>`;
+          } else if (conf === 'low') {
+            failBadge = '<span class="ep-fail-badge yellow">Unsure</span>';
+          }
+
+          const correctedBadge = isCorrected ? '<span class="ep-fail-badge" style="background:rgba(33,150,243,0.12);color:#2196f3;">corrected</span>' : '';
+          const labelBadgeClass = isCorrected ? 'corrected' : conf;
+
+          return `<tr>
+            <td style="white-space:nowrap;">${date}</td>
+            <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${from}">${from}</td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${subject}">${subject}</td>
+            <td>
+              <span class="ep-label-badge ${labelBadgeClass} ep-label-click" data-msgid="${msgId}" data-account="${acct}" data-current="${displayLabel}" onclick="epOpenCorrectPopover(this)" style="cursor:pointer;" title="Click to correct">${displayLabel} &#9662;</span>
+              ${correctedBadge}
+            </td>
+            <td><span class="ep-label-badge ${conf}">${conf}</span>${failBadge}</td>
+          </tr>`;
+        }).join('');
+
+        const start = epHistoryOffset + 1;
+        const end = epHistoryOffset + emails.length;
+        countEl.textContent = `${start}-${end} of ${total}`;
+        document.getElementById('ep-history-prev').disabled = epHistoryOffset === 0;
+        document.getElementById('ep-history-next').disabled = (epHistoryOffset + EP_HISTORY_PAGE) >= total;
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="5" class="ep-no-data" style="text-align:center;padding:16px;color:var(--error)">Failed to load: ${err.message}</td></tr>`;
+      }
+    }
+
+    function epHistoryPage(dir) {
+      epHistoryOffset = Math.max(0, epHistoryOffset + dir * EP_HISTORY_PAGE);
+      epLoadHistory();
     }
 
     // ====================================================================

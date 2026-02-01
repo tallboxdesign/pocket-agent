@@ -1476,6 +1476,11 @@ function setupIPC(): void {
       emailProcessor.setNotificationHandler((title: string, body: string) => {
         showNotification(title, body);
       });
+      emailProcessor.setProgressHandler((status: string, detail?: Record<string, unknown>) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          win.webContents.send('gmail:progress', { status, ...detail });
+        }
+      });
     }
   }
 
@@ -1495,6 +1500,25 @@ function setupIPC(): void {
       return emailProcessor!.getProcessingStatus();
     } catch {
       return { runs: [], checkpoints: [] };
+    }
+  });
+
+  ipcMain.handle('gmail:getProcessedEmails', async (_evt: unknown, limit?: number, offset?: number) => {
+    try {
+      await ensureEmailProcessor();
+      return emailProcessor!.getProcessedEmails(limit ?? 200, offset ?? 0);
+    } catch {
+      return { emails: [], total: 0 };
+    }
+  });
+
+  ipcMain.handle('gmail:correctLabel', async (_evt: unknown, messageId: string, account: string, newLabel: string, useAsExample: boolean) => {
+    try {
+      await ensureEmailProcessor();
+      await emailProcessor!.correctLabel(messageId, account, newLabel, useAsExample);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
     }
   });
 
@@ -2231,6 +2255,11 @@ async function initializeAgent(): Promise<void> {
       emailProcessor = new EmailProcessor(dbPath);
       emailProcessor.setNotificationHandler((title: string, body: string) => {
         showNotification(title, body);
+      });
+      emailProcessor.setProgressHandler((status: string, detail?: Record<string, unknown>) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          win.webContents.send('gmail:progress', { status, ...detail });
+        }
       });
       emailProcessor.start();
       console.log('[Main] Email processor started');

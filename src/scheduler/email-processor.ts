@@ -24,12 +24,14 @@ import { logEvent } from '../memory/event-log';
 // Types
 // ============================================================================
 
-type Confidence = 'high' | 'medium' | 'low';
+type Confidence = 'high' | 'medium' | 'low' | 'invalid';
+
+type FailReason = 'empty_content' | 'json_parse_fail' | 'label_mismatch' | 'missing_msgid' | 'batch_429' | 'batch_error' | null;
 
 type LabelConfig = Record<string, {
   notify?: boolean;
   description?: string;
-  examples?: string[];
+  examples?: Array<string | { messageId: string; subject?: string; from?: string }>;
 }>;
 
 interface EmailListItem {
@@ -57,6 +59,8 @@ interface ClassificationResult {
   confidence: Confidence;
   subject?: string;
   from?: string;
+  failReason?: FailReason;
+  glmRaw?: string;
 }
 
 interface ProcessingRunStats {
@@ -214,10 +218,8 @@ function buildLabelList(
     const lObj = l as Record<string, unknown>;
     const name = String(lObj.name || lObj.label || l || '').trim();
     if (!name) continue;
-    // Skip system labels
-    if (name.startsWith('CATEGORY_') || name === 'INBOX' || name === 'SENT' ||
-        name === 'DRAFT' || name === 'SPAM' || name === 'TRASH' || name === 'STARRED' ||
-        name === 'IMPORTANT' || name === 'UNREAD') continue;
+    // Skip system labels (gog returns type: "system" for Gmail built-ins)
+    if (lObj.type === 'system') continue;
     const cfg = labelConfig[name];
     items.push({ name, desc: cfg?.description || '' });
   }
@@ -279,6 +281,22 @@ function validateGlmResponse(
   allowedLabels: Set<string>,
   reviewLabel: string,
 ): ClassificationResult[] {
+  const glmRaw = (raw || '').slice(0, 2000);
+
+  // Empty content
+  if (!raw || !raw.trim()) {
+    return batch.map((e) => ({
+      messageId: e.id,
+      threadId: e.threadId,
+      label: reviewLabel,
+      confidence: 'invalid' as Confidence,
+      subject: e.subject,
+      from: e.from,
+      failReason: 'empty_content' as FailReason,
+      glmRaw,
+    }));
+  }
+
   // Try to extract JSON from response (GLM may wrap in ```json blocks)
   let jsonStr = raw.trim();
   const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
@@ -291,9 +309,11 @@ function validateGlmResponse(
       messageId: e.id,
       threadId: e.threadId,
       label: reviewLabel,
-      confidence: 'low' as Confidence,
+      confidence: 'invalid' as Confidence,
       subject: e.subject,
       from: e.from,
+      failReason: 'json_parse_fail' as FailReason,
+      glmRaw,
     }));
   }
 
@@ -305,15 +325,15 @@ function validateGlmResponse(
     const messageId = String(obj?.messageId || '');
     const label = String(obj?.label || '');
     const conf = String(obj?.confidence || 'low');
-    const confidence = (['high', 'medium', 'low'].includes(conf) ? conf : 'low') as Confidence;
+    const confidence = (['high', 'medium', 'low'].includes(conf) ? conf : 'invalid') as Confidence;
 
     if (!batchIds.has(messageId)) continue;
 
     const email = batch.find((b) => b.id === messageId);
     if (!allowedLabels.has(label)) {
-      out.push({ messageId, threadId: email?.threadId, label: reviewLabel, confidence: 'low', subject: email?.subject, from: email?.from });
+      out.push({ messageId, threadId: email?.threadId, label: reviewLabel, confidence: 'invalid', subject: email?.subject, from: email?.from, failReason: 'label_mismatch', glmRaw });
     } else {
-      out.push({ messageId, threadId: email?.threadId, label, confidence, subject: email?.subject, from: email?.from });
+      out.push({ messageId, threadId: email?.threadId, label, confidence, subject: email?.subject, from: email?.from, failReason: null, glmRaw });
     }
   }
 
@@ -321,7 +341,7 @@ function validateGlmResponse(
   const covered = new Set(out.map((o) => o.messageId));
   for (const e of batch) {
     if (!covered.has(e.id)) {
-      out.push({ messageId: e.id, threadId: e.threadId, label: reviewLabel, confidence: 'low', subject: e.subject, from: e.from });
+      out.push({ messageId: e.id, threadId: e.threadId, label: reviewLabel, confidence: 'invalid', subject: e.subject, from: e.from, failReason: 'missing_msgid', glmRaw });
     }
   }
 
@@ -337,12 +357,14 @@ export class EmailProcessor {
   private running = false;
   private db: Database.Database;
   private notifyHandler: ((title: string, body: string) => void) | null = null;
+  private progressHandler: ((status: string, detail?: Record<string, unknown>) => void) | null = null;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.createTables();
+    this.migrateSchema();
   }
 
   // ---------- Lifecycle ----------
@@ -366,6 +388,14 @@ export class EmailProcessor {
 
   setNotificationHandler(handler: (title: string, body: string) => void): void {
     this.notifyHandler = handler;
+  }
+
+  setProgressHandler(handler: (status: string, detail?: Record<string, unknown>) => void): void {
+    this.progressHandler = handler;
+  }
+
+  private emitProgress(status: string, detail?: Record<string, unknown>): void {
+    if (this.progressHandler) this.progressHandler(status, detail);
   }
 
   restart(): void {
@@ -392,8 +422,12 @@ export class EmailProcessor {
         subject TEXT,
         sender TEXT,
         label_applied TEXT,
-        confidence TEXT CHECK(confidence IN ('high','medium','low')),
+        confidence TEXT,
         processed_at TEXT DEFAULT (datetime('now')),
+        glm_raw TEXT,
+        fail_reason TEXT,
+        corrected_label TEXT,
+        corrected_at TEXT,
         UNIQUE(account, message_id)
       );
 
@@ -418,6 +452,72 @@ export class EmailProcessor {
       CREATE INDEX IF NOT EXISTS idx_eps_account ON email_processing_state(account);
       CREATE INDEX IF NOT EXISTS idx_eps_processed ON email_processing_state(processed_at);
     `);
+  }
+
+  // ---------- Schema Migration ----------
+
+  private migrateSchema(): void {
+    const cols = this.db.pragma('table_info(email_processing_state)') as { name: string }[];
+    const colNames = new Set(cols.map(c => c.name));
+
+    // Add new columns if missing (existing installs)
+    if (!colNames.has('glm_raw')) {
+      this.db.exec('ALTER TABLE email_processing_state ADD COLUMN glm_raw TEXT');
+    }
+    if (!colNames.has('fail_reason')) {
+      this.db.exec('ALTER TABLE email_processing_state ADD COLUMN fail_reason TEXT');
+    }
+    if (!colNames.has('corrected_label')) {
+      this.db.exec('ALTER TABLE email_processing_state ADD COLUMN corrected_label TEXT');
+    }
+    if (!colNames.has('corrected_at')) {
+      this.db.exec('ALTER TABLE email_processing_state ADD COLUMN corrected_at TEXT');
+    }
+
+    // If existing DB has CHECK constraint on confidence that blocks 'invalid',
+    // recreate the table without the CHECK constraint
+    try {
+      this.db.prepare(
+        "INSERT INTO email_processing_state(account,message_id,confidence) VALUES('__test__','__test__','invalid')",
+      ).run();
+      this.db.prepare(
+        "DELETE FROM email_processing_state WHERE account='__test__'",
+      ).run();
+    } catch {
+      // CHECK constraint blocks 'invalid' — recreate table without it.
+      // At this point, new columns were already added via ALTER above,
+      // so we can reference them safely in the SELECT.
+      console.log('[EmailProcessor] Migrating email_processing_state to remove CHECK constraint');
+      this.db.exec(`
+        CREATE TABLE email_processing_state_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          thread_id TEXT,
+          internal_date_ms INTEGER,
+          subject TEXT,
+          sender TEXT,
+          label_applied TEXT,
+          confidence TEXT,
+          processed_at TEXT DEFAULT (datetime('now')),
+          glm_raw TEXT,
+          fail_reason TEXT,
+          corrected_label TEXT,
+          corrected_at TEXT,
+          UNIQUE(account, message_id)
+        );
+        INSERT INTO email_processing_state_new(id, account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, processed_at, glm_raw, fail_reason, corrected_label, corrected_at)
+          SELECT id, account, message_id, thread_id, internal_date_ms, subject, sender,
+                 label_applied, confidence, processed_at,
+                 glm_raw, fail_reason, corrected_label, corrected_at
+          FROM email_processing_state;
+        DROP TABLE email_processing_state;
+        ALTER TABLE email_processing_state_new RENAME TO email_processing_state;
+        CREATE INDEX IF NOT EXISTS idx_eps_account ON email_processing_state(account);
+        CREATE INDEX IF NOT EXISTS idx_eps_processed ON email_processing_state(processed_at);
+      `);
+      console.log('[EmailProcessor] Migration complete');
+    }
   }
 
   // ---------- Checkpoint ----------
@@ -453,13 +553,16 @@ export class EmailProcessor {
     email: FullEmail,
     appliedLabel: string,
     confidence: Confidence,
+    glmRaw?: string,
+    failReason?: FailReason,
   ): void {
     this.db.prepare(`
       INSERT OR IGNORE INTO email_processing_state
-      (account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, glm_raw, fail_reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(account, email.id, email.threadId ?? null, email.internalDateMs,
-      email.subject ?? null, email.from ?? null, appliedLabel, confidence);
+      email.subject ?? null, email.from ?? null, appliedLabel, confidence,
+      glmRaw ?? null, failReason ?? null);
   }
 
   // ---------- Run History ----------
@@ -520,11 +623,14 @@ export class EmailProcessor {
     const result: Record<string, FullEmail[]> = {};
 
     for (const [label, cfg] of Object.entries(labelConfig)) {
-      const ids = (cfg.examples || []).slice(0, 3);
-      if (ids.length === 0) continue;
+      const rawExamples = (cfg.examples || []).slice(0, 5);
+      if (rawExamples.length === 0) continue;
 
       const emails: FullEmail[] = [];
-      for (const messageId of ids) {
+      for (const ex of rawExamples) {
+        // Examples can be plain messageId strings or { messageId, subject, from } objects
+        const messageId = typeof ex === 'string' ? ex : ex.messageId;
+        if (!messageId) continue;
         try {
           const msgRes = await withRetry(() => getMessage({ messageId, account }));
           const email = adaptFullEmail(msgRes);
@@ -567,6 +673,9 @@ export class EmailProcessor {
     const gmailConc = parseInt(SettingsManager.get('gmail.emailProcessing.gmailConcurrency') || '4', 10) || 4;
     const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '1', 10) || 1;
 
+    const glmModel = SettingsManager.get('zhipu.flashModel') || 'glm-4.7-flash';
+    const glmBase = SettingsManager.get('zhipu.baseUrl') || 'https://open.bigmodel.cn/api/paas/v4';
+    console.log(`[EmailProcessor] GLM model: ${glmModel}, base: ${glmBase}, concurrency: ${glmConc}`);
     console.log(`[EmailProcessor] Accounts: ${JSON.stringify(accounts)}, categories: ${JSON.stringify(categories)}`);
 
     if (accounts.length === 0) {
@@ -603,6 +712,7 @@ export class EmailProcessor {
         console.log(`[EmailProcessor] ${account}: query="${query}"`);
 
         // 4. Fetch email list
+        this.emitProgress('Fetching email list...', { account });
         const listRes = await withRetry(() => readEmails({ query, max: maxEmails, account }));
         if (!listRes.success) {
           throw new Error(`readEmails failed: ${listRes.error}`);
@@ -634,6 +744,7 @@ export class EmailProcessor {
         }
 
         console.log(`[EmailProcessor] ${account}: Processing ${notProcessed.length} new emails`);
+        this.emitProgress(`Fetching ${notProcessed.length} email bodies...`, { account, total: notProcessed.length });
 
         // 7. Fetch full bodies (concurrency limited)
         const fullEmails = (await withConcurrency(
@@ -653,43 +764,82 @@ export class EmailProcessor {
         // 8. Fetch labels for classification
         const labelsRes = await withRetry(() => listLabels({ account }));
         const allLabels = unwrapGogArray(labelsRes.labels || '[]', 'labels');
-        const promptLabels = buildLabelList(allLabels, labelConfig);
+        const allPromptLabels = buildLabelList(allLabels, labelConfig);
+
+        // Filter to active labels only (if configured)
+        const activeLabels = safeJsonParse<string[]>(
+          SettingsManager.get('gmail.emailProcessing.activeLabels') || '[]', [],
+        );
+        const promptLabels = activeLabels.length > 0
+          ? allPromptLabels.filter(l => activeLabels.includes(l.name))
+          : allPromptLabels;
+
         const allowedLabelSet = new Set(promptLabels.map((x) => x.name));
         allowedLabelSet.add(reviewLabel);
+
+        // Log allowed labels for diagnostics
+        console.log(`[EmailProcessor] Allowed labels (${promptLabels.length}/${allPromptLabels.length}): ${JSON.stringify(promptLabels.map(l => l.name))}`);
 
         // 9. Fetch few-shot examples
         const examplesByLabel = await this.fetchFewShotExamples(account, labelConfig);
 
         // 10. Classify in batches (concurrency limited)
         const batches = chunk(fullEmails, 5);
+        let batchIdx = 0;
         const batchResults = await withConcurrency(
           batches,
           glmConc,
           async (batch) => {
+            batchIdx += 1;
+            const currentBatch = batchIdx;
             const prompt = buildGlmPrompt(promptLabels, examplesByLabel, batch, reviewLabel);
             stats.glmCalls += 1;
 
-            const glmRes = await withRetry(() => glmFlash({
-              messages: [{ role: 'user', content: prompt }],
-              maxTokens: 300,
-              temperature: 0.1,
-            }));
-            // Rate limit safety: small delay between GLM calls
-            await sleep(1000);
+            console.log(`[EmailProcessor] Batch ${currentBatch}/${batches.length} (prompt: ${prompt.length} chars): classifying ${batch.map(e => e.subject || '(no subject)').join(' | ')}`);
+            this.emitProgress(`Classifying batch ${currentBatch}/${batches.length}...`, { account, batch: currentBatch, total: batches.length, subjects: batch.map(e => e.subject || '(no subject)') });
 
-            if (!glmRes.success || !glmRes.content) {
-              // GLM failure — all go to review
+            // Rate limit safety: delay before each GLM call
+            await sleep(2000);
+
+            let glmRes: { success: boolean; content?: string };
+            try {
+              // glmFlash returns { success: false } on API errors (429 etc.) instead
+              // of throwing. We throw here so withRetry can apply exponential backoff.
+              glmRes = await withRetry(async () => {
+                const res = await glmFlash({
+                  messages: [{ role: 'user', content: prompt }],
+                  maxTokens: 8000,
+                  temperature: 0.1,
+                  disableThinking: true,
+                });
+                if (!res.success) {
+                  throw new Error(res.error || 'GLM call failed');
+                }
+                return res;
+              }, 3, 3000); // 3 retries, base 3s → backoff: 3s, 6s, 12s
+            } catch (glmErr) {
+              // All retries exhausted — fall back to review
+              const errMsg = String(glmErr);
+              const is429 = errMsg.includes('429') || errMsg.toLowerCase().includes('rate');
+              console.warn(`[EmailProcessor] Batch ${currentBatch}: GLM failed after retries: ${glmErr}`);
               return batch.map((e) => ({
                 messageId: e.id,
                 threadId: e.threadId,
                 label: reviewLabel,
-                confidence: 'low' as Confidence,
+                confidence: 'invalid' as Confidence,
                 subject: e.subject,
                 from: e.from,
+                failReason: (is429 ? 'batch_429' : 'batch_error') as FailReason,
+                glmRaw: errMsg.slice(0, 2000),
               }));
             }
 
-            return validateGlmResponse(glmRes.content, batch, allowedLabelSet, reviewLabel);
+            // Log raw GLM response for diagnostics
+            console.log(`[EmailProcessor] Batch ${currentBatch} raw GLM response: ${glmRes.content}`);
+
+            const validated = validateGlmResponse(glmRes.content!, batch, allowedLabelSet, reviewLabel);
+            console.log(`[EmailProcessor] Batch ${currentBatch} validated: ${JSON.stringify(validated.map(v => ({ msg: v.messageId.slice(0,8), label: v.label, conf: v.confidence })))}`);
+            return validated;
           },
         );
 
@@ -701,7 +851,7 @@ export class EmailProcessor {
           const email = fullEmails.find((e) => e.id === r.messageId);
           if (!email) continue;
 
-          const labelToApply = r.confidence === 'low' ? reviewLabel : r.label;
+          const labelToApply = (r.confidence === 'low' || r.confidence === 'invalid') ? reviewLabel : r.label;
           const addLabels = `${labelToApply},${processedLabel}`;
 
           try {
@@ -715,7 +865,7 @@ export class EmailProcessor {
           }
 
           stats.labelsApplied[labelToApply] = (stats.labelsApplied[labelToApply] || 0) + 1;
-          this.saveProcessed(account, email, labelToApply, r.confidence);
+          this.saveProcessed(account, email, labelToApply, r.confidence, r.glmRaw, r.failReason);
         }
 
         // 12. Advance checkpoint
@@ -746,6 +896,7 @@ export class EmailProcessor {
         this.finishRun(runId, stats, Date.now() - started);
 
         console.log(`[EmailProcessor] ${account}: Done — ${stats.emailsClassified} classified, ${stats.glmCalls} GLM calls, ${Date.now() - started}ms`);
+        this.emitProgress(`Done! ${stats.emailsClassified} classified, ${Object.keys(stats.labelsApplied).length} labels used`, { account, ...stats });
 
         // 14. Send notifications
         await this.sendNotifications(flat, labelConfig, reviewLabel, account);
@@ -785,7 +936,7 @@ export class EmailProcessor {
     for (const r of results) {
       const isReview = r.label === reviewLabel;
       const isNotifyEnabled = labelConfig[r.label]?.notify === true;
-      const isHighConfidence = r.confidence !== 'low';
+      const isHighConfidence = r.confidence !== 'low' && r.confidence !== 'invalid';
 
       if (isReview || (isNotifyEnabled && isHighConfidence)) {
         if (!toNotify[r.label]) toNotify[r.label] = [];
@@ -839,5 +990,84 @@ export class EmailProcessor {
       .prepare('SELECT * FROM email_processing_checkpoints')
       .all();
     return { runs, checkpoints };
+  }
+
+  getProcessedEmails(limit = 200, offset = 0): {
+    emails: unknown[];
+    total: number;
+  } {
+    const total = (this.db
+      .prepare('SELECT COUNT(*) AS count FROM email_processing_state')
+      .get() as { count: number }).count;
+    const emails = this.db
+      .prepare(
+        'SELECT * FROM email_processing_state ORDER BY processed_at DESC LIMIT ? OFFSET ?',
+      )
+      .all(limit, offset);
+    return { emails, total };
+  }
+
+  // ---------- Label Corrections ----------
+
+  async correctLabel(
+    messageId: string,
+    account: string,
+    newLabel: string,
+    useAsExample: boolean,
+  ): Promise<void> {
+    const row = this.db.prepare(
+      'SELECT * FROM email_processing_state WHERE message_id = ? AND account = ?',
+    ).get(messageId, account) as Record<string, unknown> | undefined;
+    if (!row) throw new Error('Email not found');
+
+    const oldLabel = String(row.corrected_label || row.label_applied || '');
+
+    // Update DB
+    this.db.prepare(
+      'UPDATE email_processing_state SET corrected_label = ?, corrected_at = datetime(\'now\') WHERE message_id = ? AND account = ?',
+    ).run(newLabel, messageId, account);
+
+    // Gmail: remove old label, add new label (keep AI/Processed)
+    const threadId = String(row.thread_id || '');
+    if (threadId && oldLabel !== newLabel) {
+      try {
+        await modifyLabels({
+          threadIds: [threadId],
+          remove: oldLabel,
+          add: newLabel,
+          account,
+        });
+      } catch (err) {
+        console.warn(`[EmailProcessor] Failed to update Gmail labels for ${messageId}:`, err);
+      }
+    }
+
+    // If useAsExample: add to labelConfig few-shot examples
+    if (useAsExample) {
+      const labelConfigRaw = SettingsManager.get('gmail.emailProcessing.labelConfig') || '{}';
+      const labelConfig = safeJsonParse<LabelConfig>(labelConfigRaw, {});
+      if (!labelConfig[newLabel]) labelConfig[newLabel] = {};
+      if (!labelConfig[newLabel].examples) labelConfig[newLabel].examples = [];
+
+      const examples = labelConfig[newLabel].examples!;
+      // Dedupe by messageId
+      const hasIt = examples.some(e => {
+        if (typeof e === 'string') return e === messageId;
+        return e.messageId === messageId;
+      });
+      if (!hasIt) {
+        examples.push({
+          messageId,
+          subject: String(row.subject || ''),
+          from: String(row.sender || ''),
+        });
+        // Cap at 5
+        if (examples.length > 5) examples.shift();
+      }
+
+      SettingsManager.set('gmail.emailProcessing.labelConfig', JSON.stringify(labelConfig));
+    }
+
+    console.log(`[EmailProcessor] Corrected ${messageId}: ${oldLabel} → ${newLabel} (example: ${useAsExample})`);
   }
 }

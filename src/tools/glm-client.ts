@@ -22,6 +22,8 @@ export interface GlmRequestParams {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  /** Disable reasoning/thinking mode (Coding Plan has it enabled by default) */
+  disableThinking?: boolean;
 }
 
 export interface GlmUsage {
@@ -64,13 +66,18 @@ async function callGlmApi(params: GlmRequestParams & { forceModel?: string }): P
   const maxTokens = params.maxTokens ?? DEFAULT_MAX_TOKENS;
 
   const url = `${baseUrl}/chat/completions`;
-  const body = {
+  const body: Record<string, unknown> = {
     model,
     messages: params.messages,
     temperature,
     max_tokens: maxTokens,
     stream: false,
   };
+
+  // Disable reasoning/thinking mode when requested (Coding Plan enables it by default)
+  if (params.disableThinking) {
+    body.thinking = { type: 'disabled' };
+  }
 
   const startTime = Date.now();
 
@@ -105,6 +112,11 @@ async function callGlmApi(params: GlmRequestParams & { forceModel?: string }): P
     const content = data.choices?.[0]?.message?.content ?? '';
     const usage = data.usage;
     const durationMs = Date.now() - startTime;
+
+    // Debug: log when content is empty despite 200 OK
+    if (!content) {
+      console.warn(`[GLM] Empty content from ${model}. Response keys: ${JSON.stringify(Object.keys(data))}. Choices: ${JSON.stringify(data.choices?.length ?? 'none')}. Usage: ${JSON.stringify(usage)}. Full first choice: ${JSON.stringify(data.choices?.[0])}`);
+    }
 
     // Log tokens to event log
     if (usage) {

@@ -101,6 +101,14 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   gmailGetEmailPreview: (messageId: string, account?: string) => ipcRenderer.invoke('gmail:getEmailPreview', messageId, account),
   gmailRunEmailProcessor: () => ipcRenderer.invoke('gmail:runEmailProcessor'),
   gmailGetProcessingStatus: () => ipcRenderer.invoke('gmail:getProcessingStatus'),
+  gmailGetProcessedEmails: (limit?: number, offset?: number) => ipcRenderer.invoke('gmail:getProcessedEmails', limit, offset),
+  gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) =>
+    ipcRenderer.invoke('gmail:correctLabel', messageId, account, newLabel, useAsExample),
+  onEmailProgress: (callback: (data: { status: string; [key: string]: unknown }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { status: string; [key: string]: unknown }) => callback(data);
+    ipcRenderer.on('gmail:progress', listener);
+    return () => ipcRenderer.removeListener('gmail:progress', listener);
+  },
   openSettings: () => ipcRenderer.invoke('app:openSettings'),
   openChat: () => ipcRenderer.invoke('app:openChat'),
   startOAuth: () => ipcRenderer.invoke('auth:startOAuth'),
@@ -272,6 +280,9 @@ declare global {
       gmailGetEmailPreview: (messageId: string, account?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
       gmailRunEmailProcessor: () => Promise<{ ok: boolean; error?: string }>;
       gmailGetProcessingStatus: () => Promise<{ runs: unknown[]; checkpoints: unknown[] }>;
+      gmailGetProcessedEmails: (limit?: number, offset?: number) => Promise<{ emails: unknown[]; total: number }>;
+      gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) => Promise<{ ok: boolean; error?: string }>;
+      onEmailProgress: (callback: (data: { status: string; [key: string]: unknown }) => void) => () => void;
       openSettings: () => Promise<void>;
       openChat: () => Promise<void>;
       startOAuth: () => Promise<{ success: boolean; error?: string }>;
