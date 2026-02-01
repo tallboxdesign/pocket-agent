@@ -1472,8 +1472,13 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('gmail:runEmailProcessor', async () => {
-    if (!emailProcessor) return { ok: false, error: 'Email processor not initialized' };
     try {
+      // Create processor on demand if not already running via background timer
+      if (!emailProcessor) {
+        const { EmailProcessor } = await import('../scheduler/email-processor');
+        const epDbPath = path.join(app.getPath('userData'), 'pocket-agent.db');
+        emailProcessor = new EmailProcessor(epDbPath);
+      }
       await emailProcessor.processEmails();
       return { ok: true };
     } catch (err) {
@@ -1482,7 +1487,16 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('gmail:getProcessingStatus', async () => {
-    if (!emailProcessor) return { runs: [], checkpoints: [] };
+    // Create processor on demand just to read status tables
+    if (!emailProcessor) {
+      try {
+        const { EmailProcessor } = await import('../scheduler/email-processor');
+        const epDbPath = path.join(app.getPath('userData'), 'pocket-agent.db');
+        emailProcessor = new EmailProcessor(epDbPath);
+      } catch {
+        return { runs: [], checkpoints: [] };
+      }
+    }
     return emailProcessor.getProcessingStatus();
   });
 

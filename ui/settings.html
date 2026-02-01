@@ -1617,6 +1617,14 @@
             <svg class="ep-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
           </div>
           <div class="ep-body">
+            <!-- Action bar — always visible -->
+            <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border);margin-bottom:8px;">
+              <button class="ep-btn primary" onclick="epRunNow()" id="ep-run-btn" style="flex-shrink:0;">Run Now</button>
+              <div id="ep-live-status" style="flex:1;font-size:12px;color:var(--text-muted);">
+                Click Run Now to classify emails on demand.
+              </div>
+            </div>
+
             <!-- Tabs -->
             <div class="ep-tabs">
               <div class="ep-tab active" data-tab="ep-basics" onclick="epSwitchTab(this)">Basics</div>
@@ -2508,6 +2516,7 @@
 
       // Auto-load status
       await epRefreshStatus();
+      epUpdateLiveStatus();
     }
 
     function epParseJson(str, fallback) {
@@ -2591,18 +2600,39 @@
     }
 
     async function epRunNow() {
-      const btn = event.target;
+      const btn = document.getElementById('ep-run-btn');
+      const liveStatus = document.getElementById('ep-live-status');
+
+      // Ensure accounts are saved before running
+      const checkedAccounts = [...document.querySelectorAll('#ep-accounts-list input:checked')].map(cb => cb.value);
+      if (checkedAccounts.length === 0) {
+        showToast('Select at least one account first', 'error');
+        return;
+      }
+      await epSaveSetting('gmail.emailProcessing.accounts', JSON.stringify(checkedAccounts));
+
+      // Also save categories
+      const checkedCats = [...document.querySelectorAll('#ep-categories input:checked')].map(cb => cb.value);
+      await epSaveSetting('gmail.emailProcessing.categories', JSON.stringify(checkedCats));
+
       btn.disabled = true;
       btn.textContent = 'Running...';
+      liveStatus.innerHTML = '<span style="color:var(--accent)">Processing emails... This may take 10-30 seconds.</span>';
+
       try {
         const result = await window.pocketAgent.gmailRunEmailProcessor();
         if (result.ok) {
+          liveStatus.innerHTML = '<span style="color:var(--success)">Done! Refreshing status...</span>';
           showToast('Email processing complete', 'success');
         } else {
+          liveStatus.innerHTML = `<span style="color:var(--error)">Failed: ${result.error || 'Unknown error'}</span>`;
           showToast(result.error || 'Processing failed', 'error');
         }
         await epRefreshStatus();
+        // Update live status with last run summary
+        epUpdateLiveStatus();
       } catch (err) {
+        liveStatus.innerHTML = `<span style="color:var(--error)">Error: ${err.message}</span>`;
         showToast('Run failed: ' + err.message, 'error');
       }
       btn.disabled = false;
@@ -2662,6 +2692,29 @@
         }
       } catch (err) {
         console.error('[EP] Status refresh failed:', err);
+      }
+    }
+
+    function epUpdateLiveStatus() {
+      const liveStatus = document.getElementById('ep-live-status');
+      const dot = document.getElementById('ep-dot');
+      // Read the latest run from the status box
+      const runsBox = document.getElementById('ep-runs');
+      const firstRun = runsBox?.querySelector('.ep-run');
+      if (!firstRun) {
+        liveStatus.innerHTML = 'No runs yet. Click <b>Run Now</b> to classify emails.';
+        return;
+      }
+      // Parse from the rendered status data
+      const headerEl = firstRun.querySelector('.ep-run-header');
+      const detailEl = firstRun.querySelector('.ep-run-detail');
+      const ok = headerEl?.querySelector('span')?.style?.color?.includes('success');
+      const headerText = headerEl?.textContent?.trim() || '';
+      const detailText = detailEl?.textContent?.trim() || '';
+      if (ok) {
+        liveStatus.innerHTML = `<span style="color:var(--success)">Last run: ${detailText}</span>`;
+      } else {
+        liveStatus.innerHTML = `<span style="color:var(--error)">Last run failed: ${headerText}</span>`;
       }
     }
 
