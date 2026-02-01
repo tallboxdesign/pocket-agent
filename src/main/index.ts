@@ -1337,12 +1337,8 @@ function setupIPC(): void {
       // Email processor lifecycle: start/stop/restart on settings change
       if (key === 'gmail.emailProcessing.enabled') {
         if (value === 'true') {
-          if (!emailProcessor) {
-            const { EmailProcessor } = await import('../scheduler/email-processor');
-            const epDbPath = path.join(app.getPath('userData'), 'pocket-agent.db');
-            emailProcessor = new EmailProcessor(epDbPath);
-          }
-          emailProcessor.start();
+          await ensureEmailProcessor();
+          emailProcessor!.start();
           console.log('[Main] Email processor started via settings');
         } else {
           if (emailProcessor) {
@@ -1471,15 +1467,22 @@ function setupIPC(): void {
     }
   });
 
+  // Helper: ensure email processor exists (lazy init)
+  async function ensureEmailProcessor(): Promise<void> {
+    if (!emailProcessor) {
+      const { EmailProcessor } = await import('../scheduler/email-processor');
+      const epDbPath = path.join(app.getPath('userData'), 'pocket-agent.db');
+      emailProcessor = new EmailProcessor(epDbPath);
+      emailProcessor.setNotificationHandler((title: string, body: string) => {
+        showNotification(title, body);
+      });
+    }
+  }
+
   ipcMain.handle('gmail:runEmailProcessor', async () => {
     try {
-      // Create processor on demand if not already running via background timer
-      if (!emailProcessor) {
-        const { EmailProcessor } = await import('../scheduler/email-processor');
-        const epDbPath = path.join(app.getPath('userData'), 'pocket-agent.db');
-        emailProcessor = new EmailProcessor(epDbPath);
-      }
-      await emailProcessor.processEmails();
+      await ensureEmailProcessor();
+      await emailProcessor!.processEmails(true);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
@@ -1487,17 +1490,12 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('gmail:getProcessingStatus', async () => {
-    // Create processor on demand just to read status tables
-    if (!emailProcessor) {
-      try {
-        const { EmailProcessor } = await import('../scheduler/email-processor');
-        const epDbPath = path.join(app.getPath('userData'), 'pocket-agent.db');
-        emailProcessor = new EmailProcessor(epDbPath);
-      } catch {
-        return { runs: [], checkpoints: [] };
-      }
+    try {
+      await ensureEmailProcessor();
+      return emailProcessor!.getProcessingStatus();
+    } catch {
+      return { runs: [], checkpoints: [] };
     }
-    return emailProcessor.getProcessingStatus();
   });
 
   ipcMain.handle('telegram:restart', async () => {
@@ -2231,6 +2229,9 @@ async function initializeAgent(): Promise<void> {
     try {
       const { EmailProcessor } = await import('../scheduler/email-processor');
       emailProcessor = new EmailProcessor(dbPath);
+      emailProcessor.setNotificationHandler((title: string, body: string) => {
+        showNotification(title, body);
+      });
       emailProcessor.start();
       console.log('[Main] Email processor started');
     } catch (error) {

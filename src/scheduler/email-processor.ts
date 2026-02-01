@@ -173,11 +173,15 @@ function adaptFullEmail(msgRes: { success: boolean; message?: string }): FullEma
 
   const raw = safeJsonParse<Record<string, unknown>>(msgRes.message, {});
 
-  const id = String(raw.id || raw.messageId || '');
-  const threadId = String(raw.threadId || raw.thread_id || '') || undefined;
+  // gog getMessage returns: { headers: { from, subject, date }, message: { id, threadId, internalDate, snippet }, body: "..." }
+  const headers = (raw.headers || {}) as Record<string, unknown>;
+  const msg = (raw.message || {}) as Record<string, unknown>;
+
+  const id = String(msg.id || raw.id || raw.messageId || '');
+  const threadId = String(msg.threadId || raw.threadId || '') || undefined;
 
   let internalDateMs = 0;
-  const iDate = raw.internalDate ?? raw.internalDateMs ?? raw.date;
+  const iDate = msg.internalDate ?? raw.internalDate ?? headers.date ?? raw.date;
   if (iDate) {
     const n = Number(iDate);
     if (!Number.isNaN(n) && n > 0) {
@@ -188,9 +192,11 @@ function adaptFullEmail(msgRes: { success: boolean; message?: string }): FullEma
     }
   }
 
-  const from = String(raw.from || raw.sender || '');
-  const subject = String(raw.subject || '');
-  const body = String(raw.bodyText || raw.body_text || raw.body || raw.snippet || '');
+  const from = String(headers.from || raw.from || '');
+  const subject = String(headers.subject || raw.subject || '');
+  // Prefer snippet for classification (clean text), fall back to full body
+  const snippet = String(msg.snippet || '');
+  const body = snippet || String(raw.body || '').slice(0, 2000);
 
   return { id, threadId, internalDateMs, from, subject, body };
 }
@@ -330,6 +336,7 @@ export class EmailProcessor {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private db: Database.Database;
+  private notifyHandler: ((title: string, body: string) => void) | null = null;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -355,6 +362,10 @@ export class EmailProcessor {
       this.intervalId = null;
     }
     console.log('[EmailProcessor] Stopped');
+  }
+
+  setNotificationHandler(handler: (title: string, body: string) => void): void {
+    this.notifyHandler = handler;
   }
 
   restart(): void {
@@ -530,17 +541,20 @@ export class EmailProcessor {
 
   // ---------- Main Processing Loop ----------
 
-  async processEmails(): Promise<void> {
+  async processEmails(onDemand = false): Promise<void> {
     if (this.running) {
       console.log('[EmailProcessor] Already running, skipping');
       return;
     }
     this.running = true;
 
-    const enabled = SettingsManager.get('gmail.emailProcessing.enabled') === 'true';
-    if (!enabled) {
-      this.running = false;
-      return;
+    // Skip enabled check for on-demand runs triggered by "Run Now"
+    if (!onDemand) {
+      const enabled = SettingsManager.get('gmail.emailProcessing.enabled') === 'true';
+      if (!enabled) {
+        this.running = false;
+        return;
+      }
     }
 
     const accounts = safeJsonParse<string[]>(SettingsManager.get('gmail.emailProcessing.accounts') || '[]', []);
@@ -551,7 +565,9 @@ export class EmailProcessor {
     const lookbackDays = SettingsManager.get('gmail.emailProcessing.lookbackDays') || '7';
     const maxEmails = parseInt(SettingsManager.get('gmail.emailProcessing.maxEmailsPerRun') || '100', 10) || 100;
     const gmailConc = parseInt(SettingsManager.get('gmail.emailProcessing.gmailConcurrency') || '4', 10) || 4;
-    const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '3', 10) || 3;
+    const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '1', 10) || 1;
+
+    console.log(`[EmailProcessor] Accounts: ${JSON.stringify(accounts)}, categories: ${JSON.stringify(categories)}`);
 
     if (accounts.length === 0) {
       console.log('[EmailProcessor] No accounts configured');
@@ -570,6 +586,7 @@ export class EmailProcessor {
       try {
         // 1. Load checkpoint
         const checkpoint = this.getCheckpoint(account);
+        console.log(`[EmailProcessor] ${account}: checkpoint=${checkpoint} (${checkpoint ? new Date(checkpoint).toISOString() : 'none'})`);
 
         // 2. Ensure marker labels exist
         await this.ensureLabel(processedLabel, account);
@@ -583,14 +600,17 @@ export class EmailProcessor {
         } else {
           query = `in:inbox newer_than:${lookbackDays}d -label:${processedLabel}`;
         }
+        console.log(`[EmailProcessor] ${account}: query="${query}"`);
 
         // 4. Fetch email list
         const listRes = await withRetry(() => readEmails({ query, max: maxEmails, account }));
         if (!listRes.success) {
           throw new Error(`readEmails failed: ${listRes.error}`);
         }
+        console.log(`[EmailProcessor] ${account}: raw response length=${(listRes.emails || '').length}`);
         const emailList = unwrapGogArray(listRes.emails || '[]', 'messages') as EmailListItem[];
         stats.emailsFetched = emailList.length;
+        console.log(`[EmailProcessor] ${account}: fetched ${emailList.length} emails`);
 
         // 5. Local filter by checkpoint
         const candidates = emailList.filter((e) => {
@@ -654,6 +674,8 @@ export class EmailProcessor {
               maxTokens: 300,
               temperature: 0.1,
             }));
+            // Rate limit safety: small delay between GLM calls
+            await sleep(1000);
 
             if (!glmRes.success || !glmRes.content) {
               // GLM failure — all go to review
@@ -789,8 +811,11 @@ export class EmailProcessor {
     const message = lines.join('\n');
     console.log(`[EmailProcessor] Notification:\n${message}`);
 
-    // TODO: Send via Telegram when TelegramBot is accessible from here
-    // For now, log as event — the agent's capabilities prompt mentions it can read event_log
+    // Send via notification handler (desktop notification + Telegram if configured)
+    if (this.notifyHandler) {
+      this.notifyHandler('Email Processing', message);
+    }
+
     logEvent({
       event_type: 'notification_sent',
       source: 'system',

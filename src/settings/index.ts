@@ -520,7 +520,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     key: 'gmail.emailProcessing.glmConcurrency',
-    defaultValue: '3',
+    defaultValue: '1',
     encrypted: false,
     category: 'gmail',
     label: 'GLM Concurrency',
