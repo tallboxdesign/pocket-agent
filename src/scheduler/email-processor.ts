@@ -37,6 +37,7 @@ type LabelConfig = Record<string, {
   removeFromInbox?: boolean;        // archive thread from inbox after filing
   markReadOnFile?: boolean;         // mark thread as read after filing
   keepInInboxOnUncertain?: boolean; // keep in inbox when confidence is low/invalid (default true)
+  routingOverride?: boolean;        // true = use per-label routing; false/undefined = use global defaults
 }>;
 
 interface EmailListItem {
@@ -385,26 +386,40 @@ export async function applyRouting(
     return { result: 'in_inbox', error: 'routing_disabled' };
   }
 
-  // 2. Check label config
+  // 2. Resolve routing config: per-label override OR global defaults
   const cfg = labelConfig[labelName];
-  if (!cfg?.removeFromInbox && !cfg?.markReadOnFile) {
+  let archive: boolean;
+  let markRead: boolean;
+  let keepOnUncertain: boolean;
+
+  if (cfg?.routingOverride) {
+    // Per-label override
+    archive = cfg.removeFromInbox === true;
+    markRead = cfg.markReadOnFile === true;
+    keepOnUncertain = cfg.keepInInboxOnUncertain !== false;
+  } else {
+    // Global defaults
+    archive = SettingsManager.get('gmail.emailProcessing.routing.defaultArchive') === 'true';
+    markRead = SettingsManager.get('gmail.emailProcessing.routing.defaultMarkRead') === 'true';
+    keepOnUncertain = SettingsManager.get('gmail.emailProcessing.routing.defaultKeepOnUncertain') !== 'false';
+  }
+
+  if (!archive && !markRead) {
     return { result: 'in_inbox', error: 'no_routing_config' };
   }
 
   // 3. Check confidence
   const isUncertain = confidence === 'low' || confidence === 'invalid';
-  if (isUncertain && cfg.keepInInboxOnUncertain !== false) {
+  if (isUncertain && keepOnUncertain) {
     return { result: 'in_inbox', error: 'confidence_skip' };
   }
 
-  // 4. (Phase 3: destination label — skip for now)
-
-  // 5. Build removal list
+  // 4. Build removal list
   const toRemove: string[] = [];
-  if (cfg.removeFromInbox) toRemove.push('INBOX');
-  if (cfg.markReadOnFile) toRemove.push('UNREAD');
+  if (archive) toRemove.push('INBOX');
+  if (markRead) toRemove.push('UNREAD');
 
-  // 6. Remove labels
+  // 5. Remove labels
   try {
     await withRetry(() => modifyLabels({
       threadIds: [threadId],
@@ -417,7 +432,7 @@ export async function applyRouting(
     return { result: 'in_inbox', error: `gmail_api_error: ${errMsg.slice(0, 200)}` };
   }
 
-  // 7. Success
+  // 6. Success
   return { result: 'filed' };
 }
 
@@ -860,13 +875,8 @@ export class EmailProcessor {
         const allLabels = unwrapGogArray(labelsRes.labels || '[]', 'labels');
         const allPromptLabels = buildLabelList(allLabels, labelConfig);
 
-        // Filter to active labels only (if configured)
-        const activeLabels = safeJsonParse<string[]>(
-          SettingsManager.get('gmail.emailProcessing.activeLabels') || '[]', [],
-        );
-        const promptLabels = activeLabels.length > 0
-          ? allPromptLabels.filter(l => activeLabels.includes(l.name))
-          : allPromptLabels;
+        // All labels are always available to GLM — "Pin" checkbox is cosmetic only
+        const promptLabels = allPromptLabels;
 
         const allowedLabelSet = new Set(promptLabels.map((x) => x.name));
         allowedLabelSet.add(reviewLabel);

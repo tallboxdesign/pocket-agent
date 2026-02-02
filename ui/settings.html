@@ -1910,7 +1910,7 @@
 
             <!-- LABELS TAB -->
             <div class="ep-tab-panel" id="ep-labels">
-              <!-- Routing kill switch -->
+              <!-- Routing config -->
               <div class="ep-group" style="margin-bottom:8px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary,rgba(0,0,0,0.02));">
                 <div style="display:flex;align-items:center;justify-content:space-between;">
                   <div>
@@ -1923,6 +1923,22 @@
                   </label>
                 </div>
                 <div id="ep-routing-status" style="font-size:10px;color:var(--text-muted);margin-top:2px;"></div>
+                <div id="ep-routing-defaults" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Default for all labels:</div>
+                  <label class="ep-label-classify" style="gap:6px;" title="Remove classified emails from your inbox. The label is still applied — the email just won't appear in Inbox.">
+                    <input type="checkbox" id="ep-routing-default-archive" onchange="epSaveRoutingDefaults()">
+                    Archive from Inbox
+                  </label>
+                  <label class="ep-label-classify" style="gap:6px;" title="Mark classified emails as read automatically.">
+                    <input type="checkbox" id="ep-routing-default-markread" onchange="epSaveRoutingDefaults()">
+                    Mark as read
+                  </label>
+                  <label class="ep-label-classify" style="gap:6px;" title="When the AI is unsure (low confidence), skip routing and keep the email in inbox.">
+                    <input type="checkbox" id="ep-routing-default-uncertain" onchange="epSaveRoutingDefaults()" checked>
+                    Keep in Inbox when uncertain
+                  </label>
+                  <div id="ep-routing-exceptions" style="margin-top:6px;font-size:11px;"></div>
+                </div>
               </div>
               <div class="ep-group">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -1930,7 +1946,7 @@
                   <button class="ep-btn" onclick="epFetchLabels()" style="padding:4px 10px;font-size:11px;">Refresh Labels</button>
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:4px;margin-bottom:8px;">
-                  Check "Classify" to include a label in GLM classification. Classifying into <strong id="ep-active-count">all labels</strong>.
+                  All labels are sent to the AI. Pin labels to sort them to the top and add definitions. <strong id="ep-active-count"></strong>
                 </div>
                 <div id="ep-label-list" class="ep-label-list">
                   <span class="ep-no-data">Click "Fetch Labels" to load your Gmail labels</span>
@@ -3263,9 +3279,9 @@
 
         return `${separator}<div class="ep-label-item ${isConfigured ? 'configured' : ''}" data-label="${name}">
           <div class="ep-label-head">
-            <label class="ep-label-classify" title="Include this label in GLM classification. Only active labels are sent to the AI model for email sorting.">
+            <label class="ep-label-classify" title="Pin this label to the top of the list. All labels are always available to the AI for classification.">
               <input type="checkbox" ${isActive ? 'checked' : ''} onchange="epToggleActiveLabel('${escapedName}', this.checked)">
-              Classify
+              Pin
             </label>
             <span class="ep-label-name">${epDisplayName(name)}</span>${cfg.aiDefined ? '<span class="ep-ai-badge" title="Custom AI-generated classification guidance">AI Defined</span>' : ''}
             <label class="ep-label-notify" title="Send a notification (desktop + Telegram if configured) when emails are classified into this label with high/medium confidence.">
@@ -3294,19 +3310,25 @@
               <textarea rows="2" placeholder="What this label is NOT (e.g. 'SEO service offers, press release announcements')"
                 onchange="epSetLabelNegative('${escapedName}', this.value)">${negative.replace(/</g, '&lt;')}</textarea>
               <div style="border-top:1px solid var(--border);margin:6px 0 2px;"></div>
-              <span class="ep-field-label" title="Automatically archive or mark-read emails after they are classified into this label. Works after GLM classification, manual corrections, and rule actions.">Routing</span>
-              <label class="ep-label-classify" style="gap:6px;" title="Remove the email thread from Gmail Inbox after classification. The label is still applied — the email just won't appear in Inbox.">
-                <input type="checkbox" ${cfg.removeFromInbox ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'removeFromInbox', this.checked)">
-                Archive from Inbox
+              <span class="ep-field-label" title="Override the global routing defaults for this specific label.">Routing</span>
+              <label class="ep-label-classify" style="gap:6px;" title="Use custom routing for this label instead of the global default.">
+                <input type="checkbox" ${cfg.routingOverride ? 'checked' : ''} onchange="epToggleLabelRoutingOverride('${escapedName}', this.checked)">
+                Override default routing
               </label>
-              <label class="ep-label-classify" style="gap:6px;" title="Mark the email thread as read after classification. Useful for low-priority labels you don't need to see as unread.">
-                <input type="checkbox" ${cfg.markReadOnFile ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'markReadOnFile', this.checked)">
-                Mark as read when filed
-              </label>
-              <label class="ep-label-classify" style="gap:6px;" title="Safety net: when the classifier is unsure (low/invalid confidence), skip routing and keep the email in your Inbox so you don't miss it. Recommended to keep enabled.">
-                <input type="checkbox" ${cfg.keepInInboxOnUncertain !== false ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'keepInInboxOnUncertain', this.checked)">
-                Keep in Inbox when uncertain
-              </label>
+              <div class="ep-label-routing-override" style="margin-left:20px;${cfg.routingOverride ? '' : 'display:none;'}">
+                <label class="ep-label-classify" style="gap:6px;">
+                  <input type="checkbox" ${cfg.removeFromInbox ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'removeFromInbox', this.checked)">
+                  Archive from Inbox
+                </label>
+                <label class="ep-label-classify" style="gap:6px;">
+                  <input type="checkbox" ${cfg.markReadOnFile ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'markReadOnFile', this.checked)">
+                  Mark as read
+                </label>
+                <label class="ep-label-classify" style="gap:6px;">
+                  <input type="checkbox" ${cfg.keepInInboxOnUncertain !== false ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'keepInInboxOnUncertain', this.checked)">
+                  Keep in Inbox when uncertain
+                </label>
+              </div>
             </div>
           </div>
         </div>`;
@@ -3314,7 +3336,7 @@
 
       // Update active count display
       const countEl = document.getElementById('ep-active-count');
-      if (countEl) countEl.textContent = epActiveLabels.length > 0 ? `${epActiveLabels.length} active` : 'all labels';
+      if (countEl) countEl.textContent = epActiveLabels.length > 0 ? `${epActiveLabels.length} pinned` : '';
     }
 
     async function epSaveLabelConfig() {
@@ -3404,24 +3426,76 @@
 
     async function epToggleRouting(enabled) {
       await epSaveSetting('gmail.emailProcessing.routingEnabled', enabled ? 'true' : 'false');
+      epUpdateRoutingUI(enabled);
+    }
+
+    function epUpdateRoutingUI(enabled) {
       const statusEl = document.getElementById('ep-routing-status');
+      const defaultsEl = document.getElementById('ep-routing-defaults');
       if (statusEl) {
-        statusEl.textContent = enabled ? 'Routing active — emails will be archived/marked-read per label config.' : 'Routing disabled — emails stay in inbox after classification.';
+        statusEl.textContent = enabled ? 'Routing active — emails will be archived/marked-read after classification.' : 'Routing disabled — emails stay in inbox after classification.';
         statusEl.style.color = enabled ? 'var(--text-muted)' : 'var(--error, #e53935)';
+      }
+      if (defaultsEl) defaultsEl.style.display = enabled ? '' : 'none';
+    }
+
+    async function epSaveRoutingDefaults() {
+      const archive = document.getElementById('ep-routing-default-archive')?.checked || false;
+      const markRead = document.getElementById('ep-routing-default-markread')?.checked || false;
+      const uncertain = document.getElementById('ep-routing-default-uncertain')?.checked ?? true;
+      await epSaveSetting('gmail.emailProcessing.routing.defaultArchive', archive ? 'true' : 'false');
+      await epSaveSetting('gmail.emailProcessing.routing.defaultMarkRead', markRead ? 'true' : 'false');
+      await epSaveSetting('gmail.emailProcessing.routing.defaultKeepOnUncertain', uncertain ? 'true' : 'false');
+      epUpdateExceptionsList();
+    }
+
+    function epToggleLabelRoutingOverride(labelName, checked) {
+      if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
+      epLabelConfig[labelName].routingOverride = checked;
+      epSaveLabelConfig();
+      epRenderLabels();
+      epUpdateExceptionsList();
+    }
+
+    function epUpdateExceptionsList() {
+      const el = document.getElementById('ep-routing-exceptions');
+      if (!el) return;
+      const exceptions = Object.entries(epLabelConfig)
+        .filter(([, cfg]) => cfg.routingOverride)
+        .map(([name, cfg]) => {
+          const parts = [];
+          if (cfg.removeFromInbox) parts.push('Archive');
+          if (cfg.markReadOnFile) parts.push('Mark read');
+          if (!cfg.removeFromInbox && !cfg.markReadOnFile) parts.push('Keep in Inbox');
+          return `<span style="color:var(--text);">${epDisplayName(name)}</span> — ${parts.join(', ')}`;
+        });
+      if (exceptions.length === 0) {
+        el.innerHTML = '<span style="color:var(--text-muted);font-size:10px;">No exceptions — all labels follow default routing.</span>';
+      } else {
+        el.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">Exceptions:</div>' +
+          exceptions.map(e => `<div style="font-size:11px;margin-left:8px;">${e}</div>`).join('');
       }
     }
 
     async function epLoadRoutingToggle() {
       try {
-        const val = await window.pocketAgent.getSetting('gmail.emailProcessing.routingEnabled');
-        const enabled = val !== 'false'; // default true
+        const enabled = (await window.pocketAgent.getSetting('gmail.emailProcessing.routingEnabled')) !== 'false';
+        const archive = (await window.pocketAgent.getSetting('gmail.emailProcessing.routing.defaultArchive')) === 'true';
+        const markRead = (await window.pocketAgent.getSetting('gmail.emailProcessing.routing.defaultMarkRead')) === 'true';
+        const uncertain = (await window.pocketAgent.getSetting('gmail.emailProcessing.routing.defaultKeepOnUncertain')) !== 'false';
+
         const toggle = document.getElementById('ep-routing-toggle');
         if (toggle) toggle.checked = enabled;
-        const statusEl = document.getElementById('ep-routing-status');
-        if (statusEl) {
-          statusEl.textContent = enabled ? 'Routing active — emails will be archived/marked-read per label config.' : 'Routing disabled — emails stay in inbox after classification.';
-          statusEl.style.color = enabled ? 'var(--text-muted)' : 'var(--error, #e53935)';
-        }
+
+        const archiveEl = document.getElementById('ep-routing-default-archive');
+        if (archiveEl) archiveEl.checked = archive;
+        const markReadEl = document.getElementById('ep-routing-default-markread');
+        if (markReadEl) markReadEl.checked = markRead;
+        const uncertainEl = document.getElementById('ep-routing-default-uncertain');
+        if (uncertainEl) uncertainEl.checked = uncertain;
+
+        epUpdateRoutingUI(enabled);
+        epUpdateExceptionsList();
       } catch { /* ignore */ }
     }
 
