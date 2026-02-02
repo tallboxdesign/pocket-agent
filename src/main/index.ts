@@ -1608,6 +1608,7 @@ function setupIPC(): void {
     definition: string,
     negative: string,
     examples: Array<{ messageId: string; subject?: string; from?: string }>,
+    field: 'definition' | 'negative',
     account?: string,
   ) => {
     try {
@@ -1642,21 +1643,33 @@ function setupIPC(): void {
         ? `\n\nExample emails (${exampleTexts.length}):\n${exampleTexts.join('\n\n')}`
         : '';
 
-      const prompt = `You are an expert email classification assistant. Your task is to write a precise label definition and negative guidance for an email label.
+      let prompt: string;
+      if (field === 'definition') {
+        prompt = `You are an expert email classification assistant. Write a precise definition for an email label.
 
 Label name: "${labelName}"
-User's rough definition: "${definition || '(none provided)'}"
-User's rough negative guidance: "${negative || '(none provided)'}"${examplesBlock}
+User's rough definition: "${definition || '(none provided)'}"${examplesBlock}
 
 Instructions:
 1. Analyze the label name, user's rough text, and any example emails above.
-2. Write a precise "definition" (2-3 sentences) — be specific about senders, topics, and patterns that belong in this label.
-3. Write "negative" guidance (2-3 sentences) — describe what does NOT belong in this label, common confusions to avoid.
-4. Output ONLY valid JSON: {"definition": "...", "negative": "..."}`;
+2. Write a precise definition (2-3 sentences) — be specific about senders, topics, and patterns that belong in this label. Focus ONLY on what DOES belong.
+3. Output ONLY the definition text, nothing else. No JSON, no quotes, no prefix.`;
+      } else {
+        prompt = `You are an expert email classification assistant. Write negative guidance for an email label — what does NOT belong.
+
+Label name: "${labelName}"
+Current definition: "${definition || '(none provided)'}"
+User's rough negative guidance: "${negative || '(none provided)'}"${examplesBlock}
+
+Instructions:
+1. Analyze the label name, current definition, user's rough text, and any example emails above.
+2. Write negative guidance (2-3 sentences) — describe what does NOT belong in this label, common confusions to avoid. Be specific.
+3. Output ONLY the negative guidance text, nothing else. No JSON, no quotes, no prefix.`;
+      }
 
       const result = await glmFlash({
         messages: [{ role: 'user', content: prompt }],
-        maxTokens: 512,
+        maxTokens: 300,
         temperature: 0.3,
         disableThinking: true,
       });
@@ -1665,12 +1678,8 @@ Instructions:
         return { ok: false, error: result.error || 'GLM returned no content' };
       }
 
-      // Strip markdown fences if present and parse JSON
-      let cleaned = result.content.trim();
-      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-      const parsed = JSON.parse(cleaned) as { definition: string; negative: string };
-
-      return { ok: true, definition: parsed.definition, negative: parsed.negative };
+      const text = result.content.trim();
+      return { ok: true, field, text };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
     }
