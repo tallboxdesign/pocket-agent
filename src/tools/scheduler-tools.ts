@@ -101,20 +101,60 @@ function parseDateTime(input: string): string | null {
     return targetDate.toISOString();
   }
 
-  // "in 2 hours", "in 30 minutes", "in 3 days"
-  const inMatch = input.match(/^in\s+(\d+)\s*(hour|hr|minute|min|day|d)s?$/i);
+  // "in 2 hours", "in 30 minutes", "in 3 days", "in 3 days at 9am", "in 2 days 3:30pm"
+  const inMatch = input.match(/^in\s+(\d+)\s*(hour|hr|minute|min|day|d)s?(?:\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?$/i);
   if (inMatch) {
-    const [, amount, unit] = inMatch;
+    const [, amount, unit, timeHour, timeMin, timeAmPm] = inMatch;
     const num = parseInt(amount, 10);
-    let ms: number;
-    if (unit.toLowerCase().startsWith('hour') || unit.toLowerCase() === 'hr') {
-      ms = num * 3600000;
-    } else if (unit.toLowerCase().startsWith('min')) {
-      ms = num * 60000;
-    } else {
-      ms = num * 86400000;
+    const unitLower = unit.toLowerCase();
+
+    if (unitLower.startsWith('hour') || unitLower === 'hr') {
+      return new Date(now.getTime() + num * 3600000).toISOString();
     }
-    return new Date(now.getTime() + ms).toISOString();
+    if (unitLower.startsWith('min')) {
+      return new Date(now.getTime() + num * 60000).toISOString();
+    }
+
+    // Days: support optional time-of-day
+    const target = new Date(now.getTime() + num * 86400000);
+    if (timeHour) {
+      let hour = parseInt(timeHour, 10);
+      const min = timeMin ? parseInt(timeMin, 10) : 0;
+      if (timeAmPm?.toLowerCase() === 'pm' && hour < 12) hour += 12;
+      if (timeAmPm?.toLowerCase() === 'am' && hour === 12) hour = 0;
+      target.setHours(hour, min, 0, 0);
+    }
+    return target.toISOString();
+  }
+
+  // "feb 14 9am", "march 5 2:30pm", "jan 20"
+  const monthDateMatch = input.match(/^(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?$/i);
+  if (monthDateMatch) {
+    const [, monthStr, dayStr, hourStr, minStr, ampm] = monthDateMatch;
+    const months: Record<string, number> = {
+      jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
+      may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
+      sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11,
+    };
+    const month = months[monthStr.toLowerCase()];
+    const day = parseInt(dayStr, 10);
+    const target = new Date(now.getFullYear(), month, day);
+
+    // If date is in the past, assume next year
+    if (target < now && !hourStr) target.setFullYear(target.getFullYear() + 1);
+
+    if (hourStr) {
+      let hour = parseInt(hourStr, 10);
+      const min = minStr ? parseInt(minStr, 10) : 0;
+      if (ampm?.toLowerCase() === 'pm' && hour < 12) hour += 12;
+      if (ampm?.toLowerCase() === 'am' && hour === 12) hour = 0;
+      target.setHours(hour, min, 0, 0);
+      if (target < now) target.setFullYear(target.getFullYear() + 1);
+    } else {
+      target.setHours(9, 0, 0, 0); // Default to 9am if no time given
+    }
+
+    return target.toISOString();
   }
 
   // Try direct parse (ISO format, etc.)
@@ -221,7 +261,7 @@ For simple reminders, use create_reminder instead.
 Schedule formats:
 - Recurring intervals: "30m", "2h", "1d"
 - Cron expressions: "0 9 * * *" (minute hour day month weekday)
-- One-time: "in 10 minutes", "tomorrow 3pm"
+- One-time: "in 10 minutes", "in 3 days at 9am", "tomorrow 3pm", "feb 14 9am"
 
 IMPORTANT: The 'prompt' field is an INSTRUCTION that will be sent to a future LLM instance.
 Write it as a command, not as formatted output.
@@ -236,7 +276,7 @@ Write it as a command, not as formatted output.
         },
         schedule: {
           type: 'string',
-          description: 'When to run: "30m", "2h", "0 9 * * *", "in 10 minutes", "tomorrow 3pm"',
+          description: 'When to run: "30m", "2h", "0 9 * * *", "in 10 minutes", "in 3 days at 9am", "tomorrow 3pm", "feb 14 9am"',
         },
         prompt: {
           type: 'string',
@@ -416,8 +456,11 @@ Use this when the user says "remind me to..." or "don't let me forget to..."
 For action-based tasks (check weather, etc), use schedule_task instead.
 
 Schedule formats:
-- One-time: "in 10 minutes", "tomorrow 3pm", "monday 9am"
+- One-time: "in 10 minutes", "tomorrow 3pm", "monday 9am", "feb 14 9am"
+- One-time with time: "in 3 days at 9am", "in 5 days 2:30pm"
 - Recurring: "30m", "2h", or cron "0 9 * * *"
+
+When creating multiple reminders for future dates, ALWAYS specify the time (e.g. "in 3 days at 9am" or "feb 14 9am"), otherwise they fire at the current time of day.
 
 IMPORTANT: The 'reminder' field is the FINAL MESSAGE shown to the user.
 Compose a friendly, complete reminder message - it will be displayed directly with NO further LLM processing.
@@ -434,7 +477,7 @@ Compose a friendly, complete reminder message - it will be displayed directly wi
         },
         schedule: {
           type: 'string',
-          description: 'When to remind: "in 10 minutes", "tomorrow 3pm", "30m", "2h", or cron "0 9 * * *"',
+          description: 'When to remind: "in 10 minutes", "in 3 days at 9am", "tomorrow 3pm", "feb 14 9am", "30m", "2h", or cron "0 9 * * *"',
         },
         reminder: {
           type: 'string',
