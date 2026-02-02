@@ -3218,6 +3218,7 @@
         }).map(l => typeof l === 'string' ? l : (l.name || l.id || ''));
 
         epRenderLabels();
+        epUpdateExceptionsList();
         showToast(`Loaded ${epGmailLabels.length} labels`, 'success');
 
         // Auto-switch to labels tab if on basics
