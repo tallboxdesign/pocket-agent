@@ -3213,7 +3213,10 @@
             </label>
           </div>
           <div class="ep-label-fields">
-            <span class="ep-field-label" title="Describe what kind of emails belong in this label. The AI classifier uses this to decide where each email goes.">Definition</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span class="ep-field-label" title="Describe what kind of emails belong in this label. The AI classifier uses this to decide where each email goes." style="margin:0;">Definition</span>
+              <button class="ep-btn" style="padding:2px 8px;font-size:10px;margin-left:auto;" onclick="epAiDefine('${escapedName}', this)">AI Define</button>
+            </div>
             <textarea rows="2" placeholder="What this label represents (e.g. 'Emails from active clients about ongoing projects')"
               onchange="epSetLabelDefinition('${escapedName}', this.value)">${definition.replace(/</g, '&lt;')}</textarea>
             <span class="ep-label-advanced-toggle" onclick="epToggleAdvanced(this)">&#9654; Advanced (examples, negative guidance &amp; routing)</span>
@@ -3266,6 +3269,54 @@
       if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
       epLabelConfig[labelName].negative = value;
       epSaveLabelConfig();
+    }
+
+    async function epAiDefine(labelName, btn) {
+      const cfg = epLabelConfig[labelName] || {};
+      const definition = cfg.definition || cfg.description || '';
+      const negative = cfg.negative || '';
+      const examples = cfg.examples || [];
+
+      if (!definition && !negative && examples.length === 0) {
+        showToast('Add a rough definition or some examples first', 'error');
+        return;
+      }
+
+      const origText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Defining...';
+
+      try {
+        const result = await window.pocketAgent.gmailAiDefineLabelConfig(
+          labelName, definition, negative, examples, epModalAccount,
+        );
+        if (!result.ok) {
+          showToast(result.error || 'AI Define failed', 'error');
+          return;
+        }
+
+        // Update config in-place
+        if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
+        epLabelConfig[labelName].definition = result.definition;
+        delete epLabelConfig[labelName].description;
+        epLabelConfig[labelName].negative = result.negative;
+        await epSaveLabelConfig();
+
+        // Update textareas in-place without full re-render (keeps Advanced panel open)
+        const card = btn.closest('.ep-label-item');
+        if (card) {
+          const textareas = card.querySelectorAll('textarea');
+          if (textareas[0]) textareas[0].value = result.definition;
+          if (textareas[1]) textareas[1].value = result.negative;
+        }
+
+        showToast('Definition updated', 'success');
+      } catch (err) {
+        showToast(err.message || 'AI Define failed', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
     }
 
     function epSetLabelRouting(labelName, field, checked) {

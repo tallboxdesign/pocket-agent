@@ -1286,6 +1286,7 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 35. Label card tooltips — hover explanations for all controls: classify, notify, definition, examples, negative guidance, routing (Section 20)
 36. Rules editor fixes — label dropdowns use all Gmail labels with auto-fetch, action types have descriptions/tooltips, improved placeholders with variable docs (Section 20)
 37. Agent instruction clarity — explicit decision rules for create_reminder vs schedule_task vs calendar_add in workspace CLAUDE.md and default instructions
+38. AI Define button — per-label "AI Define" button that calls GLM Flash to generate precise definition + negative guidance from user text and example emails (Section 20)
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_

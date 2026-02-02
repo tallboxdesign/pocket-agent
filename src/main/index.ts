@@ -1602,6 +1602,80 @@ function setupIPC(): void {
     } catch { return []; }
   });
 
+  ipcMain.handle('gmail:aiDefineLabelConfig', async (
+    _evt: unknown,
+    labelName: string,
+    definition: string,
+    negative: string,
+    examples: Array<{ messageId: string; subject?: string; from?: string }>,
+    account?: string,
+  ) => {
+    try {
+      const { glmFlash } = await import('../tools/glm-client');
+      const { getMessage } = await import('../tools/gog-wrapper');
+
+      // Fetch example email content in parallel
+      let exampleTexts: string[] = [];
+      if (examples && examples.length > 0) {
+        const toFetch = examples.slice(0, 5);
+        const results = await Promise.allSettled(
+          toFetch.map(ex => getMessage({ messageId: ex.messageId, account })),
+        );
+        exampleTexts = results
+          .filter((r): r is PromiseFulfilledResult<{ success: boolean; message?: string }> =>
+            r.status === 'fulfilled' && r.value.success && !!r.value.message)
+          .map((r, i) => {
+            try {
+              const parsed = JSON.parse(r.value.message!);
+              const from = parsed.from || parsed.sender || toFetch[i].from || 'Unknown';
+              const subject = parsed.subject || toFetch[i].subject || '(no subject)';
+              const body = (parsed.body || parsed.snippet || '').slice(0, 1000);
+              return `--- Example ${i + 1} ---\nFrom: ${from} | Subject: ${subject}\nBody: ${body}`;
+            } catch {
+              return '';
+            }
+          })
+          .filter(Boolean);
+      }
+
+      const examplesBlock = exampleTexts.length > 0
+        ? `\n\nExample emails (${exampleTexts.length}):\n${exampleTexts.join('\n\n')}`
+        : '';
+
+      const prompt = `You are an expert email classification assistant. Your task is to write a precise label definition and negative guidance for an email label.
+
+Label name: "${labelName}"
+User's rough definition: "${definition || '(none provided)'}"
+User's rough negative guidance: "${negative || '(none provided)'}"${examplesBlock}
+
+Instructions:
+1. Analyze the label name, user's rough text, and any example emails above.
+2. Write a precise "definition" (2-3 sentences) — be specific about senders, topics, and patterns that belong in this label.
+3. Write "negative" guidance (2-3 sentences) — describe what does NOT belong in this label, common confusions to avoid.
+4. Output ONLY valid JSON: {"definition": "...", "negative": "..."}`;
+
+      const result = await glmFlash({
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 512,
+        temperature: 0.3,
+        disableThinking: true,
+      });
+
+      if (!result.success || !result.content) {
+        return { ok: false, error: result.error || 'GLM returned no content' };
+      }
+
+      // Strip markdown fences if present and parse JSON
+      let cleaned = result.content.trim();
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      const parsed = JSON.parse(cleaned) as { definition: string; negative: string };
+
+      return { ok: true, definition: parsed.definition, negative: parsed.negative };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  });
+
   // Rules Engine IPC handlers
   ipcMain.handle('rules:getAll', async (_evt: unknown, account?: string) => {
     try {
