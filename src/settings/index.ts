@@ -545,6 +545,24 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: 'JSON array of label names to classify into (empty = all user labels)',
     type: 'string',
   },
+  {
+    key: 'gmail.emailProcessing.rulesEnabled',
+    defaultValue: 'false',
+    encrypted: false,
+    category: 'gmail',
+    label: 'Enable Rules Engine',
+    description: 'Run deterministic rules on classified emails (actions, notifications, drafts)',
+    type: 'boolean',
+  },
+  {
+    key: 'gmail.emailProcessing.dailySummaryTime',
+    defaultValue: '08:00',
+    encrypted: false,
+    category: 'gmail',
+    label: 'Daily Summary Time',
+    description: 'Time of day to send daily email digest (HH:MM)',
+    type: 'string',
+  },
 
   // Window state settings
   {

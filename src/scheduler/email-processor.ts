@@ -358,6 +358,7 @@ export class EmailProcessor {
   private db: Database.Database;
   private notifyHandler: ((title: string, body: string) => void) | null = null;
   private progressHandler: ((status: string, detail?: Record<string, unknown>) => void) | null = null;
+  private rulesEngine: import('./rules-engine').RulesEngine | null = null;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -392,6 +393,10 @@ export class EmailProcessor {
 
   setProgressHandler(handler: (status: string, detail?: Record<string, unknown>) => void): void {
     this.progressHandler = handler;
+  }
+
+  setRulesEngine(engine: import('./rules-engine').RulesEngine): void {
+    this.rulesEngine = engine;
   }
 
   private emitProgress(status: string, detail?: Record<string, unknown>): void {
@@ -473,6 +478,9 @@ export class EmailProcessor {
     if (!colNames.has('corrected_at')) {
       this.db.exec('ALTER TABLE email_processing_state ADD COLUMN corrected_at TEXT');
     }
+    if (!colNames.has('snippet')) {
+      this.db.exec('ALTER TABLE email_processing_state ADD COLUMN snippet TEXT');
+    }
 
     // If existing DB has CHECK constraint on confidence that blocks 'invalid',
     // recreate the table without the CHECK constraint
@@ -504,12 +512,13 @@ export class EmailProcessor {
           fail_reason TEXT,
           corrected_label TEXT,
           corrected_at TEXT,
+          snippet TEXT,
           UNIQUE(account, message_id)
         );
-        INSERT INTO email_processing_state_new(id, account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, processed_at, glm_raw, fail_reason, corrected_label, corrected_at)
+        INSERT INTO email_processing_state_new(id, account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, processed_at, glm_raw, fail_reason, corrected_label, corrected_at, snippet)
           SELECT id, account, message_id, thread_id, internal_date_ms, subject, sender,
                  label_applied, confidence, processed_at,
-                 glm_raw, fail_reason, corrected_label, corrected_at
+                 glm_raw, fail_reason, corrected_label, corrected_at, snippet
           FROM email_processing_state;
         DROP TABLE email_processing_state;
         ALTER TABLE email_processing_state_new RENAME TO email_processing_state;
@@ -558,11 +567,11 @@ export class EmailProcessor {
   ): void {
     this.db.prepare(`
       INSERT OR IGNORE INTO email_processing_state
-      (account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, glm_raw, fail_reason)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, glm_raw, fail_reason, snippet)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(account, email.id, email.threadId ?? null, email.internalDateMs,
       email.subject ?? null, email.from ?? null, appliedLabel, confidence,
-      glmRaw ?? null, failReason ?? null);
+      glmRaw ?? null, failReason ?? null, (email.body || '').slice(0, 300));
   }
 
   // ---------- Run History ----------
@@ -866,6 +875,26 @@ export class EmailProcessor {
 
           stats.labelsApplied[labelToApply] = (stats.labelsApplied[labelToApply] || 0) + 1;
           this.saveProcessed(account, email, labelToApply, r.confidence, r.glmRaw, r.failReason);
+
+          // Evaluate rules engine
+          if (this.rulesEngine) {
+            try {
+              await this.rulesEngine.evaluate({
+                messageId: email.id,
+                threadId: email.threadId,
+                account,
+                subject: email.subject ?? '',
+                sender: email.from ?? '',
+                snippet: (email.body || '').slice(0, 300),
+                label: labelToApply,
+                confidence: r.confidence,
+                internalDateMs: email.internalDateMs,
+                correctedByUser: false,
+              }, 'on_label_applied', 0);
+            } catch (err) {
+              console.warn('[EmailProcessor] Rule evaluation failed:', err);
+            }
+          }
         }
 
         // 12. Advance checkpoint
@@ -1007,6 +1036,21 @@ export class EmailProcessor {
     return { emails, total };
   }
 
+  // ---------- DB Access ----------
+
+  getDb(): Database.Database { return this.db; }
+
+  // ---------- Label Stats ----------
+
+  getLabelStats(account?: string): { label: string; count: number; lastUsed: string }[] {
+    const query = account
+      ? `SELECT COALESCE(corrected_label, label_applied) AS label, COUNT(*) AS count, MAX(processed_at) AS lastUsed
+         FROM email_processing_state WHERE account = ? GROUP BY label ORDER BY count DESC`
+      : `SELECT COALESCE(corrected_label, label_applied) AS label, COUNT(*) AS count, MAX(processed_at) AS lastUsed
+         FROM email_processing_state GROUP BY label ORDER BY count DESC`;
+    return (account ? this.db.prepare(query).all(account) : this.db.prepare(query).all()) as { label: string; count: number; lastUsed: string }[];
+  }
+
   // ---------- Label Corrections ----------
 
   async correctLabel(
@@ -1039,6 +1083,26 @@ export class EmailProcessor {
         });
       } catch (err) {
         console.warn(`[EmailProcessor] Failed to update Gmail labels for ${messageId}:`, err);
+      }
+    }
+
+    // Evaluate rules engine for label correction
+    if (this.rulesEngine) {
+      try {
+        await this.rulesEngine.evaluate({
+          messageId,
+          threadId: threadId || undefined,
+          account,
+          subject: String(row.subject || ''),
+          sender: String(row.sender || ''),
+          snippet: String(row.snippet || ''),
+          label: newLabel,
+          confidence: String(row.confidence || 'low'),
+          internalDateMs: Number(row.internal_date_ms) || 0,
+          correctedByUser: true,
+        }, 'on_label_corrected', 0);
+      } catch (err) {
+        console.warn('[EmailProcessor] Rule evaluation on correction failed:', err);
       }
     }
 

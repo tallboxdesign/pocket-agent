@@ -104,6 +104,19 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   gmailGetProcessedEmails: (limit?: number, offset?: number) => ipcRenderer.invoke('gmail:getProcessedEmails', limit, offset),
   gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) =>
     ipcRenderer.invoke('gmail:correctLabel', messageId, account, newLabel, useAsExample),
+  gmailGetLabelStats: (account?: string) => ipcRenderer.invoke('gmail:getLabelStats', account),
+
+  // Rules Engine
+  rulesGetAll: (account?: string) => ipcRenderer.invoke('rules:getAll', account),
+  rulesGet: (id: number) => ipcRenderer.invoke('rules:get', id),
+  rulesCreate: (rule: Record<string, unknown>) => ipcRenderer.invoke('rules:create', rule),
+  rulesUpdate: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('rules:update', id, updates),
+  rulesDelete: (id: number) => ipcRenderer.invoke('rules:delete', id),
+  rulesToggle: (id: number, enabled: boolean) => ipcRenderer.invoke('rules:toggle', id, enabled),
+  rulesTest: (id: number, limit?: number) => ipcRenderer.invoke('rules:test', id, limit),
+  rulesGetExecutions: (ruleId?: number, limit?: number) => ipcRenderer.invoke('rules:getExecutions', ruleId, limit),
+  rulesRunDailySummary: () => ipcRenderer.invoke('rules:runDailySummary'),
+
   onEmailProgress: (callback: (data: { status: string; [key: string]: unknown }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: { status: string; [key: string]: unknown }) => callback(data);
     ipcRenderer.on('gmail:progress', listener);
@@ -282,6 +295,17 @@ declare global {
       gmailGetProcessingStatus: () => Promise<{ runs: unknown[]; checkpoints: unknown[] }>;
       gmailGetProcessedEmails: (limit?: number, offset?: number) => Promise<{ emails: unknown[]; total: number }>;
       gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) => Promise<{ ok: boolean; error?: string }>;
+      gmailGetLabelStats: (account?: string) => Promise<Array<{ label: string; count: number; lastUsed: string }>>;
+      // Rules Engine
+      rulesGetAll: (account?: string) => Promise<Array<Record<string, unknown>>>;
+      rulesGet: (id: number) => Promise<Record<string, unknown> | null>;
+      rulesCreate: (rule: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      rulesUpdate: (id: number, updates: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
+      rulesDelete: (id: number) => Promise<{ ok: boolean; error?: string }>;
+      rulesToggle: (id: number, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
+      rulesTest: (id: number, limit?: number) => Promise<Array<{ email: { subject: string; sender: string; label: string }; matched: boolean; conditions: Array<{ type: string; value: string; passed: boolean }> }>>;
+      rulesGetExecutions: (ruleId?: number, limit?: number) => Promise<Array<Record<string, unknown>>>;
+      rulesRunDailySummary: () => Promise<{ success: boolean; summary?: string; error?: string }>;
       onEmailProgress: (callback: (data: { status: string; [key: string]: unknown }) => void) => () => void;
       openSettings: () => Promise<void>;
       openChat: () => Promise<void>;

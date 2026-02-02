@@ -1300,6 +1300,21 @@
     .ep-fail-badge.red { background: rgba(239,83,80,0.15); color: var(--error); }
     .ep-fail-badge.orange { background: rgba(232,163,23,0.15); color: #e8a317; }
     .ep-fail-badge.yellow { background: rgba(232,163,23,0.1); color: #e8a317; }
+    .ep-snippet-row td { padding: 0 !important; border-top: none !important; }
+    .ep-snippet-row.hidden { display: none; }
+    .ep-snippet-cell {
+      padding: 4px 8px 8px 8px !important;
+      font-size: 11px; color: var(--text-secondary);
+      line-height: 1.4; max-width: 500px;
+      word-break: break-word; white-space: normal;
+    }
+    .ep-history-table .ep-subject-toggle {
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .ep-history-table .ep-subject-toggle:hover {
+      color: var(--accent);
+    }
     .ep-correct-popover {
       position: fixed; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border);
       border-radius: 8px; padding: 10px 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); min-width: 200px;
@@ -1326,6 +1341,49 @@
       color: var(--text-muted);
     }
     .ep-history-nav { display: flex; gap: 6px; }
+
+    /* Rules tab */
+    .ep-rule-card {
+      border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+      background: var(--bg-primary); transition: border-color 0.2s;
+    }
+    .ep-rule-card:hover { border-color: var(--accent); }
+    .ep-rule-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .ep-rule-card-header .ep-rule-name { font-size: 12px; font-weight: 600; color: var(--text-primary); flex: 1; }
+    .ep-rule-mode-badge {
+      display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 9px; font-weight: 600;
+    }
+    .ep-rule-mode-badge.draft { background: rgba(232,163,23,0.15); color: #e8a317; }
+    .ep-rule-mode-badge.active { background: rgba(76,175,80,0.15); color: var(--success); }
+    .ep-rule-mode-badge.disabled { background: var(--bg-tertiary); color: var(--text-muted); }
+    .ep-rule-trigger-tag {
+      display: inline-block; padding: 1px 5px; border-radius: 4px; font-size: 9px;
+      background: var(--bg-tertiary); color: var(--text-muted);
+    }
+    .ep-rule-summary { font-size: 10px; color: var(--text-muted); margin-bottom: 6px; }
+    .ep-rule-buttons { display: flex; gap: 6px; align-items: center; }
+    .ep-rule-buttons button { padding: 2px 8px; font-size: 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-secondary); cursor: pointer; }
+    .ep-rule-buttons button:hover { color: var(--text-primary); border-color: var(--accent); }
+    .ep-rule-buttons button.danger:hover { border-color: var(--error); color: var(--error); }
+    .ep-rule-test-panel {
+      margin-top: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 6px;
+      background: var(--bg-secondary); font-size: 10px; max-height: 200px; overflow-y: auto;
+    }
+    .ep-rule-test-row { display: flex; gap: 6px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--border); }
+    .ep-rule-test-row:last-child { border-bottom: none; }
+    .ep-rule-test-match { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .ep-rule-test-match.yes { background: var(--success); }
+    .ep-rule-test-match.no { background: var(--error); }
+    .ep-rule-cond-row, .ep-rule-action-row {
+      display: flex; gap: 6px; align-items: center; margin-bottom: 4px; flex-wrap: wrap;
+    }
+    .ep-rule-cond-row select, .ep-rule-action-row select { padding: 3px 4px; font-size: 11px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; }
+    .ep-rule-cond-row input, .ep-rule-action-row input, .ep-rule-action-row textarea {
+      padding: 3px 6px; font-size: 11px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; flex: 1; min-width: 80px;
+    }
+    .ep-rule-action-row textarea { min-height: 40px; resize: vertical; font-family: inherit; }
+    .ep-rule-remove-btn { padding: 1px 5px; font-size: 10px; border: 1px solid var(--border); border-radius: 3px; background: transparent; color: var(--text-muted); cursor: pointer; }
+    .ep-rule-remove-btn:hover { color: var(--error); border-color: var(--error); }
   </style>
 </head>
 <body>
@@ -1705,6 +1763,7 @@
               <div class="ep-tab" data-tab="ep-advanced" onclick="epSwitchTab(this)">Advanced</div>
               <div class="ep-tab" data-tab="ep-status-tab" onclick="epSwitchTab(this)">Status</div>
               <div class="ep-tab" data-tab="ep-history-tab" onclick="epSwitchTab(this); epLoadHistory()">History</div>
+              <div class="ep-tab" data-tab="ep-rules-tab" onclick="epSwitchTab(this); epLoadRules()">Rules</div>
             </div>
 
             <!-- BASICS TAB -->
@@ -1851,6 +1910,83 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- RULES TAB -->
+            <div class="ep-tab-panel" id="ep-rules-tab">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
+                  <input type="checkbox" id="ep-rules-enabled" onchange="epToggleRulesEnabled(this.checked)">
+                  Rules Enabled
+                </label>
+                <button class="ep-btn primary" onclick="epOpenRuleEditor()" style="margin-left:auto;padding:4px 12px;font-size:11px;">+ New Rule</button>
+              </div>
+              <div id="ep-rules-list" style="display:flex;flex-direction:column;gap:8px;">
+                <div class="ep-no-data" style="text-align:center;padding:20px;">No rules yet. Create one to get started.</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Rule Editor Modal -->
+        <div class="ep-modal-overlay" id="ep-rule-editor-modal">
+          <div class="ep-modal" style="max-width:560px;">
+            <div class="ep-modal-header">
+              <h3 id="ep-rule-editor-title">New Rule</h3>
+              <button class="ep-modal-close" onclick="epCloseRuleEditor()">&times;</button>
+            </div>
+            <div class="ep-modal-body" style="max-height:460px;overflow-y:auto;">
+              <input type="hidden" id="ep-rule-edit-id" value="">
+
+              <div class="ep-group">
+                <div class="ep-row">
+                  <label>Rule Name</label>
+                  <input type="text" id="ep-rule-name" placeholder="e.g. Notify Work Emails" style="flex:1;">
+                </div>
+              </div>
+
+              <div class="ep-group">
+                <div class="ep-group-title">WHEN (Trigger)</div>
+                <select id="ep-rule-trigger" style="width:100%;padding:4px;font-size:11px;">
+                  <option value="on_label_applied">Label Applied (after classification)</option>
+                  <option value="on_label_corrected">Label Corrected (manual fix)</option>
+                  <option value="on_schedule">On Schedule</option>
+                  <option value="on_daily_summary">Daily Summary</option>
+                </select>
+              </div>
+
+              <div class="ep-group">
+                <div class="ep-group-title">IF (Conditions) <span style="font-size:10px;color:var(--text-muted);">— all must match</span></div>
+                <div id="ep-rule-conditions"></div>
+                <button class="ep-btn" onclick="epAddConditionRow()" style="margin-top:4px;padding:2px 8px;font-size:10px;">+ Add Condition</button>
+              </div>
+
+              <div class="ep-group">
+                <div class="ep-group-title">THEN (Actions)</div>
+                <div id="ep-rule-actions"></div>
+                <button class="ep-btn" onclick="epAddActionRow()" style="margin-top:4px;padding:2px 8px;font-size:10px;">+ Add Action</button>
+              </div>
+
+              <div class="ep-group">
+                <div class="ep-row">
+                  <label>Mode</label>
+                  <select id="ep-rule-mode" style="padding:4px;font-size:11px;">
+                    <option value="draft">Draft (dry run)</option>
+                    <option value="active">Active</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </div>
+                <div class="ep-row">
+                  <label>Priority</label>
+                  <input type="number" id="ep-rule-priority" value="100" min="1" max="999" style="width:60px;">
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:1px solid var(--border);">
+              <button class="ep-btn" onclick="epCloseRuleEditor()">Cancel</button>
+              <button class="ep-btn" onclick="epTestRuleFromEditor()" style="color:var(--accent);">Test</button>
+              <button class="ep-btn primary" onclick="epSaveRule()">Save Rule</button>
             </div>
           </div>
         </div>
@@ -3077,7 +3213,7 @@
       }
     }
 
-    function epOpenCorrectPopover(el) {
+    async function epOpenCorrectPopover(el) {
       epCloseCorrectPopover();
       const msgId = el.dataset.msgid;
       const account = el.dataset.account;
@@ -3090,13 +3226,47 @@
         return;
       }
 
+      // Fetch label stats for grouped dropdown
+      let stats = [];
+      try {
+        stats = await window.pocketAgent.gmailGetLabelStats(account) || [];
+      } catch { /* ignore */ }
+
       const popover = document.createElement('div');
       popover.className = 'ep-correct-popover';
 
-      const options = labels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === currentLabel ? 'selected' : ''}>${l}</option>`).join('');
+      // Build grouped optgroups
+      const recentLabels = stats.slice().sort((a, b) => (b.lastUsed || '').localeCompare(a.lastUsed || '')).slice(0, 5).map(s => s.label).filter(Boolean);
+      const frequentLabels = stats.slice().sort((a, b) => b.count - a.count).slice(0, 5).map(s => s.label).filter(Boolean);
+      const seenInGroups = new Set([...recentLabels, ...frequentLabels]);
+
+      let optionsHtml = '';
+      if (recentLabels.length > 0) {
+        optionsHtml += '<optgroup label="Recent">';
+        optionsHtml += recentLabels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === currentLabel ? 'selected' : ''}>${l}</option>`).join('');
+        optionsHtml += '</optgroup>';
+      }
+      if (frequentLabels.length > 0) {
+        optionsHtml += '<optgroup label="Frequent">';
+        optionsHtml += frequentLabels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === currentLabel ? 'selected' : ''}>${l}</option>`).join('');
+        optionsHtml += '</optgroup>';
+      }
+      const remaining = labels.filter(l => !seenInGroups.has(l));
+      if (remaining.length > 0 || seenInGroups.size === 0) {
+        optionsHtml += '<optgroup label="All Labels">';
+        const allOpts = seenInGroups.size === 0 ? labels : remaining;
+        optionsHtml += allOpts.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === currentLabel ? 'selected' : ''}>${l}</option>`).join('');
+        optionsHtml += '</optgroup>';
+      }
+      optionsHtml += '<option value="__create_new__">+ Create new label...</option>';
+
       popover.innerHTML = `
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Correct label:</div>
-        <select id="ep-correct-select">${options}</select>
+        <select id="ep-correct-select" onchange="epHandleCorrectSelectChange(this)">${optionsHtml}</select>
+        <div id="ep-correct-new-label" style="display:none;margin-top:4px;">
+          <input type="text" id="ep-correct-new-input" placeholder="New label name" style="width:100%;margin-bottom:4px;padding:4px 6px;font-size:11px;">
+          <button style="font-size:10px;padding:2px 8px;" onclick="epCreateNewLabelInPopover()">Create</button>
+        </div>
         <label><input type="checkbox" id="ep-correct-example"> Use as training example</label>
         <div class="ep-correct-actions">
           <button onclick="epCloseCorrectPopover()">Cancel</button>
@@ -3120,6 +3290,37 @@
           }
         });
       }, 0);
+    }
+
+    function epHandleCorrectSelectChange(select) {
+      const newLabelDiv = document.getElementById('ep-correct-new-label');
+      if (select.value === '__create_new__') {
+        newLabelDiv.style.display = 'block';
+        document.getElementById('ep-correct-new-input').focus();
+      } else {
+        newLabelDiv.style.display = 'none';
+      }
+    }
+
+    async function epCreateNewLabelInPopover() {
+      const input = document.getElementById('ep-correct-new-input');
+      const name = (input.value || '').trim();
+      if (!name) return;
+      try {
+        await window.pocketAgent.gmailFetchLabels();
+        const select = document.getElementById('ep-correct-select');
+        // Add new option before the create option
+        const newOpt = document.createElement('option');
+        newOpt.value = name;
+        newOpt.textContent = name;
+        newOpt.selected = true;
+        const createOpt = select.querySelector('option[value="__create_new__"]');
+        select.insertBefore(newOpt, createOpt);
+        document.getElementById('ep-correct-new-label').style.display = 'none';
+        showToast('Label ready: ' + name, 'success');
+      } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+      }
     }
 
     async function epSaveCorrection(msgId, account) {
@@ -3194,15 +3395,21 @@
           const correctedBadge = isCorrected ? '<span class="ep-fail-badge" style="background:rgba(33,150,243,0.12);color:#2196f3;">corrected</span>' : '';
           const labelBadgeClass = isCorrected ? 'corrected' : conf;
 
+          const snippet = (e.snippet || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const rowId = 'ep-snip-' + msgId.replace(/[^a-zA-Z0-9]/g, '');
+
           return `<tr>
             <td style="white-space:nowrap;">${date}</td>
             <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${from}">${from}</td>
-            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${subject}">${subject}</td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${subject}"><span class="ep-subject-toggle" onclick="epToggleSnippet('${rowId}')">${subject}</span></td>
             <td>
               <span class="ep-label-badge ${labelBadgeClass} ep-label-click" data-msgid="${msgId}" data-account="${acct}" data-current="${displayLabel}" onclick="epOpenCorrectPopover(this)" style="cursor:pointer;" title="Click to correct">${displayLabel} &#9662;</span>
               ${correctedBadge}
             </td>
             <td><span class="ep-label-badge ${conf}">${conf}</span>${failBadge}</td>
+          </tr>
+          <tr class="ep-snippet-row hidden" id="${rowId}">
+            <td colspan="5" class="ep-snippet-cell">${snippet || '<em>No preview available</em>'}</td>
           </tr>`;
         }).join('');
 
@@ -3216,9 +3423,364 @@
       }
     }
 
+    function epToggleSnippet(rowId) {
+      const row = document.getElementById(rowId);
+      if (row) row.classList.toggle('hidden');
+    }
+
     function epHistoryPage(dir) {
       epHistoryOffset = Math.max(0, epHistoryOffset + dir * EP_HISTORY_PAGE);
       epLoadHistory();
+    }
+
+    // ---- Rules Tab ----
+
+    async function epToggleRulesEnabled(checked) {
+      await window.pocketAgent.setSetting('gmail.emailProcessing.rulesEnabled', checked ? 'true' : 'false');
+      showToast(checked ? 'Rules enabled' : 'Rules disabled', 'success');
+    }
+
+    async function epLoadRules() {
+      const list = document.getElementById('ep-rules-list');
+      const toggle = document.getElementById('ep-rules-enabled');
+      const enabled = await window.pocketAgent.getSetting('gmail.emailProcessing.rulesEnabled');
+      toggle.checked = enabled === 'true';
+
+      try {
+        const rules = await window.pocketAgent.rulesGetAll();
+        if (!rules || rules.length === 0) {
+          list.innerHTML = '<div class="ep-no-data" style="text-align:center;padding:20px;">No rules yet. Create one to get started.</div>';
+          return;
+        }
+        list.innerHTML = rules.map(r => {
+          const conditions = JSON.parse(r.conditions_json || '[]');
+          const actions = JSON.parse(r.actions_json || '[]');
+          const condSummary = conditions.length > 0 ? conditions.map(c => c.type + '=' + c.value).join(', ') : 'no conditions';
+          const actionSummary = actions.length > 0 ? actions.map(a => a.type).join(', ') : 'no actions';
+          const lastRun = r.last_run_at ? new Date(r.last_run_at + 'Z').toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : 'never';
+          const mode = r.mode || 'draft';
+          const trigger = (r.trigger_type || '').replace('on_', '').replace(/_/g, ' ');
+
+          return `<div class="ep-rule-card" data-rule-id="${r.id}">
+            <div class="ep-rule-card-header">
+              <span class="ep-rule-name">${(r.name || 'Untitled').replace(/</g, '&lt;')}</span>
+              <span class="ep-rule-mode-badge ${mode}">${mode}</span>
+              <span class="ep-rule-trigger-tag">${trigger}</span>
+              <label style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:10px;cursor:pointer;">
+                <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="epToggleRule(${r.id}, this.checked)">
+              </label>
+            </div>
+            <div class="ep-rule-summary">IF ${condSummary} THEN ${actionSummary} | Last: ${lastRun} | Priority: ${r.priority}</div>
+            <div class="ep-rule-buttons">
+              <button onclick="epTestRule(${r.id}, this)">Test</button>
+              <button onclick="epOpenRuleEditor(${r.id})">Edit</button>
+              <button onclick="epDuplicateRule(${r.id})">Duplicate</button>
+              <button class="danger" onclick="epDeleteRule(${r.id})">Delete</button>
+            </div>
+            <div id="ep-rule-test-${r.id}" class="ep-rule-test-panel" style="display:none;"></div>
+          </div>`;
+        }).join('');
+      } catch (err) {
+        list.innerHTML = '<div class="ep-no-data" style="color:var(--error);">Failed to load rules: ' + err.message + '</div>';
+      }
+    }
+
+    async function epToggleRule(id, enabled) {
+      await window.pocketAgent.rulesToggle(id, enabled);
+      showToast(enabled ? 'Rule enabled' : 'Rule disabled', 'success');
+    }
+
+    async function epDeleteRule(id) {
+      if (!confirm('Delete this rule?')) return;
+      await window.pocketAgent.rulesDelete(id);
+      showToast('Rule deleted', 'success');
+      epLoadRules();
+    }
+
+    async function epDuplicateRule(id) {
+      try {
+        const rule = await window.pocketAgent.rulesGet(id);
+        if (!rule) return;
+        await window.pocketAgent.rulesCreate({
+          name: (rule.name || 'Untitled') + ' (copy)',
+          account: rule.account,
+          trigger_type: rule.trigger_type,
+          conditions_json: rule.conditions_json,
+          actions_json: rule.actions_json,
+          mode: 'draft',
+          priority: rule.priority,
+        });
+        showToast('Rule duplicated', 'success');
+        epLoadRules();
+      } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+      }
+    }
+
+    async function epTestRule(id, btn) {
+      const panel = document.getElementById('ep-rule-test-' + id);
+      if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+        return;
+      }
+      panel.style.display = 'block';
+      panel.innerHTML = 'Testing...';
+      try {
+        const results = await window.pocketAgent.rulesTest(id, 10);
+        if (!results || results.length === 0) {
+          panel.innerHTML = '<em>No emails to test against</em>';
+          return;
+        }
+        panel.innerHTML = results.map(r => {
+          const matchClass = r.matched ? 'yes' : 'no';
+          const condDetail = r.conditions.map(c => `<span style="color:${c.passed ? 'var(--success)' : 'var(--error)'}">${c.type}=${c.value}</span>`).join(', ');
+          return `<div class="ep-rule-test-row">
+            <div class="ep-rule-test-match ${matchClass}"></div>
+            <div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(r.email.subject || '').replace(/"/g, '&quot;')}">${(r.email.subject || '(no subject)').replace(/</g, '&lt;')}</div>
+            <div style="color:var(--text-muted);">${(r.email.label || '').replace(/</g, '&lt;')}</div>
+          </div>
+          <div style="font-size:9px;color:var(--text-muted);padding:0 0 3px 16px;">${condDetail || 'no conditions'}</div>`;
+        }).join('');
+      } catch (err) {
+        panel.innerHTML = '<em style="color:var(--error);">Test failed: ' + err.message + '</em>';
+      }
+    }
+
+    // ---- Rule Editor ----
+
+    const EP_CONDITION_TYPES = [
+      { value: 'label_is', label: 'Label is', inputType: 'label' },
+      { value: 'label_is_not', label: 'Label is not', inputType: 'label' },
+      { value: 'confidence_gte', label: 'Confidence >=', inputType: 'confidence' },
+      { value: 'confidence_lt', label: 'Confidence <', inputType: 'confidence' },
+      { value: 'sender_domain', label: 'Sender domain', inputType: 'text' },
+      { value: 'age_minutes_lt', label: 'Age < minutes', inputType: 'number' },
+      { value: 'age_minutes_gt', label: 'Age > minutes', inputType: 'number' },
+      { value: 'corrected_by_user', label: 'Corrected by user', inputType: 'boolean' },
+    ];
+
+    const EP_ACTION_TYPES = [
+      { value: 'send_telegram', label: 'Send Telegram', fields: ['template'] },
+      { value: 'apply_label', label: 'Apply Label', fields: ['label'] },
+      { value: 'remove_label', label: 'Remove Label', fields: ['label'] },
+      { value: 'mark_read', label: 'Mark as Read', fields: [] },
+      { value: 'archive', label: 'Archive', fields: [] },
+      { value: 'add_to_summary', label: 'Add to Daily Summary', fields: [] },
+      { value: 'draft_reply', label: 'Draft Reply', fields: ['instructions', 'tone'] },
+      { value: 'send_email', label: 'Send Email', fields: ['to', 'subjectTemplate', 'bodyTemplate'] },
+      { value: 'do_nothing', label: 'Do Nothing', fields: [] },
+    ];
+
+    async function epOpenRuleEditor(ruleId) {
+      const modal = document.getElementById('ep-rule-editor-modal');
+      const titleEl = document.getElementById('ep-rule-editor-title');
+      document.getElementById('ep-rule-edit-id').value = ruleId || '';
+      document.getElementById('ep-rule-conditions').innerHTML = '';
+      document.getElementById('ep-rule-actions').innerHTML = '';
+
+      if (ruleId) {
+        titleEl.textContent = 'Edit Rule';
+        const rule = await window.pocketAgent.rulesGet(ruleId);
+        if (!rule) return;
+        document.getElementById('ep-rule-name').value = rule.name || '';
+        document.getElementById('ep-rule-trigger').value = rule.trigger_type || 'on_label_applied';
+        document.getElementById('ep-rule-mode').value = rule.mode || 'draft';
+        document.getElementById('ep-rule-priority').value = rule.priority || 100;
+
+        const conditions = JSON.parse(rule.conditions_json || '[]');
+        conditions.forEach(c => epAddConditionRow(c.type, c.value));
+
+        const actions = JSON.parse(rule.actions_json || '[]');
+        actions.forEach(a => epAddActionRow(a.type, a.config));
+      } else {
+        titleEl.textContent = 'New Rule';
+        document.getElementById('ep-rule-name').value = '';
+        document.getElementById('ep-rule-trigger').value = 'on_label_applied';
+        document.getElementById('ep-rule-mode').value = 'draft';
+        document.getElementById('ep-rule-priority').value = '100';
+      }
+
+      modal.style.display = 'flex';
+    }
+
+    function epCloseRuleEditor() {
+      document.getElementById('ep-rule-editor-modal').style.display = 'none';
+    }
+
+    function epBuildLabelOptions(selected) {
+      const labels = epActiveLabels.length > 0 ? epActiveLabels : epGmailLabels;
+      return labels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === selected ? 'selected' : ''}>${l}</option>`).join('');
+    }
+
+    function epAddConditionRow(type, value) {
+      const container = document.getElementById('ep-rule-conditions');
+      const row = document.createElement('div');
+      row.className = 'ep-rule-cond-row';
+
+      const typeOpts = EP_CONDITION_TYPES.map(t => `<option value="${t.value}" ${t.value === type ? 'selected' : ''}>${t.label}</option>`).join('');
+      const condDef = EP_CONDITION_TYPES.find(t => t.value === type) || EP_CONDITION_TYPES[0];
+      const resolvedType = type || condDef.value;
+
+      row.innerHTML = `
+        <select class="ep-cond-type" onchange="epConditionTypeChanged(this)">${typeOpts}</select>
+        ${epBuildConditionValueInput(resolvedType, value || '')}
+        <button class="ep-rule-remove-btn" onclick="this.parentElement.remove()">x</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function epBuildConditionValueInput(type, value) {
+      const def = EP_CONDITION_TYPES.find(t => t.value === type);
+      const inputType = def ? def.inputType : 'text';
+      switch (inputType) {
+        case 'label':
+          return `<select class="ep-cond-value">${epBuildLabelOptions(value)}</select>`;
+        case 'confidence':
+          return `<select class="ep-cond-value">
+            <option value="high" ${value === 'high' ? 'selected' : ''}>high</option>
+            <option value="medium" ${value === 'medium' ? 'selected' : ''}>medium</option>
+            <option value="low" ${value === 'low' ? 'selected' : ''}>low</option>
+          </select>`;
+        case 'boolean':
+          return `<select class="ep-cond-value">
+            <option value="true" ${value === 'true' ? 'selected' : ''}>true</option>
+            <option value="false" ${value !== 'true' ? 'selected' : ''}>false</option>
+          </select>`;
+        case 'number':
+          return `<input type="number" class="ep-cond-value" value="${value || '30'}" min="0" style="width:70px;">`;
+        default:
+          return `<input type="text" class="ep-cond-value" value="${(value || '').replace(/"/g, '&quot;')}" placeholder="value">`;
+      }
+    }
+
+    function epConditionTypeChanged(select) {
+      const row = select.parentElement;
+      const type = select.value;
+      const oldValue = row.querySelector('.ep-cond-value');
+      const newHtml = epBuildConditionValueInput(type, '');
+      const temp = document.createElement('div');
+      temp.innerHTML = newHtml;
+      if (oldValue) oldValue.replaceWith(temp.firstElementChild);
+    }
+
+    function epAddActionRow(type, config) {
+      const container = document.getElementById('ep-rule-actions');
+      const row = document.createElement('div');
+      row.className = 'ep-rule-action-row';
+
+      const typeOpts = EP_ACTION_TYPES.map(t => `<option value="${t.value}" ${t.value === type ? 'selected' : ''}>${t.label}</option>`).join('');
+      const resolvedType = type || EP_ACTION_TYPES[0].value;
+
+      row.innerHTML = `
+        <select class="ep-action-type" onchange="epActionTypeChanged(this)">${typeOpts}</select>
+        ${epBuildActionConfigInputs(resolvedType, config || {})}
+        <button class="ep-rule-remove-btn" onclick="this.parentElement.remove()">x</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function epBuildActionConfigInputs(type, config) {
+      switch (type) {
+        case 'send_telegram':
+          return `<input type="text" class="ep-action-config" data-key="template" value="${(config.template || '{label}: {subject} from {sender}').replace(/"/g, '&quot;')}" placeholder="Template: {subject}, {sender}, {label}, {preview}">`;
+        case 'apply_label':
+        case 'remove_label':
+          return `<select class="ep-action-config" data-key="label">${epBuildLabelOptions(config.label || '')}</select>`;
+        case 'draft_reply':
+          return `<input type="text" class="ep-action-config" data-key="instructions" value="${(config.instructions || '').replace(/"/g, '&quot;')}" placeholder="Reply instructions" style="margin-bottom:2px;">
+                  <select class="ep-action-config" data-key="tone">
+                    <option value="professional" ${(config.tone || '') === 'professional' ? 'selected' : ''}>Professional</option>
+                    <option value="casual" ${config.tone === 'casual' ? 'selected' : ''}>Casual</option>
+                    <option value="friendly" ${config.tone === 'friendly' ? 'selected' : ''}>Friendly</option>
+                    <option value="formal" ${config.tone === 'formal' ? 'selected' : ''}>Formal</option>
+                  </select>`;
+        case 'send_email':
+          return `<input type="text" class="ep-action-config" data-key="to" value="${(config.to || '').replace(/"/g, '&quot;')}" placeholder="Recipient email">
+                  <input type="text" class="ep-action-config" data-key="subjectTemplate" value="${(config.subjectTemplate || 'Re: {subject}').replace(/"/g, '&quot;')}" placeholder="Subject template">
+                  <input type="text" class="ep-action-config" data-key="bodyTemplate" value="${(config.bodyTemplate || '{preview}').replace(/"/g, '&quot;')}" placeholder="Body template">`;
+        default:
+          return '';
+      }
+    }
+
+    function epActionTypeChanged(select) {
+      const row = select.parentElement;
+      const type = select.value;
+      // Remove old config inputs but keep the select and remove button
+      const oldConfigs = row.querySelectorAll('.ep-action-config');
+      oldConfigs.forEach(el => el.remove());
+      const newHtml = epBuildActionConfigInputs(type, {});
+      if (newHtml) {
+        const temp = document.createElement('div');
+        temp.innerHTML = newHtml;
+        const removeBtn = row.querySelector('.ep-rule-remove-btn');
+        while (temp.firstElementChild) {
+          row.insertBefore(temp.firstElementChild, removeBtn);
+        }
+      }
+    }
+
+    async function epSaveRule() {
+      const id = document.getElementById('ep-rule-edit-id').value;
+      const name = document.getElementById('ep-rule-name').value.trim();
+      if (!name) { showToast('Rule name required', 'error'); return; }
+
+      // Collect conditions
+      const condRows = document.querySelectorAll('#ep-rule-conditions .ep-rule-cond-row');
+      const conditions = Array.from(condRows).map(row => {
+        const type = row.querySelector('.ep-cond-type').value;
+        const valueEl = row.querySelector('.ep-cond-value');
+        return { type, value: valueEl ? valueEl.value : '' };
+      });
+
+      // Collect actions
+      const actionRows = document.querySelectorAll('#ep-rule-actions .ep-rule-action-row');
+      const actions = Array.from(actionRows).map(row => {
+        const type = row.querySelector('.ep-action-type').value;
+        const config = {};
+        row.querySelectorAll('.ep-action-config').forEach(el => {
+          const key = el.dataset.key;
+          if (key) config[key] = el.value;
+        });
+        return { type, config };
+      });
+
+      const data = {
+        name,
+        trigger_type: document.getElementById('ep-rule-trigger').value,
+        conditions_json: JSON.stringify(conditions),
+        actions_json: JSON.stringify(actions),
+        mode: document.getElementById('ep-rule-mode').value,
+        priority: parseInt(document.getElementById('ep-rule-priority').value) || 100,
+      };
+
+      try {
+        if (id) {
+          await window.pocketAgent.rulesUpdate(parseInt(id), data);
+          showToast('Rule updated', 'success');
+        } else {
+          await window.pocketAgent.rulesCreate(data);
+          showToast('Rule created', 'success');
+        }
+        epCloseRuleEditor();
+        epLoadRules();
+      } catch (err) {
+        showToast('Save failed: ' + err.message, 'error');
+      }
+    }
+
+    async function epTestRuleFromEditor() {
+      const id = document.getElementById('ep-rule-edit-id').value;
+      if (!id) {
+        showToast('Save the rule first to test it', 'error');
+        return;
+      }
+      // Save first, then test
+      await epSaveRule();
+      setTimeout(() => {
+        const btn = document.querySelector(`[data-rule-id="${id}"] .ep-rule-buttons button`);
+        if (btn) epTestRule(parseInt(id), btn);
+      }, 200);
     }
 
     // ====================================================================

@@ -170,6 +170,7 @@ let memory: MemoryManager | null = null;
 let scheduler: CronScheduler | null = null;
 let telegramBot: TelegramBot | null = null;
 let emailProcessor: import('../scheduler/email-processor').EmailProcessor | null = null;
+let rulesEngine: import('../scheduler/rules-engine').RulesEngine | null = null;
 let chatWindow: BrowserWindow | null = null;
 let cronWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
@@ -1467,7 +1468,7 @@ function setupIPC(): void {
     }
   });
 
-  // Helper: ensure email processor exists (lazy init)
+  // Helper: ensure email processor and rules engine exist (lazy init)
   async function ensureEmailProcessor(): Promise<void> {
     if (!emailProcessor) {
       const { EmailProcessor } = await import('../scheduler/email-processor');
@@ -1481,6 +1482,22 @@ function setupIPC(): void {
           win.webContents.send('gmail:progress', { status, ...detail });
         }
       });
+    }
+    if (!rulesEngine) {
+      const { RulesEngine } = await import('../scheduler/rules-engine');
+      rulesEngine = new RulesEngine(emailProcessor.getDb());
+      rulesEngine.setNotificationHandler((title: string, body: string) => {
+        showNotification(title, body);
+      });
+      rulesEngine.setTelegramSender((text: string) => {
+        const chatId = SettingsManager.get('telegram.defaultChatId');
+        if (chatId && telegramBot) {
+          telegramBot.sendMessage(Number(chatId), text).catch((err: unknown) => {
+            console.warn('[RulesEngine] Telegram send failed:', err);
+          });
+        }
+      });
+      emailProcessor.setRulesEngine(rulesEngine);
     }
   }
 
@@ -1520,6 +1537,79 @@ function setupIPC(): void {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
     }
+  });
+
+  ipcMain.handle('gmail:getLabelStats', async (_evt: unknown, account?: string) => {
+    try {
+      await ensureEmailProcessor();
+      return emailProcessor!.getLabelStats(account);
+    } catch { return []; }
+  });
+
+  // Rules Engine IPC handlers
+  ipcMain.handle('rules:getAll', async (_evt: unknown, account?: string) => {
+    try {
+      await ensureEmailProcessor();
+      return rulesEngine!.getRules(account);
+    } catch { return []; }
+  });
+
+  ipcMain.handle('rules:get', async (_evt: unknown, id: number) => {
+    try {
+      await ensureEmailProcessor();
+      return rulesEngine!.getRule(id);
+    } catch { return null; }
+  });
+
+  ipcMain.handle('rules:create', async (_evt: unknown, rule: Record<string, unknown>) => {
+    try {
+      await ensureEmailProcessor();
+      return rulesEngine!.createRule(rule as Partial<import('../scheduler/rules-engine').EmailRule>);
+    } catch (err) { return { error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('rules:update', async (_evt: unknown, id: number, updates: Record<string, unknown>) => {
+    try {
+      await ensureEmailProcessor();
+      return rulesEngine!.updateRule(id, updates as Partial<import('../scheduler/rules-engine').EmailRule>);
+    } catch (err) { return { error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('rules:delete', async (_evt: unknown, id: number) => {
+    try {
+      await ensureEmailProcessor();
+      rulesEngine!.deleteRule(id);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('rules:toggle', async (_evt: unknown, id: number, enabled: boolean) => {
+    try {
+      await ensureEmailProcessor();
+      rulesEngine!.toggleRule(id, enabled);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('rules:test', async (_evt: unknown, id: number, limit?: number) => {
+    try {
+      await ensureEmailProcessor();
+      return rulesEngine!.testRule(id, limit ?? 10);
+    } catch { return []; }
+  });
+
+  ipcMain.handle('rules:getExecutions', async (_evt: unknown, ruleId?: number, limit?: number) => {
+    try {
+      await ensureEmailProcessor();
+      return rulesEngine!.getExecutionLog(ruleId, limit ?? 50);
+    } catch { return []; }
+  });
+
+  ipcMain.handle('rules:runDailySummary', async () => {
+    try {
+      await ensureEmailProcessor();
+      return await rulesEngine!.runDailySummary();
+    } catch (err) { return { success: false, error: err instanceof Error ? err.message : 'Failed' }; }
   });
 
   ipcMain.handle('telegram:restart', async () => {
