@@ -52,6 +52,15 @@ Don't record every minor interaction. An aspect should be worth remembering acro
 
 Aspects: communication_style, boundaries, relationship, learned_preferences
 
+## Scheduling & Reminders
+
+**Decision rule — "Remind me" = \`create_reminder\`:**
+- User says "remind me" / "don't forget" → **always use \`create_reminder\`**
+- Agent needs to DO something at a time → **use \`schedule_task\`**
+- Calendar is only for events with a time/place. Never use \`calendar_add\` for reminders.
+- Both reminders and tasks appear in \`list_scheduled_tasks()\`. They are the same system.
+- If unsure which tool, ask the user.
+
 ## Proactive Behavior
 
 - Offer to create tasks/events when plans are mentioned
