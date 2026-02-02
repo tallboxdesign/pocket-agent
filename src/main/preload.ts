@@ -185,6 +185,16 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   synthesizeTTS: (text: string) => ipcRenderer.invoke('voice:tts', text),
   requestMicPermission: () => ipcRenderer.invoke('voice:micPermission'),
   transcribeAudio: (audioData: ArrayBuffer) => ipcRenderer.invoke('voice:transcribe', audioData),
+  onVoicePlay: (callback: (audioPath: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, audioPath: string) => callback(audioPath);
+    ipcRenderer.on('voice:play', listener);
+    return () => ipcRenderer.removeListener('voice:play', listener);
+  },
+  onVoiceTtsToggled: (callback: (enabled: boolean) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, enabled: boolean) => callback(enabled);
+    ipcRenderer.on('voice:ttsToggled', listener);
+    return () => ipcRenderer.removeListener('voice:ttsToggled', listener);
+  },
 
   // Updates
   checkForUpdates: () => ipcRenderer.invoke('updater:checkForUpdates'),
@@ -342,6 +352,8 @@ declare global {
       synthesizeTTS: (text: string) => Promise<{ success: boolean; audioPath?: string; error?: string }>;
       requestMicPermission: () => Promise<{ granted: boolean }>;
       transcribeAudio: (audioData: ArrayBuffer) => Promise<{ success: boolean; text?: string; error?: string }>;
+      onVoicePlay: (callback: (audioPath: string) => void) => () => void;
+      onVoiceTtsToggled: (callback: (enabled: boolean) => void) => () => void;
       // Skills
       getSkillsStatus: () => Promise<{
         skills: Array<{

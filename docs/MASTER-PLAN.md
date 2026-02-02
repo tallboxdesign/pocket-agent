@@ -27,6 +27,7 @@
 16. [GLM Project Prioritization](#16-glm-project-prioritization)
 17. [Upstream Ports](#17-upstream-ports-from-kenkaiiipocket-agent)
 18. [Task Consolidation & Kanban Automation](#18-task-consolidation--kanban-automation)
+19. [Voice / TTS Agent Tools](#19-voice--tts-agent-tools)
 
 ---
 
@@ -1175,6 +1176,39 @@ async function migrateTasksToKanban() {
 
 ---
 
+## 19. Voice / TTS Agent Tools
+
+### What
+The app already has a TTS pipeline (Edge TTS, `en-US-BrianMultilingualNeural` voice, MP3 caching) and the chat UI can play audio — but the agent doesn't know it has voice. Give the agent 4 MCP tools to speak on demand, check/toggle auto-TTS, and configure voice settings (e.g., Telegram voice replies).
+
+### Current State
+- Edge TTS works: `src/voice/tts.ts` — `synthesizeSpeech(text, outputDir)` → cached MP3
+- Chat UI has auto-TTS toggle and playback controls
+- Agent has NO voice tools and NO voice section in capabilities prompt
+- Agent tells users "I can't speak" even though the app can
+
+### Tools
+| Tool | Input | Effect |
+|------|-------|--------|
+| `speak` | `{ text: string }` | Synthesize text → push `voice:play` to all BrowserWindows → audio plays in chat UI |
+| `voice_status` | `{}` | Return current `autoTTS` and `telegramVoiceReplies` settings |
+| `voice_toggle` | `{ enabled: boolean }` | Set `voice.ttsEnabled`, push `voice:ttsToggled` to sync UI toggle |
+| `voice_config` | `{ telegramVoiceReplies?: boolean }` | Set voice-related settings, return current state |
+
+### Agent Awareness
+- Add Voice/TTS section to `buildCapabilitiesPrompt()` documenting all 4 tools
+- Agent should speak when: user sent a voice message, delivering reminders, user says "say" or "read aloud"
+- Remove "Cannot make calls" from Limitations since voice now works
+
+### Implementation
+- CREATE: `src/tools/voice-tools.ts` — 4 tool definitions + handlers + `getVoiceTools()` collection
+- MODIFY: `src/tools/index.ts` — import + register in `buildSdkMcpServers()` and `getCustomTools()`
+- MODIFY: `src/agent/index.ts` — allowedTools, capabilities prompt, formatToolName, limitations
+- MODIFY: `src/main/preload.ts` — `onVoicePlay` and `onVoiceTtsToggled` event bridges
+- MODIFY: `ui/chat.html` — listeners for agent-initiated `voice:play` and `voice:ttsToggled`
+
+---
+
 ## Implementation Order (Priority)
 
 ### Phase 0 — Upstream Ports (Bug Fixes & UX) ✅ DONE
@@ -1214,6 +1248,7 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 25. Project selector in New Task modal (quick win, depends on unified task system)
 26. Auto-task recording — agent auto-creates Kanban task when no task context exists
 27. `/continue` command — shows list of all active projects with status/issues, user picks one to resume
+28. Voice/TTS agent tools — 4 MCP tools (speak, voice_status, voice_toggle, voice_config) + capabilities prompt + UI event bridges
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
@@ -1221,7 +1256,7 @@ _Central service: `src/scheduler/glm-loop.ts` — orchestrates all parallel GLM 
 _Control panel: Settings → GLM Background Jobs — toggle/configure each job_
 
 #### 3A. GLM Email Processor (every 20-30 min, configurable) — v2 with Codex reliability fixes
-28. **Email Processing Service** — `src/scheduler/email-processor.ts`
+29. **Email Processing Service** — `src/scheduler/email-processor.ts`
     - **Checkpoint-based tracking**: per-account `last_internal_date_ms` in SQLite, NOT `newer_than:Xm`. Survives app offline/restart.
     - **Idempotent via `AI/Processed` label**: auto-created, applied to every classified email. Fetch query excludes `-label:AI/Processed`. Safe across crashes, reinstalls, multi-machine.
     - **Base query: `in:inbox`** (not categories). Categories are optional filter. Works even with categories disabled.
@@ -1236,7 +1271,7 @@ _Control panel: Settings → GLM Background Jobs — toggle/configure each job_
     - **3 SQLite tables**: `email_processing_checkpoints`, `email_processing_state`, `email_processing_runs`
     - **11 settings keys**: enabled, intervalMin, accounts, categories, labelConfig, processedLabel, reviewLabel, maxEmailsPerRun, gmailConcurrency, glmConcurrency, lookbackDays
     - Scaling: 55 emails = 11 batches, 4 GLM rounds (conc:3), ~5s, ~$0.03. Monthly: ~$1-2.
-29. **Email Settings UI** — `ui/settings.html` Email Processing section
+30. **Email Settings UI** — `ui/settings.html` Email Processing section
     - Enable/disable toggle for the whole email processing job
     - Accounts to monitor (checkboxes, fetched from gog auth)
     - Categories to scan (optional: primary/updates/social/promotions/forums)
@@ -1248,22 +1283,22 @@ _Control panel: Settings → GLM Background Jobs — toggle/configure each job_
     - Processing status: last run time, emails processed, next run, "Run Now" button
 
 #### 3B. GLM Session Notes (every 30 min)
-30. **Session Notes Service** — `src/scheduler/session-notes.ts`
+31. **Session Notes Service** — `src/scheduler/session-notes.ts`
     - For each active session: read messages + event_log + activity_log
     - For each active worker: read output + events
     - Fire all session/worker note jobs to GLM in parallel
     - GLM produces structured notes: what worked, what failed, user complaints, decisions
     - Save to `session_notes` table (session_id, task_id, worker_id, notes JSON, timestamp)
     - One global merge pass: cross-session summary
-31. **GLM Event Triggers** — instant notes (don't wait for 30-min sweep)
+32. **GLM Event Triggers** — instant notes (don't wait for 30-min sweep)
     - Worker failure → GLM summarizes immediately
     - User complaint (negative sentiment) → GLM flags as unresolved
     - Task moved to blocked → note saved
 
 #### 3C. Scheduling & Notifications
-32. Kanban TaskScheduler — execute/remind on `due_date` (`src/scheduler/task-scheduler.ts`)
-33. Task detail panel — schedule section (due date, action type, channels, recurrence)
-34. Telegram notifications for urgent emails (uses email processor notify pipeline)
+33. Kanban TaskScheduler — execute/remind on `due_date` (`src/scheduler/task-scheduler.ts`)
+34. Task detail panel — schedule section (due date, action type, channels, recurrence)
+35. Telegram notifications for urgent emails (uses email processor notify pipeline)
 
 #### GLM Parallel Architecture
 All GLM jobs use `Promise.all` for maximum parallelism. In a single 30-min sweep:
@@ -1279,28 +1314,28 @@ Cost:                ~$0.03 per sweep, ~$1.50/day
 
 ### Phase 4 — Intelligence & Continuity
 _Depends on: session_notes (Phase 3), GLM loop running_
-34. **Session briefing on startup** — read session_notes + kanban state + event_log errors → GLM compresses into ~800 token briefing → injected into system prompt. Manager knows everything from previous sessions.
-35. Daily summary generation — GLM compiles all session_notes from previous day into morning digest, sent to Telegram
-36. GLM project prioritization — morning recommendations ("what should I work on today?") based on unresolved issues, stale tasks, momentum
+36. **Session briefing on startup** — read session_notes + kanban state + event_log errors → GLM compresses into ~800 token briefing → injected into system prompt. Manager knows everything from previous sessions.
+37. Daily summary generation — GLM compiles all session_notes from previous day into morning digest, sent to Telegram
+38. GLM project prioritization — morning recommendations ("what should I work on today?") based on unresolved issues, stale tasks, momentum
 
 ### Phase 5 — Monitoring & Organization
 _Depends on: scheduler (Phase 3), intelligence (Phase 4)_
-37. Universal heartbeat system — monitors active workers/jobs, pings Telegram at milestones
-38. Tag & assignee system — autocomplete, dropdown, colors, routing (assign to worker/glm/claude)
-39. Project folder manager — plan subfolders with PLAN.md, TODO.md, PROGRESS.md
+39. Universal heartbeat system — monitors active workers/jobs, pings Telegram at milestones
+40. Tag & assignee system — autocomplete, dropdown, colors, routing (assign to worker/glm/claude)
+41. Project folder manager — plan subfolders with PLAN.md, TODO.md, PROGRESS.md
 
 ### Phase 6 — Workers & Research
 _Depends on: heartbeat (Phase 5), tag routing (Phase 5), scheduler (Phase 3)_
-40. Worker manager + execution DB (`src/workers/`)
-41. Claude CLI spawning + Kanban integration (workers build code, heartbeat monitors)
-42. Multi-agent research orchestrator (`src/agent/research.ts`)
-43. Research tools + Kanban research filter
+42. Worker manager + execution DB (`src/workers/`)
+43. Claude CLI spawning + Kanban integration (workers build code, heartbeat monitors)
+44. Multi-agent research orchestrator (`src/agent/research.ts`)
+45. Research tools + Kanban research filter
 
 ### Phase 7 — Cloud Backup & Sync
 _Depends on: stable system — all data in Kanban/SQLite, nothing scattered_
-44. Upload all Pocket Agent data (DB, attachments, photos) to cloud storage
-45. Enable migration to another computer with full state restore
-46. Choose backend (S3, Google Drive, or iCloud)
+46. Upload all Pocket Agent data (DB, attachments, photos) to cloud storage
+47. Enable migration to another computer with full state restore
+48. Choose backend (S3, Google Drive, or iCloud)
 
 ### Completed Phases
 - ✅ Phase 5 (old) — Gmail integration (gog CLI — 8 tools, multi-account)

@@ -947,6 +947,11 @@ class AgentManagerClass extends EventEmitter {
         'mcp__pocket-agent__classify_content',
         'mcp__pocket-agent__extract_info',
         'mcp__pocket-agent__bulk_process',
+        // Voice tools
+        'mcp__pocket-agent__speak',
+        'mcp__pocket-agent__voice_status',
+        'mcp__pocket-agent__voice_toggle',
+        'mcp__pocket-agent__voice_config',
       ],
       persistSession: false,
     };
@@ -1115,6 +1120,26 @@ pty_exec(command="npm init")
 pty_exec(command="htop", timeout=30000)
 \`\`\`
 
+### Voice / Text-to-Speech
+You have voice capabilities! You can speak aloud to the user.
+
+- speak: Synthesize and play text aloud immediately
+- voice_status: Check current voice settings (auto-TTS, Telegram voice replies)
+- voice_toggle: Enable/disable auto-TTS (reads all responses aloud)
+- voice_config: Configure Telegram voice replies
+
+Use speak() when:
+- User sent a voice message (respond with voice too)
+- Delivering reminders or announcements
+- User asks you to "say" or "read" something aloud
+
+Examples:
+\`\`\`
+speak(text="Good morning! You have 3 meetings today.")
+voice_toggle(enabled=true)
+voice_config(telegramVoiceReplies=false)
+\`\`\`
+
 ### Kanban Project Management
 You have a Kanban board for organizing projects and tasks:
 
@@ -1179,7 +1204,7 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
 - restart_telegram: Restart Telegram connection if it disconnects
 
 ### Limitations
-- Cannot send SMS or make calls
+- Cannot send SMS
 - For full desktop automation, user needs to enable Computer Use (Docker-based)`;
   }
 
@@ -1423,6 +1448,12 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
       calendar_list: 'checking the calendar',
       calendar_upcoming: 'seeing what\'s coming up',
       calendar_delete: 'removing that event',
+
+      // Voice tools
+      speak: 'speaking out loud 🔊',
+      voice_status: 'checking voice settings',
+      voice_toggle: 'toggling auto-read',
+      voice_config: 'configuring voice',
     };
     return friendlyNames[name] || name;
   }

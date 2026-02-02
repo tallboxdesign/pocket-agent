@@ -2083,6 +2083,26 @@
       initNotificationSound();
       initTTS();
 
+      // Listen for agent-initiated TTS playback
+      if (window.pocketAgent.onVoicePlay) {
+        window.pocketAgent.onVoicePlay(function(audioPath) {
+          stopTTS();
+          var audio = new Audio('file://' + audioPath);
+          currentTTSAudio = audio;
+          audio.onended = function() { currentTTSAudio = null; };
+          audio.onerror = function() { currentTTSAudio = null; };
+          audio.play().catch(function() { currentTTSAudio = null; });
+        });
+      }
+
+      // Listen for agent-toggled auto-TTS
+      if (window.pocketAgent.onVoiceTtsToggled) {
+        window.pocketAgent.onVoiceTtsToggled(function(enabled) {
+          autoTTSEnabled = enabled;
+          updateTTSToggleUI();
+        });
+      }
+
       // Listen for scheduler messages
       window.pocketAgent.onSchedulerMessage((data) => {
         console.log('[Chat] Received scheduler message:', data.jobName, 'sessionId:', data.sessionId, 'currentSession:', currentSessionId);

@@ -19,6 +19,7 @@ import { getTaskTools } from './task-tools';
 import { getKanbanTools } from './kanban-tools';
 import { getGmailTools } from './gmail-tools';
 import { getGlmWorkerTools } from './glm-worker';
+import { getVoiceTools } from './voice-tools';
 import {
   getSendTelegramPhotoToolDefinition,
   handleSendTelegramPhotoTool,
@@ -417,6 +418,30 @@ export async function buildSdkMcpServers(
       tools.push(sdkTool);
     }
 
+    // Voice tools (with diagnostics wrapper)
+    const voiceTools = getVoiceTools();
+    for (const voiceTool of voiceTools) {
+      const wrappedHandler = wrapToolHandler(voiceTool.name, voiceTool.handler, getToolTimeout(voiceTool.name));
+      const sdkTool = tool(
+        voiceTool.name,
+        voiceTool.description,
+        Object.fromEntries(
+          Object.entries(voiceTool.input_schema.properties || {}).map(([key, value]: [string, unknown]) => {
+            const prop = value as { type?: string };
+            if (prop.type === 'string') return [key, z.string().optional()];
+            if (prop.type === 'number') return [key, z.number().optional()];
+            if (prop.type === 'boolean') return [key, z.boolean().optional()];
+            return [key, z.any().optional()];
+          })
+        ),
+        async (args) => {
+          const result = await wrappedHandler(args);
+          return { content: [{ type: 'text', text: result }] };
+        }
+      );
+      tools.push(sdkTool);
+    }
+
     // Telegram photo tool
     const wrappedPhotoHandler = wrapToolHandler('send_telegram_photo', handleSendTelegramPhotoTool, getToolTimeout('send_telegram_photo'));
     const photoTool = tool(
@@ -576,6 +601,17 @@ export function getCustomTools(config: ToolsConfig): Array<{
       description: glmTool.description,
       input_schema: glmTool.input_schema as Record<string, unknown>,
       handler: glmTool.handler,
+    });
+  }
+
+  // Voice tools
+  const voiceToolsCustom = getVoiceTools();
+  for (const voiceTool of voiceToolsCustom) {
+    tools.push({
+      name: voiceTool.name,
+      description: voiceTool.description,
+      input_schema: voiceTool.input_schema as Record<string, unknown>,
+      handler: voiceTool.handler,
     });
   }
 
