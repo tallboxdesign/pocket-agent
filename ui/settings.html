@@ -1363,6 +1363,36 @@
     .ep-correct-popover .ep-correct-actions button { padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer; }
     .ep-correct-popover .ep-correct-actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
     .ep-label-click:hover { opacity: 0.8; }
+    /* Bulk selection */
+    .ep-history-table .ep-bulk-cb { width: 20px; text-align: center; }
+    .ep-history-table .ep-bulk-cb input { cursor: pointer; }
+    .ep-bulk-bar {
+      display: none; align-items: center; gap: 8px; padding: 8px 12px;
+      background: var(--bg-tertiary); border: 1px solid var(--accent);
+      border-radius: 6px; margin-bottom: 8px; font-size: 12px; color: var(--text-primary);
+    }
+    .ep-bulk-bar.visible { display: flex; flex-wrap: wrap; }
+    .ep-bulk-bar .ep-bulk-count { font-weight: 600; color: var(--accent); white-space: nowrap; }
+    .ep-bulk-bar .ep-bulk-label-pick {
+      flex: 1; min-width: 140px; max-width: 250px; padding: 4px 8px;
+      background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border);
+      border-radius: 4px; font-size: 12px; cursor: pointer; position: relative;
+    }
+    .ep-bulk-bar button { padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer; white-space: nowrap; }
+    .ep-bulk-bar button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .ep-bulk-bar button:hover { opacity: 0.85; }
+    .ep-bulk-label-dropdown {
+      position: absolute; z-index: 1001; background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); min-width: 200px; max-width: 280px;
+      padding: 6px 0;
+    }
+    .ep-bulk-label-dropdown input[type="text"] {
+      width: calc(100% - 16px); margin: 0 8px 4px; padding: 4px 8px;
+      background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border);
+      border-radius: 4px; font-size: 12px; box-sizing: border-box;
+    }
+    .ep-bulk-label-dropdown .ep-correct-list { max-height: 180px; border: none; margin: 0; }
+    tr.ep-selected > td { background: rgba(168,85,247,0.08) !important; }
     .ep-history-scroll {
       max-height: 400px;
       overflow-y: auto;
@@ -1924,10 +1954,20 @@
                   <div class="ep-group-title" style="margin:0;">Processed Emails</div>
                   <button class="ep-btn" onclick="epLoadHistory()" style="padding:4px 10px;font-size:11px;">Refresh</button>
                 </div>
+                <div class="ep-bulk-bar" id="ep-bulk-bar">
+                  <span class="ep-bulk-count" id="ep-bulk-count">0 selected</span>
+                  <button onclick="epBulkOpenLabelPicker()" id="ep-bulk-label-btn" title="Pick a label to apply to all selected emails">Apply Label...</button>
+                  <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text-secondary);" title="Use selected emails as few-shot training examples for the chosen label">
+                    <input type="checkbox" id="ep-bulk-example"> Train
+                  </label>
+                  <button class="primary" id="ep-bulk-apply-btn" onclick="epBulkApply()" disabled title="Apply the chosen label to all selected emails">Apply</button>
+                  <button onclick="epBulkClear()" title="Deselect all">Clear</button>
+                </div>
                 <div class="ep-history-scroll" style="margin-top:8px;">
                   <table class="ep-history-table">
                     <thead>
                       <tr>
+                        <th class="ep-bulk-cb"><input type="checkbox" id="ep-bulk-select-all" onchange="epBulkToggleAll(this.checked)" title="Select all on page"></th>
                         <th>Date</th>
                         <th>From</th>
                         <th>Subject</th>
@@ -1936,7 +1976,7 @@
                       </tr>
                     </thead>
                     <tbody id="ep-history-body">
-                      <tr><td colspan="5" class="ep-no-data" style="text-align:center;padding:20px;">Click Refresh to load history</td></tr>
+                      <tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:20px;">Click Refresh to load history</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -3483,12 +3523,12 @@
     async function epLoadHistory() {
       const tbody = document.getElementById('ep-history-body');
       const countEl = document.getElementById('ep-history-count');
-      tbody.innerHTML = '<tr><td colspan="5" class="ep-no-data" style="text-align:center;padding:16px;">Loading...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:16px;">Loading...</td></tr>';
 
       try {
         const { emails, total } = await window.pocketAgent.gmailGetProcessedEmails(EP_HISTORY_PAGE, epHistoryOffset);
         if (!emails || emails.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" class="ep-no-data" style="text-align:center;padding:20px;">No processed emails yet. Run the processor first.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:20px;">No processed emails yet. Run the processor first.</td></tr>';
           countEl.textContent = '0 emails';
           document.getElementById('ep-history-prev').disabled = true;
           document.getElementById('ep-history-next').disabled = true;
@@ -3530,7 +3570,8 @@
           const snippet = (e.snippet || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const rowId = 'ep-snip-' + msgId.replace(/[^a-zA-Z0-9]/g, '');
 
-          return `<tr>
+          return `<tr data-msgid="${msgId}" data-account="${acct}">
+            <td class="ep-bulk-cb"><input type="checkbox" onchange="epBulkToggleRow(this)" data-msgid="${msgId}" data-account="${acct}"></td>
             <td style="white-space:nowrap;">${date}</td>
             <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${from}">${from}</td>
             <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${subject}"><span class="ep-subject-toggle" onclick="epToggleSnippet('${rowId}')">${subject}</span></td>
@@ -3541,7 +3582,7 @@
             <td><span class="ep-label-badge ${conf}">${conf}</span>${failBadge}</td>
           </tr>
           <tr class="ep-snippet-row hidden" id="${rowId}">
-            <td colspan="5" class="ep-snippet-cell">${snippet || '<em>No preview available</em>'}</td>
+            <td colspan="6" class="ep-snippet-cell">${snippet || '<em>No preview available</em>'}</td>
           </tr>`;
         }).join('');
 
@@ -3551,7 +3592,7 @@
         document.getElementById('ep-history-prev').disabled = epHistoryOffset === 0;
         document.getElementById('ep-history-next').disabled = (epHistoryOffset + EP_HISTORY_PAGE) >= total;
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="5" class="ep-no-data" style="text-align:center;padding:16px;color:var(--error)">Failed to load: ${err.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:16px;color:var(--error)">Failed to load: ${err.message}</td></tr>`;
       }
     }
 
@@ -3562,6 +3603,187 @@
 
     function epHistoryPage(dir) {
       epHistoryOffset = Math.max(0, epHistoryOffset + dir * EP_HISTORY_PAGE);
+      epBulkClear();
+      epLoadHistory();
+    }
+
+    // ---- Bulk Selection ----
+
+    let epBulkSelected = new Map(); // msgId -> { account, label }
+    let epBulkLabel = null;
+    let epBulkDropdown = null;
+
+    function epBulkToggleRow(cb) {
+      const msgId = cb.dataset.msgid;
+      const account = cb.dataset.account;
+      const tr = cb.closest('tr');
+      if (cb.checked) {
+        epBulkSelected.set(msgId, { account });
+        tr.classList.add('ep-selected');
+      } else {
+        epBulkSelected.delete(msgId);
+        tr.classList.remove('ep-selected');
+      }
+      epBulkUpdateBar();
+    }
+
+    function epBulkToggleAll(checked) {
+      const cbs = document.querySelectorAll('#ep-history-body input[type="checkbox"][data-msgid]');
+      cbs.forEach(cb => {
+        cb.checked = checked;
+        const tr = cb.closest('tr');
+        if (checked) {
+          epBulkSelected.set(cb.dataset.msgid, { account: cb.dataset.account });
+          tr.classList.add('ep-selected');
+        } else {
+          epBulkSelected.delete(cb.dataset.msgid);
+          tr.classList.remove('ep-selected');
+        }
+      });
+      epBulkUpdateBar();
+    }
+
+    function epBulkUpdateBar() {
+      const bar = document.getElementById('ep-bulk-bar');
+      const count = epBulkSelected.size;
+      if (count > 0) {
+        bar.classList.add('visible');
+        document.getElementById('ep-bulk-count').textContent = count + ' selected';
+      } else {
+        bar.classList.remove('visible');
+      }
+      const applyBtn = document.getElementById('ep-bulk-apply-btn');
+      applyBtn.disabled = !epBulkLabel || count === 0;
+      const labelBtn = document.getElementById('ep-bulk-label-btn');
+      labelBtn.textContent = epBulkLabel ? epBulkLabel : 'Apply Label...';
+    }
+
+    function epBulkClear() {
+      epBulkSelected.clear();
+      epBulkLabel = null;
+      epBulkCloseLabelDropdown();
+      document.querySelectorAll('#ep-history-body input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+      document.querySelectorAll('#ep-history-body tr.ep-selected').forEach(tr => tr.classList.remove('ep-selected'));
+      const selectAll = document.getElementById('ep-bulk-select-all');
+      if (selectAll) selectAll.checked = false;
+      epBulkUpdateBar();
+    }
+
+    function epBulkCloseLabelDropdown() {
+      if (epBulkDropdown) { epBulkDropdown.remove(); epBulkDropdown = null; }
+    }
+
+    async function epBulkOpenLabelPicker() {
+      epBulkCloseLabelDropdown();
+
+      // Auto-fetch labels if needed
+      if (epGmailLabels.length === 0) {
+        try {
+          const accts = JSON.parse(await window.pocketAgent.getSetting('gmail.emailProcessing.accounts') || '[]');
+          const acct = accts[0] || '';
+          const result = await window.pocketAgent.gmailFetchLabels(acct);
+          if (result.success && result.labels) {
+            const parsed = JSON.parse(result.labels);
+            const labels = Array.isArray(parsed) ? parsed : (parsed.labels || []);
+            const systemPrefixes = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'UNREAD', 'IMPORTANT', 'CATEGORY_', 'CHAT'];
+            epGmailLabels = labels.filter(l => {
+              const name = typeof l === 'string' ? l : (l.name || l.id || '');
+              return !systemPrefixes.some(p => name.startsWith(p));
+            }).map(l => typeof l === 'string' ? l : (l.name || l.id || ''));
+          }
+        } catch { /* ignore */ }
+      }
+
+      const allLabels = epGmailLabels.length > 0 ? [...epGmailLabels].sort((a, b) => a.localeCompare(b)) : [];
+      if (allLabels.length === 0) { showToast('No labels found — fetch labels first', 'error'); return; }
+
+      const btn = document.getElementById('ep-bulk-label-btn');
+      const rect = btn.getBoundingClientRect();
+
+      const dd = document.createElement('div');
+      dd.className = 'ep-bulk-label-dropdown';
+      dd.style.position = 'fixed';
+      dd.style.top = (rect.bottom + 4) + 'px';
+      dd.style.left = rect.left + 'px';
+
+      dd.innerHTML = `
+        <input type="text" placeholder="Search labels..." id="ep-bulk-label-search" autocomplete="off">
+        <div class="ep-correct-list" id="ep-bulk-label-list"></div>
+      `;
+
+      function renderLabels(filter) {
+        const list = dd.querySelector('#ep-bulk-label-list');
+        const q = (filter || '').toLowerCase();
+        const filtered = q ? allLabels.filter(l => l.toLowerCase().includes(q)) : allLabels;
+        if (filtered.length === 0) {
+          list.innerHTML = '<div style="padding:8px;font-size:11px;color:var(--text-muted);text-align:center;">No matching labels</div>';
+          return;
+        }
+        list.innerHTML = filtered.map(l => {
+          const sel = l === epBulkLabel ? ' selected' : '';
+          const esc = l.replace(/"/g, '&quot;');
+          return `<div class="ep-correct-item${sel}" data-label="${esc}" onclick="epBulkPickLabel(this)">${l.replace(/</g, '&lt;')}</div>`;
+        }).join('');
+      }
+      renderLabels('');
+
+      document.body.appendChild(dd);
+      epBulkDropdown = dd;
+      const searchInput = dd.querySelector('#ep-bulk-label-search');
+      searchInput.focus();
+      searchInput.addEventListener('input', () => renderLabels(searchInput.value));
+
+      // Clamp to viewport
+      const ddRect = dd.getBoundingClientRect();
+      if (ddRect.bottom > window.innerHeight - 8) {
+        dd.style.top = (rect.top - ddRect.height - 4) + 'px';
+      }
+
+      setTimeout(() => {
+        document.addEventListener('click', function handler(ev) {
+          if (epBulkDropdown && !epBulkDropdown.contains(ev.target) && ev.target !== btn) {
+            epBulkCloseLabelDropdown();
+            document.removeEventListener('click', handler);
+          }
+        });
+      }, 0);
+    }
+
+    function epBulkPickLabel(el) {
+      epBulkLabel = el.dataset.label;
+      epBulkCloseLabelDropdown();
+      epBulkUpdateBar();
+    }
+
+    async function epBulkApply() {
+      if (!epBulkLabel || epBulkSelected.size === 0) return;
+      const useAsExample = document.getElementById('ep-bulk-example').checked;
+      const items = [];
+      for (const [msgId, data] of epBulkSelected.entries()) {
+        items.push({ messageId: msgId, account: data.account, newLabel: epBulkLabel, useAsExample });
+      }
+
+      const applyBtn = document.getElementById('ep-bulk-apply-btn');
+      applyBtn.disabled = true;
+      applyBtn.textContent = `Applying (0/${items.length})...`;
+
+      let success = 0;
+      let failed = 0;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        try {
+          const result = await window.pocketAgent.gmailCorrectLabel(item.messageId, item.account, item.newLabel, item.useAsExample);
+          if (result.ok) success++;
+          else failed++;
+        } catch {
+          failed++;
+        }
+        applyBtn.textContent = `Applying (${i + 1}/${items.length})...`;
+      }
+
+      const msg = `${success} corrected` + (failed > 0 ? `, ${failed} failed` : '') + (useAsExample ? ' + examples saved' : '');
+      showToast(msg, failed > 0 ? 'error' : 'success');
+      epBulkClear();
       epLoadHistory();
     }
 
