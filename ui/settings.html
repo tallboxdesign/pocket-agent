@@ -3091,7 +3091,9 @@
         const isActive = epActiveLabels.includes(name);
         const definition = cfg.definition || cfg.description || '';
         const negative = cfg.negative || '';
-        const isConfigured = isActive || definition || cfg.notify || negative || (cfg.examples && cfg.examples.length > 0);
+        const isConfigured = isActive || definition || cfg.notify || negative
+          || cfg.removeFromInbox || cfg.markReadOnFile
+          || (cfg.examples && cfg.examples.length > 0);
         const notify = cfg.notify || false;
         const examples = cfg.examples || [];
         const escapedName = name.replace(/'/g, "\\'");
@@ -3123,7 +3125,7 @@
             <span class="ep-field-label">Definition</span>
             <textarea rows="2" placeholder="What this label represents (e.g. 'Emails from active clients about ongoing projects')"
               onchange="epSetLabelDefinition('${escapedName}', this.value)">${definition.replace(/</g, '&lt;')}</textarea>
-            <span class="ep-label-advanced-toggle" onclick="epToggleAdvanced(this)">&#9654; Advanced (examples &amp; negative guidance)</span>
+            <span class="ep-label-advanced-toggle" onclick="epToggleAdvanced(this)">&#9654; Advanced (examples, negative guidance &amp; routing)</span>
             <div class="ep-label-advanced">
               <div style="display:flex;align-items:center;gap:6px;">
                 <span class="ep-field-label">Examples:</span>
@@ -3133,6 +3135,20 @@
               <span class="ep-field-label">Negative Guidance</span>
               <textarea rows="2" placeholder="What this label is NOT (e.g. 'SEO service offers, press release announcements')"
                 onchange="epSetLabelNegative('${escapedName}', this.value)">${negative.replace(/</g, '&lt;')}</textarea>
+              <div style="border-top:1px solid var(--border);margin:6px 0 2px;"></div>
+              <span class="ep-field-label">Routing</span>
+              <label class="ep-label-classify" style="gap:6px;">
+                <input type="checkbox" ${cfg.removeFromInbox ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'removeFromInbox', this.checked)">
+                Archive from Inbox
+              </label>
+              <label class="ep-label-classify" style="gap:6px;">
+                <input type="checkbox" ${cfg.markReadOnFile ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'markReadOnFile', this.checked)">
+                Mark as read when filed
+              </label>
+              <label class="ep-label-classify" style="gap:6px;">
+                <input type="checkbox" ${cfg.keepInInboxOnUncertain !== false ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'keepInInboxOnUncertain', this.checked)">
+                Keep in Inbox when uncertain
+              </label>
             </div>
           </div>
         </div>`;
@@ -3161,10 +3177,16 @@
       epSaveLabelConfig();
     }
 
+    function epSetLabelRouting(labelName, field, checked) {
+      if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
+      epLabelConfig[labelName][field] = checked;
+      epSaveLabelConfig();
+    }
+
     function epToggleAdvanced(el) {
       const panel = el.nextElementSibling;
       const isOpen = panel.classList.toggle('open');
-      el.innerHTML = (isOpen ? '&#9660;' : '&#9654;') + ' Advanced (examples &amp; negative guidance)';
+      el.innerHTML = (isOpen ? '&#9660;' : '&#9654;') + ' Advanced (examples, negative guidance &amp; routing)';
     }
 
     function epToggleLabelNotify(labelName, checked) {
@@ -3443,6 +3465,7 @@
           }
 
           const correctedBadge = isCorrected ? '<span class="ep-fail-badge" style="background:rgba(33,150,243,0.12);color:#2196f3;">corrected</span>' : '';
+          const filedBadge = e.filed_at ? '<span class="ep-fail-badge" style="background:rgba(156,39,176,0.12);color:#9c27b0;">Filed</span>' : '';
           const labelBadgeClass = isCorrected ? 'corrected' : conf;
 
           const snippet = (e.snippet || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -3454,7 +3477,7 @@
             <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${subject}"><span class="ep-subject-toggle" onclick="epToggleSnippet('${rowId}')">${subject}</span></td>
             <td>
               <span class="ep-label-badge ${labelBadgeClass} ep-label-click" data-msgid="${msgId}" data-account="${acct}" data-current="${displayLabel}" onclick="epOpenCorrectPopover(this)" style="cursor:pointer;" title="Click to correct">${displayLabel} &#9662;</span>
-              ${correctedBadge}
+              ${correctedBadge}${filedBadge}
             </td>
             <td><span class="ep-label-badge ${conf}">${conf}</span>${failBadge}</td>
           </tr>

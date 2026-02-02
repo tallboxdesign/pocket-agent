@@ -1278,6 +1278,7 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 27. `/continue` command — shows list of all active projects with status/issues, user picks one to resume
 28. Voice/TTS agent tools + channel-aware voice — 4 MCP tools, channel injection, Telegram /voice command, desktop pre-cache
 29. Label precision — definition + negative guidance fields per label (Section 20)
+30. Label routing — per-label archive-from-inbox + mark-read after classification/correction/rules (Section 20)
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_

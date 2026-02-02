@@ -12,6 +12,7 @@ import Database from 'better-sqlite3';
 import { SettingsManager } from '../settings';
 import { modifyLabels, createDraft, sendEmail } from '../tools/gog-wrapper';
 import { glmFlash } from '../tools/glm-client';
+import { applyRouting } from './email-processor';
 
 // ============================================================================
 // Types
@@ -430,6 +431,10 @@ export class RulesEngine {
   private async actionApplyLabel(email: EmailContext, config: Record<string, string>): Promise<void> {
     if (!email.threadId || !config.label) return;
     await modifyLabels({ threadIds: [email.threadId], add: config.label, account: email.account });
+    // Apply routing based on label config
+    const lcRaw = SettingsManager.get('gmail.emailProcessing.labelConfig') || '{}';
+    const lc = safeJsonParse<Record<string, Record<string, unknown>>>(lcRaw, {});
+    await applyRouting(email.threadId, email.account, config.label, email.confidence, lc as Parameters<typeof applyRouting>[4]);
   }
 
   private async actionRemoveLabel(email: EmailContext, config: Record<string, string>): Promise<void> {

@@ -34,6 +34,9 @@ type LabelConfig = Record<string, {
   definition?: string;     // replaces description
   negative?: string;       // negative guidance text
   examples?: Array<string | { messageId: string; subject?: string; from?: string }>;
+  removeFromInbox?: boolean;        // archive thread from inbox after filing
+  markReadOnFile?: boolean;         // mark thread as read after filing
+  keepInInboxOnUncertain?: boolean; // keep in inbox when confidence is low/invalid (default true)
 }>;
 
 interface EmailListItem {
@@ -359,6 +362,41 @@ function validateGlmResponse(
 }
 
 // ============================================================================
+// Routing (archive / mark-read) per label config
+// ============================================================================
+
+export async function applyRouting(
+  threadId: string | undefined,
+  account: string,
+  labelName: string,
+  confidence: string,
+  labelConfig: LabelConfig,
+): Promise<boolean> {
+  if (!threadId) return false;
+  const cfg = labelConfig[labelName];
+  if (!cfg?.removeFromInbox && !cfg?.markReadOnFile) return false;
+
+  const isUncertain = confidence === 'low' || confidence === 'invalid';
+  if (isUncertain && cfg.keepInInboxOnUncertain !== false) return false;
+
+  const toRemove: string[] = [];
+  if (cfg.removeFromInbox) toRemove.push('INBOX');
+  if (cfg.markReadOnFile) toRemove.push('UNREAD');
+
+  try {
+    await withRetry(() => modifyLabels({
+      threadIds: [threadId],
+      remove: toRemove.join(','),
+      account,
+    }));
+    return true;
+  } catch (err) {
+    console.warn(`[EmailProcessor] Routing failed for ${labelName}:`, err);
+    return false;
+  }
+}
+
+// ============================================================================
 // Email Processor Class
 // ============================================================================
 
@@ -491,6 +529,9 @@ export class EmailProcessor {
     if (!colNames.has('snippet')) {
       this.db.exec('ALTER TABLE email_processing_state ADD COLUMN snippet TEXT');
     }
+    if (!colNames.has('filed_at')) {
+      this.db.exec('ALTER TABLE email_processing_state ADD COLUMN filed_at TEXT');
+    }
 
     // If existing DB has CHECK constraint on confidence that blocks 'invalid',
     // recreate the table without the CHECK constraint
@@ -523,12 +564,13 @@ export class EmailProcessor {
           corrected_label TEXT,
           corrected_at TEXT,
           snippet TEXT,
+          filed_at TEXT,
           UNIQUE(account, message_id)
         );
-        INSERT INTO email_processing_state_new(id, account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, processed_at, glm_raw, fail_reason, corrected_label, corrected_at, snippet)
+        INSERT INTO email_processing_state_new(id, account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, processed_at, glm_raw, fail_reason, corrected_label, corrected_at, snippet, filed_at)
           SELECT id, account, message_id, thread_id, internal_date_ms, subject, sender,
                  label_applied, confidence, processed_at,
-                 glm_raw, fail_reason, corrected_label, corrected_at, snippet
+                 glm_raw, fail_reason, corrected_label, corrected_at, snippet, NULL
           FROM email_processing_state;
         DROP TABLE email_processing_state;
         ALTER TABLE email_processing_state_new RENAME TO email_processing_state;
@@ -886,6 +928,13 @@ export class EmailProcessor {
           stats.labelsApplied[labelToApply] = (stats.labelsApplied[labelToApply] || 0) + 1;
           this.saveProcessed(account, email, labelToApply, r.confidence, r.glmRaw, r.failReason);
 
+          // Route (archive/mark-read) based on label config
+          const routed = await applyRouting(email.threadId, account, labelToApply, r.confidence, labelConfig);
+          if (routed) {
+            this.db.prepare('UPDATE email_processing_state SET filed_at = datetime(\'now\') WHERE message_id = ? AND account = ?')
+              .run(email.id, account);
+          }
+
           // Evaluate rules engine
           if (this.rulesEngine) {
             try {
@@ -1094,6 +1143,16 @@ export class EmailProcessor {
       } catch (err) {
         console.warn(`[EmailProcessor] Failed to update Gmail labels for ${messageId}:`, err);
       }
+    }
+
+    // Route with 'high' confidence — user corrections are explicit
+    const labelConfigFresh = safeJsonParse<LabelConfig>(
+      SettingsManager.get('gmail.emailProcessing.labelConfig') || '{}', {},
+    );
+    const routed = await applyRouting(threadId || undefined, account, newLabel, 'high', labelConfigFresh);
+    if (routed) {
+      this.db.prepare('UPDATE email_processing_state SET filed_at = datetime(\'now\') WHERE message_id = ? AND account = ?')
+        .run(messageId, account);
     }
 
     // Evaluate rules engine for label correction
