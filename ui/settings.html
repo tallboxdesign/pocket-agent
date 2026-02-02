@@ -1458,9 +1458,6 @@
     }
     .ep-rule-test-row { display: flex; gap: 6px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--border); }
     .ep-rule-test-row:last-child { border-bottom: none; }
-    .ep-rule-test-match { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .ep-rule-test-match.yes { background: var(--success); }
-    .ep-rule-test-match.no { background: var(--error); }
     .ep-rule-cond-row, .ep-rule-action-row {
       display: flex; gap: 6px; align-items: center; margin-bottom: 4px; flex-wrap: wrap;
     }
@@ -4099,15 +4096,30 @@
           panel.innerHTML = '<em>No emails to test against</em>';
           return;
         }
-        panel.innerHTML = results.map(r => {
-          const matchClass = r.matched ? 'yes' : 'no';
-          const condDetail = r.conditions.map(c => `<span style="color:${c.passed ? 'var(--success)' : 'var(--error)'}">${c.type}=${c.value}</span>`).join(', ');
+        const matchCount = results.filter(r => r.matched).length;
+        const condLabel = (type) => { const d = EP_CONDITION_TYPES.find(t => t.value === type); return d ? d.label : type; };
+        const condValue = (type, val) => {
+          if (type === 'label_is' || type === 'label_is_not') return epDisplayName(val);
+          if (type === 'thread_state') {
+            const m = { unread: 'Unread', unreplied: 'Opened, unreplied', awaiting_reply: 'Replied, awaiting answer', replied_with_answer: 'Replied with answer', user_only: 'Sent by me only' };
+            return m[val] || val;
+          }
+          return val;
+        };
+        const header = `<div style="padding:0 0 6px;font-size:11px;font-weight:600;color:var(--text-primary);">Test against last ${results.length} emails: <span style="color:var(--success)">${matchCount} matched</span>, <span style="color:var(--text-muted)">${results.length - matchCount} skipped</span></div>`;
+        panel.innerHTML = header + results.map(r => {
+          const icon = r.matched ? '<span style="color:var(--success);font-size:11px;">&#10003;</span>' : '<span style="color:var(--error);font-size:9px;">&#10005;</span>';
+          const condDetail = r.conditions.map(c => {
+            const color = c.passed ? 'var(--success)' : 'var(--error)';
+            const sym = c.passed ? '&#10003;' : '&#10005;';
+            return `<span style="color:${color}">${sym} ${condLabel(c.type)}: ${condValue(c.type, c.value).replace(/</g, '&lt;')}</span>`;
+          }).join(' &nbsp; ');
           return `<div class="ep-rule-test-row">
-            <div class="ep-rule-test-match ${matchClass}"></div>
+            <div style="width:14px;text-align:center;flex-shrink:0;">${icon}</div>
             <div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(r.email.subject || '').replace(/"/g, '&quot;')}">${(r.email.subject || '(no subject)').replace(/</g, '&lt;')}</div>
-            <div style="color:var(--text-muted);">${(r.email.label || '').replace(/</g, '&lt;')}</div>
+            <div style="color:var(--text-muted);flex-shrink:0;">${epDisplayName(r.email.label || '').replace(/</g, '&lt;')}</div>
           </div>
-          <div style="font-size:9px;color:var(--text-muted);padding:0 0 3px 16px;">${condDetail || 'no conditions'}</div>`;
+          <div style="font-size:9px;color:var(--text-muted);padding:0 0 3px 18px;">${condDetail || 'no conditions'}</div>`;
         }).join('');
       } catch (err) {
         panel.innerHTML = '<em style="color:var(--error);">Test failed: ' + err.message + '</em>';
