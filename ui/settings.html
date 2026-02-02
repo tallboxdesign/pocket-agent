@@ -2853,6 +2853,36 @@
     let epModalTarget = null; // Label name for example picker
     let epModalAccount = null;
 
+    const EP_LABEL_DISPLAY = {
+      GREEN_CIRCLE: 'Green Circle (green marker)',
+      RED_CIRCLE: 'Red Circle (red marker)',
+      ORANGE_CIRCLE: 'Orange Circle (orange marker)',
+      YELLOW_CIRCLE: 'Yellow Circle (yellow marker)',
+      BLUE_CIRCLE: 'Blue Circle (blue marker)',
+      PURPLE_CIRCLE: 'Purple Circle (purple marker)',
+      GREEN_STAR: 'Green Star (green star)',
+      RED_STAR: 'Red Star (red star)',
+      ORANGE_STAR: 'Orange Star (orange star)',
+      YELLOW_STAR: 'Yellow Star (yellow star)',
+      BLUE_STAR: 'Blue Star (blue star)',
+      PURPLE_STAR: 'Purple Star (purple star)',
+      GREEN_BANG: 'Green Exclamation (!)',
+      RED_BANG: 'Red Exclamation (!)',
+      ORANGE_BANG: 'Orange Exclamation (!)',
+      YELLOW_BANG: 'Yellow Exclamation (!)',
+      BLUE_BANG: 'Blue Exclamation (!)',
+      PURPLE_BANG: 'Purple Exclamation (!)',
+      GREEN_QUESTION: 'Green Question (?)',
+      RED_QUESTION: 'Red Question (?)',
+      ORANGE_QUESTION: 'Orange Question (?)',
+      YELLOW_QUESTION: 'Yellow Question (?)',
+      BLUE_QUESTION: 'Blue Question (?)',
+      PURPLE_QUESTION: 'Purple Question (?)',
+    };
+    function epDisplayName(label) {
+      return EP_LABEL_DISPLAY[label] || label;
+    }
+
     function epToggleSection() {
       document.getElementById('ep-section').classList.toggle('open');
     }
@@ -3226,7 +3256,7 @@
               <input type="checkbox" ${isActive ? 'checked' : ''} onchange="epToggleActiveLabel('${escapedName}', this.checked)">
               Classify
             </label>
-            <span class="ep-label-name">${name}</span>${cfg.aiDefined ? '<span class="ep-ai-badge" title="Custom AI-generated classification guidance">AI Defined</span>' : ''}
+            <span class="ep-label-name">${epDisplayName(name)}</span>${cfg.aiDefined ? '<span class="ep-ai-badge" title="Custom AI-generated classification guidance">AI Defined</span>' : ''}
             <label class="ep-label-notify" title="Send a notification (desktop + Telegram if configured) when emails are classified into this label with high/medium confidence.">
               <input type="checkbox" ${notify ? 'checked' : ''} onchange="epToggleLabelNotify('${escapedName}', this.checked)">
               Notify
@@ -3539,7 +3569,7 @@
           html += filtered.map(l => {
             const sel = l === epCorrectSelectedLabel ? ' selected' : '';
             const esc = l.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-            return `<div class="ep-correct-item${sel}" data-label="${esc}" onclick="epSelectCorrectLabel(this)">${l.replace(/</g, '&lt;')}</div>`;
+            return `<div class="ep-correct-item${sel}" data-label="${esc}" onclick="epSelectCorrectLabel(this)">${epDisplayName(l).replace(/</g, '&lt;')}</div>`;
           }).join('');
         }
         // "+ Create new" always at bottom
@@ -3657,7 +3687,7 @@
           if (!s.label) continue;
           const opt = document.createElement('option');
           opt.value = s.label;
-          opt.textContent = `${s.label} (${s.count})`;
+          opt.textContent = `${epDisplayName(s.label)} (${s.count})`;
           select.appendChild(opt);
         }
       } catch { /* ignore */ }
@@ -3906,7 +3936,7 @@
         list.innerHTML = filtered.map(l => {
           const sel = l === epBulkLabel ? ' selected' : '';
           const esc = l.replace(/"/g, '&quot;');
-          return `<div class="ep-correct-item${sel}" data-label="${esc}" onclick="epBulkPickLabel(this)">${l.replace(/</g, '&lt;')}</div>`;
+          return `<div class="ep-correct-item${sel}" data-label="${esc}" onclick="epBulkPickLabel(this)">${epDisplayName(l).replace(/</g, '&lt;')}</div>`;
         }).join('');
       }
       renderLabels('');
@@ -4166,7 +4196,7 @@
     function epBuildLabelOptions(selected) {
       const labels = epGmailLabels.length > 0 ? epGmailLabels : epActiveLabels;
       if (labels.length === 0) return '<option value="">— fetch labels first —</option>';
-      return labels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === selected ? 'selected' : ''}>${l}</option>`).join('');
+      return labels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === selected ? 'selected' : ''}>${epDisplayName(l)}</option>`).join('');
     }
 
     function epAddConditionRow(type, value) {
