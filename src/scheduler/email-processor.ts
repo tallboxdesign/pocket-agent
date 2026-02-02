@@ -365,35 +365,60 @@ function validateGlmResponse(
 // Routing (archive / mark-read) per label config
 // ============================================================================
 
+interface RoutingResult {
+  result: 'filed' | 'in_inbox';
+  error?: string;
+}
+
 export async function applyRouting(
   threadId: string | undefined,
   account: string,
   labelName: string,
   confidence: string,
   labelConfig: LabelConfig,
-): Promise<boolean> {
-  if (!threadId) return false;
+): Promise<RoutingResult> {
+  if (!threadId) return { result: 'in_inbox', error: 'no_thread_id' };
+
+  // 1. Kill switch
+  const routingEnabled = SettingsManager.get('gmail.emailProcessing.routingEnabled');
+  if (routingEnabled === 'false') {
+    return { result: 'in_inbox', error: 'routing_disabled' };
+  }
+
+  // 2. Check label config
   const cfg = labelConfig[labelName];
-  if (!cfg?.removeFromInbox && !cfg?.markReadOnFile) return false;
+  if (!cfg?.removeFromInbox && !cfg?.markReadOnFile) {
+    return { result: 'in_inbox', error: 'no_routing_config' };
+  }
 
+  // 3. Check confidence
   const isUncertain = confidence === 'low' || confidence === 'invalid';
-  if (isUncertain && cfg.keepInInboxOnUncertain !== false) return false;
+  if (isUncertain && cfg.keepInInboxOnUncertain !== false) {
+    return { result: 'in_inbox', error: 'confidence_skip' };
+  }
 
+  // 4. (Phase 3: destination label — skip for now)
+
+  // 5. Build removal list
   const toRemove: string[] = [];
   if (cfg.removeFromInbox) toRemove.push('INBOX');
   if (cfg.markReadOnFile) toRemove.push('UNREAD');
 
+  // 6. Remove labels
   try {
     await withRetry(() => modifyLabels({
       threadIds: [threadId],
       remove: toRemove.join(','),
       account,
     }));
-    return true;
   } catch (err) {
-    console.warn(`[EmailProcessor] Routing failed for ${labelName}:`, err);
-    return false;
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.warn(`[EmailProcessor] Routing failed for ${labelName}:`, errMsg);
+    return { result: 'in_inbox', error: `gmail_api_error: ${errMsg.slice(0, 200)}` };
   }
+
+  // 7. Success
+  return { result: 'filed' };
 }
 
 // ============================================================================
@@ -532,6 +557,12 @@ export class EmailProcessor {
     if (!colNames.has('filed_at')) {
       this.db.exec('ALTER TABLE email_processing_state ADD COLUMN filed_at TEXT');
     }
+    if (!colNames.has('routing_result')) {
+      this.db.exec('ALTER TABLE email_processing_state ADD COLUMN routing_result TEXT');
+    }
+    if (!colNames.has('routing_error')) {
+      this.db.exec('ALTER TABLE email_processing_state ADD COLUMN routing_error TEXT');
+    }
 
     // If existing DB has CHECK constraint on confidence that blocks 'invalid',
     // recreate the table without the CHECK constraint
@@ -565,12 +596,14 @@ export class EmailProcessor {
           corrected_at TEXT,
           snippet TEXT,
           filed_at TEXT,
+          routing_result TEXT,
+          routing_error TEXT,
           UNIQUE(account, message_id)
         );
-        INSERT INTO email_processing_state_new(id, account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, processed_at, glm_raw, fail_reason, corrected_label, corrected_at, snippet, filed_at)
+        INSERT INTO email_processing_state_new(id, account, message_id, thread_id, internal_date_ms, subject, sender, label_applied, confidence, processed_at, glm_raw, fail_reason, corrected_label, corrected_at, snippet, filed_at, routing_result, routing_error)
           SELECT id, account, message_id, thread_id, internal_date_ms, subject, sender,
                  label_applied, confidence, processed_at,
-                 glm_raw, fail_reason, corrected_label, corrected_at, snippet, NULL
+                 glm_raw, fail_reason, corrected_label, corrected_at, snippet, NULL, NULL, NULL
           FROM email_processing_state;
         DROP TABLE email_processing_state;
         ALTER TABLE email_processing_state_new RENAME TO email_processing_state;
@@ -929,11 +962,17 @@ export class EmailProcessor {
           this.saveProcessed(account, email, labelToApply, r.confidence, r.glmRaw, r.failReason);
 
           // Route (archive/mark-read) based on label config
-          const routed = await applyRouting(email.threadId, account, labelToApply, r.confidence, labelConfig);
-          if (routed) {
-            this.db.prepare('UPDATE email_processing_state SET filed_at = datetime(\'now\') WHERE message_id = ? AND account = ?')
-              .run(email.id, account);
-          }
+          const routingResult = await applyRouting(email.threadId, account, labelToApply, r.confidence, labelConfig);
+          this.db.prepare(`UPDATE email_processing_state SET
+            routing_result = ?, routing_error = ?, filed_at = ?
+            WHERE message_id = ? AND account = ?`)
+            .run(
+              routingResult.result,
+              routingResult.error ?? null,
+              routingResult.result === 'filed' ? new Date().toISOString() : null,
+              email.id,
+              account,
+            );
 
           // Evaluate rules engine
           if (this.rulesEngine) {
@@ -1167,11 +1206,17 @@ export class EmailProcessor {
     const labelConfigFresh = safeJsonParse<LabelConfig>(
       SettingsManager.get('gmail.emailProcessing.labelConfig') || '{}', {},
     );
-    const routed = await applyRouting(threadId || undefined, account, newLabel, 'high', labelConfigFresh);
-    if (routed) {
-      this.db.prepare('UPDATE email_processing_state SET filed_at = datetime(\'now\') WHERE message_id = ? AND account = ?')
-        .run(messageId, account);
-    }
+    const routingResult = await applyRouting(threadId || undefined, account, newLabel, 'high', labelConfigFresh);
+    this.db.prepare(`UPDATE email_processing_state SET
+      routing_result = ?, routing_error = ?, filed_at = ?
+      WHERE message_id = ? AND account = ?`)
+      .run(
+        routingResult.result,
+        routingResult.error ?? null,
+        routingResult.result === 'filed' ? new Date().toISOString() : null,
+        messageId,
+        account,
+      );
 
     // Evaluate rules engine for label correction
     if (this.rulesEngine) {

@@ -1854,7 +1854,7 @@
             <!-- Tabs -->
             <div class="ep-tabs">
               <div class="ep-tab active" data-tab="ep-basics" onclick="epSwitchTab(this)">Basics</div>
-              <div class="ep-tab" data-tab="ep-labels" onclick="epSwitchTab(this)">Labels</div>
+              <div class="ep-tab" data-tab="ep-labels" onclick="epSwitchTab(this); epLoadRoutingToggle()">Labels</div>
               <div class="ep-tab" data-tab="ep-advanced" onclick="epSwitchTab(this)">Advanced</div>
               <div class="ep-tab" data-tab="ep-status-tab" onclick="epSwitchTab(this)">Status</div>
               <div class="ep-tab" data-tab="ep-history-tab" onclick="epSwitchTab(this); epPopulateFilterLabels(); epLoadHistory()">History</div>
@@ -1910,6 +1910,20 @@
 
             <!-- LABELS TAB -->
             <div class="ep-tab-panel" id="ep-labels">
+              <!-- Routing kill switch -->
+              <div class="ep-group" style="margin-bottom:8px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary,rgba(0,0,0,0.02));">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <div>
+                    <span style="font-size:12px;font-weight:600;">Email Routing</span>
+                    <span style="font-size:10px;color:var(--text-muted);margin-left:6px;">Archive &amp; mark-read after classification</span>
+                  </div>
+                  <label class="switch" style="display:flex;align-items:center;gap:0;" title="Global kill switch — when OFF, no emails are archived or marked read. Labels are still applied.">
+                    <input type="checkbox" id="ep-routing-toggle" onchange="epToggleRouting(this.checked)">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div id="ep-routing-status" style="font-size:10px;color:var(--text-muted);margin-top:2px;"></div>
+              </div>
               <div class="ep-group">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                   <div class="ep-group-title" style="margin:0;">Label Configuration</div>
@@ -3388,6 +3402,29 @@
       epSaveLabelConfig();
     }
 
+    async function epToggleRouting(enabled) {
+      await epSaveSetting('gmail.emailProcessing.routingEnabled', enabled ? 'true' : 'false');
+      const statusEl = document.getElementById('ep-routing-status');
+      if (statusEl) {
+        statusEl.textContent = enabled ? 'Routing active — emails will be archived/marked-read per label config.' : 'Routing disabled — emails stay in inbox after classification.';
+        statusEl.style.color = enabled ? 'var(--text-muted)' : 'var(--error, #e53935)';
+      }
+    }
+
+    async function epLoadRoutingToggle() {
+      try {
+        const val = await window.pocketAgent.getSetting('gmail.emailProcessing.routingEnabled');
+        const enabled = val !== 'false'; // default true
+        const toggle = document.getElementById('ep-routing-toggle');
+        if (toggle) toggle.checked = enabled;
+        const statusEl = document.getElementById('ep-routing-status');
+        if (statusEl) {
+          statusEl.textContent = enabled ? 'Routing active — emails will be archived/marked-read per label config.' : 'Routing disabled — emails stay in inbox after classification.';
+          statusEl.style.color = enabled ? 'var(--text-muted)' : 'var(--error, #e53935)';
+        }
+      } catch { /* ignore */ }
+    }
+
     function epToggleAdvanced(el) {
       const panel = el.nextElementSibling;
       const isOpen = panel.classList.toggle('open');
@@ -3775,7 +3812,22 @@
           }
 
           const correctedBadge = isCorrected ? '<span class="ep-fail-badge" style="background:rgba(33,150,243,0.12);color:#2196f3;">corrected</span>' : '';
-          const filedBadge = e.filed_at ? '<span class="ep-fail-badge" style="background:rgba(156,39,176,0.12);color:#9c27b0;">Filed</span>' : '';
+          // 3-state routing badge
+          let routingBadge = '';
+          const rResult = e.routing_result;
+          const rError = e.routing_error;
+          if (rResult === 'filed') {
+            routingBadge = '<span class="ep-fail-badge" style="background:rgba(156,39,176,0.12);color:#9c27b0;">Filed</span>';
+          } else if (rResult === 'in_inbox' && rError && rError !== 'confidence_skip' && rError !== 'no_routing_config') {
+            const tooltip = (rError || '').replace(/"/g, '&quot;');
+            routingBadge = `<span class="ep-fail-badge red" title="${tooltip}">Routing failed</span>`;
+          } else if (rResult === 'in_inbox') {
+            routingBadge = '<span class="ep-fail-badge" style="background:rgba(128,128,128,0.1);color:#888;">In Inbox</span>';
+          }
+          // Fallback: legacy rows without routing_result but with filed_at
+          if (!routingBadge && e.filed_at) {
+            routingBadge = '<span class="ep-fail-badge" style="background:rgba(156,39,176,0.12);color:#9c27b0;">Filed</span>';
+          }
           const labelBadgeClass = isCorrected ? 'corrected' : conf;
 
           const snippet = (e.snippet || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -3788,7 +3840,7 @@
             <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${subject}"><span class="ep-subject-toggle" onclick="epToggleSnippet('${rowId}')">${subject}</span></td>
             <td>
               <span class="ep-label-badge ${labelBadgeClass} ep-label-click" data-msgid="${msgId}" data-account="${acct}" data-current="${displayLabel}" onclick="epOpenCorrectPopover(this)" style="cursor:pointer;" title="Click to correct">${displayLabel} &#9662;</span>
-              ${correctedBadge}${filedBadge}
+              ${correctedBadge}${routingBadge}
             </td>
             <td><span class="ep-label-badge ${conf}">${conf}</span>${failBadge}</td>
           </tr>
