@@ -3,7 +3,7 @@ import { BaseChannel } from './index';
 import { AgentManager, ImageContent } from '../agent';
 import { SettingsManager } from '../settings';
 import { transcribeAudio, isTranscriptionAvailable } from '../utils/transcribe';
-import { synthesizeSpeech, stripMarkdown } from '../voice/tts';
+import { synthesizeSpeech, stripMarkdown, summarizeForVoice } from '../voice/tts';
 import { app, Notification } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -750,6 +750,16 @@ multiline</pre>
       }
     });
 
+    // Handle /voice command - toggle voice replies
+    this.bot.command('voice', async (ctx) => {
+      const current = SettingsManager.getBoolean('telegram.voiceReplies');
+      const newValue = !current;
+      SettingsManager.set('telegram.voiceReplies', String(newValue));
+      await ctx.reply(newValue
+        ? '🔊 Voice replies ON — I\'ll send voice summaries with my text replies.'
+        : '🔇 Voice replies OFF — text only.');
+    });
+
     // Handle all text messages
     this.bot.on('message:text', async (ctx: Context) => {
       const message = ctx.message?.text;
@@ -1175,7 +1185,8 @@ multiline</pre>
 
     try {
       const cacheDir = path.join(app.getPath('userData'), 'tts-cache');
-      const audioPath = await synthesizeSpeech(text, cacheDir);
+      const voiceText = summarizeForVoice(text);
+      const audioPath = await synthesizeSpeech(voiceText, cacheDir);
       const audioBuffer = fs.readFileSync(audioPath);
 
       await ctx.replyWithVoice(new InputFile(audioBuffer, 'voice.mp3'));

@@ -30,7 +30,9 @@ type FailReason = 'empty_content' | 'json_parse_fail' | 'label_mismatch' | 'miss
 
 type LabelConfig = Record<string, {
   notify?: boolean;
-  description?: string;
+  description?: string;   // legacy, kept for backward compat
+  definition?: string;     // replaces description
+  negative?: string;       // negative guidance text
   examples?: Array<string | { messageId: string; subject?: string; from?: string }>;
 }>;
 
@@ -212,8 +214,8 @@ function adaptFullEmail(msgRes: { success: boolean; message?: string }): FullEma
 function buildLabelList(
   allLabels: unknown[],
   labelConfig: LabelConfig,
-): { name: string; desc: string }[] {
-  const items: { name: string; desc: string }[] = [];
+): { name: string; definition: string; negative: string }[] {
+  const items: { name: string; definition: string; negative: string }[] = [];
   for (const l of allLabels) {
     const lObj = l as Record<string, unknown>;
     const name = String(lObj.name || lObj.label || l || '').trim();
@@ -221,13 +223,17 @@ function buildLabelList(
     // Skip system labels (gog returns type: "system" for Gmail built-ins)
     if (lObj.type === 'system') continue;
     const cfg = labelConfig[name];
-    items.push({ name, desc: cfg?.description || '' });
+    items.push({
+      name,
+      definition: cfg?.definition || cfg?.description || '',
+      negative: cfg?.negative || '',
+    });
   }
   return items;
 }
 
 function buildGlmPrompt(
-  allowed: { name: string; desc: string }[],
+  allowed: { name: string; definition: string; negative: string }[],
   examplesByLabel: Record<string, FullEmail[]>,
   batch: FullEmail[],
   reviewLabel: string,
@@ -241,12 +247,16 @@ function buildGlmPrompt(
   lines.push('- The "label" must exactly match one of the AVAILABLE LABELS.');
   lines.push('- Use the messageId provided for each email.');
   lines.push(`- If unsure, set confidence to "low" and label to "${reviewLabel}".`);
+  lines.push('- Negative guidance takes priority. If an email matches a label\'s negative guidance, do NOT assign that label.');
   lines.push('');
   lines.push('AVAILABLE LABELS:');
-  for (const l of allowed) {
-    lines.push(l.desc ? `- ${l.name}: ${l.desc}` : `- ${l.name}`);
-  }
   lines.push('');
+  for (const l of allowed) {
+    lines.push(`## ${l.name}`);
+    if (l.definition) lines.push(`Definition: ${l.definition}`);
+    if (l.negative) lines.push(`NOT this label: ${l.negative}`);
+    lines.push('');
+  }
 
   const exampleLabels = Object.keys(examplesByLabel);
   if (exampleLabels.length > 0) {

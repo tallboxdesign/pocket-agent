@@ -44,6 +44,32 @@ export async function synthesizeSpeech(text: string, outputDir: string): Promise
 /**
  * Strip markdown formatting from text before feeding to TTS.
  */
+/**
+ * Summarize text for voice output (Telegram short summaries).
+ * Extracts first paragraph or 2-3 sentences, capped at maxLength.
+ */
+export function summarizeForVoice(text: string, maxLength: number = 300): string {
+  const cleaned = stripMarkdown(text);
+  if (cleaned.length <= maxLength) return cleaned;
+
+  const firstPara = cleaned.split(/\n\n/)[0].trim();
+  if (firstPara.length >= 40 && firstPara.length <= maxLength) return firstPara;
+
+  const sentences = cleaned.match(/[^.!?]+[.!?]+/g);
+  if (sentences && sentences.length > 0) {
+    let summary = '';
+    for (let i = 0; i < Math.min(3, sentences.length); i++) {
+      if ((summary + sentences[i]).length > maxLength) break;
+      summary += sentences[i];
+    }
+    if (summary.length >= 30) return summary.trim();
+  }
+
+  const truncated = cleaned.slice(0, maxLength);
+  const lastSpace = truncated.lastIndexOf(' ');
+  return (lastSpace > maxLength / 2 ? truncated.slice(0, lastSpace) : truncated).trim() + '...';
+}
+
 export function stripMarkdown(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, '') // code blocks

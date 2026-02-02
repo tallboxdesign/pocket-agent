@@ -82,7 +82,7 @@ function configureProviderEnvironment(model: string): void {
     process.env.ANTHROPIC_BASE_URL = config.baseUrl;
     process.env.ANTHROPIC_AUTH_TOKEN = moonshotKey;
     // Clear ANTHROPIC_API_KEY so SDK uses AUTH_TOKEN instead
-    process.env.ANTHROPIC_API_KEY = '';
+    delete process.env.ANTHROPIC_API_KEY;
 
     console.log('[AgentManager] Provider configured: Moonshot (Kimi)');
   } else {
@@ -491,7 +491,7 @@ class AgentManagerClass extends EventEmitter {
         ? userMessages[userMessages.length - 1].timestamp
         : undefined;
 
-      const options = await this.buildOptions(factsContext, soulContext, abortController, lastUserMessageTimestamp);
+      const options = await this.buildOptions(factsContext, soulContext, abortController, lastUserMessageTimestamp, channel);
 
       // Configure provider environment based on model (sets ANTHROPIC_BASE_URL, AUTH_TOKEN, etc.)
       configureProviderEnvironment(this.model);
@@ -658,7 +658,8 @@ class AgentManagerClass extends EventEmitter {
             memory.getFactsForContext(),
             memory.getSoulContext(),
             abortController,
-            undefined
+            undefined,
+            channel
           );
           fallbackOptions.model = fallbackModel;
 
@@ -790,7 +791,8 @@ class AgentManagerClass extends EventEmitter {
       if (this.processingBySession.get(sessionId) && abortController) {
         console.log(`[AgentManager] Stopping query for session ${sessionId}...`);
         abortController.abort();
-        this.emitStatus({ type: 'done' });
+        // Don't emit 'done' here — it broadcasts to ALL sessions.
+        // The frontend handles cleanup on its end when stopping/deleting a session.
         return true;
       }
       return false;
@@ -806,7 +808,6 @@ class AgentManagerClass extends EventEmitter {
         if (abortController) {
           console.log(`[AgentManager] Stopping query for session ${sid}...`);
           abortController.abort();
-          this.emitStatus({ type: 'done' });
           return true;
         }
       }
@@ -828,12 +829,17 @@ class AgentManagerClass extends EventEmitter {
     return false;
   }
 
-  private async buildOptions(factsContext: string, soulContext: string, abortController: AbortController, lastMessageTimestamp?: string): Promise<SDKOptions> {
+  private async buildOptions(factsContext: string, soulContext: string, abortController: AbortController, lastMessageTimestamp?: string, channel?: string): Promise<SDKOptions> {
     const appendParts: string[] = [];
 
     // Add temporal context first (current time awareness)
     const temporalContext = this.buildTemporalContext(lastMessageTimestamp);
     appendParts.push(temporalContext);
+
+    // Add channel context (tells agent which channel it's on)
+    if (channel) {
+      appendParts.push(this.buildChannelContext(channel));
+    }
 
     if (this.instructions) {
       appendParts.push(this.instructions);
@@ -1121,24 +1127,21 @@ pty_exec(command="htop", timeout=30000)
 \`\`\`
 
 ### Voice / Text-to-Speech
-You have voice capabilities! You can speak aloud to the user.
+You have voice capabilities! Behavior depends on channel:
 
-- speak: Synthesize and play text aloud immediately
-- voice_status: Check current voice settings (auto-TTS, Telegram voice replies)
-- voice_toggle: Enable/disable auto-TTS (reads all responses aloud)
+**Telegram:** Voice is AUTOMATIC. A short spoken summary is sent alongside every text reply. You do NOT need to call speak(). Just write a detailed text response. User can toggle voice with /voice command.
+
+**Desktop:** Voice is always pre-generated for your responses.
+- Speaker toggle OFF (default): Voice is cached but not auto-played. User clicks speaker icon on any message to listen instantly.
+- Speaker toggle ON: Voice auto-plays with each response.
+
+Tools:
+- speak: Synthesize and play text aloud on demand (when user asks to "say" or "read" something)
+- voice_status: Check current voice settings
+- voice_toggle: Enable/disable auto-play on desktop
 - voice_config: Configure Telegram voice replies
 
-Use speak() when:
-- User sent a voice message (respond with voice too)
-- Delivering reminders or announcements
-- User asks you to "say" or "read" something aloud
-
-Examples:
-\`\`\`
-speak(text="Good morning! You have 3 meetings today.")
-voice_toggle(enabled=true)
-voice_config(telegramVoiceReplies=false)
-\`\`\`
+Use speak() only when the user explicitly asks you to "say" or "read" something aloud.
 
 ### Kanban Project Management
 You have a Kanban board for organizing projects and tasks:
@@ -1756,6 +1759,26 @@ ${conversationText}`;
     }
 
     return lines.join('\n');
+  }
+
+  /**
+   * Build channel context for the system prompt.
+   * Tells the agent which channel it's on and how voice behaves.
+   */
+  private buildChannelContext(channel: string): string {
+    if (channel === 'telegram') {
+      return `## Current Channel: Telegram
+The user is messaging via Telegram. A short voice summary is automatically sent alongside your text reply. You do NOT need to call speak(). Just write a detailed text response.`;
+    }
+    if (channel === 'desktop' || channel === 'default') {
+      return `## Current Channel: Desktop App
+The user is on the desktop app. Voice is pre-generated for each response. Auto-play depends on user's speaker toggle.`;
+    }
+    if (channel.startsWith('cron:')) {
+      return `## Current Channel: Scheduled Job
+This is an automated scheduled job. No voice output.`;
+    }
+    return '';
   }
 
   private extractAndStoreFacts(userMessage: string): void {

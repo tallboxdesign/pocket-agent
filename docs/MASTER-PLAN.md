@@ -28,6 +28,7 @@
 17. [Upstream Ports](#17-upstream-ports-from-kenkaiiipocket-agent)
 18. [Task Consolidation & Kanban Automation](#18-task-consolidation--kanban-automation)
 19. [Voice / TTS Agent Tools](#19-voice--tts-agent-tools)
+20. [Label Precision — Definition & Negative Guidance](#20-label-precision--definition--negative-guidance)
 
 ---
 
@@ -1207,6 +1208,33 @@ The app already has a TTS pipeline (Edge TTS, `en-US-BrianMultilingualNeural` vo
 - MODIFY: `src/main/preload.ts` — `onVoicePlay` and `onVoiceTtsToggled` event bridges
 - MODIFY: `ui/chat.html` — listeners for agent-initiated `voice:play` and `voice:ttsToggled`
 
+### Channel-Aware Voice Behavior
+
+Voice behavior differs by channel:
+
+**Telegram (default: ON)**
+- Every text reply automatically includes a short voice summary (first paragraph / 2-3 sentences, not the full text)
+- `/voice` command toggles voice replies on/off
+- Controlled by `telegram.voiceReplies` setting
+
+**Desktop App (default: auto-play OFF)**
+- Voice is always pre-generated in background for every response (Edge TTS, free, ~200ms)
+- Speaker toggle OFF: voice cached but not played. Click per-message speaker icon for instant playback.
+- Speaker toggle ON: voice auto-plays with each response.
+- Controlled by `voice.ttsEnabled` setting (header speaker icon)
+
+**Agent Channel Awareness**
+- Channel ('telegram' / 'desktop' / 'cron:*') injected into agent system prompt
+- Agent knows which channel it's on and adapts voice behavior
+- On Telegram: agent does NOT call speak() — voice is automatic
+- On Desktop: agent uses speak() only when user explicitly asks
+
+### Additional Implementation (extends tools from above)
+- MODIFY: `src/voice/tts.ts` — add `summarizeForVoice()` for Telegram short summaries
+- MODIFY: `src/channels/telegram.ts` — use summarized text + add `/voice` command
+- MODIFY: `src/agent/index.ts` — inject channel into system prompt + `buildChannelContext()`
+- MODIFY: `ui/chat.html` — always pre-cache voice, auto-play gated by toggle
+
 ---
 
 ## Implementation Order (Priority)
@@ -1248,7 +1276,8 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 25. Project selector in New Task modal (quick win, depends on unified task system)
 26. Auto-task recording — agent auto-creates Kanban task when no task context exists
 27. `/continue` command — shows list of all active projects with status/issues, user picks one to resume
-28. Voice/TTS agent tools — 4 MCP tools (speak, voice_status, voice_toggle, voice_config) + capabilities prompt + UI event bridges
+28. Voice/TTS agent tools + channel-aware voice — 4 MCP tools, channel injection, Telegram /voice command, desktop pre-cache
+29. Label precision — definition + negative guidance fields per label (Section 20)
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
@@ -1339,6 +1368,100 @@ _Depends on: stable system — all data in Kanban/SQLite, nothing scattered_
 
 ### Completed Phases
 - ✅ Phase 5 (old) — Gmail integration (gog CLI — 8 tools, multi-account)
+
+---
+
+## 20. Label Precision — Definition & Negative Guidance
+
+### What
+Improve GLM email classification precision by replacing the single-line `description` field with a richer `definition` textarea, and adding a new `negative` guidance field per label. This teaches the GLM what a label IS and what it IS NOT, reducing collisions and false positives.
+
+No new labels, no new label types, no conditional logic. Labels remain semantic state. This is human-in-the-loop semantic tuning via text.
+
+### Data Model
+Extend existing `LabelConfig` type in `src/scheduler/email-processor.ts`:
+
+```typescript
+type LabelConfig = Record<string, {
+  notify?: boolean;
+  description?: string;   // kept for backward compat (lazy migration)
+  definition?: string;     // NEW — replaces description, richer text
+  negative?: string;       // NEW — negative guidance (free-form text)
+  examples?: Array<string | { messageId: string; subject?: string; from?: string }>;
+}>;
+```
+
+- `definition`: plain text paragraph — what this label represents, when it should apply
+- `negative`: plain text lines — what this label is NOT (exclusions, counter-examples)
+- `description` kept in type for backward reads. Code reads `definition ?? description` everywhere. On edit, writes `definition` and deletes `description`.
+- No new tables. No settings schema changes. Same JSON blob in `gmail.emailProcessing.labelConfig`.
+
+### GLM Prompt Changes
+`buildGlmPrompt()` AVAILABLE LABELS section changes from flat list to structured blocks:
+
+```
+AVAILABLE LABELS:
+
+## Guest Posts
+Definition: Emails requesting guest posts or link placements on our blog
+NOT this label: SEO service offers
+Press release announcements
+
+## Clients
+Definition: Emails from active clients about ongoing projects
+```
+
+New rule added: "Negative guidance takes priority. If an email matches a label's negative guidance, do NOT assign that label."
+
+Labels without definition or negative guidance omit those lines cleanly.
+
+### UI Changes — Label Card
+Each label card in Settings → Labels tab becomes:
+
+```
++----------------------------------------------+
+| [x] Classify    Label Name       [x] Notify  |
+|----------------------------------------------|
+| Definition                                    |
+| [textarea: "What this label represents..."]  |
+|                                              |
+| > Advanced (examples & negative guidance)     |
+|   [collapsed by default, toggle open/close]  |
+|   Examples: [pill] [pill] [+ Add]            |
+|   Negative Guidance                          |
+|   [textarea: "What this label is NOT..."]    |
++----------------------------------------------+
+```
+
+- Description `<input>` → Definition `<textarea rows="2">`
+- Examples + negative guidance collapsed behind "Advanced" toggle
+- Toggle state: in-memory only, default collapsed, no persistence needed
+
+### Simplifications from Original Spec
+| Proposed | Decision | Reason |
+|---|---|---|
+| `negative` as `string[]` with "NOT:" prefix parsing | Single `string` (textarea content) | No parsing needed. GLM gets text verbatim. |
+| "Insert template" button | Skip — use placeholder text | Placeholder achieves same guidance, zero JS. |
+| Persist toggle collapse state | In-memory only | Not worth a setting or data model field. |
+| Eager `description` → `definition` migration | Lazy fallback reads | Zero risk. Old data works immediately. |
+
+### Files to Modify
+- MODIFY: `src/scheduler/email-processor.ts` — `LabelConfig` type, `buildLabelList()` return type, `buildGlmPrompt()` template
+- MODIFY: `ui/settings.html` — CSS (textarea + toggle styles), `epRenderLabels()` card template, 3 new JS functions (`epSetLabelDefinition`, `epSetLabelNegative`, `epToggleAdvanced`), remove `epSetLabelDesc`
+
+### Failure Scenarios
+| Scenario | Expected behavior |
+|---|---|
+| Label collision (email matches definition but also negative guidance) | Negative guidance wins. Label not applied. Falls to next best or AI/Review. |
+| Over-broad definition ("emails about content") | High invalid/low confidence. Visible in History. User refines text. |
+| User over-fits (too many negatives) | Drop in classification rate visible in History. User removes negatives. |
+| Conflicting positive example vs negative guidance | Negative guidance wins. Email goes to AI/Review if no other label fits. |
+
+### What NOT to Build
+- No regex editors, condition builders, or nested logic
+- No rule duplication inside labels
+- No auto-generated text or suggestions
+- No new label types or categories
 
 ---
 

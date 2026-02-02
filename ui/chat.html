@@ -2268,6 +2268,14 @@
 
       // Restore pending user messages that haven't been saved to history yet
       const pendingMsgs = pendingUserMessagesBySession.get(sessionId);
+      const isLoading = isLoadingBySession.get(sessionId) || false;
+
+      // Remove empty state if we have pending messages or an active query
+      if ((pendingMsgs && pendingMsgs.size > 0) || isLoading) {
+        const emptyState = messagesDiv.querySelector('.empty-state');
+        if (emptyState) emptyState.remove();
+      }
+
       if (pendingMsgs && pendingMsgs.size > 0) {
         pendingMsgs.forEach((msgData, msgId) => {
           const userMsgEl = addMessage('user', msgData.content, true, msgData.attachments);
@@ -2302,7 +2310,6 @@
       renderAttachmentPreviews();
 
       // Update button state based on whether THIS session is loading
-      const isLoading = isLoadingBySession.get(sessionId) || false;
       setButtonState(isLoading);
 
       // Restore status indicator if this session has an active query
@@ -2412,6 +2419,36 @@
       }
 
       try {
+        // Clean up status listener for this session
+        const statusCleanup = statusCleanupBySession.get(sessionId);
+        if (statusCleanup) {
+          statusCleanup();
+          statusCleanupBySession.delete(sessionId);
+        }
+
+        // Remove status indicator element
+        const statusEl = statusElBySession.get(sessionId);
+        if (statusEl) {
+          statusEl.remove();
+          statusElBySession.delete(sessionId);
+        }
+
+        // Clean up loading state
+        isLoadingBySession.delete(sessionId);
+
+        // Clean up queued message tracking for this session
+        const queuedIds = queuedMessageIdsBySession.get(sessionId);
+        if (queuedIds) {
+          for (const msgId of queuedIds) {
+            queuedMessageElements.delete(msgId);
+          }
+          queuedMessageIdsBySession.delete(sessionId);
+        }
+
+        // Clean up pending user messages
+        pendingUserMessagesBySession.delete(sessionId);
+
+        // Now delete the session (this also stops any running query)
         await window.pocketAgent.deleteSession(sessionId);
         sessions = sessions.filter(s => s.id !== sessionId);
 
@@ -2789,9 +2826,17 @@
           if (result.success) {
             addMessage('assistant', result.response);
 
-            // Auto-TTS if enabled
-            if (autoTTSEnabled && result.response) {
-              playTTS(result.response, null);
+            // Voice: always pre-cache, auto-play only if toggle is ON
+            if (result.response) {
+              if (autoTTSEnabled) {
+                // Auto-play: synthesize and play immediately
+                playTTS(result.response, null);
+              } else {
+                // Pre-cache: synthesize in background so click-to-play is instant
+                window.pocketAgent.synthesizeTTS(result.response).catch(function(e) {
+                  console.warn('Voice pre-cache failed:', e);
+                });
+              }
             }
 
             // If there's a suggested prompt, show it as ghost text

@@ -1134,6 +1134,8 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('sessions:delete', async (_, id: string) => {
+    // Stop any running query for this session first to prevent orphaned processes
+    AgentManager.stopQuery(id);
     const success = memory?.deleteSession(id) ?? false;
     return { success };
   });

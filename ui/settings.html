@@ -1143,6 +1143,36 @@
       cursor: pointer;
       white-space: nowrap;
     }
+    .ep-label-fields textarea {
+      width: 100%;
+      padding: 5px 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 12px;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 48px;
+    }
+    .ep-label-fields textarea:focus { border-color: var(--accent); outline: none; }
+    .ep-label-advanced-toggle {
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 2px;
+    }
+    .ep-label-advanced-toggle:hover { color: var(--text-secondary); }
+    .ep-label-advanced { display: none; flex-direction: column; gap: 6px; }
+    .ep-label-advanced.open { display: flex; }
+    .ep-field-label {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
     .ep-pills {
       display: flex;
       flex-wrap: wrap;
@@ -2478,7 +2508,7 @@
         hint: 'Moonshot keys start with "sk-"'
       },
       'telegram.botToken': {
-        pattern: /^\d{8,10}:[A-Za-z0-9_-]{35}$/,
+        pattern: /^\d{6,}:[A-Za-z0-9_-]{30,}$/,
         hint: 'Telegram tokens are in format "123456789:ABC..."'
       }
     };
@@ -3059,8 +3089,9 @@
       container.innerHTML = sorted.map((name, idx) => {
         const cfg = epLabelConfig[name] || {};
         const isActive = epActiveLabels.includes(name);
-        const isConfigured = isActive || cfg.description || cfg.notify || (cfg.examples && cfg.examples.length > 0);
-        const desc = cfg.description || '';
+        const definition = cfg.definition || cfg.description || '';
+        const negative = cfg.negative || '';
+        const isConfigured = isActive || definition || cfg.notify || negative || (cfg.examples && cfg.examples.length > 0);
         const notify = cfg.notify || false;
         const examples = cfg.examples || [];
         const escapedName = name.replace(/'/g, "\\'");
@@ -3089,13 +3120,19 @@
             </label>
           </div>
           <div class="ep-label-fields">
-            <input type="text" placeholder="Description (e.g. 'Emails from clients about projects')"
-              value="${desc.replace(/"/g, '&quot;')}"
-              onchange="epSetLabelDesc('${escapedName}', this.value)">
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span style="font-size:11px;color:var(--text-muted);">Examples:</span>
-              <div class="ep-pills">${pillsHtml || '<span style="font-size:10px;color:var(--text-muted)">none</span>'}</div>
-              <button class="ep-btn" style="padding:3px 8px;font-size:10px;" onclick="epOpenModal('${escapedName}')">+ Add</button>
+            <span class="ep-field-label">Definition</span>
+            <textarea rows="2" placeholder="What this label represents (e.g. 'Emails from active clients about ongoing projects')"
+              onchange="epSetLabelDefinition('${escapedName}', this.value)">${definition.replace(/</g, '&lt;')}</textarea>
+            <span class="ep-label-advanced-toggle" onclick="epToggleAdvanced(this)">&#9654; Advanced (examples &amp; negative guidance)</span>
+            <div class="ep-label-advanced">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span class="ep-field-label">Examples:</span>
+                <div class="ep-pills">${pillsHtml || '<span style="font-size:10px;color:var(--text-muted)">none</span>'}</div>
+                <button class="ep-btn" style="padding:3px 8px;font-size:10px;" onclick="epOpenModal('${escapedName}')">+ Add</button>
+              </div>
+              <span class="ep-field-label">Negative Guidance</span>
+              <textarea rows="2" placeholder="What this label is NOT (e.g. 'SEO service offers, press release announcements')"
+                onchange="epSetLabelNegative('${escapedName}', this.value)">${negative.replace(/</g, '&lt;')}</textarea>
             </div>
           </div>
         </div>`;
@@ -3111,10 +3148,23 @@
       await epSaveSetting('gmail.emailProcessing.labelConfig', json);
     }
 
-    function epSetLabelDesc(labelName, desc) {
+    function epSetLabelDefinition(labelName, value) {
       if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
-      epLabelConfig[labelName].description = desc;
+      epLabelConfig[labelName].definition = value;
+      delete epLabelConfig[labelName].description;
       epSaveLabelConfig();
+    }
+
+    function epSetLabelNegative(labelName, value) {
+      if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
+      epLabelConfig[labelName].negative = value;
+      epSaveLabelConfig();
+    }
+
+    function epToggleAdvanced(el) {
+      const panel = el.nextElementSibling;
+      const isOpen = panel.classList.toggle('open');
+      el.innerHTML = (isOpen ? '&#9660;' : '&#9654;') + ' Advanced (examples &amp; negative guidance)';
     }
 
     function epToggleLabelNotify(labelName, checked) {
