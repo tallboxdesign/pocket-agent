@@ -4011,18 +4011,36 @@
     ];
 
     const EP_ACTION_TYPES = [
-      { value: 'send_telegram', label: 'Send Telegram', fields: ['template'] },
-      { value: 'apply_label', label: 'Apply Label', fields: ['label'] },
-      { value: 'remove_label', label: 'Remove Label', fields: ['label'] },
-      { value: 'mark_read', label: 'Mark as Read', fields: [] },
-      { value: 'archive', label: 'Archive', fields: [] },
-      { value: 'add_to_summary', label: 'Add to Daily Summary', fields: [] },
-      { value: 'draft_reply', label: 'Draft Reply', fields: ['instructions', 'tone'] },
-      { value: 'send_email', label: 'Send Email', fields: ['to', 'subjectTemplate', 'bodyTemplate'] },
-      { value: 'do_nothing', label: 'Do Nothing', fields: [] },
+      { value: 'send_telegram', label: 'Send Telegram', fields: ['template'], desc: 'Send a Telegram notification with email details' },
+      { value: 'apply_label', label: 'Apply Label', fields: ['label'], desc: 'Add a Gmail label to the email thread' },
+      { value: 'remove_label', label: 'Remove Label', fields: ['label'], desc: 'Remove a Gmail label from the email thread' },
+      { value: 'mark_read', label: 'Mark as Read', fields: [], desc: 'Mark the email as read in Gmail' },
+      { value: 'archive', label: 'Archive', fields: [], desc: 'Remove from inbox (keeps the label)' },
+      { value: 'add_to_summary', label: 'Add to Daily Summary', fields: [], desc: 'Include in the daily email digest' },
+      { value: 'draft_reply', label: 'Draft Reply', fields: ['instructions', 'tone'], desc: 'Create a draft reply using AI' },
+      { value: 'send_email', label: 'Send Email', fields: ['to', 'subjectTemplate', 'bodyTemplate'], desc: 'Send an email notification to someone' },
+      { value: 'do_nothing', label: 'Do Nothing', fields: [], desc: 'Skip — useful to stop further rule processing' },
     ];
 
     async function epOpenRuleEditor(ruleId) {
+      // Auto-fetch labels if not loaded
+      if (epGmailLabels.length === 0) {
+        try {
+          const accts = JSON.parse(await window.pocketAgent.getSetting('gmail.emailProcessing.accounts') || '[]');
+          const acct = accts[0] || '';
+          const result = await window.pocketAgent.gmailFetchLabels(acct);
+          if (result.success && result.labels) {
+            const parsed = JSON.parse(result.labels);
+            const rawLabels = Array.isArray(parsed) ? parsed : (parsed.labels || []);
+            const systemPrefixes = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'UNREAD', 'IMPORTANT', 'CATEGORY_', 'CHAT'];
+            epGmailLabels = rawLabels.filter(l => {
+              const name = typeof l === 'string' ? l : (l.name || l.id || '');
+              return !systemPrefixes.some(p => name.startsWith(p));
+            }).map(l => typeof l === 'string' ? l : (l.name || l.id || ''));
+          }
+        } catch { /* ignore */ }
+      }
+
       const modal = document.getElementById('ep-rule-editor-modal');
       const titleEl = document.getElementById('ep-rule-editor-title');
       document.getElementById('ep-rule-edit-id').value = ruleId || '';
@@ -4059,7 +4077,8 @@
     }
 
     function epBuildLabelOptions(selected) {
-      const labels = epActiveLabels.length > 0 ? epActiveLabels : epGmailLabels;
+      const labels = epGmailLabels.length > 0 ? epGmailLabels : epActiveLabels;
+      if (labels.length === 0) return '<option value="">— fetch labels first —</option>';
       return labels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === selected ? 'selected' : ''}>${l}</option>`).join('');
     }
 
@@ -4119,11 +4138,12 @@
       const row = document.createElement('div');
       row.className = 'ep-rule-action-row';
 
-      const typeOpts = EP_ACTION_TYPES.map(t => `<option value="${t.value}" ${t.value === type ? 'selected' : ''}>${t.label}</option>`).join('');
+      const typeOpts = EP_ACTION_TYPES.map(t => `<option value="${t.value}" ${t.value === type ? 'selected' : ''} title="${t.desc}">${t.label}</option>`).join('');
       const resolvedType = type || EP_ACTION_TYPES[0].value;
+      const actionDef = EP_ACTION_TYPES.find(t => t.value === resolvedType) || EP_ACTION_TYPES[0];
 
       row.innerHTML = `
-        <select class="ep-action-type" onchange="epActionTypeChanged(this)">${typeOpts}</select>
+        <select class="ep-action-type" onchange="epActionTypeChanged(this)" title="${actionDef.desc}">${typeOpts}</select>
         ${epBuildActionConfigInputs(resolvedType, config || {})}
         <button class="ep-rule-remove-btn" onclick="this.parentElement.remove()">x</button>
       `;
@@ -4131,24 +4151,25 @@
     }
 
     function epBuildActionConfigInputs(type, config) {
+      const varHelp = 'Variables: {subject}, {sender}, {label}, {preview}';
       switch (type) {
         case 'send_telegram':
-          return `<input type="text" class="ep-action-config" data-key="template" value="${(config.template || '{label}: {subject} from {sender}').replace(/"/g, '&quot;')}" placeholder="Template: {subject}, {sender}, {label}, {preview}">`;
+          return `<input type="text" class="ep-action-config" data-key="template" value="${(config.template || '{label}: {subject} from {sender}').replace(/"/g, '&quot;')}" placeholder="${varHelp}" title="Message template sent to Telegram. ${varHelp}">`;
         case 'apply_label':
         case 'remove_label':
-          return `<select class="ep-action-config" data-key="label">${epBuildLabelOptions(config.label || '')}</select>`;
+          return `<select class="ep-action-config" data-key="label" title="Choose the Gmail label to ${type === 'apply_label' ? 'add' : 'remove'}">${epBuildLabelOptions(config.label || '')}</select>`;
         case 'draft_reply':
-          return `<input type="text" class="ep-action-config" data-key="instructions" value="${(config.instructions || '').replace(/"/g, '&quot;')}" placeholder="Reply instructions" style="margin-bottom:2px;">
-                  <select class="ep-action-config" data-key="tone">
+          return `<input type="text" class="ep-action-config" data-key="instructions" value="${(config.instructions || '').replace(/"/g, '&quot;')}" placeholder="e.g. Politely decline the offer, mention we are not interested" title="Instructions for the AI to generate a reply draft" style="margin-bottom:2px;">
+                  <select class="ep-action-config" data-key="tone" title="Tone of the generated reply">
                     <option value="professional" ${(config.tone || '') === 'professional' ? 'selected' : ''}>Professional</option>
                     <option value="casual" ${config.tone === 'casual' ? 'selected' : ''}>Casual</option>
                     <option value="friendly" ${config.tone === 'friendly' ? 'selected' : ''}>Friendly</option>
                     <option value="formal" ${config.tone === 'formal' ? 'selected' : ''}>Formal</option>
                   </select>`;
         case 'send_email':
-          return `<input type="text" class="ep-action-config" data-key="to" value="${(config.to || '').replace(/"/g, '&quot;')}" placeholder="Recipient email">
-                  <input type="text" class="ep-action-config" data-key="subjectTemplate" value="${(config.subjectTemplate || 'Re: {subject}').replace(/"/g, '&quot;')}" placeholder="Subject template">
-                  <input type="text" class="ep-action-config" data-key="bodyTemplate" value="${(config.bodyTemplate || '{preview}').replace(/"/g, '&quot;')}" placeholder="Body template">`;
+          return `<input type="text" class="ep-action-config" data-key="to" value="${(config.to || '').replace(/"/g, '&quot;')}" placeholder="recipient@example.com" title="Email address to send notification to">
+                  <input type="text" class="ep-action-config" data-key="subjectTemplate" value="${(config.subjectTemplate || 'Re: {subject}').replace(/"/g, '&quot;')}" placeholder="Subject — ${varHelp}" title="Subject line template. ${varHelp}">
+                  <input type="text" class="ep-action-config" data-key="bodyTemplate" value="${(config.bodyTemplate || '{preview}').replace(/"/g, '&quot;')}" placeholder="Body — ${varHelp}" title="Email body template. ${varHelp}">`;
         default:
           return '';
       }

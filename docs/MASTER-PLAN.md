@@ -1284,6 +1284,8 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 33. Email processing quick-access — dedicated floating window from chat header envelope button, standalone mode (Section 20)
 34. History filters — server-side filter by label, time range, clickable sender filter with active filter chips (Section 20)
 35. Label card tooltips — hover explanations for all controls: classify, notify, definition, examples, negative guidance, routing (Section 20)
+36. Rules editor fixes — label dropdowns use all Gmail labels with auto-fetch, action types have descriptions/tooltips, improved placeholders with variable docs (Section 20)
+37. Agent instruction clarity — explicit decision rules for create_reminder vs schedule_task vs calendar_add in workspace CLAUDE.md and default instructions
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
