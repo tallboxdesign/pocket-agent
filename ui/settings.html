@@ -3461,20 +3461,66 @@
       const el = document.getElementById('ep-routing-exceptions');
       if (!el) return;
       const exceptions = Object.entries(epLabelConfig)
-        .filter(([, cfg]) => cfg.routingOverride)
-        .map(([name, cfg]) => {
+        .filter(([, cfg]) => cfg.routingOverride);
+
+      let html = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Exceptions:</div>';
+
+      if (exceptions.length > 0) {
+        html += exceptions.map(([name, cfg]) => {
+          const escapedName = name.replace(/'/g, "\\'");
           const parts = [];
           if (cfg.removeFromInbox) parts.push('Archive');
           if (cfg.markReadOnFile) parts.push('Mark read');
           if (!cfg.removeFromInbox && !cfg.markReadOnFile) parts.push('Keep in Inbox');
-          return `<span style="color:var(--text);">${epDisplayName(name)}</span> — ${parts.join(', ')}`;
-        });
-      if (exceptions.length === 0) {
-        el.innerHTML = '<span style="color:var(--text-muted);font-size:10px;">No exceptions — all labels follow default routing.</span>';
+          return `<div style="display:flex;align-items:center;gap:6px;margin-left:8px;margin-bottom:3px;">
+            <span style="font-size:11px;color:var(--text);">${epDisplayName(name)}</span>
+            <span style="font-size:10px;color:var(--text-muted);">— ${parts.join(', ')}</span>
+            <span style="cursor:pointer;font-size:13px;color:var(--text-muted);margin-left:auto;" title="Remove exception" onclick="epRemoveRoutingException('${escapedName}')">&times;</span>
+          </div>`;
+        }).join('');
       } else {
-        el.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">Exceptions:</div>' +
-          exceptions.map(e => `<div style="font-size:11px;margin-left:8px;">${e}</div>`).join('');
+        html += '<div style="font-size:10px;color:var(--text-muted);margin-left:8px;">None — all labels follow default.</div>';
       }
+
+      // Add exception button + inline dropdown
+      const availableLabels = epGmailLabels.filter(n => !epLabelConfig[n]?.routingOverride);
+      if (availableLabels.length > 0) {
+        html += `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <select id="ep-add-exception-select" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);max-width:180px;">
+            <option value="">Select label...</option>
+            ${availableLabels.map(n => `<option value="${n.replace(/"/g, '&quot;')}">${epDisplayName(n)}</option>`).join('')}
+          </select>
+          <button class="ep-btn" style="padding:2px 8px;font-size:10px;" onclick="epAddRoutingException()">+ Add Exception</button>
+        </div>`;
+      }
+
+      el.innerHTML = html;
+    }
+
+    function epAddRoutingException() {
+      const select = document.getElementById('ep-add-exception-select');
+      const labelName = select?.value;
+      if (!labelName) return;
+      if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
+      epLabelConfig[labelName].routingOverride = true;
+      // Default exception = keep in inbox (no archive, no mark read)
+      epLabelConfig[labelName].removeFromInbox = false;
+      epLabelConfig[labelName].markReadOnFile = false;
+      epLabelConfig[labelName].keepInInboxOnUncertain = true;
+      epSaveLabelConfig();
+      epUpdateExceptionsList();
+      epRenderLabels();
+    }
+
+    function epRemoveRoutingException(labelName) {
+      if (!epLabelConfig[labelName]) return;
+      delete epLabelConfig[labelName].routingOverride;
+      delete epLabelConfig[labelName].removeFromInbox;
+      delete epLabelConfig[labelName].markReadOnFile;
+      delete epLabelConfig[labelName].keepInInboxOnUncertain;
+      epSaveLabelConfig();
+      epUpdateExceptionsList();
+      epRenderLabels();
     }
 
     async function epLoadRoutingToggle() {
