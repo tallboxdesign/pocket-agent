@@ -1363,6 +1363,16 @@
     .ep-correct-popover .ep-correct-actions button { padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer; }
     .ep-correct-popover .ep-correct-actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
     .ep-label-click:hover { opacity: 0.8; }
+    .ep-sender-link { cursor: pointer; text-decoration: none; }
+    .ep-sender-link:hover { color: var(--accent); text-decoration: underline; }
+    .ep-active-filters { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+    .ep-filter-chip {
+      display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+      background: rgba(168,85,247,0.12); border: 1px solid var(--accent); border-radius: 12px;
+      font-size: 11px; color: var(--accent);
+    }
+    .ep-filter-chip .ep-chip-x { cursor: pointer; font-weight: 700; font-size: 13px; line-height: 1; }
+    .ep-filter-chip .ep-chip-x:hover { color: var(--error); }
     /* Bulk selection */
     .ep-history-table .ep-bulk-cb { width: 20px; text-align: center; }
     .ep-history-table .ep-bulk-cb input { cursor: pointer; }
@@ -1830,7 +1840,7 @@
               <div class="ep-tab" data-tab="ep-labels" onclick="epSwitchTab(this)">Labels</div>
               <div class="ep-tab" data-tab="ep-advanced" onclick="epSwitchTab(this)">Advanced</div>
               <div class="ep-tab" data-tab="ep-status-tab" onclick="epSwitchTab(this)">Status</div>
-              <div class="ep-tab" data-tab="ep-history-tab" onclick="epSwitchTab(this); epLoadHistory()">History</div>
+              <div class="ep-tab" data-tab="ep-history-tab" onclick="epSwitchTab(this); epPopulateFilterLabels(); epLoadHistory()">History</div>
               <div class="ep-tab" data-tab="ep-rules-tab" onclick="epSwitchTab(this); epLoadRules()">Rules</div>
             </div>
 
@@ -1950,10 +1960,23 @@
             <!-- HISTORY TAB -->
             <div class="ep-tab-panel" id="ep-history-tab">
               <div class="ep-group">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
                   <div class="ep-group-title" style="margin:0;">Processed Emails</div>
-                  <button class="ep-btn" onclick="epLoadHistory()" style="padding:4px 10px;font-size:11px;">Refresh</button>
+                  <div style="display:flex;gap:6px;align-items:center;">
+                    <select id="ep-filter-label" onchange="epHistoryOffset=0;epLoadHistory();epUpdateActiveFilters()" style="padding:3px 6px;font-size:11px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;">
+                      <option value="">All labels</option>
+                    </select>
+                    <select id="ep-filter-time" onchange="epHistoryOffset=0;epLoadHistory()" style="padding:3px 6px;font-size:11px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;">
+                      <option value="">All time</option>
+                      <option value="1h">Last hour</option>
+                      <option value="24h" selected>Last 24h</option>
+                      <option value="7d">Last 7 days</option>
+                      <option value="30d">Last 30 days</option>
+                    </select>
+                    <button class="ep-btn" onclick="epLoadHistory()" style="padding:4px 10px;font-size:11px;">Refresh</button>
+                  </div>
                 </div>
+                <div class="ep-active-filters" id="ep-active-filters"></div>
                 <div class="ep-bulk-bar" id="ep-bulk-bar">
                   <span class="ep-bulk-count" id="ep-bulk-count">0 selected</span>
                   <button onclick="epBulkOpenLabelPicker()" id="ep-bulk-label-btn" title="Pick a label to apply to all selected emails">Apply Label...</button>
@@ -2231,6 +2254,19 @@
         window.pocketAgent.onNavigateTab((tab) => {
           navigateToSection(tab);
         });
+      }
+
+      // Standalone email processing mode
+      if (window.location.hash === '#email-standalone') {
+        document.querySelector('.sidebar')?.setAttribute('style', 'display:none');
+        document.querySelector('main')?.setAttribute('style', 'margin-left:0;width:100%;');
+        navigateToSection('gmail');
+        // Auto-expand email processing section
+        const epEl = document.getElementById('ep-section');
+        if (epEl && !epEl.classList.contains('open')) epEl.classList.add('open');
+        // Auto-switch to history tab
+        const historyTab = document.querySelector('[data-tab="ep-history-tab"]');
+        if (historyTab) { epSwitchTab(historyTab); epLoadHistory(); }
       }
     });
 
@@ -3519,14 +3555,75 @@
 
     let epHistoryOffset = 0;
     const EP_HISTORY_PAGE = 50;
+    let epFilterLabelsPopulated = false;
+    let epFilterSender = '';
+
+    async function epPopulateFilterLabels() {
+      if (epFilterLabelsPopulated) return;
+      epFilterLabelsPopulated = true;
+      const select = document.getElementById('ep-filter-label');
+      if (!select) return;
+      try {
+        const stats = await window.pocketAgent.gmailGetLabelStats() || [];
+        const sorted = stats.slice().sort((a, b) => b.count - a.count);
+        for (const s of sorted) {
+          if (!s.label) continue;
+          const opt = document.createElement('option');
+          opt.value = s.label;
+          opt.textContent = `${s.label} (${s.count})`;
+          select.appendChild(opt);
+        }
+      } catch { /* ignore */ }
+    }
+
+    function epFilterBySender(sender) {
+      epFilterSender = sender;
+      epHistoryOffset = 0;
+      epUpdateActiveFilters();
+      epLoadHistory();
+    }
+
+    function epClearSenderFilter() {
+      epFilterSender = '';
+      epHistoryOffset = 0;
+      epUpdateActiveFilters();
+      epLoadHistory();
+    }
+
+    function epUpdateActiveFilters() {
+      const container = document.getElementById('ep-active-filters');
+      if (!container) return;
+      let html = '';
+      if (epFilterSender) {
+        html += `<span class="ep-filter-chip">From: ${epFilterSender.replace(/</g, '&lt;')} <span class="ep-chip-x" onclick="epClearSenderFilter()">&times;</span></span>`;
+      }
+      const labelVal = document.getElementById('ep-filter-label')?.value;
+      if (labelVal) {
+        html += `<span class="ep-filter-chip">Label: ${labelVal.replace(/</g, '&lt;')} <span class="ep-chip-x" onclick="document.getElementById('ep-filter-label').value='';epHistoryOffset=0;epLoadHistory();epUpdateActiveFilters();">&times;</span></span>`;
+      }
+      container.innerHTML = html;
+    }
 
     async function epLoadHistory() {
       const tbody = document.getElementById('ep-history-body');
       const countEl = document.getElementById('ep-history-count');
       tbody.innerHTML = '<tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:16px;">Loading...</td></tr>';
 
+      // Build filters
+      const filters = {};
+      const labelFilter = document.getElementById('ep-filter-label')?.value;
+      if (labelFilter) filters.label = labelFilter;
+      const timeFilter = document.getElementById('ep-filter-time')?.value;
+      if (timeFilter) {
+        const now = new Date();
+        const ms = { '1h': 3600000, '24h': 86400000, '7d': 604800000, '30d': 2592000000 }[timeFilter] || 0;
+        if (ms) filters.since = new Date(now.getTime() - ms).toISOString().replace('T', ' ').slice(0, 19);
+      }
+      if (epFilterSender) filters.sender = epFilterSender;
+      epUpdateActiveFilters();
+
       try {
-        const { emails, total } = await window.pocketAgent.gmailGetProcessedEmails(EP_HISTORY_PAGE, epHistoryOffset);
+        const { emails, total } = await window.pocketAgent.gmailGetProcessedEmails(EP_HISTORY_PAGE, epHistoryOffset, Object.keys(filters).length > 0 ? filters : undefined);
         if (!emails || emails.length === 0) {
           tbody.innerHTML = '<tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:20px;">No processed emails yet. Run the processor first.</td></tr>';
           countEl.textContent = '0 emails';
@@ -3573,7 +3670,7 @@
           return `<tr data-msgid="${msgId}" data-account="${acct}">
             <td class="ep-bulk-cb"><input type="checkbox" onchange="epBulkToggleRow(this)" data-msgid="${msgId}" data-account="${acct}"></td>
             <td style="white-space:nowrap;">${date}</td>
-            <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${from}">${from}</td>
+            <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${from}"><span class="ep-sender-link" onclick="epFilterBySender('${from.replace(/'/g, "\\'")}')" title="Filter by this sender">${from}</span></td>
             <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${subject}"><span class="ep-subject-toggle" onclick="epToggleSnippet('${rowId}')">${subject}</span></td>
             <td>
               <span class="ep-label-badge ${labelBadgeClass} ep-label-click" data-msgid="${msgId}" data-account="${acct}" data-current="${displayLabel}" onclick="epOpenCorrectPopover(this)" style="cursor:pointer;" title="Click to correct">${displayLabel} &#9662;</span>

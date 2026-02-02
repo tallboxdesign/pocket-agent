@@ -101,7 +101,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   gmailGetEmailPreview: (messageId: string, account?: string) => ipcRenderer.invoke('gmail:getEmailPreview', messageId, account),
   gmailRunEmailProcessor: () => ipcRenderer.invoke('gmail:runEmailProcessor'),
   gmailGetProcessingStatus: () => ipcRenderer.invoke('gmail:getProcessingStatus'),
-  gmailGetProcessedEmails: (limit?: number, offset?: number) => ipcRenderer.invoke('gmail:getProcessedEmails', limit, offset),
+  gmailGetProcessedEmails: (limit?: number, offset?: number, filters?: { label?: string; since?: string; sender?: string }) => ipcRenderer.invoke('gmail:getProcessedEmails', limit, offset, filters),
   gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) =>
     ipcRenderer.invoke('gmail:correctLabel', messageId, account, newLabel, useAsExample),
   gmailGetLabelStats: (account?: string) => ipcRenderer.invoke('gmail:getLabelStats', account),
@@ -144,6 +144,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
 
   // Kanban
   openKanban: () => ipcRenderer.invoke('app:openKanban'),
+  openEmailProcessing: () => ipcRenderer.invoke('app:openEmailProcessing'),
   kanbanListProjects: () => ipcRenderer.invoke('kanban:listProjects'),
   kanbanGetProject: (id: number) => ipcRenderer.invoke('kanban:getProject', id),
   kanbanCreateProject: (name: string, description?: string, color?: string) =>
@@ -303,7 +304,7 @@ declare global {
       gmailGetEmailPreview: (messageId: string, account?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
       gmailRunEmailProcessor: () => Promise<{ ok: boolean; error?: string }>;
       gmailGetProcessingStatus: () => Promise<{ runs: unknown[]; checkpoints: unknown[] }>;
-      gmailGetProcessedEmails: (limit?: number, offset?: number) => Promise<{ emails: unknown[]; total: number }>;
+      gmailGetProcessedEmails: (limit?: number, offset?: number, filters?: { label?: string; since?: string; sender?: string }) => Promise<{ emails: unknown[]; total: number }>;
       gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) => Promise<{ ok: boolean; error?: string }>;
       gmailGetLabelStats: (account?: string) => Promise<Array<{ label: string; count: number; lastUsed: string }>>;
       // Rules Engine
@@ -325,6 +326,7 @@ declare global {
       isOAuthPending: () => Promise<boolean>;
       // Kanban
       openKanban: () => Promise<void>;
+      openEmailProcessing: () => Promise<void>;
       kanbanListProjects: () => Promise<Array<Record<string, unknown>>>;
       kanbanGetProject: (id: number) => Promise<Record<string, unknown> | null>;
       kanbanCreateProject: (name: string, description?: string, color?: string) => Promise<{ success: boolean; project?: Record<string, unknown>; error?: string }>;

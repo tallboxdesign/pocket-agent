@@ -1080,18 +1080,36 @@ export class EmailProcessor {
     return { runs, checkpoints };
   }
 
-  getProcessedEmails(limit = 200, offset = 0): {
+  getProcessedEmails(limit = 200, offset = 0, filters?: { label?: string; since?: string; sender?: string }): {
     emails: unknown[];
     total: number;
   } {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters?.label) {
+      clauses.push('COALESCE(corrected_label, label_applied) = ?');
+      params.push(filters.label);
+    }
+    if (filters?.since) {
+      clauses.push('processed_at >= ?');
+      params.push(filters.since);
+    }
+    if (filters?.sender) {
+      clauses.push('sender LIKE ?');
+      params.push(`%${filters.sender}%`);
+    }
+
+    const where = clauses.length > 0 ? ' WHERE ' + clauses.join(' AND ') : '';
+
     const total = (this.db
-      .prepare('SELECT COUNT(*) AS count FROM email_processing_state')
-      .get() as { count: number }).count;
+      .prepare(`SELECT COUNT(*) AS count FROM email_processing_state${where}`)
+      .get(...params) as { count: number }).count;
     const emails = this.db
       .prepare(
-        'SELECT * FROM email_processing_state ORDER BY processed_at DESC LIMIT ? OFFSET ?',
+        `SELECT * FROM email_processing_state${where} ORDER BY processed_at DESC LIMIT ? OFFSET ?`,
       )
-      .all(limit, offset);
+      .all(...params, limit, offset);
     return { emails, total };
   }
 

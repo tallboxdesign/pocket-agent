@@ -181,6 +181,7 @@ let factsWindow: BrowserWindow | null = null;
 let soulWindow: BrowserWindow | null = null;
 let skillsSetupWindow: BrowserWindow | null = null;
 let kanbanWindow: BrowserWindow | null = null;
+let emailWindow: BrowserWindow | null = null;
 
 /**
  * Get the agent's isolated workspace directory.
@@ -1045,6 +1046,59 @@ function openKanbanWindow(): void {
   });
 }
 
+function openEmailProcessingWindow(): void {
+  if (emailWindow && !emailWindow.isDestroyed()) {
+    emailWindow.show();
+    emailWindow.focus();
+    return;
+  }
+
+  const savedBoundsJson = SettingsManager.get('window.emailBounds');
+  let windowOptions: Electron.BrowserWindowConstructorOptions = {
+    width: 900,
+    height: 650,
+    title: 'Email Processing - Pocket Agent',
+    backgroundColor: '#0a0a0b',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  };
+
+  if (savedBoundsJson) {
+    try {
+      const savedBounds = JSON.parse(savedBoundsJson);
+      if (savedBounds.x !== undefined) windowOptions.x = savedBounds.x;
+      if (savedBounds.y !== undefined) windowOptions.y = savedBounds.y;
+      if (savedBounds.width) windowOptions.width = savedBounds.width;
+      if (savedBounds.height) windowOptions.height = savedBounds.height;
+    } catch { /* ignore */ }
+  }
+
+  emailWindow = new BrowserWindow(windowOptions);
+
+  emailWindow.loadFile(path.join(__dirname, '../../ui/settings.html'), { hash: 'email-standalone' });
+
+  emailWindow.once('ready-to-show', () => {
+    emailWindow?.show();
+  });
+
+  const saveBounds = () => {
+    if (emailWindow && !emailWindow.isDestroyed()) {
+      SettingsManager.set('window.emailBounds', JSON.stringify(emailWindow.getBounds()));
+    }
+  };
+  emailWindow.on('moved', saveBounds);
+  emailWindow.on('resized', saveBounds);
+  emailWindow.on('close', saveBounds);
+
+  emailWindow.on('closed', () => {
+    emailWindow = null;
+  });
+}
+
 function showNotification(title: string, body: string): void {
   if (Notification.isSupported()) {
     new Notification({ title, body }).show();
@@ -1522,10 +1576,10 @@ function setupIPC(): void {
     }
   });
 
-  ipcMain.handle('gmail:getProcessedEmails', async (_evt: unknown, limit?: number, offset?: number) => {
+  ipcMain.handle('gmail:getProcessedEmails', async (_evt: unknown, limit?: number, offset?: number, filters?: { label?: string; since?: string; sender?: string }) => {
     try {
       await ensureEmailProcessor();
-      return emailProcessor!.getProcessedEmails(limit ?? 200, offset ?? 0);
+      return emailProcessor!.getProcessedEmails(limit ?? 200, offset ?? 0, filters);
     } catch {
       return { emails: [], total: 0 };
     }
@@ -1952,6 +2006,10 @@ function setupIPC(): void {
 
   ipcMain.handle('app:openKanban', async () => {
     openKanbanWindow();
+  });
+
+  ipcMain.handle('app:openEmailProcessing', async () => {
+    openEmailProcessingWindow();
   });
 
   // Kanban
