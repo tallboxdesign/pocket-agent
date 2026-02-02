@@ -1288,6 +1288,7 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 37. Agent instruction clarity — explicit decision rules for create_reminder vs schedule_task vs calendar_add in workspace CLAUDE.md and default instructions
 38. AI Define button — per-label "AI Define" button that calls GLM Flash to generate precise definition + negative guidance from user text and example emails (Section 20)
 39. Thread state conditions — rules engine `thread_state` condition (unread/unreplied/awaiting_reply/replied_with_answer/user_only), gog thread fetch with 30-min SQLite cache, lazy evaluation (Section 20)
+40. Routing UI improvements — no-action warning, inline exception controls with Archive/Mark-read checkboxes, quick presets (Archive all / Archive+Read / Keep in Inbox), 7-day routing stats counter, dry-run preview table (Section 20)
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
@@ -1479,16 +1480,21 @@ Each label card in Settings → Labels tab becomes:
 
 **Focus:** Mature the email processing pipeline from classification → full inbox management.
 
-### Phase A: Routing Observability + Kill Switch ← CURRENT
+### Phase A: Routing Observability + Kill Switch ✅ DONE
 _Routing Phase 1 from `docs/designs/email-label-routing.md`_
-- `routing_result` + `routing_error` columns on `email_processing_state`
-- Rewrite `applyRouting()` → return `{ result: 'filed' | 'in_inbox', error?: string }`
-- Global `routingEnabled` kill switch setting
-- 3-state badge in History (Filed / In Inbox / Routing failed)
-- Kill switch toggle at top of Labels tab
+- ✅ `routing_result` + `routing_error` columns on `email_processing_state`
+- ✅ Rewrite `applyRouting()` → return `{ result: 'filed' | 'in_inbox', error?: string }`
+- ✅ Global `routingEnabled` kill switch setting + toggle at top of Labels tab
+- ✅ 3-state badge in History (Filed / In Inbox / Routing failed)
+- ✅ Global routing defaults (Archive from Inbox, Mark as read, Keep in Inbox when uncertain)
+- ✅ Per-label routing exceptions with override pattern (`routingOverride` on LabelConfig)
+- ✅ Exception management UI in routing section (add/remove directly)
+- ✅ Removed activeLabels filter — ALL labels always sent to GLM for classification
+- ✅ Renamed "Classify" → "Pin" (cosmetic sort only, no longer gates GLM)
+- ✅ GLM concurrency set to 1 (Zhipu API doesn't support concurrent calls reliably)
 - **Design:** `docs/designs/email-label-routing.md`
 
-### Phase B: Rules v2 — OR Logic (Condition Groups)
+### Phase B: Rules v2 — OR Logic (Condition Groups) ← CURRENT
 - `ConditionGroup = { mode: 'AND' | 'OR'; items: Condition[] }`
 - `conditions_json` migrated from `Condition[]` → `ConditionGroup[]`
 - Outer AND across groups; inner AND/OR per group

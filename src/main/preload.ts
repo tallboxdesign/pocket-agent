@@ -105,6 +105,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) =>
     ipcRenderer.invoke('gmail:correctLabel', messageId, account, newLabel, useAsExample),
   gmailGetLabelStats: (account?: string) => ipcRenderer.invoke('gmail:getLabelStats', account),
+  gmailGetRoutingStats: (account?: string) => ipcRenderer.invoke('gmail:getRoutingStats', account),
   gmailAiDefineLabelConfig: (labelName: string, definition: string, negative: string, examples: Array<{ messageId: string; subject?: string; from?: string }>, field: 'definition' | 'negative', account?: string) =>
     ipcRenderer.invoke('gmail:aiDefineLabelConfig', labelName, definition, negative, examples, field, account),
 
@@ -309,6 +310,7 @@ declare global {
       gmailGetProcessedEmails: (limit?: number, offset?: number, filters?: { label?: string; since?: string; sender?: string }) => Promise<{ emails: unknown[]; total: number }>;
       gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) => Promise<{ ok: boolean; error?: string }>;
       gmailGetLabelStats: (account?: string) => Promise<Array<{ label: string; count: number; lastUsed: string }>>;
+      gmailGetRoutingStats: (account?: string) => Promise<{ filed: number; kept: number; failed: number }>;
       gmailAiDefineLabelConfig: (labelName: string, definition: string, negative: string, examples: Array<{ messageId: string; subject?: string; from?: string }>, field: 'definition' | 'negative', account?: string) => Promise<{ ok: boolean; field?: string; text?: string; error?: string }>;
       // Rules Engine
       rulesGetAll: (account?: string) => Promise<Array<Record<string, unknown>>>;

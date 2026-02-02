@@ -1875,8 +1875,12 @@
                   <label>Scan Interval</label>
                   <select id="ep-interval" onchange="epSaveSetting('gmail.emailProcessing.intervalMin', this.value)">
                     <option value="1">1 min (testing)</option>
+                    <option value="5">5 min</option>
+                    <option value="10">10 min</option>
+                    <option value="15">15 min</option>
                     <option value="20">20 min</option>
                     <option value="30" selected>30 min</option>
+                    <option value="45">45 min</option>
                     <option value="60">60 min</option>
                   </select>
                 </div>
@@ -1923,6 +1927,9 @@
                   </label>
                 </div>
                 <div id="ep-routing-status" style="font-size:10px;color:var(--text-muted);margin-top:2px;"></div>
+                <div id="ep-routing-warning" style="display:none;margin-top:4px;padding:4px 8px;background:rgba(255,193,7,0.12);border:1px solid rgba(255,193,7,0.3);border-radius:4px;font-size:10px;color:#b8860b;">
+                  ⚠ Routing is on but no actions are checked — emails won't be archived or marked read.
+                </div>
                 <div id="ep-routing-defaults" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">
                   <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Default for all labels:</div>
                   <label class="ep-label-classify" style="gap:6px;" title="Remove classified emails from your inbox. The label is still applied — the email just won't appear in Inbox.">
@@ -1937,7 +1944,14 @@
                     <input type="checkbox" id="ep-routing-default-uncertain" onchange="epSaveRoutingDefaults()" checked>
                     Keep in Inbox when uncertain
                   </label>
+                  <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+                    <button class="ep-btn" style="padding:2px 8px;font-size:10px;" onclick="epApplyRoutingPreset('archive')" title="Archive from Inbox, keep uncertain">Archive all</button>
+                    <button class="ep-btn" style="padding:2px 8px;font-size:10px;" onclick="epApplyRoutingPreset('archive-read')" title="Archive + Mark read, keep uncertain">Archive + Mark read</button>
+                    <button class="ep-btn" style="padding:2px 8px;font-size:10px;" onclick="epApplyRoutingPreset('keep')" title="No archiving, no mark read">Keep all in Inbox</button>
+                  </div>
                   <div id="ep-routing-exceptions" style="margin-top:6px;font-size:11px;"></div>
+                  <div id="ep-routing-stats" style="margin-top:6px;font-size:10px;color:var(--text-muted);"></div>
+                  <div id="ep-routing-preview" style="margin-top:6px;font-size:10px;"></div>
                 </div>
               </div>
               <div class="ep-group">
@@ -3438,6 +3452,16 @@
         statusEl.style.color = enabled ? 'var(--text-muted)' : 'var(--error, #e53935)';
       }
       if (defaultsEl) defaultsEl.style.display = enabled ? '' : 'none';
+      epCheckRoutingWarning();
+    }
+
+    function epCheckRoutingWarning() {
+      const warningEl = document.getElementById('ep-routing-warning');
+      if (!warningEl) return;
+      const toggleOn = document.getElementById('ep-routing-toggle')?.checked || false;
+      const archive = document.getElementById('ep-routing-default-archive')?.checked || false;
+      const markRead = document.getElementById('ep-routing-default-markread')?.checked || false;
+      warningEl.style.display = (toggleOn && !archive && !markRead) ? '' : 'none';
     }
 
     async function epSaveRoutingDefaults() {
@@ -3447,7 +3471,9 @@
       await epSaveSetting('gmail.emailProcessing.routing.defaultArchive', archive ? 'true' : 'false');
       await epSaveSetting('gmail.emailProcessing.routing.defaultMarkRead', markRead ? 'true' : 'false');
       await epSaveSetting('gmail.emailProcessing.routing.defaultKeepOnUncertain', uncertain ? 'true' : 'false');
+      epCheckRoutingWarning();
       epUpdateExceptionsList();
+      epLoadRoutingPreview();
     }
 
     function epToggleLabelRoutingOverride(labelName, checked) {
@@ -3469,13 +3495,16 @@
       if (exceptions.length > 0) {
         html += exceptions.map(([name, cfg]) => {
           const escapedName = name.replace(/'/g, "\\'");
-          const parts = [];
-          if (cfg.removeFromInbox) parts.push('Archive');
-          if (cfg.markReadOnFile) parts.push('Mark read');
-          if (!cfg.removeFromInbox && !cfg.markReadOnFile) parts.push('Keep in Inbox');
-          return `<div style="display:flex;align-items:center;gap:6px;margin-left:8px;margin-bottom:3px;">
-            <span style="font-size:11px;color:var(--text);">${epDisplayName(name)}</span>
-            <span style="font-size:10px;color:var(--text-muted);">— ${parts.join(', ')}</span>
+          return `<div style="display:flex;align-items:center;gap:6px;margin-left:8px;margin-bottom:3px;flex-wrap:wrap;">
+            <span style="font-size:11px;color:var(--text);min-width:60px;">${epDisplayName(name)}</span>
+            <label style="font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:3px;cursor:pointer;">
+              <input type="checkbox" ${cfg.removeFromInbox ? 'checked' : ''} onchange="epSetExceptionRouting('${escapedName}', 'removeFromInbox', this.checked)" style="margin:0;">
+              Archive
+            </label>
+            <label style="font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:3px;cursor:pointer;">
+              <input type="checkbox" ${cfg.markReadOnFile ? 'checked' : ''} onchange="epSetExceptionRouting('${escapedName}', 'markReadOnFile', this.checked)" style="margin:0;">
+              Mark read
+            </label>
             <span style="cursor:pointer;font-size:13px;color:var(--text-muted);margin-left:auto;" title="Remove exception" onclick="epRemoveRoutingException('${escapedName}')">&times;</span>
           </div>`;
         }).join('');
@@ -3496,6 +3525,15 @@
       }
 
       el.innerHTML = html;
+      epLoadRoutingPreview();
+    }
+
+    function epSetExceptionRouting(labelName, field, checked) {
+      if (!epLabelConfig[labelName]) epLabelConfig[labelName] = {};
+      epLabelConfig[labelName][field] = checked;
+      epSaveLabelConfig();
+      epUpdateExceptionsList();
+      epRenderLabels();
     }
 
     function epAddRoutingException() {
@@ -3524,6 +3562,99 @@
       epRenderLabels();
     }
 
+    function epApplyRoutingPreset(preset) {
+      const archiveEl = document.getElementById('ep-routing-default-archive');
+      const markReadEl = document.getElementById('ep-routing-default-markread');
+      const uncertainEl = document.getElementById('ep-routing-default-uncertain');
+      if (!archiveEl || !markReadEl || !uncertainEl) return;
+      if (preset === 'archive') {
+        archiveEl.checked = true;
+        markReadEl.checked = false;
+      } else if (preset === 'archive-read') {
+        archiveEl.checked = true;
+        markReadEl.checked = true;
+      } else if (preset === 'keep') {
+        archiveEl.checked = false;
+        markReadEl.checked = false;
+      }
+      uncertainEl.checked = true;
+      epSaveRoutingDefaults();
+    }
+
+    async function epLoadRoutingStats() {
+      const el = document.getElementById('ep-routing-stats');
+      if (!el) return;
+      try {
+        const stats = await window.pocketAgent.gmailGetRoutingStats();
+        if (!stats || (stats.filed === 0 && stats.kept === 0 && stats.failed === 0)) {
+          el.textContent = '';
+          return;
+        }
+        let text = `Last 7 days: ${stats.filed} filed, ${stats.kept} kept in inbox`;
+        if (stats.failed > 0) text += `, ${stats.failed} failed`;
+        el.textContent = text;
+      } catch { el.textContent = ''; }
+    }
+
+    async function epLoadRoutingPreview() {
+      const el = document.getElementById('ep-routing-preview');
+      if (!el) return;
+      try {
+        const { emails } = await window.pocketAgent.gmailGetProcessedEmails(5, 0);
+        if (!emails || emails.length === 0) { el.innerHTML = ''; return; }
+
+        const archive = document.getElementById('ep-routing-default-archive')?.checked || false;
+        const markRead = document.getElementById('ep-routing-default-markread')?.checked || false;
+        const keepOnUncertain = document.getElementById('ep-routing-default-uncertain')?.checked ?? true;
+        const toggleOn = document.getElementById('ep-routing-toggle')?.checked || false;
+
+        const rows = emails.map(e => {
+          const label = e.corrected_label || e.label_applied || '—';
+          let action = 'Keep in Inbox';
+
+          if (!toggleOn) {
+            action = 'Keep (routing off)';
+          } else {
+            const cfg = epLabelConfig[label];
+            let lArchive, lMarkRead, lKeepOnUncertain;
+            if (cfg?.routingOverride) {
+              lArchive = cfg.removeFromInbox === true;
+              lMarkRead = cfg.markReadOnFile === true;
+              lKeepOnUncertain = cfg.keepInInboxOnUncertain !== false;
+            } else {
+              lArchive = archive;
+              lMarkRead = markRead;
+              lKeepOnUncertain = keepOnUncertain;
+            }
+
+            if (!lArchive && !lMarkRead) {
+              action = 'Keep (no actions)';
+            } else {
+              const confidence = e.confidence || '';
+              const isUncertain = confidence === 'low' || confidence === 'invalid';
+              if (isUncertain && lKeepOnUncertain) {
+                action = 'Keep (uncertain)';
+              } else {
+                const parts = [];
+                if (lArchive) parts.push('Archive');
+                if (lMarkRead) parts.push('Mark read');
+                action = parts.join(' + ');
+              }
+            }
+          }
+
+          const subject = (e.subject || '(no subject)').slice(0, 40) + ((e.subject || '').length > 40 ? '...' : '');
+          return `<tr><td style="padding:1px 6px 1px 0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(e.subject || '').replace(/"/g, '&quot;')}">${subject}</td><td style="padding:1px 6px;color:var(--text-muted);">${epDisplayName(label)}</td><td style="padding:1px 0 1px 6px;">${action}</td></tr>`;
+        });
+
+        el.innerHTML = `<div style="margin-top:4px;color:var(--text-muted);font-size:10px;margin-bottom:2px;">Dry-run preview (last 5 emails):</div>
+          <table style="font-size:10px;border-collapse:collapse;width:100%;">
+            <tr style="color:var(--text-muted);"><th style="text-align:left;padding:1px 6px 1px 0;font-weight:500;">Subject</th><th style="text-align:left;padding:1px 6px;font-weight:500;">Label</th><th style="text-align:left;padding:1px 0 1px 6px;font-weight:500;">Would do</th></tr>
+            ${rows.join('')}
+          </table>`;
+      } catch { el.innerHTML = ''; }
+    }
+
     async function epLoadRoutingToggle() {
       try {
         const enabled = (await window.pocketAgent.getSetting('gmail.emailProcessing.routingEnabled')) !== 'false';
@@ -3543,6 +3674,8 @@
 
         epUpdateRoutingUI(enabled);
         epUpdateExceptionsList();
+        epLoadRoutingStats();
+        epLoadRoutingPreview();
       } catch { /* ignore */ }
     }
 

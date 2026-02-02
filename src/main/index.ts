@@ -1602,6 +1602,13 @@ function setupIPC(): void {
     } catch { return []; }
   });
 
+  ipcMain.handle('gmail:getRoutingStats', async (_evt: unknown, account?: string) => {
+    try {
+      await ensureEmailProcessor();
+      return emailProcessor!.getRoutingStats(account);
+    } catch { return { filed: 0, kept: 0, failed: 0 }; }
+  });
+
   ipcMain.handle('gmail:aiDefineLabelConfig', async (
     _evt: unknown,
     labelName: string,

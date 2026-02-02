@@ -1177,6 +1177,31 @@ export class EmailProcessor {
     return (account ? this.db.prepare(query).all(account) : this.db.prepare(query).all()) as { label: string; count: number; lastUsed: string }[];
   }
 
+  getRoutingStats(account?: string): { filed: number; kept: number; failed: number } {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const whereClause = account
+      ? 'WHERE processed_at >= ? AND account = ?'
+      : 'WHERE processed_at >= ?';
+    const params = account ? [since, account] : [since];
+
+    const rows = this.db.prepare(
+      `SELECT routing_result, COUNT(*) AS count FROM email_processing_state ${whereClause} GROUP BY routing_result`,
+    ).all(...params) as { routing_result: string | null; count: number }[];
+
+    let filed = 0;
+    let kept = 0;
+    for (const row of rows) {
+      if (row.routing_result === 'filed') filed += row.count;
+      else kept += row.count;
+    }
+
+    const failed = (this.db.prepare(
+      `SELECT COUNT(*) AS count FROM email_processing_state ${whereClause} AND routing_error IS NOT NULL AND routing_error NOT IN ('routing_disabled','no_routing_config','confidence_skip','no_thread_id')`,
+    ).get(...params) as { count: number }).count;
+
+    return { filed, kept, failed };
+  }
+
   // ---------- Label Corrections ----------
 
   async correctLabel(
