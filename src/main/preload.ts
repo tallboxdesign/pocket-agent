@@ -122,7 +122,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
     ipcRenderer.on('gmail:progress', listener);
     return () => ipcRenderer.removeListener('gmail:progress', listener);
   },
-  openSettings: () => ipcRenderer.invoke('app:openSettings'),
+  openSettings: (tab?: string) => ipcRenderer.invoke('app:openSettings', tab),
   openChat: () => ipcRenderer.invoke('app:openChat'),
   startOAuth: () => ipcRenderer.invoke('auth:startOAuth'),
   completeOAuth: (code: string) => ipcRenderer.invoke('auth:completeOAuth', code),

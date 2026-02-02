@@ -1662,8 +1662,8 @@ function setupIPC(): void {
     }
   });
 
-  ipcMain.handle('app:openSettings', async () => {
-    openSettingsWindow();
+  ipcMain.handle('app:openSettings', async (_event, tab?: string) => {
+    openSettingsWindow(tab);
   });
 
   ipcMain.handle('app:openChat', async () => {

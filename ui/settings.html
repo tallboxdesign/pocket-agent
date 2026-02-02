@@ -1349,7 +1349,15 @@
       position: fixed; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border);
       border-radius: 8px; padding: 10px 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); min-width: 200px;
     }
-    .ep-correct-popover select { width: 100%; padding: 5px 8px; margin-bottom: 8px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
+    .ep-correct-popover select { width: 100%; padding: 5px 8px; margin-bottom: 8px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; font-size: 12px; display: none; }
+    .ep-correct-search { width: 100%; padding: 5px 8px; margin-bottom: 4px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; font-size: 12px; box-sizing: border-box; }
+    .ep-correct-search:focus { border-color: var(--accent); outline: none; }
+    .ep-correct-list { max-height: 200px; overflow-y: auto; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-primary); }
+    .ep-correct-group { font-size: 10px; color: var(--text-muted); padding: 4px 8px 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .ep-correct-item { padding: 5px 8px; font-size: 12px; color: var(--text-primary); cursor: pointer; }
+    .ep-correct-item:hover { background: var(--bg-tertiary); }
+    .ep-correct-item.selected { background: var(--accent); color: #fff; }
+    .ep-correct-item.create-new { color: var(--accent); font-style: italic; }
     .ep-correct-popover label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; cursor: pointer; }
     .ep-correct-popover .ep-correct-actions { display: flex; gap: 6px; justify-content: flex-end; }
     .ep-correct-popover .ep-correct-actions button { padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer; }
@@ -2177,6 +2185,13 @@
       checkGlmStatus();
       checkGogStatus();
       epInit();
+
+      // Listen for tab navigation from main process
+      if (window.pocketAgent.onNavigateTab) {
+        window.pocketAgent.onNavigateTab((tab) => {
+          navigateToSection(tab);
+        });
+      }
     });
 
     async function loadAppVersion() {
@@ -3111,41 +3126,41 @@
 
         return `${separator}<div class="ep-label-item ${isConfigured ? 'configured' : ''}" data-label="${name}">
           <div class="ep-label-head">
-            <label class="ep-label-classify" title="Include in GLM classification">
+            <label class="ep-label-classify" title="Include this label in GLM classification. Only active labels are sent to the AI model for email sorting.">
               <input type="checkbox" ${isActive ? 'checked' : ''} onchange="epToggleActiveLabel('${escapedName}', this.checked)">
               Classify
             </label>
             <span class="ep-label-name">${name}</span>
-            <label class="ep-label-notify">
+            <label class="ep-label-notify" title="Send a notification (desktop + Telegram if configured) when emails are classified into this label with high/medium confidence.">
               <input type="checkbox" ${notify ? 'checked' : ''} onchange="epToggleLabelNotify('${escapedName}', this.checked)">
               Notify
             </label>
           </div>
           <div class="ep-label-fields">
-            <span class="ep-field-label">Definition</span>
+            <span class="ep-field-label" title="Describe what kind of emails belong in this label. The AI classifier uses this to decide where each email goes.">Definition</span>
             <textarea rows="2" placeholder="What this label represents (e.g. 'Emails from active clients about ongoing projects')"
               onchange="epSetLabelDefinition('${escapedName}', this.value)">${definition.replace(/</g, '&lt;')}</textarea>
             <span class="ep-label-advanced-toggle" onclick="epToggleAdvanced(this)">&#9654; Advanced (examples, negative guidance &amp; routing)</span>
             <div class="ep-label-advanced">
               <div style="display:flex;align-items:center;gap:6px;">
-                <span class="ep-field-label">Examples:</span>
+                <span class="ep-field-label" title="Pick real emails as few-shot examples. The AI sees these when classifying, which improves accuracy for this label.">Examples:</span>
                 <div class="ep-pills">${pillsHtml || '<span style="font-size:10px;color:var(--text-muted)">none</span>'}</div>
                 <button class="ep-btn" style="padding:3px 8px;font-size:10px;" onclick="epOpenModal('${escapedName}')">+ Add</button>
               </div>
-              <span class="ep-field-label">Negative Guidance</span>
+              <span class="ep-field-label" title="Tell the AI what does NOT belong in this label. Negative guidance takes priority — if an email matches this, it won't be assigned here.">Negative Guidance</span>
               <textarea rows="2" placeholder="What this label is NOT (e.g. 'SEO service offers, press release announcements')"
                 onchange="epSetLabelNegative('${escapedName}', this.value)">${negative.replace(/</g, '&lt;')}</textarea>
               <div style="border-top:1px solid var(--border);margin:6px 0 2px;"></div>
-              <span class="ep-field-label">Routing</span>
-              <label class="ep-label-classify" style="gap:6px;">
+              <span class="ep-field-label" title="Automatically archive or mark-read emails after they are classified into this label. Works after GLM classification, manual corrections, and rule actions.">Routing</span>
+              <label class="ep-label-classify" style="gap:6px;" title="Remove the email thread from Gmail Inbox after classification. The label is still applied — the email just won't appear in Inbox.">
                 <input type="checkbox" ${cfg.removeFromInbox ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'removeFromInbox', this.checked)">
                 Archive from Inbox
               </label>
-              <label class="ep-label-classify" style="gap:6px;">
+              <label class="ep-label-classify" style="gap:6px;" title="Mark the email thread as read after classification. Useful for low-priority labels you don't need to see as unread.">
                 <input type="checkbox" ${cfg.markReadOnFile ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'markReadOnFile', this.checked)">
                 Mark as read when filed
               </label>
-              <label class="ep-label-classify" style="gap:6px;">
+              <label class="ep-label-classify" style="gap:6px;" title="Safety net: when the classifier is unsure (low/invalid confidence), skip routing and keep the email in your Inbox so you don't miss it. Recommended to keep enabled.">
                 <input type="checkbox" ${cfg.keepInInboxOnUncertain !== false ? 'checked' : ''} onchange="epSetLabelRouting('${escapedName}', 'keepInInboxOnUncertain', this.checked)">
                 Keep in Inbox when uncertain
               </label>
@@ -3285,58 +3300,61 @@
       }
     }
 
+    let epCorrectSelectedLabel = null;
+
     async function epOpenCorrectPopover(el) {
       epCloseCorrectPopover();
       const msgId = el.dataset.msgid;
       const account = el.dataset.account;
       const currentLabel = el.dataset.current;
+      epCorrectSelectedLabel = currentLabel;
 
-      // Build list of active labels (or all fetched labels)
-      const labels = epActiveLabels.length > 0 ? epActiveLabels : epGmailLabels;
-      if (labels.length === 0) {
-        showToast('Fetch labels first (Labels tab)', 'error');
-        return;
+      // Auto-fetch labels from Gmail if not loaded yet
+      if (epGmailLabels.length === 0) {
+        try {
+          const acct = account || (JSON.parse(await window.pocketAgent.getSetting('gmail.emailProcessing.accounts') || '[]'))[0] || '';
+          const result = await window.pocketAgent.gmailFetchLabels(acct);
+          if (result.success && result.labels) {
+            const parsed = JSON.parse(result.labels);
+            const labels = Array.isArray(parsed) ? parsed : (parsed.labels || []);
+            const systemPrefixes = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'UNREAD', 'IMPORTANT', 'CATEGORY_', 'CHAT'];
+            epGmailLabels = labels.filter(l => {
+              const name = typeof l === 'string' ? l : (l.name || l.id || '');
+              return !systemPrefixes.some(p => name.startsWith(p));
+            }).map(l => typeof l === 'string' ? l : (l.name || l.id || ''));
+          }
+        } catch { /* ignore */ }
       }
 
-      // Fetch label stats for grouped dropdown
+      // Fetch label stats for grouped sections
       let stats = [];
       try {
         stats = await window.pocketAgent.gmailGetLabelStats(account) || [];
       } catch { /* ignore */ }
 
-      const popover = document.createElement('div');
-      popover.className = 'ep-correct-popover';
-
-      // Build grouped optgroups
       const recentLabels = stats.slice().sort((a, b) => (b.lastUsed || '').localeCompare(a.lastUsed || '')).slice(0, 5).map(s => s.label).filter(Boolean);
       const frequentLabels = stats.slice().sort((a, b) => b.count - a.count).slice(0, 5).map(s => s.label).filter(Boolean);
       const seenInGroups = new Set([...recentLabels, ...frequentLabels]);
+      const allLabels = epGmailLabels.length > 0 ? [...epGmailLabels] : (epActiveLabels.length > 0 ? [...epActiveLabels] : []);
+      const remaining = allLabels.filter(l => !seenInGroups.has(l)).sort((a, b) => a.localeCompare(b));
 
-      let optionsHtml = '';
-      if (recentLabels.length > 0) {
-        optionsHtml += '<optgroup label="Recent">';
-        optionsHtml += recentLabels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === currentLabel ? 'selected' : ''}>${l}</option>`).join('');
-        optionsHtml += '</optgroup>';
-      }
-      if (frequentLabels.length > 0) {
-        optionsHtml += '<optgroup label="Frequent">';
-        optionsHtml += frequentLabels.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === currentLabel ? 'selected' : ''}>${l}</option>`).join('');
-        optionsHtml += '</optgroup>';
-      }
-      const remaining = labels.filter(l => !seenInGroups.has(l));
-      if (remaining.length > 0 || seenInGroups.size === 0) {
-        optionsHtml += '<optgroup label="All Labels">';
-        const allOpts = seenInGroups.size === 0 ? labels : remaining;
-        optionsHtml += allOpts.map(l => `<option value="${l.replace(/"/g, '&quot;')}" ${l === currentLabel ? 'selected' : ''}>${l}</option>`).join('');
-        optionsHtml += '</optgroup>';
-      }
-      optionsHtml += '<option value="__create_new__">+ Create new label...</option>';
+      // Build grouped data for rendering
+      const groups = [];
+      if (recentLabels.length > 0) groups.push({ title: 'Recent', labels: recentLabels });
+      if (frequentLabels.length > 0) groups.push({ title: 'Frequent', labels: frequentLabels });
+      if (remaining.length > 0) groups.push({ title: 'All Labels', labels: remaining });
+      if (groups.length === 0 && allLabels.length > 0) groups.push({ title: 'All Labels', labels: allLabels });
+
+      const popover = document.createElement('div');
+      popover.className = 'ep-correct-popover';
+      popover.style.minWidth = '220px';
 
       popover.innerHTML = `
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Correct label:</div>
-        <select id="ep-correct-select" onchange="epHandleCorrectSelectChange(this)">${optionsHtml}</select>
+        <input type="text" class="ep-correct-search" id="ep-correct-search" placeholder="Search labels..." autocomplete="off">
+        <div class="ep-correct-list" id="ep-correct-list"></div>
         <div id="ep-correct-new-label" style="display:none;margin-top:4px;">
-          <input type="text" id="ep-correct-new-input" placeholder="New label name" style="width:100%;margin-bottom:4px;padding:4px 6px;font-size:11px;">
+          <input type="text" id="ep-correct-new-input" placeholder="New label name" style="width:100%;margin-bottom:4px;padding:4px 6px;font-size:11px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;">
           <button style="font-size:10px;padding:2px 8px;" onclick="epCreateNewLabelInPopover()">Create</button>
         </div>
         <label><input type="checkbox" id="ep-correct-example"> Use as training example</label>
@@ -3346,12 +3364,53 @@
         </div>
       `;
 
-      // Position below the clicked element
+      // Render label list
+      function renderList(filter) {
+        const list = popover.querySelector('#ep-correct-list');
+        const q = (filter || '').toLowerCase();
+        let html = '';
+        for (const group of groups) {
+          const filtered = q ? group.labels.filter(l => l.toLowerCase().includes(q)) : group.labels;
+          if (filtered.length === 0) continue;
+          html += `<div class="ep-correct-group">${group.title}</div>`;
+          html += filtered.map(l => {
+            const sel = l === epCorrectSelectedLabel ? ' selected' : '';
+            const esc = l.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            return `<div class="ep-correct-item${sel}" data-label="${esc}" onclick="epSelectCorrectLabel(this)">${l.replace(/</g, '&lt;')}</div>`;
+          }).join('');
+        }
+        // "+ Create new" always at bottom
+        if (!q || '+ create new label'.includes(q)) {
+          html += `<div class="ep-correct-item create-new" data-label="__create_new__" onclick="epSelectCorrectLabel(this)">+ Create new label...</div>`;
+        }
+        if (!html) html = '<div style="padding:8px;font-size:11px;color:var(--text-muted);text-align:center;">No matching labels</div>';
+        list.innerHTML = html;
+      }
+      renderList('');
+
+      // Wire up search
+      const searchInput = popover.querySelector('#ep-correct-search');
+      searchInput.addEventListener('input', () => renderList(searchInput.value));
+
+      // Position: prefer below, flip above if not enough space
       const rect = el.getBoundingClientRect();
-      popover.style.top = (rect.bottom + 4) + 'px';
-      popover.style.left = Math.max(8, rect.left - 50) + 'px';
+      popover.style.position = 'fixed';
+      popover.style.left = Math.max(8, Math.min(rect.left - 50, window.innerWidth - 240)) + 'px';
       document.body.appendChild(popover);
+      const popoverH = popover.offsetHeight;
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      if (spaceBelow < popoverH && rect.top > popoverH) {
+        popover.style.top = (rect.top - popoverH - 4) + 'px';
+      } else {
+        popover.style.top = (rect.bottom + 4) + 'px';
+      }
+      // Clamp to viewport
+      const popRect = popover.getBoundingClientRect();
+      if (popRect.bottom > window.innerHeight - 8) {
+        popover.style.top = (window.innerHeight - popoverH - 8) + 'px';
+      }
       epCorrectPopover = popover;
+      searchInput.focus();
 
       // Close on outside click
       setTimeout(() => {
@@ -3364,14 +3423,19 @@
       }, 0);
     }
 
-    function epHandleCorrectSelectChange(select) {
-      const newLabelDiv = document.getElementById('ep-correct-new-label');
-      if (select.value === '__create_new__') {
-        newLabelDiv.style.display = 'block';
+    function epSelectCorrectLabel(el) {
+      const label = el.dataset.label;
+      if (label === '__create_new__') {
+        document.getElementById('ep-correct-new-label').style.display = 'block';
         document.getElementById('ep-correct-new-input').focus();
-      } else {
-        newLabelDiv.style.display = 'none';
+        return;
       }
+      document.getElementById('ep-correct-new-label').style.display = 'none';
+      epCorrectSelectedLabel = label;
+      // Update visual selection
+      const list = el.closest('.ep-correct-list');
+      list.querySelectorAll('.ep-correct-item').forEach(i => i.classList.remove('selected'));
+      el.classList.add('selected');
     }
 
     async function epCreateNewLabelInPopover() {
@@ -3379,15 +3443,7 @@
       const name = (input.value || '').trim();
       if (!name) return;
       try {
-        await window.pocketAgent.gmailFetchLabels();
-        const select = document.getElementById('ep-correct-select');
-        // Add new option before the create option
-        const newOpt = document.createElement('option');
-        newOpt.value = name;
-        newOpt.textContent = name;
-        newOpt.selected = true;
-        const createOpt = select.querySelector('option[value="__create_new__"]');
-        select.insertBefore(newOpt, createOpt);
+        epCorrectSelectedLabel = name;
         document.getElementById('ep-correct-new-label').style.display = 'none';
         showToast('Label ready: ' + name, 'success');
       } catch (err) {
@@ -3396,10 +3452,13 @@
     }
 
     async function epSaveCorrection(msgId, account) {
-      const select = document.getElementById('ep-correct-select');
       const exampleCb = document.getElementById('ep-correct-example');
-      const newLabel = select.value;
+      const newLabel = epCorrectSelectedLabel;
       const useAsExample = exampleCb.checked;
+      if (!newLabel || newLabel === '__create_new__') {
+        showToast('Select a label first', 'error');
+        return;
+      }
 
       epCloseCorrectPopover();
 
