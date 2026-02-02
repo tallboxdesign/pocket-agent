@@ -10,7 +10,7 @@
 
 import Database from 'better-sqlite3';
 import { SettingsManager } from '../settings';
-import { modifyLabels, createDraft, sendEmail } from '../tools/gog-wrapper';
+import { modifyLabels, createDraft, sendEmail, getThread } from '../tools/gog-wrapper';
 import { glmFlash } from '../tools/glm-client';
 import { applyRouting } from './email-processor';
 
@@ -25,7 +25,8 @@ export type ConditionType =
   | 'confidence_gte' | 'confidence_lt'
   | 'sender_domain' | 'has_attachment'
   | 'age_minutes_lt' | 'age_minutes_gt'
-  | 'corrected_by_user' | 'rule_not_executed';
+  | 'corrected_by_user' | 'rule_not_executed'
+  | 'thread_state';
 export type ActionType =
   | 'apply_label' | 'remove_label'
   | 'draft_reply' | 'send_reply'
@@ -107,6 +108,43 @@ function confidenceRank(conf: string): number {
   return CONFIDENCE_RANK[conf] ?? 0;
 }
 
+// Thread state types
+export type ThreadState = 'unread' | 'unreplied' | 'awaiting_reply' | 'replied_with_answer' | 'user_only';
+
+interface ThreadMessage {
+  from: string;
+  labelIds?: string[];
+}
+
+function computeThreadState(messages: ThreadMessage[], userEmail: string): ThreadState {
+  const userLower = userEmail.toLowerCase();
+
+  // Check UNREAD on any message
+  if (messages.some(m => m.labelIds?.includes('UNREAD'))) {
+    return 'unread';
+  }
+
+  const userSent = messages.filter(m => m.from.toLowerCase().includes(userLower));
+
+  // All messages from user
+  if (userSent.length === messages.length) {
+    return 'user_only';
+  }
+
+  // No messages from user at all
+  if (userSent.length === 0) {
+    return 'unreplied';
+  }
+
+  // Mixed: check who sent the last message
+  const last = messages[messages.length - 1];
+  if (last.from.toLowerCase().includes(userLower)) {
+    return 'awaiting_reply';
+  }
+
+  return 'replied_with_answer';
+}
+
 function interpolateTemplate(template: string, email: EmailContext): string {
   return template
     .replace(/\{sender\}/g, email.sender)
@@ -177,6 +215,15 @@ export class RulesEngine {
         error TEXT,
         chain_depth INTEGER DEFAULT 0,
         FOREIGN KEY (rule_id) REFERENCES email_rules(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS thread_state_cache (
+        thread_id TEXT NOT NULL,
+        account TEXT NOT NULL,
+        thread_state TEXT NOT NULL,
+        message_count INTEGER DEFAULT 0,
+        fetched_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (thread_id, account)
       );
 
       CREATE TABLE IF NOT EXISTS daily_summary_queue (
@@ -282,7 +329,7 @@ export class RulesEngine {
     let newLabelApplied: string | null = null;
 
     for (const rule of rules) {
-      if (!this.matchConditions(rule, email)) continue;
+      if (!(await this.matchConditions(rule, email))) continue;
 
       // Mode handling
       if (rule.mode === 'disabled') continue;
@@ -332,41 +379,67 @@ export class RulesEngine {
 
   // ---------- Condition Evaluation ----------
 
-  private matchConditions(rule: EmailRule, email: EmailContext): boolean {
+  private async matchConditions(rule: EmailRule, email: EmailContext): Promise<boolean> {
     const conditions = safeJsonParse<Condition[]>(rule.conditions_json, []);
     if (conditions.length === 0) return true;
 
-    return conditions.every((cond) => {
-      switch (cond.type) {
-        case 'label_is':
-          return email.label === cond.value;
-        case 'label_is_not':
-          return email.label !== cond.value;
-        case 'confidence_gte':
-          return confidenceRank(email.confidence) >= confidenceRank(cond.value);
-        case 'confidence_lt':
-          return confidenceRank(email.confidence) < confidenceRank(cond.value);
-        case 'sender_domain':
-          return email.sender.includes('@' + cond.value);
-        case 'has_attachment':
-          return true; // placeholder
-        case 'age_minutes_lt':
-          return (Date.now() - email.internalDateMs) / 60000 < Number(cond.value);
-        case 'age_minutes_gt':
-          return (Date.now() - email.internalDateMs) / 60000 > Number(cond.value);
-        case 'corrected_by_user':
-          return email.correctedByUser === (cond.value === 'true');
-        case 'rule_not_executed': {
-          const ruleId = Number(cond.value);
-          const existing = this.db.prepare(
-            'SELECT 1 FROM email_rule_executions WHERE rule_id = ? AND message_id = ? AND result = ? LIMIT 1',
-          ).get(ruleId, email.messageId, 'ok');
-          return !existing;
-        }
-        default:
-          return true;
+    for (const cond of conditions) {
+      if (cond.type === 'thread_state') {
+        const state = await this.getOrFetchThreadState(email);
+        if (state !== cond.value) return false;
+      } else {
+        if (!this.matchSingleCondition(cond, email)) return false;
       }
-    });
+    }
+    return true;
+  }
+
+  // ---------- Thread State ----------
+
+  private async getOrFetchThreadState(email: EmailContext): Promise<ThreadState | null> {
+    if (!email.threadId) return null;
+
+    // Check cache (30-min TTL)
+    const cached = this.db.prepare(
+      "SELECT thread_state FROM thread_state_cache WHERE thread_id = ? AND account = ? AND fetched_at > datetime('now', '-30 minutes')",
+    ).get(email.threadId, email.account) as { thread_state: string } | undefined;
+
+    if (cached) return cached.thread_state as ThreadState;
+
+    // Fetch from Gmail
+    const res = await getThread({ threadId: email.threadId, account: email.account });
+    if (!res.success || !res.thread) {
+      console.warn('[RulesEngine] Failed to fetch thread', email.threadId, res.error);
+      return null;
+    }
+
+    const threadData = safeJsonParse<{ messages?: Array<{ from?: string; labelIds?: string[] }> }>(res.thread, {});
+    const msgs: ThreadMessage[] = (threadData.messages || []).map(m => ({
+      from: m.from || '',
+      labelIds: m.labelIds,
+    }));
+
+    if (msgs.length === 0) return null;
+
+    const userEmail = SettingsManager.get('gmail.userEmail') || '';
+    if (!userEmail) {
+      console.warn('[RulesEngine] gmail.userEmail not configured, cannot compute thread state');
+      return null;
+    }
+
+    const state = computeThreadState(msgs, userEmail);
+
+    // Upsert cache
+    this.db.prepare(`
+      INSERT INTO thread_state_cache (thread_id, account, thread_state, message_count, fetched_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(thread_id, account) DO UPDATE SET
+        thread_state = excluded.thread_state,
+        message_count = excluded.message_count,
+        fetched_at = excluded.fetched_at
+    `).run(email.threadId, email.account, state, msgs.length);
+
+    return state;
   }
 
   // ---------- Action Execution ----------
@@ -706,6 +779,14 @@ export class RulesEngine {
         ).get(rid, email.messageId, 'ok');
         return !existing;
       }
+      case 'thread_state': {
+        // Sync: cache-only lookup for testRule (no API fetch)
+        if (!email.threadId) return false;
+        const cached = this.db.prepare(
+          "SELECT thread_state FROM thread_state_cache WHERE thread_id = ? AND account = ?",
+        ).get(email.threadId, email.account) as { thread_state: string } | undefined;
+        return cached ? cached.thread_state === cond.value : false;
+      }
       default: return true;
     }
   }
@@ -714,5 +795,6 @@ export class RulesEngine {
 
   private cleanupOldExecutions(): void {
     this.db.prepare("DELETE FROM email_rule_executions WHERE executed_at < datetime('now', '-30 days')").run();
+    this.db.prepare("DELETE FROM thread_state_cache WHERE fetched_at < datetime('now', '-7 days')").run();
   }
 }

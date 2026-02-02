@@ -249,6 +249,26 @@ export async function getMessage(params: {
 }
 
 /**
+ * Get a Gmail thread (all messages with headers).
+ */
+export async function getThread(params: {
+  threadId: string;
+  account?: string;
+}): Promise<{ success: boolean; thread?: string; error?: string }> {
+  const args = ['gmail', 'thread', 'get', params.threadId, '--json'];
+  if (params.account) args.push('--account', params.account);
+
+  try {
+    const stdout = await gogExec(args);
+    return { success: true, thread: stdout };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[gog] getThread failed:', msg);
+    return { success: false, error: msg };
+  }
+}
+
+/**
  * Check if gog CLI is available on the system.
  */
 export async function isGogAvailable(): Promise<boolean> {

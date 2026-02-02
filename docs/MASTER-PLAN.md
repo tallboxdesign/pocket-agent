@@ -1287,6 +1287,7 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 36. Rules editor fixes — label dropdowns use all Gmail labels with auto-fetch, action types have descriptions/tooltips, improved placeholders with variable docs (Section 20)
 37. Agent instruction clarity — explicit decision rules for create_reminder vs schedule_task vs calendar_add in workspace CLAUDE.md and default instructions
 38. AI Define button — per-label "AI Define" button that calls GLM Flash to generate precise definition + negative guidance from user text and example emails (Section 20)
+39. Thread state conditions — rules engine `thread_state` condition (unread/unreplied/awaiting_reply/replied_with_answer/user_only), gog thread fetch with 30-min SQLite cache, lazy evaluation (Section 20)
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_

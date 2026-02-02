@@ -4125,6 +4125,7 @@
       { value: 'age_minutes_lt', label: 'Age < minutes', inputType: 'number' },
       { value: 'age_minutes_gt', label: 'Age > minutes', inputType: 'number' },
       { value: 'corrected_by_user', label: 'Corrected by user', inputType: 'boolean' },
+      { value: 'thread_state', label: 'Thread state', inputType: 'thread_state' },
     ];
 
     const EP_ACTION_TYPES = [
@@ -4235,6 +4236,14 @@
           </select>`;
         case 'number':
           return `<input type="number" class="ep-cond-value" value="${value || '30'}" min="0" style="width:70px;">`;
+        case 'thread_state':
+          return `<select class="ep-cond-value">
+            <option value="unread" ${value === 'unread' ? 'selected' : ''}>Unread</option>
+            <option value="unreplied" ${value === 'unreplied' ? 'selected' : ''}>Opened, unreplied</option>
+            <option value="awaiting_reply" ${value === 'awaiting_reply' ? 'selected' : ''}>Replied, awaiting answer</option>
+            <option value="replied_with_answer" ${value === 'replied_with_answer' ? 'selected' : ''}>Replied with answer</option>
+            <option value="user_only" ${value === 'user_only' ? 'selected' : ''}>Sent by me only</option>
+          </select>`;
         default:
           return `<input type="text" class="ep-cond-value" value="${(value || '').replace(/"/g, '&quot;')}" placeholder="value">`;
       }
