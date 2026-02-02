@@ -1280,6 +1280,10 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 29. Label precision — definition + negative guidance fields per label (Section 20)
 30. Label routing — per-label archive-from-inbox + mark-read after classification/correction/rules (Section 20)
 31. Bulk label correction — multi-select emails in history, apply one label to all, train-as-example toggle (Section 20)
+32. Searchable label correction popover — replaces native select, auto-fetches labels, overflow-safe positioning (Section 20)
+33. Email processing quick-access — dedicated floating window from chat header envelope button, standalone mode (Section 20)
+34. History filters — server-side filter by label, time range, clickable sender filter with active filter chips (Section 20)
+35. Label card tooltips — hover explanations for all controls: classify, notify, definition, examples, negative guidance, routing (Section 20)
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
