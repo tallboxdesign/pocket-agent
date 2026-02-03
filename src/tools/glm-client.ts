@@ -46,7 +46,7 @@ export interface GlmResponse {
 const DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4';
 const DEFAULT_MODEL = 'glm-4.7';
 const DEFAULT_FLASH_MODEL = 'glm-4.7-flash';
-const DEFAULT_BULK_MODEL = 'glm-4.7-flash';
+const DEFAULT_BULK_MODEL = 'glm-4.7-flashx';
 const DEFAULT_TEMPERATURE = 0.3;
 const DEFAULT_MAX_TOKENS = 2048;
 const REQUEST_TIMEOUT = 60000;

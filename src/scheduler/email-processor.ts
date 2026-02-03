@@ -782,7 +782,7 @@ export class EmailProcessor {
     const gmailConc = parseInt(SettingsManager.get('gmail.emailProcessing.gmailConcurrency') || '4', 10) || 4;
     const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '1', 10) || 1;
 
-    const glmModel = SettingsManager.get('zhipu.bulkModel') || 'glm-4.7-flash';
+    const glmModel = SettingsManager.get('zhipu.bulkModel') || 'glm-4.7-flashx';
     const glmBase = SettingsManager.get('zhipu.baseUrl') || 'https://open.bigmodel.cn/api/paas/v4';
     console.log(`[EmailProcessor] GLM model: ${glmModel}, base: ${glmBase}, concurrency: ${glmConc}`);
     console.log(`[EmailProcessor] Accounts: ${JSON.stringify(accounts)}, categories: ${JSON.stringify(categories)}`);
