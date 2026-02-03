@@ -259,10 +259,20 @@ export class UnansweredEngine {
         throw new Error(`Failed to fetch thread ${threadId}: ${res.error}`);
       }
 
-      let threadData: ThreadData = {};
-      try { threadData = JSON.parse(res.thread) as ThreadData; } catch { /* empty */ }
-      const msgs: ThreadMessage[] = (threadData.messages || []).map(m => ({
-        from: m.from || '',
+      let threadRaw: Record<string, unknown> = {};
+      try { threadRaw = JSON.parse(res.thread) as Record<string, unknown>; } catch { /* empty */ }
+      // gog wraps response: { thread: { messages: [...] } }
+      const threadData = (threadRaw.thread || threadRaw) as ThreadData;
+      const rawMsgs = threadData.messages || [];
+      // Extract 'from' from payload.headers (gog doesn't put it directly on message)
+      const extractFrom = (m: Record<string, unknown>): string => {
+        const payload = m.payload as Record<string, unknown> | undefined;
+        const headers = (payload?.headers || []) as Array<{ name: string; value: string }>;
+        const fromHeader = headers.find(h => h.name === 'From');
+        return fromHeader?.value || (m.from as string) || '';
+      };
+      const msgs: ThreadMessage[] = rawMsgs.map(m => ({
+        from: extractFrom(m as Record<string, unknown>),
         labelIds: m.labelIds,
       }));
 
@@ -271,8 +281,8 @@ export class UnansweredEngine {
       threadState = computeThreadState(msgs, userEmail);
 
       // Find last inbound message ID
-      const inboundMsgs = (threadData.messages || []).filter(
-        m => !m.from?.toLowerCase().includes(userEmail.toLowerCase()),
+      const inboundMsgs = rawMsgs.filter(
+        m => !extractFrom(m as Record<string, unknown>).toLowerCase().includes(userEmail.toLowerCase()),
       );
       if (inboundMsgs.length > 0) {
         lastInboundMessageId = inboundMsgs[inboundMsgs.length - 1].id || null;
