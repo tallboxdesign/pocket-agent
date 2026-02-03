@@ -2158,13 +2158,17 @@
                 </label>
                 <button class="ep-btn primary" onclick="epOpenRuleEditor()" style="margin-left:auto;padding:4px 12px;font-size:11px;">+ New Rule</button>
               </div>
+              <div id="ep-rules-timing" style="font-size:10px;color:var(--text-muted);margin-bottom:8px;"></div>
               <div id="ep-rules-list" style="display:flex;flex-direction:column;gap:8px;">
                 <div class="ep-no-data" style="text-align:center;padding:20px;">No rules yet. Create one to get started.</div>
               </div>
               <div class="ep-group" style="margin-top:12px;">
                 <div style="display:flex;align-items:center;justify-content:space-between;">
                   <div class="ep-group-title" style="margin:0;">Recent Executions</div>
-                  <button class="ep-btn" onclick="epLoadExecutionLog()" style="padding:3px 8px;font-size:10px;">Refresh</button>
+                  <div style="display:flex;gap:6px;">
+                    <button class="ep-btn" onclick="epReplayRules()" style="padding:3px 8px;font-size:10px;">Replay on past emails</button>
+                    <button class="ep-btn" onclick="epLoadExecutionLog()" style="padding:3px 8px;font-size:10px;">Refresh</button>
+                  </div>
                 </div>
                 <div id="ep-execution-log" style="margin-top:6px;max-height:200px;overflow-y:auto;">
                   <div class="ep-no-data" style="text-align:center;padding:12px;font-size:11px;">Click Refresh to load</div>
@@ -3913,8 +3917,13 @@
     // ---- Correction Popover ----
 
     let epCorrectPopover = null;
+    let epCorrectOutsideHandler = null;
 
     function epCloseCorrectPopover() {
+      if (epCorrectOutsideHandler) {
+        document.removeEventListener('click', epCorrectOutsideHandler);
+        epCorrectOutsideHandler = null;
+      }
       if (epCorrectPopover) {
         epCorrectPopover.remove();
         epCorrectPopover = null;
@@ -3947,11 +3956,18 @@
         } catch { /* ignore */ }
       }
 
-      // Fetch label stats for grouped sections
+      // Fetch label stats for grouped sections (cached 30s)
       let stats = [];
-      try {
-        stats = await window.pocketAgent.gmailGetLabelStats(account) || [];
-      } catch { /* ignore */ }
+      const now = Date.now();
+      if (epOpenCorrectPopover._statsCache && now - epOpenCorrectPopover._statsCacheAt < 30000) {
+        stats = epOpenCorrectPopover._statsCache;
+      } else {
+        try {
+          stats = await window.pocketAgent.gmailGetLabelStats(account) || [];
+          epOpenCorrectPopover._statsCache = stats;
+          epOpenCorrectPopover._statsCacheAt = now;
+        } catch { /* ignore */ }
+      }
 
       const recentLabels = stats.slice().sort((a, b) => (b.lastUsed || '').localeCompare(a.lastUsed || '')).slice(0, 5).map(s => s.label).filter(Boolean);
       const frequentLabels = stats.slice().sort((a, b) => b.count - a.count).slice(0, 5).map(s => s.label).filter(Boolean);
@@ -4033,14 +4049,14 @@
       epCorrectPopover = popover;
       searchInput.focus();
 
-      // Close on outside click
+      // Close on outside click (tracked handler, cleaned up in epCloseCorrectPopover)
       setTimeout(() => {
-        document.addEventListener('click', function handler(ev) {
+        epCorrectOutsideHandler = function(ev) {
           if (epCorrectPopover && !epCorrectPopover.contains(ev.target) && ev.target !== el) {
             epCloseCorrectPopover();
-            document.removeEventListener('click', handler);
           }
-        });
+        };
+        document.addEventListener('click', epCorrectOutsideHandler);
       }, 0);
     }
 
@@ -4541,6 +4557,32 @@
         list.innerHTML = '<div class="ep-no-data" style="color:var(--error);">Failed to load rules: ' + err.message + '</div>';
       }
       epLoadExecutionLog();
+      epLoadRulesTiming();
+    }
+
+    async function epLoadRulesTiming() {
+      const el = document.getElementById('ep-rules-timing');
+      if (!el) return;
+      try {
+        const intervalStr = await window.pocketAgent.getSetting('gmail.emailProcessing.intervalMin');
+        const interval = Number(intervalStr) || 20;
+        const status = await window.pocketAgent.gmailGetProcessingStatus();
+        let lastAgo = '?';
+        let nextIn = '?';
+        if (status.runs && status.runs.length > 0) {
+          const lastRun = status.runs[0];
+          const lastTime = lastRun.started_at || lastRun.completed_at;
+          if (lastTime) {
+            const elapsed = Math.round((Date.now() - new Date(lastTime + 'Z').getTime()) / 60000);
+            lastAgo = elapsed + ' min ago';
+            const remaining = Math.max(0, interval - elapsed);
+            nextIn = '~' + remaining + ' min';
+          }
+        }
+        el.textContent = 'Rules evaluate on each scan. Interval: ' + interval + ' min. Last scan: ' + lastAgo + '. Next: ' + nextIn + '.';
+      } catch {
+        el.textContent = '';
+      }
     }
 
     async function epLoadExecutionLog() {
@@ -4566,6 +4608,21 @@
         }).join('');
       } catch (err) {
         container.innerHTML = `<div style="color:var(--error);text-align:center;padding:8px;font-size:11px;">Failed: ${err.message}</div>`;
+      }
+    }
+
+    async function epReplayRules() {
+      if (!confirm('Run active rules on last 50 processed emails? (Skips already-executed combinations)')) return;
+      try {
+        const res = await window.pocketAgent.rulesReplay(50);
+        if (res.error) {
+          showToast('Replay failed: ' + res.error, 'error');
+        } else {
+          showToast('Replayed: ' + res.matched + ' matched, ' + res.executed + ' executed, ' + res.errors + ' errors', 'success');
+        }
+        epLoadExecutionLog();
+      } catch (err) {
+        showToast('Replay failed: ' + err.message, 'error');
       }
     }
 
