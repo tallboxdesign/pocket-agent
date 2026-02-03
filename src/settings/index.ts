@@ -783,8 +783,11 @@ class SettingsManagerClass {
         try {
           value = this.decrypt(value);
         } catch {
-          // If decryption fails, value stays encrypted (might be from old install)
-          console.warn(`[Settings] Failed to decrypt ${row.key}`);
+          // Decryption failed (app re-signed, keychain issue, etc.)
+          // Store empty string — NOT the encrypted blob, which would look like a valid value
+          // and cause silent failures (e.g. hasRequiredKeys() returning true with corrupt token).
+          console.warn(`[Settings] Failed to decrypt ${row.key} — clearing cached value`);
+          value = '';
         }
       }
 
