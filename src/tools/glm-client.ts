@@ -84,7 +84,8 @@ interface CallApiOverrides {
 }
 
 async function callGlmApi(params: GlmRequestParams & CallApiOverrides): Promise<GlmResponse> {
-  const apiKey = params.forceApiKey || SettingsManager.get('zhipu.apiKey');
+  // Use forced API key if provided; only fall back to Zhipu key when no override was given
+  const apiKey = params.forceApiKey !== undefined ? params.forceApiKey : SettingsManager.get('zhipu.apiKey');
   if (!apiKey) {
     return { success: false, error: 'API key not configured. Add it in Settings > Keys.' };
   }
