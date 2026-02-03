@@ -46,7 +46,7 @@ export interface GlmResponse {
 const DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4';
 const DEFAULT_MODEL = 'glm-4.7';
 const DEFAULT_FLASH_MODEL = 'glm-4.7-flash';
-const DEFAULT_BULK_MODEL = 'glm-4.7-flashx';
+const DEFAULT_BULK_MODEL = 'glm-4.7-flash';
 const DEFAULT_TEMPERATURE = 0.3;
 const DEFAULT_MAX_TOKENS = 2048;
 const REQUEST_TIMEOUT = 60000;
@@ -179,7 +179,7 @@ export function isGlmConfigured(): boolean {
 }
 
 /**
- * Quick health check — pings flash then bulk model sequentially (avoids 429 from concurrent pings).
+ * Quick health check — pings flash and bulk models (skips duplicate if same model).
  */
 export async function glmHealthCheck(): Promise<{ ok: boolean; models?: string[]; error?: string }> {
   const flashModel = SettingsManager.get('zhipu.flashModel') || DEFAULT_FLASH_MODEL;
@@ -197,9 +197,12 @@ export async function glmHealthCheck(): Promise<{ ok: boolean; models?: string[]
   if (flashResult.success) okModels.push(flashModel);
   else errors.push(`${flashModel}: ${flashResult.error}`);
 
-  const bulkResult = await glmBulk(pingParams);
-  if (bulkResult.success) okModels.push(bulkModel);
-  else errors.push(`${bulkModel}: ${bulkResult.error}`);
+  // Only ping bulk separately if it's a different model
+  if (bulkModel !== flashModel) {
+    const bulkResult = await glmBulk(pingParams);
+    if (bulkResult.success) okModels.push(bulkModel);
+    else errors.push(`${bulkModel}: ${bulkResult.error}`);
+  }
 
   if (okModels.length > 0) {
     return { ok: true, models: okModels };
