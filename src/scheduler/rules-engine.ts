@@ -591,6 +591,11 @@ export class RulesEngine {
       throw new Error('GLM returned empty draft content');
     }
 
+    // AI decided this email doesn't warrant a reply
+    if (glmRes.content.trim().toUpperCase() === 'SKIP') {
+      throw new Error('skipped_not_relevant');
+    }
+
     await createDraft({
       to: email.sender,
       subject: 'Re: ' + email.subject,
@@ -649,6 +654,7 @@ export class RulesEngine {
       'Hard constraints:',
       '- Use only the facts in Email context below',
       '- If the email asks for something impossible or unclear, say so politely',
+      '- If the email is an automated notification, system alert, click tracker, newsletter, or clearly NOT a genuine human request that warrants a reply, output exactly the word SKIP on its own line and nothing else',
       '',
       'Email context:',
       `From: ${email.sender}`,

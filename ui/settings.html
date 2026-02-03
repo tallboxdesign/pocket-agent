@@ -5305,11 +5305,35 @@ Never mention internal labels, automation, or filtering.`;
         document.getElementById('ua-interval').value = s.intervalMin;
         document.getElementById('ua-lookback').value = s.lookbackDays;
 
-        // Populate label filter from known labels (prefer Gmail labels, fall back to active labels, then label config keys)
+        // Populate label filter: fetch all Gmail labels, fall back to DB stats
         const filterSel = document.getElementById('ua-filter-label');
         const curVal = filterSel.value;
-        const labels = epGmailLabels.length > 0 ? epGmailLabels :
-          (epActiveLabels.length > 0 ? epActiveLabels : Object.keys(epLabelConfig || {}));
+        let labels = [];
+        // Use already-fetched Gmail labels if available
+        if (epGmailLabels.length > 0) {
+          labels = epGmailLabels;
+        } else {
+          // Fetch from Gmail directly
+          try {
+            const result = await window.pocketAgent.gmailFetchLabels();
+            if (result.success && result.labels) {
+              const parsed = JSON.parse(result.labels);
+              const rawLabels = Array.isArray(parsed) ? parsed : (parsed.labels || []);
+              const systemPrefixes = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'UNREAD', 'IMPORTANT', 'CATEGORY_', 'CHAT'];
+              labels = rawLabels
+                .map(l => typeof l === 'string' ? l : (l.name || l.id || ''))
+                .filter(n => n && !systemPrefixes.some(p => n.startsWith(p)));
+              epGmailLabels = labels; // Cache for future use
+            }
+          } catch { /* empty */ }
+        }
+        // Fall back to DB label stats
+        if (labels.length === 0) {
+          try {
+            const stats = await window.pocketAgent.gmailGetLabelStats();
+            labels = stats.map(s => s.label).filter(Boolean);
+          } catch { /* empty */ }
+        }
         filterSel.innerHTML = '<option value="">All labels</option>' +
           labels.map(l => `<option value="${l}" ${l === curVal ? 'selected' : ''}>${epDisplayName(l)}</option>`).join('');
 
