@@ -1468,6 +1468,32 @@
     .ep-rule-action-row textarea { min-height: 40px; resize: vertical; font-family: inherit; }
     .ep-rule-remove-btn { padding: 1px 5px; font-size: 10px; border: 1px solid var(--border); border-radius: 3px; background: transparent; color: var(--text-muted); cursor: pointer; }
     .ep-rule-remove-btn:hover { color: var(--error); border-color: var(--error); }
+    .ep-search-dropdown { position: relative; display: inline-block; min-width: 120px; }
+    .ep-search-dropdown .ep-sd-display {
+      padding: 3px 6px; font-size: 11px; cursor: pointer; border: 1px solid var(--border);
+      border-radius: 4px; background: var(--bg-primary); color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 80px;
+    }
+    .ep-search-dropdown .ep-sd-panel {
+      position: absolute; top: 100%; left: 0; z-index: 1000; width: 220px;
+      background: var(--bg-primary); border: 1px solid var(--border); border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: none; max-height: 220px;
+    }
+    .ep-search-dropdown .ep-sd-panel.open { display: block; }
+    .ep-search-dropdown .ep-sd-search {
+      width: 100%; padding: 4px 6px; font-size: 11px; border: none;
+      border-bottom: 1px solid var(--border); background: var(--bg-secondary);
+      color: var(--text-primary); outline: none; box-sizing: border-box;
+    }
+    .ep-search-dropdown .ep-sd-list { max-height: 180px; overflow-y: auto; }
+    .ep-search-dropdown .ep-sd-item {
+      padding: 4px 8px; font-size: 11px; cursor: pointer; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .ep-search-dropdown .ep-sd-item:hover, .ep-search-dropdown .ep-sd-item.highlighted {
+      background: var(--bg-secondary);
+    }
+    .ep-search-dropdown .ep-sd-item.selected { font-weight: 600; }
   </style>
 </head>
 <body>
@@ -2024,9 +2050,7 @@
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
                   <div class="ep-group-title" style="margin:0;">Processed Emails <button class="ep-btn" onclick="epToggleBadgeLegend()" style="padding:2px 7px;font-size:10px;border-radius:50%;min-width:0;" title="Badge legend">?</button></div>
                   <div style="display:flex;gap:6px;align-items:center;">
-                    <select id="ep-filter-label" onchange="epHistoryOffset=0;epLoadHistory();epUpdateActiveFilters()" style="padding:3px 6px;font-size:11px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;">
-                      <option value="">All labels</option>
-                    </select>
+                    <div id="ep-filter-label-wrap"></div>
                     <select id="ep-filter-confidence" onchange="epHistoryOffset=0;epLoadHistory()" style="padding:3px 6px;font-size:11px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;">
                       <option value="">All confidence</option>
                       <option value="high">High</option>
@@ -4025,18 +4049,26 @@
     async function epPopulateFilterLabels() {
       if (epFilterLabelsPopulated) return;
       epFilterLabelsPopulated = true;
-      const select = document.getElementById('ep-filter-label');
-      if (!select) return;
+      const wrap = document.getElementById('ep-filter-label-wrap');
+      if (!wrap) return;
       try {
         const stats = await window.pocketAgent.gmailGetLabelStats() || [];
         const sorted = stats.slice().sort((a, b) => b.count - a.count);
+        const id = 'ep-sd-filter-label';
+        let html = `<div class="ep-search-dropdown" id="${id}">
+          <input type="hidden" id="ep-filter-label" value="">
+          <div class="ep-sd-display" onclick="epSdToggle('${id}')">All labels &#9662;</div>
+          <div class="ep-sd-panel">
+            <input type="text" class="ep-sd-search" placeholder="Type to filter..." onkeydown="epSdKeydown(event,'${id}')" oninput="epSdFilter('${id}')">
+            <div class="ep-sd-list">
+              <div class="ep-sd-item selected" data-value="" onclick="epSdSelect('${id}','')">All labels</div>`;
         for (const s of sorted) {
           if (!s.label) continue;
-          const opt = document.createElement('option');
-          opt.value = s.label;
-          opt.textContent = `${epDisplayName(s.label)} (${s.count})`;
-          select.appendChild(opt);
+          const dn = `${epDisplayName(s.label)} (${s.count})`;
+          html += `<div class="ep-sd-item" data-value="${s.label.replace(/"/g, '&quot;')}" onclick="epSdSelect('${id}','${s.label.replace(/'/g, "\\'")}')">${dn}</div>`;
         }
+        html += `</div></div></div>`;
+        wrap.innerHTML = html;
       } catch { /* ignore */ }
     }
 
@@ -4063,7 +4095,7 @@
       }
       const labelVal = document.getElementById('ep-filter-label')?.value;
       if (labelVal) {
-        html += `<span class="ep-filter-chip">Label: ${labelVal.replace(/</g, '&lt;')} <span class="ep-chip-x" onclick="document.getElementById('ep-filter-label').value='';epHistoryOffset=0;epLoadHistory();epUpdateActiveFilters();">&times;</span></span>`;
+        html += `<span class="ep-filter-chip">Label: ${labelVal.replace(/</g, '&lt;')} <span class="ep-chip-x" onclick="epSdSelect('ep-sd-filter-label','')">&times;</span></span>`;
       }
       container.innerHTML = html;
     }
@@ -4536,7 +4568,10 @@
           }
           return val;
         };
-        const header = `<div style="padding:0 0 6px;font-size:11px;font-weight:600;color:var(--text-primary);">Test against last ${results.length} emails: <span style="color:var(--success)">${matchCount} matched</span>, <span style="color:var(--text-muted)">${results.length - matchCount} skipped</span></div>`;
+        const toggleHtml = `<label style="font-size:10px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin-left:8px;">
+          <input type="checkbox" onchange="epToggleTestFilter(this,${id})"> Show only matching
+        </label>`;
+        const header = `<div style="padding:0 0 6px;font-size:11px;font-weight:600;color:var(--text-primary);">Test against last ${results.length} emails: <span style="color:var(--success)">${matchCount} matched</span>, <span style="color:var(--text-muted)">${results.length - matchCount} skipped</span>${toggleHtml}</div>`;
         panel.innerHTML = header + results.map(r => {
           const icon = r.matched ? '<span style="color:var(--success);font-size:11px;">&#10003;</span>' : '<span style="color:var(--error);font-size:9px;">&#10005;</span>';
           const condDetail = r.conditions.map(c => {
@@ -4544,16 +4579,25 @@
             const sym = c.passed ? '&#10003;' : '&#10005;';
             return `<span style="color:${color}">${sym} ${condLabel(c.type)}: ${condValue(c.type, c.value).replace(/</g, '&lt;')}</span>`;
           }).join(' &nbsp; ');
-          return `<div class="ep-rule-test-row">
+          return `<div class="ep-rule-test-row" data-matched="${r.matched}">
             <div style="width:14px;text-align:center;flex-shrink:0;">${icon}</div>
             <div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(r.email.subject || '').replace(/"/g, '&quot;')}">${(r.email.subject || '(no subject)').replace(/</g, '&lt;')}</div>
             <div style="color:var(--text-muted);flex-shrink:0;">${epDisplayName(r.email.label || '').replace(/</g, '&lt;')}</div>
           </div>
-          <div style="font-size:9px;color:var(--text-muted);padding:0 0 3px 18px;">${condDetail || 'no conditions'}</div>`;
+          <div data-matched="${r.matched}" style="font-size:9px;color:var(--text-muted);padding:0 0 3px 18px;">${condDetail || 'no conditions'}</div>`;
         }).join('');
       } catch (err) {
         panel.innerHTML = '<em style="color:var(--error);">Test failed: ' + err.message + '</em>';
       }
+    }
+
+    function epToggleTestFilter(cb, ruleId) {
+      const panel = document.getElementById('ep-rule-test-' + ruleId);
+      const rows = panel.querySelectorAll('[data-matched]');
+      rows.forEach(r => {
+        if (cb.checked && r.dataset.matched === 'false') r.style.display = 'none';
+        else r.style.display = '';
+      });
     }
 
     // ---- Rule Editor ----
@@ -4569,6 +4613,23 @@
       { value: 'corrected_by_user', label: 'Corrected by user', inputType: 'boolean' },
       { value: 'thread_state', label: 'Thread state', inputType: 'thread_state' },
     ];
+
+    const EP_DEFAULT_DRAFT_PROMPT = `You are declining guest post outreach.
+
+Tone:
+Polite, concise, professional.
+
+Rules:
+- Decline paid guest posts, link insertions, and exchanges
+- Do not negotiate or ask follow-up questions
+- Do not mention pricing unless explicitly requested
+
+Reply structure:
+1. Thank them for reaching out
+2. State that you are not accepting guest posts or link placements
+3. Close politely
+
+Never mention internal labels, automation, or filtering.`;
 
     const EP_ACTION_TYPES = [
       { value: 'send_telegram', label: 'Send Telegram', fields: ['template'], desc: 'Send a Telegram notification with email details' },
@@ -4664,7 +4725,7 @@
       const inputType = def ? def.inputType : 'text';
       switch (inputType) {
         case 'label':
-          return `<select class="ep-cond-value">${epBuildLabelOptions(value)}</select>`;
+          return epCreateSearchableLabel(value, 'ep-cond-value', '');
         case 'confidence':
           return `<select class="ep-cond-value">
             <option value="high" ${value === 'high' ? 'selected' : ''}>high</option>
@@ -4694,11 +4755,16 @@
     function epConditionTypeChanged(select) {
       const row = select.parentElement;
       const type = select.value;
+      // Remove old value input — may be a plain element or inside a .ep-search-dropdown wrapper
+      const oldWrapper = row.querySelector('.ep-search-dropdown');
       const oldValue = row.querySelector('.ep-cond-value');
+      if (oldWrapper) oldWrapper.remove();
+      else if (oldValue) oldValue.remove();
       const newHtml = epBuildConditionValueInput(type, '');
       const temp = document.createElement('div');
       temp.innerHTML = newHtml;
-      if (oldValue) oldValue.replaceWith(temp.firstElementChild);
+      const removeBtn = row.querySelector('.ep-rule-remove-btn');
+      if (temp.firstElementChild) row.insertBefore(temp.firstElementChild, removeBtn);
     }
 
     function epAddActionRow(type, config) {
@@ -4725,15 +4791,23 @@
           return `<input type="text" class="ep-action-config" data-key="template" value="${(config.template || '{label}: {subject} from {sender}').replace(/"/g, '&quot;')}" placeholder="${varHelp}" title="Message template sent to Telegram. ${varHelp}">`;
         case 'apply_label':
         case 'remove_label':
-          return `<select class="ep-action-config" data-key="label" title="Choose the Gmail label to ${type === 'apply_label' ? 'add' : 'remove'}">${epBuildLabelOptions(config.label || '')}</select>`;
-        case 'draft_reply':
-          return `<input type="text" class="ep-action-config" data-key="instructions" value="${(config.instructions || '').replace(/"/g, '&quot;')}" placeholder="e.g. Politely decline the offer, mention we are not interested" title="Instructions for the AI to generate a reply draft" style="margin-bottom:2px;">
-                  <select class="ep-action-config" data-key="tone" title="Tone of the generated reply">
-                    <option value="professional" ${(config.tone || '') === 'professional' ? 'selected' : ''}>Professional</option>
-                    <option value="casual" ${config.tone === 'casual' ? 'selected' : ''}>Casual</option>
-                    <option value="friendly" ${config.tone === 'friendly' ? 'selected' : ''}>Friendly</option>
-                    <option value="formal" ${config.tone === 'formal' ? 'selected' : ''}>Formal</option>
-                  </select>`;
+          return epCreateSearchableLabel(config.label || '', 'ep-action-config', 'label');
+        case 'draft_reply': {
+          const instrValue = (config.instructions || EP_DEFAULT_DRAFT_PROMPT).replace(/</g, '&lt;');
+          return `<div style="width:100%;margin-top:4px;">
+            <div style="font-size:10px;font-weight:600;margin-bottom:2px;">Reply Prompt (used to generate draft reply)</div>
+            <textarea class="ep-action-config" data-key="instructions" rows="6"
+              placeholder="Describe the reply tone, intent, and structure..."
+              style="width:100%;min-height:80px;resize:vertical;box-sizing:border-box;">${instrValue}</textarea>
+            <div style="font-size:9px;color:var(--text-muted);margin-top:2px;">This prompt controls tone, intent, and structure of the reply. Email content is injected automatically.</div>
+          </div>
+          <select class="ep-action-config" data-key="tone" title="Tone of the generated reply" style="margin-top:4px;">
+            <option value="professional" ${(config.tone || '') === 'professional' ? 'selected' : ''}>Professional</option>
+            <option value="casual" ${config.tone === 'casual' ? 'selected' : ''}>Casual</option>
+            <option value="friendly" ${config.tone === 'friendly' ? 'selected' : ''}>Friendly</option>
+            <option value="formal" ${config.tone === 'formal' ? 'selected' : ''}>Formal</option>
+          </select>`;
+        }
         case 'send_email':
           return `<input type="text" class="ep-action-config" data-key="to" value="${(config.to || '').replace(/"/g, '&quot;')}" placeholder="recipient@example.com" title="Email address to send notification to">
                   <input type="text" class="ep-action-config" data-key="subjectTemplate" value="${(config.subjectTemplate || 'Re: {subject}').replace(/"/g, '&quot;')}" placeholder="Subject — ${varHelp}" title="Subject line template. ${varHelp}">
@@ -4746,19 +4820,115 @@
     function epActionTypeChanged(select) {
       const row = select.parentElement;
       const type = select.value;
-      // Remove old config inputs but keep the select and remove button
-      const oldConfigs = row.querySelectorAll('.ep-action-config');
-      oldConfigs.forEach(el => el.remove());
+      // Remove everything between the type select and remove button
+      const removeBtn = row.querySelector('.ep-rule-remove-btn');
+      const typeSelect = row.querySelector('.ep-action-type');
+      while (typeSelect.nextElementSibling && typeSelect.nextElementSibling !== removeBtn) {
+        typeSelect.nextElementSibling.remove();
+      }
       const newHtml = epBuildActionConfigInputs(type, {});
       if (newHtml) {
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
-        const removeBtn = row.querySelector('.ep-rule-remove-btn');
         while (temp.firstElementChild) {
           row.insertBefore(temp.firstElementChild, removeBtn);
         }
       }
     }
+
+    // ---- Searchable Label Dropdown ----
+
+    function epCreateSearchableLabel(selected, cssClass, dataKey) {
+      const labels = epGmailLabels.length > 0 ? epGmailLabels : epActiveLabels;
+      const displayText = selected ? epDisplayName(selected) : '\u2014 select label \u2014';
+      const id = 'ep-sd-' + Math.random().toString(36).slice(2, 8);
+
+      let html = `<div class="ep-search-dropdown" id="${id}">
+        <input type="hidden" class="${cssClass}"${dataKey ? ` data-key="${dataKey}"` : ''} value="${(selected || '').replace(/"/g, '&quot;')}">
+        <div class="ep-sd-display" onclick="epSdToggle('${id}')">${displayText} &#9662;</div>
+        <div class="ep-sd-panel">
+          <input type="text" class="ep-sd-search" placeholder="Type to filter..." onkeydown="epSdKeydown(event,'${id}')" oninput="epSdFilter('${id}')">
+          <div class="ep-sd-list">`;
+      for (const l of labels) {
+        const dn = epDisplayName(l);
+        html += `<div class="ep-sd-item${l === selected ? ' selected' : ''}" data-value="${l.replace(/"/g, '&quot;')}" onclick="epSdSelect('${id}','${l.replace(/'/g, "\\'")}')">${dn}</div>`;
+      }
+      html += `</div></div></div>`;
+      return html;
+    }
+
+    function epSdToggle(id) {
+      const el = document.getElementById(id);
+      const panel = el.querySelector('.ep-sd-panel');
+      const isOpen = panel.classList.contains('open');
+      document.querySelectorAll('.ep-sd-panel.open').forEach(p => p.classList.remove('open'));
+      if (!isOpen) {
+        panel.classList.add('open');
+        const search = panel.querySelector('.ep-sd-search');
+        search.value = '';
+        search.focus();
+        epSdFilter(id);
+      }
+    }
+
+    function epSdFilter(id) {
+      const el = document.getElementById(id);
+      const query = el.querySelector('.ep-sd-search').value.toLowerCase();
+      const items = el.querySelectorAll('.ep-sd-item');
+      let first = true;
+      items.forEach(item => {
+        const match = item.textContent.toLowerCase().includes(query);
+        item.style.display = match ? '' : 'none';
+        item.classList.toggle('highlighted', match && first);
+        if (match) first = false;
+      });
+    }
+
+    function epSdKeydown(event, id) {
+      const el = document.getElementById(id);
+      const items = [...el.querySelectorAll('.ep-sd-item')].filter(i => i.style.display !== 'none');
+      const cur = items.findIndex(i => i.classList.contains('highlighted'));
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        items.forEach(i => i.classList.remove('highlighted'));
+        const next = cur < items.length - 1 ? cur + 1 : 0;
+        items[next]?.classList.add('highlighted');
+        items[next]?.scrollIntoView({ block: 'nearest' });
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        items.forEach(i => i.classList.remove('highlighted'));
+        const prev = cur > 0 ? cur - 1 : items.length - 1;
+        items[prev]?.classList.add('highlighted');
+        items[prev]?.scrollIntoView({ block: 'nearest' });
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        const highlighted = items.find(i => i.classList.contains('highlighted'));
+        if (highlighted) epSdSelect(id, highlighted.dataset.value);
+      } else if (event.key === 'Escape') {
+        el.querySelector('.ep-sd-panel').classList.remove('open');
+      }
+    }
+
+    function epSdSelect(id, value) {
+      const el = document.getElementById(id);
+      el.querySelector('input[type="hidden"]').value = value;
+      // Use item text if available (handles "All labels" etc.), otherwise display name
+      const selectedItem = el.querySelector(`.ep-sd-item[data-value="${CSS.escape(value)}"]`);
+      const displayText = selectedItem ? selectedItem.textContent : (value ? epDisplayName(value) : '\u2014 select \u2014');
+      el.querySelector('.ep-sd-display').innerHTML = displayText + ' &#9662;';
+      el.querySelector('.ep-sd-panel').classList.remove('open');
+      if (el.closest('#ep-history-tab')) {
+        epHistoryOffset = 0;
+        epLoadHistory();
+        epUpdateActiveFilters();
+      }
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.ep-search-dropdown')) {
+        document.querySelectorAll('.ep-sd-panel.open').forEach(p => p.classList.remove('open'));
+      }
+    });
 
     async function epSaveRule() {
       const id = document.getElementById('ep-rule-edit-id').value;

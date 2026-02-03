@@ -1517,10 +1517,10 @@ _Routing Phase 1 from `docs/designs/email-label-routing.md`_
 - Conflict warning if same phrase appears in multiple labels
 - **Design:** `docs/designs/label-definition-and-pickers.md`
 
-### Phase E: Searchable Label Pickers
-- Reusable component: search input, Recent/Frequent/All sections, keyboard nav
-- Apply to: History correction, rule editor conditions, rule editor actions, future routing destination
-- "Show all" toggle for long label lists
+### Phase E: Searchable Label Pickers ✅ DONE (v4.3)
+- ✅ Reusable `epCreateSearchableLabel()` component with type-to-filter + keyboard nav
+- ✅ Applied to: rule editor conditions, rule editor actions, history filter
+- Remaining: History correction picker, Recent/Frequent/All sections, routing destination picker
 - **Design:** `docs/designs/label-definition-and-pickers.md`
 
 ### Phase F: Unanswered Command Center + Telegram
@@ -1555,6 +1555,15 @@ Implemented changes for operational clarity, reversibility, and auditability:
 10. **Daily digest auto-schedule** — wire existing `dailySummaryTime` setting to a minutely check timer
 
 **Deferred:** Unanswered Command Center (Phase F), OR logic in conditions, auto-send, Telegram inline keyboards, Reply-To header support.
+
+### v4.3: Rules UX & Prompt Clarity
+
+UI-only changes in `ui/settings.html` — no backend or rule engine changes.
+
+1. **Searchable label dropdown** — reusable `epCreateSearchableLabel()` component with type-to-filter, keyboard nav (Arrow/Enter/Escape), and click-outside close. Applied to rule editor conditions (`label_is`/`label_is_not`), actions (`apply_label`/`remove_label`), and history filter. Hidden `<input>` preserves save/load contract.
+2. **Rule test "Show only matching" toggle** — checkbox in test results header to hide non-matching rows, reducing noise when tuning rules.
+3. **Draft reply prompt textarea** — replaced single-line `<input>` with multi-line `<textarea>` (6 rows, resizable) plus helper text explaining the prompt's role. Default prompt pre-filled for new rules via `EP_DEFAULT_DRAFT_PROMPT`.
+4. **Default example prompt** — `EP_DEFAULT_DRAFT_PROMPT` constant providing a complete guest-post-decline template as starter prompt for new `draft_reply` actions.
 
 ---
 
