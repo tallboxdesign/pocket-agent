@@ -598,6 +598,13 @@ export class RulesEngine {
       replyToMessageId: email.messageId,
       account: email.account,
     });
+
+    // Apply AI/Draft label so user can track AI-drafted emails
+    if (email.threadId) {
+      try {
+        await modifyLabels({ threadIds: [email.threadId], add: 'AI/Draft', account: email.account });
+      } catch { /* label application is best-effort */ }
+    }
   }
 
   private async actionSendEmail(email: EmailContext, config: Record<string, string>, extras: Record<string, string> = {}): Promise<void> {
@@ -826,6 +833,51 @@ export class RulesEngine {
         conditions: condResults,
       };
     });
+  }
+
+  async replayRules(limit = 50): Promise<{ total: number; matched: number; executed: number; errors: number }> {
+    const emails = this.db.prepare(
+      'SELECT * FROM email_processing_state ORDER BY processed_at DESC LIMIT ?',
+    ).all(limit) as Record<string, unknown>[];
+
+    let matched = 0, executed = 0, errors = 0;
+    for (const e of emails) {
+      const ctx: EmailContext = {
+        messageId: String(e.message_id),
+        threadId: e.thread_id ? String(e.thread_id) : undefined,
+        account: String(e.account),
+        subject: String(e.subject || ''),
+        sender: String(e.sender || ''),
+        snippet: String(e.snippet || ''),
+        label: String(e.corrected_label || e.label_applied || ''),
+        confidence: String(e.confidence || 'low'),
+        internalDateMs: Number(e.internal_date_ms) || 0,
+        correctedByUser: !!e.corrected_label,
+      };
+
+      // Only replay active rules for on_label_applied trigger
+      const rules = this.db.prepare(
+        "SELECT * FROM email_rules WHERE enabled = 1 AND trigger_type = 'on_label_applied' AND mode = 'active' ORDER BY priority ASC",
+      ).all() as EmailRule[];
+
+      for (const rule of rules) {
+        // Skip if already executed for this message
+        const alreadyRun = this.db.prepare(
+          'SELECT 1 FROM email_rule_executions WHERE rule_id = ? AND message_id = ? AND result = ? LIMIT 1',
+        ).get(rule.id, ctx.messageId, 'ok');
+        if (alreadyRun) continue;
+
+        if (await this.matchConditions(rule, ctx)) {
+          matched++;
+          try {
+            await this.evaluate(ctx, 'on_label_applied', 0);
+            executed++;
+          } catch { errors++; }
+          break; // evaluate() handles all matching rules
+        }
+      }
+    }
+    return { total: emails.length, matched, executed, errors };
   }
 
   private matchSingleCondition(cond: Condition, email: EmailContext): boolean {

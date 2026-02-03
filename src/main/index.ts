@@ -1622,6 +1622,15 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('gmail:reclassifyEmails', async (_evt: unknown, messageIds: string[], account: string) => {
+    try {
+      await ensureEmailProcessor();
+      return await emailProcessor!.reclassifyEmails(messageIds, account);
+    } catch (err) {
+      return { total: messageIds.length, reclassified: 0, errors: messageIds.length, results: [], error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  });
+
   ipcMain.handle('gmail:getLabelStats', async (_evt: unknown, account?: string) => {
     try {
       await ensureEmailProcessor();
@@ -1819,6 +1828,13 @@ Instructions:
       await ensureEmailProcessor();
       return await rulesEngine!.runDailySummary();
     } catch (err) { return { success: false, error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('rules:replay', async (_evt: unknown, limit?: number) => {
+    try {
+      await ensureEmailProcessor();
+      return await rulesEngine!.replayRules(limit ?? 50);
+    } catch (err) { return { total: 0, matched: 0, executed: 0, errors: 0, error: err instanceof Error ? err.message : 'Failed' }; }
   });
 
   // --- Unanswered Command Center ---

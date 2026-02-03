@@ -1580,6 +1580,14 @@ Surfaces threads needing response and provides dismiss/resolve workflows. Design
 6. **"Unanswered" UI tab** — new tab in Email Processing section with enable toggle, scan interval, lookback days, label multi-select, thread list with per-row actions (Draft Reply / Resolve / Dismiss), batch actions, Scan Now button, Send Digest button.
 7. **Scheduled scan** — auto-scan at app startup when enabled, respects `gmail.unanswered.intervalMin` setting. After scan, evaluates rules with `on_unanswered_scan` trigger.
 
+### v4.5: Reclassify + Rules Usability + Unanswered Fix
+
+1. **AI/Draft label on draft replies** — `actionDraftReply()` applies "AI/Draft" label after `createDraft()` succeeds. Best-effort, uses existing `modifyLabels()`.
+2. **Next-run timing in Rules tab** — info line showing scan interval, last scan time, next estimated scan.
+3. **Replay rules on past emails** — `replayRules(limit)` method + UI button. Re-evaluates active rules against already-classified emails, skipping already-executed combinations.
+4. **Reclassify emails** — `reclassifyEmails(messageIds, account)` method. Fetches fresh email content, re-runs GLM classification, updates DB + Gmail labels + routing. Per-row "Retry" button on failed/invalid emails + bulk "Reclassify" action.
+5. **Fix unanswered scan** — auto-detect `gmail.userEmail` from account name. Show scan errors in UI instead of silent failure.
+
 ---
 
 ## Key Decisions Still Needed

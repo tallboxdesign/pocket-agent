@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
     ipcRenderer.invoke('gmail:correctLabel', messageId, account, newLabel, useAsExample),
   gmailGetLabelStats: (account?: string) => ipcRenderer.invoke('gmail:getLabelStats', account),
   gmailGetRoutingStats: (account?: string) => ipcRenderer.invoke('gmail:getRoutingStats', account),
+  gmailReclassifyEmails: (messageIds: string[], account: string) => ipcRenderer.invoke('gmail:reclassifyEmails', messageIds, account),
   gmailRestoreToInbox: (messageId: string, account: string) => ipcRenderer.invoke('gmail:restoreToInbox', messageId, account),
   gmailFileFromInbox: (messageId: string, account: string) => ipcRenderer.invoke('gmail:fileFromInbox', messageId, account),
   gmailAiDefineLabelConfig: (labelName: string, definition: string, negative: string, examples: Array<{ messageId: string; subject?: string; from?: string }>, field: 'definition' | 'negative', account?: string) =>
@@ -121,6 +122,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   rulesTest: (id: number, limit?: number) => ipcRenderer.invoke('rules:test', id, limit),
   rulesGetExecutions: (ruleId?: number, limit?: number) => ipcRenderer.invoke('rules:getExecutions', ruleId, limit),
   rulesRunDailySummary: () => ipcRenderer.invoke('rules:runDailySummary'),
+  rulesReplay: (limit?: number) => ipcRenderer.invoke('rules:replay', limit),
 
   // Unanswered Command Center
   unansweredScan: (account?: string) => ipcRenderer.invoke('unanswered:scan', account),
@@ -322,6 +324,7 @@ declare global {
       gmailGetProcessingStatus: () => Promise<{ runs: unknown[]; checkpoints: unknown[] }>;
       gmailGetProcessedEmails: (limit?: number, offset?: number, filters?: { label?: string; since?: string; sender?: string }) => Promise<{ emails: unknown[]; total: number }>;
       gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) => Promise<{ ok: boolean; error?: string }>;
+      gmailReclassifyEmails: (messageIds: string[], account: string) => Promise<{ total: number; reclassified: number; errors: number; results: Array<{ messageId: string; label: string; confidence: string; error?: string }>; error?: string }>;
       gmailGetLabelStats: (account?: string) => Promise<Array<{ label: string; count: number; lastUsed: string }>>;
       gmailGetRoutingStats: (account?: string) => Promise<{ filed: number; kept: number; failed: number }>;
       gmailAiDefineLabelConfig: (labelName: string, definition: string, negative: string, examples: Array<{ messageId: string; subject?: string; from?: string }>, field: 'definition' | 'negative', account?: string) => Promise<{ ok: boolean; field?: string; text?: string; error?: string }>;
@@ -335,6 +338,7 @@ declare global {
       rulesTest: (id: number, limit?: number) => Promise<Array<{ email: { subject: string; sender: string; label: string }; matched: boolean; conditions: Array<{ type: string; value: string; passed: boolean }> }>>;
       rulesGetExecutions: (ruleId?: number, limit?: number) => Promise<Array<Record<string, unknown>>>;
       rulesRunDailySummary: () => Promise<{ success: boolean; summary?: string; error?: string }>;
+      rulesReplay: (limit?: number) => Promise<{ total: number; matched: number; executed: number; errors: number; error?: string }>;
       // Unanswered Command Center
       unansweredScan: (account?: string) => Promise<unknown>;
       unansweredList: (filter?: Record<string, unknown>) => Promise<{ threads: Array<Record<string, unknown>>; total: number }>;

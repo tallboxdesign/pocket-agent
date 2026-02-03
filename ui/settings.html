@@ -2120,6 +2120,7 @@
                     <input type="checkbox" id="ep-bulk-example"> Train
                   </label>
                   <button class="primary" id="ep-bulk-apply-btn" onclick="epBulkApply()" disabled title="Apply the chosen label to all selected emails">Apply</button>
+                  <button onclick="epBulkReclassify()" title="Re-run AI classification on selected emails">Reclassify</button>
                   <button onclick="epBulkClear()" title="Deselect all">Clear</button>
                 </div>
                 <div class="ep-history-scroll" style="margin-top:8px;">
@@ -4274,6 +4275,9 @@
           const snippet = (e.snippet || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const rowId = 'ep-snip-' + msgId.replace(/[^a-zA-Z0-9]/g, '');
 
+          const retryBtn = (conf === 'invalid' || failReason)
+            ? `<button class="ep-btn" onclick="epReclassify('${msgId}','${acct}')" style="padding:1px 6px;font-size:9px;" title="Re-run AI classification">Retry</button>`
+            : '';
           const actionBtn = rResult === 'filed'
             ? `<button class="ep-btn" onclick="epRestoreToInbox('${msgId}','${acct}')" style="padding:1px 6px;font-size:9px;" title="Restore to inbox">Restore</button>`
             : (rResult === 'in_inbox' && (!rError || rError === 'no_routing_config' || rError === 'routing_disabled'))
@@ -4290,7 +4294,7 @@
               ${correctedBadge}${routingBadge}
             </td>
             <td><span class="ep-label-badge ${conf}">${conf}</span>${failBadge}</td>
-            <td>${actionBtn}</td>
+            <td>${retryBtn}${actionBtn}</td>
           </tr>
           <tr class="ep-snippet-row hidden" id="${rowId}">
             <td colspan="7" class="ep-snippet-cell">${snippet || '<em>No preview available</em>'}</td>
@@ -4516,6 +4520,56 @@
       }
 
       const msg = `${success} corrected` + (failed > 0 ? `, ${failed} failed` : '') + (useAsExample ? ' + examples saved' : '');
+      showToast(msg, failed > 0 ? 'error' : 'success');
+      epBulkClear();
+      epLoadHistory();
+    }
+
+    async function epReclassify(msgId, account) {
+      const row = document.querySelector(`tr[data-msgid="${msgId}"]`);
+      const actionTd = row ? row.querySelector('td:last-child') : null;
+      const origHtml = actionTd ? actionTd.innerHTML : '';
+      if (actionTd) actionTd.innerHTML = '<span style="font-size:9px;color:var(--text-secondary)">Classifying...</span>';
+      try {
+        const res = await window.pocketAgent.gmailReclassifyEmails([msgId], account);
+        if (res.error) throw new Error(res.error);
+        const r = (res.results || [])[0];
+        if (r && r.error) throw new Error(r.error);
+        showToast(`Reclassified → ${r ? r.label : 'done'}`, 'success');
+        epLoadHistory();
+      } catch (err) {
+        showToast('Reclassify failed: ' + (err.message || err), 'error');
+        if (actionTd) actionTd.innerHTML = origHtml;
+      }
+    }
+
+    async function epBulkReclassify() {
+      if (epBulkSelected.size === 0) return;
+      // Group by account
+      const byAccount = new Map();
+      for (const [msgId, data] of epBulkSelected.entries()) {
+        if (!byAccount.has(data.account)) byAccount.set(data.account, []);
+        byAccount.get(data.account).push(msgId);
+      }
+      const totalCount = epBulkSelected.size;
+      const bar = document.getElementById('ep-bulk-bar');
+      const countEl = document.getElementById('ep-bulk-count');
+      countEl.textContent = `Reclassifying 0/${totalCount}...`;
+
+      let success = 0;
+      let failed = 0;
+      for (const [account, msgIds] of byAccount) {
+        try {
+          const res = await window.pocketAgent.gmailReclassifyEmails(msgIds, account);
+          success += res.reclassified || 0;
+          failed += res.errors || 0;
+        } catch {
+          failed += msgIds.length;
+        }
+        countEl.textContent = `Reclassifying ${success + failed}/${totalCount}...`;
+      }
+
+      const msg = `${success} reclassified` + (failed > 0 ? `, ${failed} failed` : '');
       showToast(msg, failed > 0 ? 'error' : 'success');
       epBulkClear();
       epLoadHistory();
@@ -5233,11 +5287,21 @@ Never mention internal labels, automation, or filtering.`;
       try {
         const results = await window.pocketAgent.unansweredScan();
         const arr = Array.isArray(results) ? results : [results];
-        const summary = arr.map(r =>
-          `${r.account || 'account'}: ${r.threadsScanned || 0} scanned, ${r.newUnanswered || 0} new, ${r.autoResolved || 0} resolved`,
-        ).join('; ');
+        const totalErrors = arr.reduce((sum, r) => sum + (r.errors || 0), 0);
+        const totalScanned = arr.reduce((sum, r) => sum + (r.threadsScanned || 0), 0);
+        const summary = arr.map(r => {
+          let s = `${r.account || 'account'}: ${r.threadsScanned || 0} scanned, ${r.newUnanswered || 0} new, ${r.autoResolved || 0} resolved`;
+          if (r.errors) s += `, ${r.errors} error(s)`;
+          return s;
+        }).join('; ');
         status.textContent = summary;
-        showToast('Scan complete', 'success');
+        if (totalScanned === 0 && totalErrors > 0) {
+          showToast('Scan found no threads. Check gmail.userEmail setting or account configuration.', 'error');
+        } else if (totalErrors > 0) {
+          showToast(`Scan complete with ${totalErrors} error(s)`, 'error');
+        } else {
+          showToast('Scan complete', 'success');
+        }
         await uaLoad();
       } catch (err) {
         status.textContent = 'Scan failed: ' + (err.message || err);

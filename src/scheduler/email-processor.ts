@@ -1315,4 +1315,178 @@ export class EmailProcessor {
 
     console.log(`[EmailProcessor] Corrected ${messageId}: ${oldLabel} → ${newLabel} (example: ${useAsExample})`);
   }
+
+  // ---------- Reclassify Emails ----------
+
+  async reclassifyEmails(
+    messageIds: string[],
+    account: string,
+  ): Promise<{ total: number; reclassified: number; errors: number; results: { messageId: string; label: string; confidence: string; error?: string }[] }> {
+    const labelConfig = safeJsonParse<LabelConfig>(SettingsManager.get('gmail.emailProcessing.labelConfig') || '{}', {});
+    const reviewLabel = SettingsManager.get('gmail.emailProcessing.reviewLabel') || 'AI/Review';
+    const processedLabel = SettingsManager.get('gmail.emailProcessing.processedLabel') || 'AI/Processed';
+    const gmailConc = parseInt(SettingsManager.get('gmail.emailProcessing.gmailConcurrency') || '4', 10) || 4;
+    const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '1', 10) || 1;
+
+    const out: { messageId: string; label: string; confidence: string; error?: string }[] = [];
+    let reclassified = 0;
+    let errors = 0;
+
+    // 1. Fetch fresh email content
+    const fullEmails: FullEmail[] = [];
+    const fetchErrors: Map<string, string> = new Map();
+    await withConcurrency(messageIds, gmailConc, async (msgId) => {
+      try {
+        const msgRes = await withRetry(() => getMessage({ messageId: msgId, account }));
+        const email = adaptFullEmail(msgRes);
+        if (email) {
+          fullEmails.push(email);
+        } else {
+          fetchErrors.set(msgId, 'Failed to parse email');
+        }
+      } catch (err) {
+        fetchErrors.set(msgId, err instanceof Error ? err.message : String(err));
+      }
+    });
+
+    // Record fetch errors
+    for (const [msgId, errMsg] of fetchErrors) {
+      errors += 1;
+      out.push({ messageId: msgId, label: '', confidence: 'invalid', error: errMsg });
+    }
+
+    if (fullEmails.length === 0) {
+      return { total: messageIds.length, reclassified: 0, errors, results: out };
+    }
+
+    // 2. Fetch labels for classification
+    const labelsRes = await withRetry(() => listLabels({ account }));
+    const allLabels = unwrapGogArray(labelsRes.labels || '[]', 'labels');
+    const promptLabels = buildLabelList(allLabels, labelConfig);
+    const allowedLabelSet = new Set(promptLabels.map(x => x.name));
+    allowedLabelSet.add(reviewLabel);
+
+    // 3. Fetch few-shot examples
+    const examplesByLabel = await this.fetchFewShotExamples(account, labelConfig);
+
+    // 4. Classify in batches
+    const batches = chunk(fullEmails, 5);
+    const batchResults = await withConcurrency(batches, glmConc, async (batch) => {
+      const prompt = buildGlmPrompt(promptLabels, examplesByLabel, batch, reviewLabel);
+      await sleep(2000);
+
+      try {
+        const glmRes = await withRetry(async () => {
+          const res = await glmBulk({
+            messages: [{ role: 'user', content: prompt }],
+            maxTokens: 8000,
+            temperature: 0.1,
+            disableThinking: true,
+          });
+          if (!res.success) throw new Error(res.error || 'GLM call failed');
+          return res;
+        }, 3, 3000);
+
+        return validateGlmResponse(glmRes.content!, batch, allowedLabelSet, reviewLabel);
+      } catch (glmErr) {
+        const errMsg = String(glmErr);
+        const is429 = errMsg.includes('429') || errMsg.toLowerCase().includes('rate');
+        return batch.map(e => ({
+          messageId: e.id,
+          threadId: e.threadId,
+          label: reviewLabel,
+          confidence: 'invalid' as Confidence,
+          subject: e.subject,
+          from: e.from,
+          failReason: (is429 ? 'batch_429' : 'batch_error') as FailReason,
+          glmRaw: errMsg.slice(0, 2000),
+        }));
+      }
+    });
+
+    const flat = batchResults.flat();
+
+    // 5. Update DB + Gmail labels + routing for each result
+    for (const r of flat) {
+      const email = fullEmails.find(e => e.id === r.messageId);
+      if (!email) continue;
+
+      // Get old state from DB
+      const oldRow = this.db.prepare(
+        'SELECT * FROM email_processing_state WHERE message_id = ? AND account = ?',
+      ).get(r.messageId, account) as Record<string, unknown> | undefined;
+
+      const oldLabel = oldRow ? String(oldRow.corrected_label || oldRow.label_applied || '') : '';
+      const newLabel = (r.confidence === 'low' || r.confidence === 'invalid') ? reviewLabel : r.label;
+
+      // Update DB row (clear corrected_label since this is a fresh classification)
+      if (oldRow) {
+        this.db.prepare(`UPDATE email_processing_state SET
+          label_applied = ?, confidence = ?, fail_reason = ?, glm_raw = ?,
+          corrected_label = NULL, corrected_at = NULL,
+          snippet = ?, processed_at = datetime('now')
+          WHERE message_id = ? AND account = ?`)
+          .run(newLabel, r.confidence, r.failReason ?? null, r.glmRaw ?? null,
+            (email.body || '').slice(0, 300), r.messageId, account);
+      } else {
+        // Insert new row if somehow missing
+        this.saveProcessed(account, email, newLabel, r.confidence, r.glmRaw, r.failReason);
+      }
+
+      // Update Gmail labels: remove old, add new + AI/Processed
+      if (email.threadId) {
+        try {
+          const addLabels = `${newLabel},${processedLabel}`;
+          const removeLabels = oldLabel && oldLabel !== newLabel ? oldLabel : undefined;
+          await withRetry(() => modifyLabels({
+            threadIds: [email.threadId!],
+            add: addLabels,
+            ...(removeLabels ? { remove: removeLabels } : {}),
+            account,
+          }));
+        } catch (err) {
+          console.warn(`[EmailProcessor] Failed to update Gmail labels for ${r.messageId}:`, err);
+        }
+      }
+
+      // Apply routing
+      const routingResult = await applyRouting(email.threadId, account, newLabel, r.confidence, labelConfig);
+      this.db.prepare(`UPDATE email_processing_state SET
+        routing_result = ?, routing_error = ?, filed_at = ?
+        WHERE message_id = ? AND account = ?`)
+        .run(
+          routingResult.result,
+          routingResult.error ?? null,
+          routingResult.result === 'filed' ? new Date().toISOString() : null,
+          r.messageId,
+          account,
+        );
+
+      // Evaluate rules engine
+      if (this.rulesEngine) {
+        try {
+          await this.rulesEngine.evaluate({
+            messageId: r.messageId,
+            threadId: email.threadId,
+            account,
+            subject: email.subject ?? '',
+            sender: email.from ?? '',
+            snippet: (email.body || '').slice(0, 300),
+            label: newLabel,
+            confidence: r.confidence,
+            internalDateMs: email.internalDateMs,
+            correctedByUser: false,
+          }, 'on_label_applied', 0);
+        } catch (err) {
+          console.warn('[EmailProcessor] Rule evaluation on reclassify failed:', err);
+        }
+      }
+
+      reclassified += 1;
+      out.push({ messageId: r.messageId, label: newLabel, confidence: r.confidence });
+    }
+
+    console.log(`[EmailProcessor] Reclassified ${reclassified}/${messageIds.length} emails for ${account}`);
+    return { total: messageIds.length, reclassified, errors, results: out };
+  }
 }

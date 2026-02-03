@@ -148,11 +148,11 @@ export class UnansweredEngine {
     try {
       const lookbackDays = SettingsManager.get('gmail.unanswered.lookbackDays') || '30';
       const labelsRaw = SettingsManager.get('gmail.unanswered.labels') || '[]';
-      const userEmail = SettingsManager.get('gmail.userEmail') || '';
+      const userEmail = SettingsManager.get('gmail.userEmail') || account || '';
       const maxThreads = Number(SettingsManager.get('gmail.unanswered.maxThreadsPerScan') || '200');
 
       if (!userEmail) {
-        console.warn('[UnansweredEngine] gmail.userEmail not configured');
+        console.warn('[UnansweredEngine] gmail.userEmail not configured and no account provided');
         return { account, threadsScanned: 0, newUnanswered: 0, autoResolved: 0, errors: 1, durationMs: Date.now() - startMs };
       }
 
