@@ -17,7 +17,7 @@ import { SettingsManager } from '../settings';
 import {
   readEmails, getMessage, listLabels, modifyLabels, createLabel,
 } from '../tools/gog-wrapper';
-import { glmFlash } from '../tools/glm-client';
+import { glmBulk } from '../tools/glm-client';
 import { logEvent } from '../memory/event-log';
 
 // ============================================================================
@@ -782,7 +782,7 @@ export class EmailProcessor {
     const gmailConc = parseInt(SettingsManager.get('gmail.emailProcessing.gmailConcurrency') || '4', 10) || 4;
     const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '1', 10) || 1;
 
-    const glmModel = SettingsManager.get('zhipu.flashModel') || 'glm-4.7-flash';
+    const glmModel = SettingsManager.get('zhipu.bulkModel') || 'glm-4.7-flash-x';
     const glmBase = SettingsManager.get('zhipu.baseUrl') || 'https://open.bigmodel.cn/api/paas/v4';
     console.log(`[EmailProcessor] GLM model: ${glmModel}, base: ${glmBase}, concurrency: ${glmConc}`);
     console.log(`[EmailProcessor] Accounts: ${JSON.stringify(accounts)}, categories: ${JSON.stringify(categories)}`);
@@ -907,10 +907,10 @@ export class EmailProcessor {
 
             let glmRes: { success: boolean; content?: string };
             try {
-              // glmFlash returns { success: false } on API errors (429 etc.) instead
+              // glmBulk returns { success: false } on API errors (429 etc.) instead
               // of throwing. We throw here so withRetry can apply exponential backoff.
               glmRes = await withRetry(async () => {
-                const res = await glmFlash({
+                const res = await glmBulk({
                   messages: [{ role: 'user', content: prompt }],
                   maxTokens: 8000,
                   temperature: 0.1,

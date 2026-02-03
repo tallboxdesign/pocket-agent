@@ -123,6 +123,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     type: 'string',
   },
   {
+    key: 'zhipu.bulkModel',
+    defaultValue: 'glm-4.7-flash-x',
+    encrypted: false,
+    category: 'llm',
+    label: 'GLM Bulk Model',
+    description: 'High-throughput model for batch classification (3 concurrent)',
+    type: 'string',
+  },
+  {
     key: 'zhipu.baseUrl',
     defaultValue: 'https://open.bigmodel.cn/api/paas/v4',
     encrypted: false,
@@ -520,7 +529,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     key: 'gmail.emailProcessing.glmConcurrency',
-    defaultValue: '1',
+    defaultValue: '3',
     encrypted: false,
     category: 'gmail',
     label: 'GLM Concurrency',

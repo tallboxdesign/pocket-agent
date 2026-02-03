@@ -46,6 +46,7 @@ export interface GlmResponse {
 const DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4';
 const DEFAULT_MODEL = 'glm-4.7';
 const DEFAULT_FLASH_MODEL = 'glm-4.7-flash';
+const DEFAULT_BULK_MODEL = 'glm-4.7-flash-x';
 const DEFAULT_TEMPERATURE = 0.3;
 const DEFAULT_MAX_TOKENS = 2048;
 const REQUEST_TIMEOUT = 60000;
@@ -162,6 +163,15 @@ export async function glmFlash(params: GlmRequestParams): Promise<GlmResponse> {
 }
 
 /**
+ * Call GLM with the bulk model (glm-4.7-flash-x by default).
+ * Use for high-throughput batch classification (3 concurrent).
+ */
+export async function glmBulk(params: GlmRequestParams): Promise<GlmResponse> {
+  const bulkModel = SettingsManager.get('zhipu.bulkModel') || DEFAULT_BULK_MODEL;
+  return callGlmApi({ ...params, forceModel: bulkModel });
+}
+
+/**
  * Check if GLM is configured (API key set).
  */
 export function isGlmConfigured(): boolean {
@@ -169,17 +179,33 @@ export function isGlmConfigured(): boolean {
 }
 
 /**
- * Quick health check — sends a tiny request to verify connectivity.
+ * Quick health check — pings both flash and bulk models in parallel.
  */
-export async function glmHealthCheck(): Promise<{ ok: boolean; model?: string; error?: string }> {
-  const result = await glmFlash({
+export async function glmHealthCheck(): Promise<{ ok: boolean; models?: string[]; error?: string }> {
+  const flashModel = SettingsManager.get('zhipu.flashModel') || DEFAULT_FLASH_MODEL;
+  const bulkModel = SettingsManager.get('zhipu.bulkModel') || DEFAULT_BULK_MODEL;
+
+  const pingParams: GlmRequestParams = {
     messages: [{ role: 'user', content: 'ping' }],
     maxTokens: 5,
-  });
+  };
 
-  if (result.success) {
-    const flashModel = SettingsManager.get('zhipu.flashModel') || DEFAULT_FLASH_MODEL;
-    return { ok: true, model: flashModel };
+  const [flashResult, bulkResult] = await Promise.all([
+    glmFlash(pingParams),
+    glmBulk(pingParams),
+  ]);
+
+  const okModels: string[] = [];
+  const errors: string[] = [];
+
+  if (flashResult.success) okModels.push(flashModel);
+  else errors.push(`${flashModel}: ${flashResult.error}`);
+
+  if (bulkResult.success) okModels.push(bulkModel);
+  else errors.push(`${bulkModel}: ${bulkResult.error}`);
+
+  if (okModels.length > 0) {
+    return { ok: true, models: okModels };
   }
-  return { ok: false, error: result.error };
+  return { ok: false, error: errors.join('; ') };
 }
