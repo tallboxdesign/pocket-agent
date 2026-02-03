@@ -4837,7 +4837,7 @@
       panel.style.display = 'block';
       panel.innerHTML = 'Testing...';
       try {
-        const results = await window.pocketAgent.rulesTest(id, 10);
+        const results = await window.pocketAgent.rulesTest(id, 50);
         if (!results || results.length === 0) {
           panel.innerHTML = '<em>No emails to test against</em>';
           return;
