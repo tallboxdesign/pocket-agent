@@ -1,9 +1,27 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
-**Last Updated:** 2026-02-02
+**Last Updated:** 2026-02-03
 **Status:** IN PROGRESS — v4.1 Email Intelligence
 **Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-4.7 (utility model)
+
+---
+
+## ⛔ MEGA RULE — DATA INTEGRITY (READ THIS FIRST)
+
+**NEVER, under any circumstances, lose, corrupt, overwrite, or reset user data.**
+
+This is the single most important rule in the entire project. Violating it is unacceptable.
+
+- **Database files (`pocket-agent.db`)** contain irreplaceable user data: chat history, routines/cron jobs, facts, settings, email state, kanban projects/tasks. Treat them as sacred.
+- **Never** overwrite, truncate, or delete database files during builds, installs, or updates.
+- **Never** reset or re-initialize tables that already contain user data.
+- **Build/install cycles must be non-destructive.** Copying a new build to `/Applications` must never touch `~/Library/Application Support/pocket-agent/`.
+- **Electron `safeStorage` encryption** depends on the app's code signature. Ad-hoc re-signing during `electron-builder` builds can invalidate encrypted values (API keys, tokens). Always verify encrypted settings survive after a re-sign.
+- **Before any migration or schema change**, back up the database first. Use `ALTER TABLE ADD COLUMN` — never drop and recreate tables.
+- **Test data persistence** after every build/install cycle: launch the app and confirm chat history, routines, and settings are intact.
+
+If in doubt, **do nothing** rather than risk data loss.
 
 ---
 

@@ -1323,25 +1323,11 @@ export class EmailProcessor {
     messageIds: string[],
     account: string,
   ): Promise<{ total: number; reclassified: number; errors: number; results: { messageId: string; label: string; confidence: string; error?: string }[]; error?: string }> {
-    if (this.running) {
-      return { total: messageIds.length, reclassified: 0, errors: 0, results: [], error: 'Email processor is busy. Wait for the current run to finish.' };
-    }
-    this.running = true;
-    try {
-    return await this._doReclassify(messageIds, account);
-    } finally {
-      this.running = false;
-    }
-  }
-
-  private async _doReclassify(
-    messageIds: string[],
-    account: string,
-  ): Promise<{ total: number; reclassified: number; errors: number; results: { messageId: string; label: string; confidence: string; error?: string }[]; error?: string }> {
+    // No running guard — reclassify operates on already-processed emails
+    // and doesn't conflict with the auto-run (which processes new emails).
     const labelConfig = safeJsonParse<LabelConfig>(SettingsManager.get('gmail.emailProcessing.labelConfig') || '{}', {});
     const reviewLabel = SettingsManager.get('gmail.emailProcessing.reviewLabel') || 'AI/Review';
     const processedLabel = SettingsManager.get('gmail.emailProcessing.processedLabel') || 'AI/Processed';
-    const gmailConc = parseInt(SettingsManager.get('gmail.emailProcessing.gmailConcurrency') || '4', 10) || 4;
     const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '1', 10) || 1;
     const effectiveGlmConc = isBulkModelZhipu() ? glmConc : Math.max(glmConc, 5);
 
@@ -1349,36 +1335,34 @@ export class EmailProcessor {
     let reclassified = 0;
     let errors = 0;
 
-    // 1. Fetch fresh email content
+    // 1. Load email data from DB cache (no gog calls needed — bodies already stored)
     const fullEmails: FullEmail[] = [];
-    const fetchErrors: Map<string, string> = new Map();
-    await withConcurrency(messageIds, gmailConc, async (msgId) => {
-      try {
-        const msgRes = await withRetry(() => getMessage({ messageId: msgId, account }));
-        const email = adaptFullEmail(msgRes);
-        if (email) {
-          fullEmails.push(email);
-        } else {
-          fetchErrors.set(msgId, 'Failed to parse email');
-        }
-      } catch (err) {
-        fetchErrors.set(msgId, err instanceof Error ? err.message : String(err));
+    const db = this.getDb();
+    for (const msgId of messageIds) {
+      const row = db.prepare(
+        'SELECT message_id, thread_id, internal_date_ms, subject, sender, snippet FROM email_processing_state WHERE message_id = ? AND account = ?',
+      ).get(msgId, account) as { message_id: string; thread_id: string; internal_date_ms: number; subject: string; sender: string; snippet: string } | undefined;
+      if (row) {
+        fullEmails.push({
+          id: row.message_id,
+          threadId: row.thread_id || undefined,
+          internalDateMs: Number(row.internal_date_ms) || 0,
+          from: row.sender || '',
+          subject: row.subject || '',
+          body: row.snippet || row.subject || '',
+        });
+      } else {
+        errors += 1;
+        out.push({ messageId: msgId, label: '', confidence: 'invalid', error: 'Not found in DB' });
       }
-    });
-
-    // Record fetch errors
-    for (const [msgId, errMsg] of fetchErrors) {
-      errors += 1;
-      out.push({ messageId: msgId, label: '', confidence: 'invalid', error: errMsg });
     }
 
     if (fullEmails.length === 0) {
       return { total: messageIds.length, reclassified: 0, errors, results: out };
     }
 
-    // 2. Fetch labels for classification
-    const labelsRes = await withRetry(() => listLabels({ account }));
-    const allLabels = unwrapGogArray(labelsRes.labels || '[]', 'labels');
+    // 2. Build label list from label config (no gog call — config already has user labels)
+    const allLabels = Object.keys(labelConfig).map(name => ({ name, type: 'user' }));
     const promptLabels = buildLabelList(allLabels, labelConfig);
     const allowedLabelSet = new Set(promptLabels.map(x => x.name));
     allowedLabelSet.add(reviewLabel);
@@ -1402,12 +1386,13 @@ export class EmailProcessor {
           });
           if (!res.success) throw new Error(res.error || 'GLM call failed');
           return res;
-        }, 3, 3000);
+        }, 1, 2000); // Reclassify: 1 retry only (data is cached, fail fast)
 
         return validateGlmResponse(glmRes.content!, batch, allowedLabelSet, reviewLabel);
       } catch (glmErr) {
         const errMsg = String(glmErr);
         const is429 = errMsg.includes('429') || errMsg.toLowerCase().includes('rate');
+        console.error(`[EmailProcessor] Reclassify batch failed: ${errMsg.slice(0, 200)}`);
         return batch.map(e => ({
           messageId: e.id,
           threadId: e.threadId,

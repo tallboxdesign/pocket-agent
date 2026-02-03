@@ -53,7 +53,7 @@ const DEFAULT_BULK_MODEL = 'glm-4.7-flashx';
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_TEMPERATURE = 0.3;
 const DEFAULT_MAX_TOKENS = 2048;
-const REQUEST_TIMEOUT = 60000;
+const REQUEST_TIMEOUT = 15000;
 
 // ============================================================================
 // Provider resolution — auto-detect from model name
