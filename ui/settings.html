@@ -5369,8 +5369,8 @@ Never mention internal labels, automation, or filtering.`;
             <div style="font-size:10px;color:var(--text-muted);margin-top:1px;">From: ${sender} ${label} &middot; ${age}</div>
           </div>
           <div style="display:flex;gap:4px;flex-shrink:0;">
-            <button class="ep-btn" onclick="uaResolve('${t.account}','${t.thread_id}')" title="Resolve" style="padding:2px 6px;font-size:10px;">R</button>
-            <button class="ep-btn" onclick="uaDismiss('${t.account}','${t.thread_id}')" title="Dismiss" style="padding:2px 6px;font-size:10px;">X</button>
+            <button class="ep-btn" onclick="uaResolve('${t.account}','${t.thread_id}')" title="Mark as resolved (replied)" style="padding:2px 6px;font-size:10px;">Resolve</button>
+            <button class="ep-btn" onclick="uaDismiss('${t.account}','${t.thread_id}')" title="Dismiss (ignore, no reply needed)" style="padding:2px 6px;font-size:10px;">Dismiss</button>
           </div>
         </div>`;
       }).join('');
