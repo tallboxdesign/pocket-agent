@@ -2022,10 +2022,23 @@
             <div class="ep-tab-panel" id="ep-history-tab">
               <div class="ep-group">
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
-                  <div class="ep-group-title" style="margin:0;">Processed Emails</div>
+                  <div class="ep-group-title" style="margin:0;">Processed Emails <button class="ep-btn" onclick="epToggleBadgeLegend()" style="padding:2px 7px;font-size:10px;border-radius:50%;min-width:0;" title="Badge legend">?</button></div>
                   <div style="display:flex;gap:6px;align-items:center;">
                     <select id="ep-filter-label" onchange="epHistoryOffset=0;epLoadHistory();epUpdateActiveFilters()" style="padding:3px 6px;font-size:11px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;">
                       <option value="">All labels</option>
+                    </select>
+                    <select id="ep-filter-confidence" onchange="epHistoryOffset=0;epLoadHistory()" style="padding:3px 6px;font-size:11px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;">
+                      <option value="">All confidence</option>
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                      <option value="invalid">Invalid</option>
+                    </select>
+                    <select id="ep-filter-routing" onchange="epHistoryOffset=0;epLoadHistory()" style="padding:3px 6px;font-size:11px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;">
+                      <option value="">All routing</option>
+                      <option value="filed">Filed</option>
+                      <option value="kept">Kept</option>
+                      <option value="failed">Failed</option>
                     </select>
                     <select id="ep-filter-time" onchange="epHistoryOffset=0;epLoadHistory()" style="padding:3px 6px;font-size:11px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;">
                       <option value="">All time</option>
@@ -2038,6 +2051,42 @@
                   </div>
                 </div>
                 <div class="ep-active-filters" id="ep-active-filters"></div>
+                <div id="ep-badge-legend" class="hidden" style="margin:8px 0;padding:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;font-size:10px;line-height:1.6;">
+                  <div style="font-weight:600;margin-bottom:6px;font-size:11px;">Badge Legend</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                    <div>
+                      <div style="font-weight:600;margin-bottom:2px;">Confidence</div>
+                      <div><span class="ep-label-badge high" style="font-size:9px;">high</span> GLM is confident</div>
+                      <div><span class="ep-label-badge medium" style="font-size:9px;">medium</span> Decent confidence</div>
+                      <div><span class="ep-label-badge low" style="font-size:9px;">low</span> GLM unsure, sent to review</div>
+                      <div><span class="ep-label-badge invalid" style="font-size:9px;">invalid</span> Classification failed</div>
+                      <div><span class="ep-fail-badge" style="font-size:9px;background:rgba(33,150,243,0.12);color:#2196f3;">corrected</span> Manually fixed</div>
+                    </div>
+                    <div>
+                      <div style="font-weight:600;margin-bottom:2px;">Routing</div>
+                      <div><span class="ep-fail-badge" style="font-size:9px;background:rgba(156,39,176,0.12);color:#9c27b0;">Filed</span> Archived from inbox</div>
+                      <div><span class="ep-fail-badge orange" style="font-size:9px;">Kept (uncertain)</span> Low confidence, stays in inbox</div>
+                      <div><span class="ep-fail-badge" style="font-size:9px;background:rgba(128,128,128,0.1);color:#888;">No routing</span> No routing configured</div>
+                      <div><span class="ep-fail-badge red" style="font-size:9px;">Routing failed</span> Gmail API error</div>
+                    </div>
+                    <div>
+                      <div style="font-weight:600;margin-bottom:2px;">Fail Reason</div>
+                      <div><span class="ep-fail-badge red" style="font-size:9px;">GLM 429</span> API rate limited</div>
+                      <div><span class="ep-fail-badge red" style="font-size:9px;">GLM Error</span> API error</div>
+                      <div><span class="ep-fail-badge red" style="font-size:9px;">GLM Empty</span> Empty response</div>
+                      <div><span class="ep-fail-badge red" style="font-size:9px;">Parse Error</span> Invalid JSON</div>
+                      <div><span class="ep-fail-badge orange" style="font-size:9px;">Bad Label</span> Label doesn't exist</div>
+                      <div><span class="ep-fail-badge orange" style="font-size:9px;">Missing ID</span> Email skipped</div>
+                      <div><span class="ep-fail-badge yellow" style="font-size:9px;">Unsure</span> Self-reported low confidence</div>
+                    </div>
+                    <div>
+                      <div style="font-weight:600;margin-bottom:2px;">Rule Mode</div>
+                      <div><span class="ep-fail-badge orange" style="font-size:9px;">draft</span> Dry-run, no actions</div>
+                      <div><span class="ep-fail-badge" style="font-size:9px;background:rgba(76,175,80,0.12);color:#4caf50;">active</span> Live, executing</div>
+                      <div><span class="ep-fail-badge" style="font-size:9px;background:rgba(128,128,128,0.1);color:#888;">disabled</span> Off</div>
+                    </div>
+                  </div>
+                </div>
                 <div class="ep-bulk-bar" id="ep-bulk-bar">
                   <span class="ep-bulk-count" id="ep-bulk-count">0 selected</span>
                   <button onclick="epBulkOpenLabelPicker()" id="ep-bulk-label-btn" title="Pick a label to apply to all selected emails">Apply Label...</button>
@@ -2057,10 +2106,11 @@
                         <th>Subject</th>
                         <th>Label Applied</th>
                         <th>Conf.</th>
+                        <th style="width:60px;">Action</th>
                       </tr>
                     </thead>
                     <tbody id="ep-history-body">
-                      <tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:20px;">Click Refresh to load history</td></tr>
+                      <tr><td colspan="7" class="ep-no-data" style="text-align:center;padding:20px;">Click Refresh to load history</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -2085,6 +2135,15 @@
               </div>
               <div id="ep-rules-list" style="display:flex;flex-direction:column;gap:8px;">
                 <div class="ep-no-data" style="text-align:center;padding:20px;">No rules yet. Create one to get started.</div>
+              </div>
+              <div class="ep-group" style="margin-top:12px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <div class="ep-group-title" style="margin:0;">Recent Executions</div>
+                  <button class="ep-btn" onclick="epLoadExecutionLog()" style="padding:3px 8px;font-size:10px;">Refresh</button>
+                </div>
+                <div id="ep-execution-log" style="margin-top:6px;max-height:200px;overflow-y:auto;">
+                  <div class="ep-no-data" style="text-align:center;padding:12px;font-size:11px;">Click Refresh to load</div>
+                </div>
               </div>
             </div>
 
@@ -4012,7 +4071,7 @@
     async function epLoadHistory() {
       const tbody = document.getElementById('ep-history-body');
       const countEl = document.getElementById('ep-history-count');
-      tbody.innerHTML = '<tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:16px;">Loading...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="ep-no-data" style="text-align:center;padding:16px;">Loading...</td></tr>';
 
       // Build filters
       const filters = {};
@@ -4025,12 +4084,16 @@
         if (ms) filters.since = new Date(now.getTime() - ms).toISOString().replace('T', ' ').slice(0, 19);
       }
       if (epFilterSender) filters.sender = epFilterSender;
+      const confFilter = document.getElementById('ep-filter-confidence')?.value;
+      if (confFilter) filters.confidence = confFilter;
+      const routingFilter = document.getElementById('ep-filter-routing')?.value;
+      if (routingFilter) filters.routing = routingFilter;
       epUpdateActiveFilters();
 
       try {
         const { emails, total } = await window.pocketAgent.gmailGetProcessedEmails(EP_HISTORY_PAGE, epHistoryOffset, Object.keys(filters).length > 0 ? filters : undefined);
         if (!emails || emails.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:20px;">No processed emails yet. Run the processor first.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" class="ep-no-data" style="text-align:center;padding:20px;">No processed emails yet. Run the processor first.</td></tr>';
           countEl.textContent = '0 emails';
           document.getElementById('ep-history-prev').disabled = true;
           document.getElementById('ep-history-next').disabled = true;
@@ -4066,17 +4129,21 @@
           }
 
           const correctedBadge = isCorrected ? '<span class="ep-fail-badge" style="background:rgba(33,150,243,0.12);color:#2196f3;">corrected</span>' : '';
-          // 3-state routing badge
+          // 4-state routing badge
           let routingBadge = '';
           const rResult = e.routing_result;
           const rError = e.routing_error;
           if (rResult === 'filed') {
             routingBadge = '<span class="ep-fail-badge" style="background:rgba(156,39,176,0.12);color:#9c27b0;">Filed</span>';
-          } else if (rResult === 'in_inbox' && rError && rError !== 'confidence_skip' && rError !== 'no_routing_config') {
+          } else if (rResult === 'in_inbox' && rError === 'confidence_skip') {
+            routingBadge = '<span class="ep-fail-badge orange">Kept (uncertain)</span>';
+          } else if (rResult === 'in_inbox' && (rError === 'no_routing_config' || rError === 'routing_disabled')) {
+            routingBadge = '<span class="ep-fail-badge" style="background:rgba(128,128,128,0.1);color:#888;">No routing</span>';
+          } else if (rResult === 'in_inbox' && rError) {
             const tooltip = (rError || '').replace(/"/g, '&quot;');
             routingBadge = `<span class="ep-fail-badge red" title="${tooltip}">Routing failed</span>`;
           } else if (rResult === 'in_inbox') {
-            routingBadge = '<span class="ep-fail-badge" style="background:rgba(128,128,128,0.1);color:#888;">In Inbox</span>';
+            routingBadge = '<span class="ep-fail-badge" style="background:rgba(128,128,128,0.1);color:#888;">No routing</span>';
           }
           // Fallback: legacy rows without routing_result but with filed_at
           if (!routingBadge && e.filed_at) {
@@ -4086,6 +4153,12 @@
 
           const snippet = (e.snippet || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const rowId = 'ep-snip-' + msgId.replace(/[^a-zA-Z0-9]/g, '');
+
+          const actionBtn = rResult === 'filed'
+            ? `<button class="ep-btn" onclick="epRestoreToInbox('${msgId}','${acct}')" style="padding:1px 6px;font-size:9px;" title="Restore to inbox">Restore</button>`
+            : (rResult === 'in_inbox' && (!rError || rError === 'no_routing_config' || rError === 'routing_disabled'))
+              ? `<button class="ep-btn" onclick="epFileFromInbox('${msgId}','${acct}')" style="padding:1px 6px;font-size:9px;" title="Archive from inbox">File</button>`
+              : '';
 
           return `<tr data-msgid="${msgId}" data-account="${acct}">
             <td class="ep-bulk-cb"><input type="checkbox" onchange="epBulkToggleRow(this)" data-msgid="${msgId}" data-account="${acct}"></td>
@@ -4097,9 +4170,10 @@
               ${correctedBadge}${routingBadge}
             </td>
             <td><span class="ep-label-badge ${conf}">${conf}</span>${failBadge}</td>
+            <td>${actionBtn}</td>
           </tr>
           <tr class="ep-snippet-row hidden" id="${rowId}">
-            <td colspan="6" class="ep-snippet-cell">${snippet || '<em>No preview available</em>'}</td>
+            <td colspan="7" class="ep-snippet-cell">${snippet || '<em>No preview available</em>'}</td>
           </tr>`;
         }).join('');
 
@@ -4109,8 +4183,31 @@
         document.getElementById('ep-history-prev').disabled = epHistoryOffset === 0;
         document.getElementById('ep-history-next').disabled = (epHistoryOffset + EP_HISTORY_PAGE) >= total;
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="6" class="ep-no-data" style="text-align:center;padding:16px;color:var(--error)">Failed to load: ${err.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="ep-no-data" style="text-align:center;padding:16px;color:var(--error)">Failed to load: ${err.message}</td></tr>`;
       }
+    }
+
+    function epToggleBadgeLegend() {
+      const el = document.getElementById('ep-badge-legend');
+      if (el) el.classList.toggle('hidden');
+    }
+
+    async function epRestoreToInbox(msgId, account) {
+      try {
+        const res = await window.pocketAgent.gmailRestoreToInbox(msgId, account);
+        if (res && !res.ok) throw new Error(res.error || 'Unknown error');
+        showToast('Restored to inbox', 'success');
+        epLoadHistory();
+      } catch (err) { showToast('Restore failed: ' + err.message, 'error'); }
+    }
+
+    async function epFileFromInbox(msgId, account) {
+      try {
+        const res = await window.pocketAgent.gmailFileFromInbox(msgId, account);
+        if (res && !res.ok) throw new Error(res.error || 'Unknown error');
+        showToast('Filed from inbox', 'success');
+        epLoadHistory();
+      } catch (err) { showToast('File failed: ' + err.message, 'error'); }
     }
 
     function epToggleSnippet(rowId) {
@@ -4353,6 +4450,33 @@
         }).join('');
       } catch (err) {
         list.innerHTML = '<div class="ep-no-data" style="color:var(--error);">Failed to load rules: ' + err.message + '</div>';
+      }
+      epLoadExecutionLog();
+    }
+
+    async function epLoadExecutionLog() {
+      const container = document.getElementById('ep-execution-log');
+      if (!container) return;
+      container.innerHTML = '<div style="text-align:center;padding:8px;font-size:11px;">Loading...</div>';
+      try {
+        const execs = await window.pocketAgent.rulesGetExecutions(undefined, 30);
+        if (!execs || execs.length === 0) {
+          container.innerHTML = '<div class="ep-no-data" style="text-align:center;padding:12px;font-size:11px;">No executions yet</div>';
+          return;
+        }
+        container.innerHTML = execs.map(ex => {
+          const date = ex.executed_at ? new Date(ex.executed_at + 'Z').toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '?';
+          const resultColor = ex.result === 'ok' ? 'var(--success)' : ex.result === 'error' ? 'var(--error)' : ex.result === 'dry_run' ? '#e8a317' : 'var(--text-muted)';
+          const errorTip = ex.error ? ` title="${(ex.error || '').replace(/"/g, '&quot;')}"` : '';
+          return `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;font-size:10px;border-bottom:1px solid var(--border);">
+            <span style="color:var(--text-muted);flex-shrink:0;width:90px;">${date}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(ex.rule_name || '').replace(/</g, '&lt;')}</span>
+            <span style="color:${resultColor};flex-shrink:0;"${errorTip}>${ex.result}</span>
+            <span style="color:var(--text-muted);flex-shrink:0;">${(ex.actions_taken || '').replace(/</g, '&lt;')}</span>
+          </div>`;
+        }).join('');
+      } catch (err) {
+        container.innerHTML = `<div style="color:var(--error);text-align:center;padding:8px;font-size:11px;">Failed: ${err.message}</div>`;
       }
     }
 

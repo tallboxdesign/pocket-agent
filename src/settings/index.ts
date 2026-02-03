@@ -563,6 +563,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: 'Time of day to send daily email digest (HH:MM)',
     type: 'string',
   },
+  {
+    key: 'gmail.emailProcessing.draftReply.blockedDomains',
+    defaultValue: '',
+    encrypted: false,
+    category: 'gmail',
+    label: 'Draft Reply Blocked Domains',
+    description: 'Comma-separated domains to never create draft replies for (e.g. newsletter.com,noreply.example.com)',
+    type: 'string',
+  },
 
   // Window state settings
   {

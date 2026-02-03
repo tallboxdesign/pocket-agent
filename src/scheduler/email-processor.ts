@@ -1129,7 +1129,7 @@ export class EmailProcessor {
     return { runs, checkpoints };
   }
 
-  getProcessedEmails(limit = 200, offset = 0, filters?: { label?: string; since?: string; sender?: string }): {
+  getProcessedEmails(limit = 200, offset = 0, filters?: { label?: string; since?: string; sender?: string; confidence?: string; routing?: string }): {
     emails: unknown[];
     total: number;
   } {
@@ -1147,6 +1147,20 @@ export class EmailProcessor {
     if (filters?.sender) {
       clauses.push('sender LIKE ?');
       params.push(`%${filters.sender}%`);
+    }
+    if (filters?.confidence) {
+      clauses.push('confidence = ?');
+      params.push(filters.confidence);
+    }
+    if (filters?.routing === 'filed') {
+      clauses.push("routing_result = 'filed'");
+    } else if (filters?.routing === 'kept') {
+      clauses.push("(routing_result = 'in_inbox' OR routing_result IS NULL)");
+      clauses.push("(routing_error IN ('confidence_skip','no_routing_config','routing_disabled','no_thread_id') OR routing_error IS NULL)");
+    } else if (filters?.routing === 'failed') {
+      clauses.push("routing_result = 'in_inbox'");
+      clauses.push("routing_error IS NOT NULL");
+      clauses.push("routing_error NOT IN ('confidence_skip','no_routing_config','routing_disabled','no_thread_id')");
     }
 
     const where = clauses.length > 0 ? ' WHERE ' + clauses.join(' AND ') : '';

@@ -491,8 +491,7 @@ export class RulesEngine {
       this.telegramThrottleResetAt = now + 3600000;
     }
     if (this.telegramThrottleCount >= maxPerHour) {
-      console.warn('[RulesEngine] Telegram throttle reached');
-      return;
+      throw new Error('throttled');
     }
     this.telegramThrottleCount++;
 
@@ -533,6 +532,26 @@ export class RulesEngine {
   }
 
   private async actionDraftReply(email: EmailContext, config: Record<string, string>): Promise<void> {
+    // noreply detection
+    const senderLower = (email.sender || '').toLowerCase();
+    const noreplyPatterns = [
+      'noreply@', 'no-reply@', 'donotreply@', 'do-not-reply@',
+      'mailer-daemon@', 'postmaster@',
+    ];
+    if (noreplyPatterns.some(p => senderLower.includes(p))) {
+      throw new Error('skipped_noreply');
+    }
+
+    // Domain blocklist check
+    const blockedDomainsRaw = SettingsManager.get('gmail.emailProcessing.draftReply.blockedDomains') || '';
+    if (blockedDomainsRaw) {
+      const blockedDomains = blockedDomainsRaw.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+      const senderDomain = senderLower.split('@')[1] || '';
+      if (blockedDomains.some(d => senderDomain === d || senderDomain.endsWith('.' + d))) {
+        throw new Error('skipped_blocked_domain');
+      }
+    }
+
     const prompt = this.buildDraftReplyPrompt(email, config);
     const glmRes = await glmFlash({
       messages: [{ role: 'user', content: prompt }],

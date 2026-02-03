@@ -1539,6 +1539,23 @@ _Routing Phase 1 from `docs/designs/email-label-routing.md`_
 - Phase 4: Bulk routing controls + default routing for new labels
 - **Design:** `docs/designs/email-label-routing.md` (Phases 2-4)
 
+### v4.2: Email Ops Clarity & Safety
+
+Implemented changes for operational clarity, reversibility, and auditability:
+
+1. **Badge legend** — "?" button in History header showing all badge types, colors, and meanings
+2. **Split "In Inbox" badge** — 3 sub-states: "Kept (uncertain)" orange, "No routing" grey, "Routing failed" red
+3. **Confidence filter** — dropdown in History tab (high/medium/low/invalid)
+4. **Routing status filter** — dropdown in History tab (Filed/Kept/Failed)
+5. **Restore/File buttons** — per-row actions in History to move emails in/out of inbox
+6. **Draft reply noreply detection** — skip noreply/mailer-daemon/blocked domains before creating drafts
+7. **Draft reply domain blocklist** — user-configurable setting `gmail.emailProcessing.draftReply.blockedDomains`
+8. **Throttle logging** — log throttled Telegram messages to execution record instead of silent drop
+9. **Rule execution log** — read-only panel in Rules tab showing recent rule firings
+10. **Daily digest auto-schedule** — wire existing `dailySummaryTime` setting to a minutely check timer
+
+**Deferred:** Unanswered Command Center (Phase F), OR logic in conditions, auto-send, Telegram inline keyboards, Reply-To header support.
+
 ---
 
 ## Key Decisions Still Needed

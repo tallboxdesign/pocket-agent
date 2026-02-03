@@ -101,11 +101,13 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   gmailGetEmailPreview: (messageId: string, account?: string) => ipcRenderer.invoke('gmail:getEmailPreview', messageId, account),
   gmailRunEmailProcessor: () => ipcRenderer.invoke('gmail:runEmailProcessor'),
   gmailGetProcessingStatus: () => ipcRenderer.invoke('gmail:getProcessingStatus'),
-  gmailGetProcessedEmails: (limit?: number, offset?: number, filters?: { label?: string; since?: string; sender?: string }) => ipcRenderer.invoke('gmail:getProcessedEmails', limit, offset, filters),
+  gmailGetProcessedEmails: (limit?: number, offset?: number, filters?: { label?: string; since?: string; sender?: string; confidence?: string; routing?: string }) => ipcRenderer.invoke('gmail:getProcessedEmails', limit, offset, filters),
   gmailCorrectLabel: (messageId: string, account: string, newLabel: string, useAsExample: boolean) =>
     ipcRenderer.invoke('gmail:correctLabel', messageId, account, newLabel, useAsExample),
   gmailGetLabelStats: (account?: string) => ipcRenderer.invoke('gmail:getLabelStats', account),
   gmailGetRoutingStats: (account?: string) => ipcRenderer.invoke('gmail:getRoutingStats', account),
+  gmailRestoreToInbox: (messageId: string, account: string) => ipcRenderer.invoke('gmail:restoreToInbox', messageId, account),
+  gmailFileFromInbox: (messageId: string, account: string) => ipcRenderer.invoke('gmail:fileFromInbox', messageId, account),
   gmailAiDefineLabelConfig: (labelName: string, definition: string, negative: string, examples: Array<{ messageId: string; subject?: string; from?: string }>, field: 'definition' | 'negative', account?: string) =>
     ipcRenderer.invoke('gmail:aiDefineLabelConfig', labelName, definition, negative, examples, field, account),
 

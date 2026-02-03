@@ -1555,6 +1555,32 @@ function setupIPC(): void {
       });
       emailProcessor.setRulesEngine(rulesEngine);
     }
+    scheduleDailyDigest();
+  }
+
+  // Daily digest scheduler - checks every minute if it's time to send
+  let dailyDigestTimer: ReturnType<typeof setInterval> | null = null;
+  let dailyDigestLastRun = '';
+
+  function scheduleDailyDigest(): void {
+    if (dailyDigestTimer) return; // already scheduled
+    dailyDigestTimer = setInterval(async () => {
+      const timeStr = SettingsManager.get('gmail.emailProcessing.dailySummaryTime') || '08:00';
+      const now = new Date();
+      const [h, m] = timeStr.split(':').map(Number);
+      const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+      if (now.getHours() === h && now.getMinutes() === m && dailyDigestLastRun !== todayKey) {
+        dailyDigestLastRun = todayKey;
+        try {
+          if (rulesEngine) {
+            console.log('[DailyDigest] Running daily summary');
+            await rulesEngine.runDailySummary();
+          }
+        } catch (err) {
+          console.warn('[DailyDigest] Failed:', err);
+        }
+      }
+    }, 60000);
   }
 
   ipcMain.handle('gmail:runEmailProcessor', async () => {
@@ -1576,7 +1602,7 @@ function setupIPC(): void {
     }
   });
 
-  ipcMain.handle('gmail:getProcessedEmails', async (_evt: unknown, limit?: number, offset?: number, filters?: { label?: string; since?: string; sender?: string }) => {
+  ipcMain.handle('gmail:getProcessedEmails', async (_evt: unknown, limit?: number, offset?: number, filters?: { label?: string; since?: string; sender?: string; confidence?: string; routing?: string }) => {
     try {
       await ensureEmailProcessor();
       return emailProcessor!.getProcessedEmails(limit ?? 200, offset ?? 0, filters);
@@ -1607,6 +1633,42 @@ function setupIPC(): void {
       await ensureEmailProcessor();
       return emailProcessor!.getRoutingStats(account);
     } catch { return { filed: 0, kept: 0, failed: 0 }; }
+  });
+
+  ipcMain.handle('gmail:restoreToInbox', async (_evt: unknown, messageId: string, account: string) => {
+    try {
+      await ensureEmailProcessor();
+      const { modifyLabels } = await import('../tools/gog-wrapper');
+      const row = emailProcessor!.getDb().prepare(
+        'SELECT thread_id FROM email_processing_state WHERE message_id = ? AND account = ?'
+      ).get(messageId, account) as { thread_id: string } | undefined;
+      if (!row?.thread_id) return { ok: false, error: 'Thread not found' };
+      await modifyLabels({ threadIds: [row.thread_id], add: 'INBOX', account });
+      emailProcessor!.getDb().prepare(
+        "UPDATE email_processing_state SET routing_result = 'in_inbox', routing_error = 'user_restored' WHERE message_id = ? AND account = ?"
+      ).run(messageId, account);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  });
+
+  ipcMain.handle('gmail:fileFromInbox', async (_evt: unknown, messageId: string, account: string) => {
+    try {
+      await ensureEmailProcessor();
+      const { modifyLabels } = await import('../tools/gog-wrapper');
+      const row = emailProcessor!.getDb().prepare(
+        'SELECT thread_id FROM email_processing_state WHERE message_id = ? AND account = ?'
+      ).get(messageId, account) as { thread_id: string } | undefined;
+      if (!row?.thread_id) return { ok: false, error: 'Thread not found' };
+      await modifyLabels({ threadIds: [row.thread_id], remove: 'INBOX', account });
+      emailProcessor!.getDb().prepare(
+        "UPDATE email_processing_state SET routing_result = 'filed', routing_error = NULL WHERE message_id = ? AND account = ?"
+      ).run(messageId, account);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
   });
 
   ipcMain.handle('gmail:aiDefineLabelConfig', async (
