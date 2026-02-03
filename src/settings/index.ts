@@ -124,7 +124,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     key: 'zhipu.bulkModel',
-    defaultValue: 'glm-4.7-flash-x',
+    defaultValue: 'glm-4.7-flashx',
     encrypted: false,
     category: 'llm',
     label: 'GLM Bulk Model',
