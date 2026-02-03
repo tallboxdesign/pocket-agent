@@ -18,7 +18,7 @@ import { applyRouting } from './email-processor';
 // Types
 // ============================================================================
 
-export type TriggerType = 'on_label_applied' | 'on_label_corrected' | 'on_schedule' | 'on_daily_summary';
+export type TriggerType = 'on_label_applied' | 'on_label_corrected' | 'on_schedule' | 'on_daily_summary' | 'on_unanswered_scan';
 export type RuleMode = 'disabled' | 'draft' | 'active';
 export type ConditionType =
   | 'label_is' | 'label_is_not'
@@ -26,13 +26,15 @@ export type ConditionType =
   | 'sender_domain' | 'has_attachment'
   | 'age_minutes_lt' | 'age_minutes_gt'
   | 'corrected_by_user' | 'rule_not_executed'
-  | 'thread_state';
+  | 'thread_state'
+  | 'label_in' | 'unanswered_age_minutes_gt' | 'state_is_not';
 export type ActionType =
   | 'apply_label' | 'remove_label'
   | 'draft_reply' | 'send_reply'
   | 'mark_read' | 'archive'
   | 'send_telegram' | 'send_email'
-  | 'add_to_summary' | 'do_nothing';
+  | 'add_to_summary' | 'do_nothing'
+  | 'send_unanswered_digest' | 'mark_resolved' | 'dismiss';
 
 export interface Condition { type: ConditionType; value: string; }
 export interface Action { type: ActionType; config: Record<string, string>; }
@@ -111,12 +113,12 @@ function confidenceRank(conf: string): number {
 // Thread state types
 export type ThreadState = 'unread' | 'unreplied' | 'awaiting_reply' | 'replied_with_answer' | 'user_only';
 
-interface ThreadMessage {
+export interface ThreadMessage {
   from: string;
   labelIds?: string[];
 }
 
-function computeThreadState(messages: ThreadMessage[], userEmail: string): ThreadState {
+export function computeThreadState(messages: ThreadMessage[], userEmail: string): ThreadState {
   const userLower = userEmail.toLowerCase();
 
   // Check UNREAD on any message
@@ -755,9 +757,30 @@ export class RulesEngine {
     if (!rule) return [];
 
     const conditions = safeJsonParse<Condition[]>(rule.conditions_json, []);
-    const emails = this.db.prepare(
-      'SELECT * FROM email_processing_state ORDER BY processed_at DESC LIMIT ?',
-    ).all(limit) as Record<string, unknown>[];
+
+    // Smart sampling: include some emails that match the label_is condition
+    // so the test is actually useful (not just random recent emails).
+    const labelCond = conditions.find(c => c.type === 'label_is');
+    let emails: Record<string, unknown>[];
+    if (labelCond) {
+      // Fetch half from the target label, half from recent — deduplicated
+      const half = Math.ceil(limit / 2);
+      const targeted = this.db.prepare(
+        `SELECT * FROM email_processing_state
+         WHERE COALESCE(corrected_label, label_applied) = ?
+         ORDER BY processed_at DESC LIMIT ?`,
+      ).all(labelCond.value, half) as Record<string, unknown>[];
+      const targetIds = new Set(targeted.map(e => e.message_id));
+      const recent = (this.db.prepare(
+        'SELECT * FROM email_processing_state ORDER BY processed_at DESC LIMIT ?',
+      ).all(limit) as Record<string, unknown>[])
+        .filter(e => !targetIds.has(e.message_id));
+      emails = [...targeted, ...recent].slice(0, limit);
+    } else {
+      emails = this.db.prepare(
+        'SELECT * FROM email_processing_state ORDER BY processed_at DESC LIMIT ?',
+      ).all(limit) as Record<string, unknown>[];
+    }
 
     return emails.map((e) => {
       const ctx: EmailContext = {
@@ -813,6 +836,26 @@ export class RulesEngine {
           "SELECT thread_state FROM thread_state_cache WHERE thread_id = ? AND account = ?",
         ).get(email.threadId, email.account) as { thread_state: string } | undefined;
         return cached ? cached.thread_state === cond.value : false;
+      }
+      case 'label_in': {
+        const labels = cond.value.split(',').map(l => l.trim());
+        return labels.includes(email.label);
+      }
+      case 'unanswered_age_minutes_gt': {
+        if (!email.threadId) return false;
+        const usRow = this.db.prepare(
+          "SELECT first_seen_at FROM unanswered_state WHERE thread_id = ? AND account = ? AND state = 'unanswered'",
+        ).get(email.threadId, email.account) as { first_seen_at: string } | undefined;
+        if (!usRow) return false;
+        const ageMs = Date.now() - new Date(usRow.first_seen_at + 'Z').getTime();
+        return ageMs / 60000 > Number(cond.value);
+      }
+      case 'state_is_not': {
+        if (!email.threadId) return true;
+        const usRow2 = this.db.prepare(
+          'SELECT state FROM unanswered_state WHERE thread_id = ? AND account = ?',
+        ).get(email.threadId, email.account) as { state: string } | undefined;
+        return !usRow2 || usRow2.state !== cond.value;
       }
       default: return true;
     }

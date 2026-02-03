@@ -138,6 +138,26 @@ function classifyError(error: unknown): { recoverable: boolean; type: ErrorType;
   return { recoverable: false, type: 'fatal', message: msg };
 }
 
+// ---------- Tool-use truthfulness enforcement ----------
+// Detects when the user asked for a reminder but the agent responded
+// without actually calling create_reminder. Triggers a single retry.
+
+function userWantsReminder(userText: string): boolean {
+  const t = userText.toLowerCase();
+  return (
+    t.includes('remind me') ||
+    t.includes("don't forget") ||
+    t.includes('dont forget') ||
+    t.includes('set a reminder')
+  );
+}
+
+const REMINDER_CORRECTION_PROMPT = [
+  'You must call the create_reminder tool in this turn.',
+  'Do not claim a reminder is set unless you emitted a tool_use block.',
+  'After the tool call succeeds, reply with a brief confirmation.',
+].join(' ');
+
 // Get smart context options from settings
 function getSmartContextOptions(currentQuery?: string): SmartContextOptions {
   return {
@@ -262,6 +282,7 @@ class AgentManagerClass extends EventEmitter {
   private processingBySession: Map<string, boolean> = new Map();
   private lastSuggestedPrompt: string | undefined = undefined;
   private messageQueueBySession: Map<string, Array<{ message: string; channel: string; images?: ImageContent[]; attachmentInfo?: AttachmentInfo; resolve: (result: ProcessResult) => void; reject: (error: Error) => void }>> = new Map();
+  private toolsUsedThisTurn: Set<string> = new Set();
 
   private constructor() {
     super();
@@ -432,6 +453,7 @@ class AgentManagerClass extends EventEmitter {
     const abortController = new AbortController();
     this.abortControllersBySession.set(sessionId, abortController);
     this.lastSuggestedPrompt = undefined;
+    this.toolsUsedThisTurn.clear();
     let wasCompacted = false;
 
     // Set session context for MCP tools to use
@@ -542,6 +564,31 @@ class AgentManagerClass extends EventEmitter {
         }
         this.processStatusFromMessage(message);
         response = this.extractFromMessage(message, response);
+      }
+
+      // --- Tool-use truthfulness check: reminder ---
+      // If user asked for a reminder but the agent never called create_reminder,
+      // discard the false response and retry once with a correction prompt.
+      const reminderToolKey = 'mcp__pocket-agent__create_reminder';
+      if (userWantsReminder(userMessage) && !this.toolsUsedThisTurn.has(reminderToolKey)) {
+        console.warn('[AgentManager] Reminder requested but create_reminder not called — retrying once');
+        // Discard first attempt text and tool tracker
+        response = '';
+        this.toolsUsedThisTurn.clear();
+
+        // Retry with correction injected into the prompt
+        const retryPrompt = `${fullPromptText}\n\n[SYSTEM CORRECTION] ${REMINDER_CORRECTION_PROMPT}`;
+        const retryResult = query!({ prompt: retryPrompt, options });
+        for await (const message of retryResult) {
+          if (abortController.signal.aborted) throw new Error('Query stopped by user');
+          this.processStatusFromMessage(message);
+          response = this.extractFromMessage(message, response);
+        }
+
+        if (!this.toolsUsedThisTurn.has(reminderToolKey)) {
+          console.error('[AgentManager] Retry also failed to call create_reminder');
+          response = 'I wasn\'t able to set the reminder — please try again.';
+        }
       }
 
       this.emitStatus({ type: 'done' });
@@ -1313,6 +1360,7 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
         for (const block of content) {
           if (block?.type === 'tool_use') {
             const rawName = block.name as string;
+            this.toolsUsedThisTurn.add(rawName);
             const toolName = this.formatToolName(rawName);
             const toolInput = this.formatToolInput(block.input);
 

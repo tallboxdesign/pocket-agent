@@ -1554,7 +1554,7 @@ Implemented changes for operational clarity, reversibility, and auditability:
 9. **Rule execution log** — read-only panel in Rules tab showing recent rule firings
 10. **Daily digest auto-schedule** — wire existing `dailySummaryTime` setting to a minutely check timer
 
-**Deferred:** Unanswered Command Center (Phase F), OR logic in conditions, auto-send, Telegram inline keyboards, Reply-To header support.
+**Deferred:** OR logic in conditions, auto-send, Telegram inline keyboards, Reply-To header support.
 
 ### v4.3: Rules UX & Prompt Clarity
 
@@ -1566,6 +1566,18 @@ UI-only changes in `ui/settings.html` — no backend or rule engine changes.
 4. **Default example prompt** — `EP_DEFAULT_DRAFT_PROMPT` constant providing a complete guest-post-decline template as starter prompt for new `draft_reply` actions.
 5. **Template variable `{draft}`** — `interpolateTemplate()` extended with `extras` map; `{draft}` resolves to "Draft reply queued" when rule includes a `draft_reply` action, empty otherwise. Available in Telegram and email templates.
 6. **Variable reference tooltips** — `EP_TEMPLATE_VARS` array lists all 6 template variables (`{subject}`, `{sender}`, `{label}`, `{preview}`, `{confidence}`, `{draft}`) with descriptions. Telegram and email template inputs show full variable list on hover.
+
+### v4.4: Phase F — Unanswered Command Center + Reply Control
+
+Surfaces threads needing response and provides dismiss/resolve workflows. Design spec: `docs/designs/unanswered-command-center.md`.
+
+1. **`UnansweredEngine`** — new `src/scheduler/unanswered-engine.ts`. Scans Gmail for unreplied threads using existing `computeThreadState()`, upserts into `unanswered_state` table with state lifecycle (`unanswered -> resolved/dismissed`). Supports scheduled scans, digest generation, and per-account throttling.
+2. **`unanswered_state` table** — schema: `(account, thread_id, message_id, subject, sender, label, state, first_seen_at, last_scanned_at, resolved_at, dismissed_at)`. Dismissed threads are sticky unless a new inbound message arrives.
+3. **Rules engine extensions** — `on_unanswered_scan` trigger type; three new conditions (`label_in`, `unanswered_age_minutes_gt`, `state_is_not`); three new actions (`send_unanswered_digest`, `mark_resolved`, `dismiss`).
+4. **IPC handlers** — `unanswered:scan`, `unanswered:list`, `unanswered:resolve`, `unanswered:dismiss`, `unanswered:resolveAll`, `unanswered:dismissAll`, `unanswered:digest`, `unanswered:getSettings`, `unanswered:saveSettings`.
+5. **Telegram `/unanswered` command** — lists unanswered threads with filters (`label:X`, `age:Nh`). Follow-up replies: `N draft`, `N resolve`, `N dismiss`.
+6. **"Unanswered" UI tab** — new tab in Email Processing section with enable toggle, scan interval, lookback days, label multi-select, thread list with per-row actions (Draft Reply / Resolve / Dismiss), batch actions, Scan Now button, Send Digest button.
+7. **Scheduled scan** — auto-scan at app startup when enabled, respects `gmail.unanswered.intervalMin` setting. After scan, evaluates rules with `on_unanswered_scan` trigger.
 
 ---
 
