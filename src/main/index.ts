@@ -47,6 +47,30 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
+// Detect NVM node versions once at startup (cached for performance)
+function detectNvmNodePaths(): string[] {
+  const home = process.env.HOME || '';
+  const nvmVersionsDir = path.join(home, '.nvm/versions/node');
+  const paths: string[] = [];
+  try {
+    if (fs.existsSync(nvmVersionsDir)) {
+      const versions = fs.readdirSync(nvmVersionsDir);
+      for (const version of versions) {
+        const binPath = path.join(nvmVersionsDir, version, 'bin');
+        if (fs.existsSync(binPath)) {
+          paths.push(binPath);
+        }
+      }
+    }
+  } catch {
+    // Ignore errors reading NVM directory
+  }
+  return paths;
+}
+
+// Cache NVM paths at module load
+const cachedNvmPaths = detectNvmNodePaths();
+
 // Fix PATH for packaged apps - node/npm binaries aren't in PATH when launched from Finder
 if (app.isPackaged) {
   const fixedPath = [
@@ -56,7 +80,7 @@ if (app.isPackaged) {
     '/bin',
     '/usr/sbin',
     '/sbin',
-    process.env.HOME + '/.nvm/versions/node/*/bin', // nvm
+    ...cachedNvmPaths,          // nvm (dynamically detected)
     process.env.HOME + '/.local/bin',
   ].join(':');
   process.env.PATH = fixedPath + ':' + (process.env.PATH || '');
@@ -2512,7 +2536,7 @@ Instructions:
         return arg;
       });
 
-      // Add common paths for homebrew, go, npm binaries
+      // Add common paths for homebrew, go, npm binaries, and node version managers
       const home = process.env.HOME || '';
       const extraPaths = [
         '/opt/homebrew/bin',
@@ -2520,6 +2544,12 @@ Instructions:
         `${home}/go/bin`,
         `${home}/.npm-global/bin`,
         `${home}/.local/bin`,
+        // Node version managers (NVM paths cached at startup)
+        ...cachedNvmPaths,
+        `${home}/.nodenv/shims`,                     // nodenv
+        `${home}/.asdf/shims`,                       // asdf
+        `${home}/.volta/bin`,                        // Volta
+        `${home}/.fnm/current/bin`,                  // fnm
       ].join(':');
 
       // Get API keys from settings to pass as environment variables
