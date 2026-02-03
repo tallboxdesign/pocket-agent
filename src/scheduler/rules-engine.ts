@@ -145,13 +145,17 @@ function computeThreadState(messages: ThreadMessage[], userEmail: string): Threa
   return 'replied_with_answer';
 }
 
-function interpolateTemplate(template: string, email: EmailContext): string {
-  return template
+function interpolateTemplate(template: string, email: EmailContext, extras: Record<string, string> = {}): string {
+  let result = template
     .replace(/\{sender\}/g, email.sender)
     .replace(/\{subject\}/g, email.subject)
     .replace(/\{preview\}/g, email.snippet)
     .replace(/\{label\}/g, email.label)
     .replace(/\{confidence\}/g, email.confidence);
+  for (const [key, val] of Object.entries(extras)) {
+    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), val);
+  }
+  return result;
 }
 
 // ============================================================================
@@ -348,11 +352,15 @@ export class RulesEngine {
 
       // Execute actions
       const actions = safeJsonParse<Action[]>(rule.actions_json, []);
+      const templateExtras: Record<string, string> = {};
+      if (actions.some(a => a.type === 'draft_reply')) {
+        templateExtras.draft = 'Draft reply queued';
+      }
       const actionResults: string[] = [];
 
       for (const action of actions) {
         try {
-          await this.executeAction(action, email);
+          await this.executeAction(action, email, templateExtras);
           actionResults.push(action.type);
           if (action.type === 'apply_label' && action.config.label) {
             newLabelApplied = action.config.label;
@@ -444,10 +452,10 @@ export class RulesEngine {
 
   // ---------- Action Execution ----------
 
-  private async executeAction(action: Action, email: EmailContext): Promise<void> {
+  private async executeAction(action: Action, email: EmailContext, extras: Record<string, string> = {}): Promise<void> {
     switch (action.type) {
       case 'send_telegram':
-        await this.actionSendTelegram(email, action.config);
+        await this.actionSendTelegram(email, action.config, extras);
         break;
       case 'apply_label':
         await this.actionApplyLabel(email, action.config);
@@ -468,7 +476,7 @@ export class RulesEngine {
         await this.actionDraftReply(email, action.config);
         break;
       case 'send_email':
-        await this.actionSendEmail(email, action.config);
+        await this.actionSendEmail(email, action.config, extras);
         break;
       case 'do_nothing':
         break;
@@ -477,7 +485,7 @@ export class RulesEngine {
     }
   }
 
-  private async actionSendTelegram(email: EmailContext, config: Record<string, string>): Promise<void> {
+  private async actionSendTelegram(email: EmailContext, config: Record<string, string>, extras: Record<string, string> = {}): Promise<void> {
     if (!this.telegramSender) {
       console.warn('[RulesEngine] No telegram sender configured');
       return;
@@ -496,7 +504,7 @@ export class RulesEngine {
     this.telegramThrottleCount++;
 
     const template = config.template || '📧 {label}: {subject}\nFrom: {sender}\n{preview}';
-    const text = interpolateTemplate(template, email);
+    const text = interpolateTemplate(template, email, extras);
     this.telegramSender(text);
   }
 
@@ -573,11 +581,11 @@ export class RulesEngine {
     });
   }
 
-  private async actionSendEmail(email: EmailContext, config: Record<string, string>): Promise<void> {
+  private async actionSendEmail(email: EmailContext, config: Record<string, string>, extras: Record<string, string> = {}): Promise<void> {
     const to = config.to || '';
     if (!to) return;
-    const subject = interpolateTemplate(config.subjectTemplate || 'Re: {subject}', email);
-    const body = interpolateTemplate(config.bodyTemplate || '{preview}', email);
+    const subject = interpolateTemplate(config.subjectTemplate || 'Re: {subject}', email, extras);
+    const body = interpolateTemplate(config.bodyTemplate || '{preview}', email, extras);
     await sendEmail({ to, subject, body, account: email.account });
   }
 

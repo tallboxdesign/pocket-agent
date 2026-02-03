@@ -4784,11 +4784,21 @@ Never mention internal labels, automation, or filtering.`;
       container.appendChild(row);
     }
 
+    const EP_TEMPLATE_VARS = [
+      { key: 'subject', desc: 'Email subject line' },
+      { key: 'sender', desc: 'Sender email address' },
+      { key: 'label', desc: 'Classified label name' },
+      { key: 'preview', desc: 'Email body snippet (first ~100 chars)' },
+      { key: 'confidence', desc: 'Classification confidence (high/medium/low)' },
+      { key: 'draft', desc: '"Draft reply queued" if rule has a Draft Reply action, otherwise empty' },
+    ];
+
     function epBuildActionConfigInputs(type, config) {
-      const varHelp = 'Variables: {subject}, {sender}, {label}, {preview}';
+      const varHelp = EP_TEMPLATE_VARS.map(v => `{${v.key}}`).join(', ');
+      const varTooltip = EP_TEMPLATE_VARS.map(v => `{${v.key}} — ${v.desc}`).join('\n');
       switch (type) {
         case 'send_telegram':
-          return `<input type="text" class="ep-action-config" data-key="template" value="${(config.template || '{label}: {subject} from {sender}').replace(/"/g, '&quot;')}" placeholder="${varHelp}" title="Message template sent to Telegram. ${varHelp}">`;
+          return `<input type="text" class="ep-action-config" data-key="template" value="${(config.template || '{label}: {subject} from {sender}').replace(/"/g, '&quot;')}" placeholder="Template — hover for variable list" title="${varTooltip}">`;
         case 'apply_label':
         case 'remove_label':
           return epCreateSearchableLabel(config.label || '', 'ep-action-config', 'label');
@@ -4810,8 +4820,8 @@ Never mention internal labels, automation, or filtering.`;
         }
         case 'send_email':
           return `<input type="text" class="ep-action-config" data-key="to" value="${(config.to || '').replace(/"/g, '&quot;')}" placeholder="recipient@example.com" title="Email address to send notification to">
-                  <input type="text" class="ep-action-config" data-key="subjectTemplate" value="${(config.subjectTemplate || 'Re: {subject}').replace(/"/g, '&quot;')}" placeholder="Subject — ${varHelp}" title="Subject line template. ${varHelp}">
-                  <input type="text" class="ep-action-config" data-key="bodyTemplate" value="${(config.bodyTemplate || '{preview}').replace(/"/g, '&quot;')}" placeholder="Body — ${varHelp}" title="Email body template. ${varHelp}">`;
+                  <input type="text" class="ep-action-config" data-key="subjectTemplate" value="${(config.subjectTemplate || 'Re: {subject}').replace(/"/g, '&quot;')}" placeholder="Subject — hover for variable list" title="${varTooltip}">
+                  <input type="text" class="ep-action-config" data-key="bodyTemplate" value="${(config.bodyTemplate || '{preview}').replace(/"/g, '&quot;')}" placeholder="Body — hover for variable list" title="${varTooltip}">`;
         default:
           return '';
       }

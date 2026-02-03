@@ -1564,6 +1564,8 @@ UI-only changes in `ui/settings.html` — no backend or rule engine changes.
 2. **Rule test "Show only matching" toggle** — checkbox in test results header to hide non-matching rows, reducing noise when tuning rules.
 3. **Draft reply prompt textarea** — replaced single-line `<input>` with multi-line `<textarea>` (6 rows, resizable) plus helper text explaining the prompt's role. Default prompt pre-filled for new rules via `EP_DEFAULT_DRAFT_PROMPT`.
 4. **Default example prompt** — `EP_DEFAULT_DRAFT_PROMPT` constant providing a complete guest-post-decline template as starter prompt for new `draft_reply` actions.
+5. **Template variable `{draft}`** — `interpolateTemplate()` extended with `extras` map; `{draft}` resolves to "Draft reply queued" when rule includes a `draft_reply` action, empty otherwise. Available in Telegram and email templates.
+6. **Variable reference tooltips** — `EP_TEMPLATE_VARS` array lists all 6 template variables (`{subject}`, `{sender}`, `{label}`, `{preview}`, `{confidence}`, `{draft}`) with descriptions. Telegram and email template inputs show full variable list on hover.
 
 ---
 
