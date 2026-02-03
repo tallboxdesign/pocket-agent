@@ -2222,6 +2222,12 @@
                   <label style="font-size:11px;display:flex;align-items:center;gap:4px;">
                     Lookback:
                     <select id="ua-lookback" onchange="uaSaveSettings()" style="font-size:11px;">
+                      <option value="1">1 day</option>
+                      <option value="2">2 days</option>
+                      <option value="3">3 days</option>
+                      <option value="4">4 days</option>
+                      <option value="5">5 days</option>
+                      <option value="6">6 days</option>
                       <option value="7">7 days</option>
                       <option value="14">14 days</option>
                       <option value="30" selected>30 days</option>
@@ -5299,10 +5305,11 @@ Never mention internal labels, automation, or filtering.`;
         document.getElementById('ua-interval').value = s.intervalMin;
         document.getElementById('ua-lookback').value = s.lookbackDays;
 
-        // Populate label filter from known labels
+        // Populate label filter from known labels (prefer Gmail labels, fall back to active labels, then label config keys)
         const filterSel = document.getElementById('ua-filter-label');
         const curVal = filterSel.value;
-        const labels = epGmailLabels.length > 0 ? epGmailLabels : epActiveLabels;
+        const labels = epGmailLabels.length > 0 ? epGmailLabels :
+          (epActiveLabels.length > 0 ? epActiveLabels : Object.keys(epLabelConfig || {}));
         filterSel.innerHTML = '<option value="">All labels</option>' +
           labels.map(l => `<option value="${l}" ${l === curVal ? 'selected' : ''}>${epDisplayName(l)}</option>`).join('');
 
