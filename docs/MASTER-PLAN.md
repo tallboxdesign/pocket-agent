@@ -1588,6 +1588,16 @@ Surfaces threads needing response and provides dismiss/resolve workflows. Design
 4. **Reclassify emails** — `reclassifyEmails(messageIds, account)` method. Fetches fresh email content, re-runs GLM classification, updates DB + Gmail labels + routing. Per-row "Retry" button on failed/invalid emails + bulk "Reclassify" action.
 5. **Fix unanswered scan** — unwrap `gog` response `{ messages: [...] }` format (was silently getting 0 results); auto-detect `gmail.userEmail` from account name; show scan errors in UI.
 
+### v4.6: Multi-Provider Worker Models + Performance
+
+1. **Unified Worker Models section** — renamed "GLM Worker (Zhipu)" → "Worker Models" in LLM settings. Worker, Flash, and Bulk model dropdowns now include both Zhipu (GLM-4.7/Flash/FlashX) and OpenAI (gpt-4.1-nano/gpt-4o-mini/gpt-4.1-mini) options.
+2. **Auto provider routing** — `resolveModelProvider()` in glm-client auto-detects `gpt-*` → OpenAI API + OpenAI key, `glm-*` → Zhipu API + Zhipu key. No manual base URL or API key overrides needed.
+3. **Remove duplicate bulk config** — removed Bulk Classification Model section from Email Processing → Advanced (was redundant with LLM page). Provider auto-resolved from model name; API keys centralized in Keys section.
+4. **Skip rate-limit delays for OpenAI** — 2s inter-batch sleep only applies to Zhipu models. OpenAI bulk classification runs without artificial delays.
+5. **Auto-boost GLM concurrency for OpenAI** — when bulk model is non-Zhipu, effective concurrency auto-raised to min 5 regardless of user setting (Zhipu needs throttling, OpenAI doesn't).
+6. **Concurrency guard on reclassify** — `reclassifyEmails()` checks `this.running` flag to prevent racing with scheduled auto-runs. try/finally ensures flag is always released.
+7. **"Retry Failed (N)" button** — one-click reclassify all invalid emails across all pages in History tab, with live progress counter.
+
 ---
 
 ## Key Decisions Still Needed

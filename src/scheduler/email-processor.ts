@@ -782,9 +782,10 @@ export class EmailProcessor {
     const gmailConc = parseInt(SettingsManager.get('gmail.emailProcessing.gmailConcurrency') || '4', 10) || 4;
     const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '1', 10) || 1;
 
+    // Auto-boost concurrency for OpenAI models (no rate-limit throttle needed)
+    const effectiveGlmConc = isBulkModelZhipu() ? glmConc : Math.max(glmConc, 5);
     const glmModel = SettingsManager.get('zhipu.bulkModel') || 'glm-4.7-flashx';
-    const glmBase = SettingsManager.get('zhipu.baseUrl') || 'https://open.bigmodel.cn/api/paas/v4';
-    console.log(`[EmailProcessor] GLM model: ${glmModel}, base: ${glmBase}, concurrency: ${glmConc}`);
+    console.log(`[EmailProcessor] Bulk model: ${glmModel}, glmConc: ${glmConc}→${effectiveGlmConc}`);
     console.log(`[EmailProcessor] Accounts: ${JSON.stringify(accounts)}, categories: ${JSON.stringify(categories)}`);
 
     if (accounts.length === 0) {
@@ -892,7 +893,7 @@ export class EmailProcessor {
         let batchIdx = 0;
         const batchResults = await withConcurrency(
           batches,
-          glmConc,
+          effectiveGlmConc,
           async (batch) => {
             batchIdx += 1;
             const currentBatch = batchIdx;
@@ -1321,12 +1322,28 @@ export class EmailProcessor {
   async reclassifyEmails(
     messageIds: string[],
     account: string,
-  ): Promise<{ total: number; reclassified: number; errors: number; results: { messageId: string; label: string; confidence: string; error?: string }[] }> {
+  ): Promise<{ total: number; reclassified: number; errors: number; results: { messageId: string; label: string; confidence: string; error?: string }[]; error?: string }> {
+    if (this.running) {
+      return { total: messageIds.length, reclassified: 0, errors: 0, results: [], error: 'Email processor is busy. Wait for the current run to finish.' };
+    }
+    this.running = true;
+    try {
+    return await this._doReclassify(messageIds, account);
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private async _doReclassify(
+    messageIds: string[],
+    account: string,
+  ): Promise<{ total: number; reclassified: number; errors: number; results: { messageId: string; label: string; confidence: string; error?: string }[]; error?: string }> {
     const labelConfig = safeJsonParse<LabelConfig>(SettingsManager.get('gmail.emailProcessing.labelConfig') || '{}', {});
     const reviewLabel = SettingsManager.get('gmail.emailProcessing.reviewLabel') || 'AI/Review';
     const processedLabel = SettingsManager.get('gmail.emailProcessing.processedLabel') || 'AI/Processed';
     const gmailConc = parseInt(SettingsManager.get('gmail.emailProcessing.gmailConcurrency') || '4', 10) || 4;
     const glmConc = parseInt(SettingsManager.get('gmail.emailProcessing.glmConcurrency') || '1', 10) || 1;
+    const effectiveGlmConc = isBulkModelZhipu() ? glmConc : Math.max(glmConc, 5);
 
     const out: { messageId: string; label: string; confidence: string; error?: string }[] = [];
     let reclassified = 0;
@@ -1371,7 +1388,7 @@ export class EmailProcessor {
 
     // 4. Classify in batches
     const batches = chunk(fullEmails, 5);
-    const batchResults = await withConcurrency(batches, glmConc, async (batch) => {
+    const batchResults = await withConcurrency(batches, effectiveGlmConc, async (batch) => {
       const prompt = buildGlmPrompt(promptLabels, examplesByLabel, batch, reviewLabel);
       if (isBulkModelZhipu()) await sleep(2000);
 
