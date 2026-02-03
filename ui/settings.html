@@ -1884,7 +1884,7 @@
               <div class="ep-tab" data-tab="ep-labels" onclick="epSwitchTab(this); epLoadRoutingToggle()">Labels</div>
               <div class="ep-tab" data-tab="ep-advanced" onclick="epSwitchTab(this)">Advanced</div>
               <div class="ep-tab" data-tab="ep-status-tab" onclick="epSwitchTab(this)">Status</div>
-              <div class="ep-tab" data-tab="ep-history-tab" onclick="epSwitchTab(this); epPopulateFilterLabels(); epLoadHistory()">History</div>
+              <div class="ep-tab" data-tab="ep-history-tab" onclick="epSwitchTab(this); epPopulateFilterLabels(); epLoadHistory(); epPrewarmLabelData()">History</div>
               <div class="ep-tab" data-tab="ep-rules-tab" onclick="epSwitchTab(this); epLoadRules()">Rules</div>
               <div class="ep-tab" data-tab="ep-unanswered-tab" onclick="epSwitchTab(this); uaLoad()">Unanswered <span id="ua-badge" style="background:var(--accent,#4a9eff);color:#fff;border-radius:8px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></div>
             </div>
@@ -3933,18 +3933,27 @@
 
     let epCorrectSelectedLabel = null;
 
-    async function epOpenCorrectPopover(el) {
-      epCloseCorrectPopover();
-      const msgId = el.dataset.msgid;
-      const account = el.dataset.account;
-      const currentLabel = el.dataset.current;
-      epCorrectSelectedLabel = currentLabel;
+    function epBuildGroups(stats) {
+      const recentLabels = stats.slice().sort((a, b) => (b.lastUsed || '').localeCompare(a.lastUsed || '')).slice(0, 5).map(s => s.label).filter(Boolean);
+      const frequentLabels = stats.slice().sort((a, b) => b.count - a.count).slice(0, 5).map(s => s.label).filter(Boolean);
+      const seenInGroups = new Set([...recentLabels, ...frequentLabels]);
+      const allLabels = epGmailLabels.length > 0 ? [...epGmailLabels] : (epActiveLabels.length > 0 ? [...epActiveLabels] : []);
+      const remaining = allLabels.filter(l => !seenInGroups.has(l)).sort((a, b) => a.localeCompare(b));
+      const groups = [];
+      if (recentLabels.length > 0) groups.push({ title: 'Recent', labels: recentLabels });
+      if (frequentLabels.length > 0) groups.push({ title: 'Frequent', labels: frequentLabels });
+      if (remaining.length > 0) groups.push({ title: 'All Labels', labels: remaining });
+      if (groups.length === 0 && allLabels.length > 0) groups.push({ title: 'All Labels', labels: allLabels });
+      return groups;
+    }
 
-      // Auto-fetch labels from Gmail if not loaded yet
+    // Pre-warm label data when History tab loads
+    function epPrewarmLabelData() {
       if (epGmailLabels.length === 0) {
-        try {
-          const acct = account || (JSON.parse(await window.pocketAgent.getSetting('gmail.emailProcessing.accounts') || '[]'))[0] || '';
-          const result = await window.pocketAgent.gmailFetchLabels(acct);
+        window.pocketAgent.getSetting('gmail.emailProcessing.accounts').then(raw => {
+          const acct = (JSON.parse(raw || '[]'))[0] || '';
+          return window.pocketAgent.gmailFetchLabels(acct);
+        }).then(result => {
           if (result.success && result.labels) {
             const parsed = JSON.parse(result.labels);
             const labels = Array.isArray(parsed) ? parsed : (parsed.labels || []);
@@ -3954,34 +3963,26 @@
               return !systemPrefixes.some(p => name.startsWith(p));
             }).map(l => typeof l === 'string' ? l : (l.name || l.id || ''));
           }
-        } catch { /* ignore */ }
+        }).catch(() => {});
       }
-
-      // Fetch label stats for grouped sections (cached 30s)
-      let stats = [];
-      const now = Date.now();
-      if (epOpenCorrectPopover._statsCache && now - epOpenCorrectPopover._statsCacheAt < 30000) {
-        stats = epOpenCorrectPopover._statsCache;
-      } else {
-        try {
-          stats = await window.pocketAgent.gmailGetLabelStats(account) || [];
-          epOpenCorrectPopover._statsCache = stats;
-          epOpenCorrectPopover._statsCacheAt = now;
-        } catch { /* ignore */ }
+      if (!epOpenCorrectPopover._statsCache) {
+        window.pocketAgent.gmailGetLabelStats().then(stats => {
+          epOpenCorrectPopover._statsCache = stats || [];
+          epOpenCorrectPopover._statsCacheAt = Date.now();
+        }).catch(() => {});
       }
+    }
 
-      const recentLabels = stats.slice().sort((a, b) => (b.lastUsed || '').localeCompare(a.lastUsed || '')).slice(0, 5).map(s => s.label).filter(Boolean);
-      const frequentLabels = stats.slice().sort((a, b) => b.count - a.count).slice(0, 5).map(s => s.label).filter(Boolean);
-      const seenInGroups = new Set([...recentLabels, ...frequentLabels]);
-      const allLabels = epGmailLabels.length > 0 ? [...epGmailLabels] : (epActiveLabels.length > 0 ? [...epActiveLabels] : []);
-      const remaining = allLabels.filter(l => !seenInGroups.has(l)).sort((a, b) => a.localeCompare(b));
+    function epOpenCorrectPopover(el) {
+      epCloseCorrectPopover();
+      const msgId = el.dataset.msgid;
+      const account = el.dataset.account;
+      const currentLabel = el.dataset.current;
+      epCorrectSelectedLabel = currentLabel;
 
-      // Build grouped data for rendering
-      const groups = [];
-      if (recentLabels.length > 0) groups.push({ title: 'Recent', labels: recentLabels });
-      if (frequentLabels.length > 0) groups.push({ title: 'Frequent', labels: frequentLabels });
-      if (remaining.length > 0) groups.push({ title: 'All Labels', labels: remaining });
-      if (groups.length === 0 && allLabels.length > 0) groups.push({ title: 'All Labels', labels: allLabels });
+      // Use cached stats (pre-warmed), fall back to active labels
+      const stats = epOpenCorrectPopover._statsCache || [];
+      let groups = epBuildGroups(stats);
 
       const popover = document.createElement('div');
       popover.className = 'ep-correct-popover';
@@ -4005,6 +4006,7 @@
       // Render label list
       function renderList(filter) {
         const list = popover.querySelector('#ep-correct-list');
+        if (!list) return;
         const q = (filter || '').toLowerCase();
         let html = '';
         for (const group of groups) {
@@ -4049,6 +4051,18 @@
       }
       epCorrectPopover = popover;
       searchInput.focus();
+
+      // If stats weren't cached, fetch in background and re-render
+      if (!epOpenCorrectPopover._statsCache) {
+        window.pocketAgent.gmailGetLabelStats(account).then(freshStats => {
+          epOpenCorrectPopover._statsCache = freshStats || [];
+          epOpenCorrectPopover._statsCacheAt = Date.now();
+          if (epCorrectPopover === popover) {
+            groups = epBuildGroups(freshStats || []);
+            renderList(searchInput.value);
+          }
+        }).catch(() => {});
+      }
 
       // Close on outside click (tracked handler, cleaned up in epCloseCorrectPopover)
       setTimeout(() => {
