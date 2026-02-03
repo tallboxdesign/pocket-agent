@@ -3,6 +3,9 @@
  *
  * OpenAI-compatible HTTP client using raw fetch — does NOT use the Claude Agent SDK.
  * Used as a worker model for cheap bulk tasks (summarization, classification, extraction).
+ *
+ * Bulk classification supports provider override: set zhipu.bulkBaseUrl + zhipu.bulkApiKey
+ * to route bulk calls to OpenAI (gpt-4.1-nano), Qwen (qwen-turbo), or any OpenAI-compatible API.
  */
 
 import { SettingsManager } from '../settings';
@@ -22,7 +25,7 @@ export interface GlmRequestParams {
   model?: string;
   temperature?: number;
   maxTokens?: number;
-  /** Disable reasoning/thinking mode (Coding Plan has it enabled by default) */
+  /** Disable reasoning/thinking mode (Zhipu-only, skipped for other providers) */
   disableThinking?: boolean;
 }
 
@@ -47,24 +50,50 @@ const DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4';
 const DEFAULT_MODEL = 'glm-4.7';
 const DEFAULT_FLASH_MODEL = 'glm-4.7-flash';
 const DEFAULT_BULK_MODEL = 'glm-4.7-flashx';
+const OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_TEMPERATURE = 0.3;
 const DEFAULT_MAX_TOKENS = 2048;
 const REQUEST_TIMEOUT = 60000;
 
 // ============================================================================
+// Provider resolution — auto-detect from model name
+// ============================================================================
+
+function resolveModelProvider(model: string): { baseUrl: string; apiKey: string } {
+  if (model.startsWith('gpt-')) {
+    return {
+      baseUrl: OPENAI_BASE_URL,
+      apiKey: SettingsManager.get('openai.apiKey') || '',
+    };
+  }
+  // Default: Zhipu
+  return {
+    baseUrl: SettingsManager.get('zhipu.baseUrl') || DEFAULT_BASE_URL,
+    apiKey: SettingsManager.get('zhipu.apiKey') || '',
+  };
+}
+
+// ============================================================================
 // Core API call
 // ============================================================================
 
-async function callGlmApi(params: GlmRequestParams & { forceModel?: string }): Promise<GlmResponse> {
-  const apiKey = SettingsManager.get('zhipu.apiKey');
+interface CallApiOverrides {
+  forceModel?: string;
+  forceBaseUrl?: string;
+  forceApiKey?: string;
+}
+
+async function callGlmApi(params: GlmRequestParams & CallApiOverrides): Promise<GlmResponse> {
+  const apiKey = params.forceApiKey || SettingsManager.get('zhipu.apiKey');
   if (!apiKey) {
-    return { success: false, error: 'Zhipu API key not configured. Add it in Settings > Keys.' };
+    return { success: false, error: 'API key not configured. Add it in Settings > Keys.' };
   }
 
-  const baseUrl = SettingsManager.get('zhipu.baseUrl') || DEFAULT_BASE_URL;
+  const baseUrl = params.forceBaseUrl || SettingsManager.get('zhipu.baseUrl') || DEFAULT_BASE_URL;
   const model = params.forceModel || params.model || SettingsManager.get('zhipu.model') || DEFAULT_MODEL;
   const temperature = params.temperature ?? DEFAULT_TEMPERATURE;
   const maxTokens = params.maxTokens ?? DEFAULT_MAX_TOKENS;
+  const isZhipu = baseUrl.includes('bigmodel.cn');
 
   const url = `${baseUrl}/chat/completions`;
   const body: Record<string, unknown> = {
@@ -75,12 +104,13 @@ async function callGlmApi(params: GlmRequestParams & { forceModel?: string }): P
     stream: false,
   };
 
-  // Disable reasoning/thinking mode when requested (Coding Plan enables it by default)
-  if (params.disableThinking) {
+  // Thinking parameter is Zhipu-only — other providers reject unknown fields
+  if (params.disableThinking && isZhipu) {
     body.thinking = { type: 'disabled' };
   }
 
   const startTime = Date.now();
+  const provider = isZhipu ? 'zhipu' : 'external';
 
   try {
     const controller = new AbortController();
@@ -100,8 +130,8 @@ async function callGlmApi(params: GlmRequestParams & { forceModel?: string }): P
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
-      const error = `GLM API error ${response.status}: ${errText}`;
-      console.error('[GLM]', error);
+      const error = `API error ${response.status}: ${errText}`;
+      console.error(`[GLM:${provider}]`, error);
       return { success: false, error };
     }
 
@@ -116,16 +146,16 @@ async function callGlmApi(params: GlmRequestParams & { forceModel?: string }): P
 
     // Debug: log when content is empty despite 200 OK
     if (!content) {
-      console.warn(`[GLM] Empty content from ${model}. Response keys: ${JSON.stringify(Object.keys(data))}. Choices: ${JSON.stringify(data.choices?.length ?? 'none')}. Usage: ${JSON.stringify(usage)}. Full first choice: ${JSON.stringify(data.choices?.[0])}`);
+      console.warn(`[GLM:${provider}] Empty content from ${model}. Response keys: ${JSON.stringify(Object.keys(data))}. Choices: ${JSON.stringify(data.choices?.length ?? 'none')}. Usage: ${JSON.stringify(usage)}. Full first choice: ${JSON.stringify(data.choices?.[0])}`);
     }
 
     // Log tokens to event log
     if (usage) {
       logEvent({
         event_type: 'llm_call',
-        source: 'glm',
+        source: provider === 'zhipu' ? 'glm' : provider,
         actor: 'glm',
-        data: { model, temperature },
+        data: { model, temperature, provider },
         tokens_prompt: usage.prompt_tokens,
         tokens_completion: usage.completion_tokens,
         tokens_total: usage.total_tokens,
@@ -136,7 +166,7 @@ async function callGlmApi(params: GlmRequestParams & { forceModel?: string }): P
     return { success: true, content, usage };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[GLM] API call failed:', msg);
+    console.error(`[GLM:${provider}] API call failed:`, msg);
     return { success: false, error: msg };
   }
 }
@@ -150,7 +180,9 @@ async function callGlmApi(params: GlmRequestParams & { forceModel?: string }): P
  * Use for quality tasks: summaries, structured extraction.
  */
 export async function glmChat(params: GlmRequestParams): Promise<GlmResponse> {
-  return callGlmApi(params);
+  const model = params.model || SettingsManager.get('zhipu.model') || DEFAULT_MODEL;
+  const provider = resolveModelProvider(model);
+  return callGlmApi({ ...params, forceModel: model, forceBaseUrl: provider.baseUrl, forceApiKey: provider.apiKey });
 }
 
 /**
@@ -159,31 +191,36 @@ export async function glmChat(params: GlmRequestParams): Promise<GlmResponse> {
  */
 export async function glmFlash(params: GlmRequestParams): Promise<GlmResponse> {
   const flashModel = SettingsManager.get('zhipu.flashModel') || DEFAULT_FLASH_MODEL;
-  return callGlmApi({ ...params, forceModel: flashModel });
+  const provider = resolveModelProvider(flashModel);
+  return callGlmApi({ ...params, forceModel: flashModel, forceBaseUrl: provider.baseUrl, forceApiKey: provider.apiKey });
 }
 
 /**
- * Call GLM with the bulk model (glm-4.7-flash-x by default).
- * Use for high-throughput batch classification (3 concurrent).
+ * Call with the bulk model for high-throughput batch classification.
+ * Supports provider override: set zhipu.bulkBaseUrl + zhipu.bulkApiKey to route
+ * to OpenAI (gpt-4.1-nano), Qwen (qwen-turbo), or any OpenAI-compatible API.
  */
 export async function glmBulk(params: GlmRequestParams): Promise<GlmResponse> {
   const bulkModel = SettingsManager.get('zhipu.bulkModel') || DEFAULT_BULK_MODEL;
-  return callGlmApi({ ...params, forceModel: bulkModel });
+  const provider = resolveModelProvider(bulkModel);
+  return callGlmApi({ ...params, forceModel: bulkModel, forceBaseUrl: provider.baseUrl, forceApiKey: provider.apiKey });
 }
 
 /**
- * Check if GLM is configured (API key set).
+ * Check if any worker model is configured (Zhipu or OpenAI key set).
  */
 export function isGlmConfigured(): boolean {
-  return !!SettingsManager.get('zhipu.apiKey');
+  return !!SettingsManager.get('zhipu.apiKey') || !!SettingsManager.get('openai.apiKey');
 }
 
 /**
- * Quick health check — pings flash and bulk models (skips duplicate if same model).
+ * Quick health check — pings flash and bulk models (skips duplicate if same provider+model).
  */
 export async function glmHealthCheck(): Promise<{ ok: boolean; models?: string[]; error?: string }> {
   const flashModel = SettingsManager.get('zhipu.flashModel') || DEFAULT_FLASH_MODEL;
   const bulkModel = SettingsManager.get('zhipu.bulkModel') || DEFAULT_BULK_MODEL;
+  const flashProvider = resolveModelProvider(flashModel);
+  const bulkProvider = resolveModelProvider(bulkModel);
 
   const pingParams: GlmRequestParams = {
     messages: [{ role: 'user', content: 'ping' }],
@@ -197,8 +234,9 @@ export async function glmHealthCheck(): Promise<{ ok: boolean; models?: string[]
   if (flashResult.success) okModels.push(flashModel);
   else errors.push(`${flashModel}: ${flashResult.error}`);
 
-  // Only ping bulk separately if it's a different model
-  if (bulkModel !== flashModel) {
+  // Ping bulk separately if it uses a different provider or model
+  const bulkIsDifferent = bulkModel !== flashModel || bulkProvider.baseUrl !== flashProvider.baseUrl;
+  if (bulkIsDifferent) {
     const bulkResult = await glmBulk(pingParams);
     if (bulkResult.success) okModels.push(bulkModel);
     else errors.push(`${bulkModel}: ${bulkResult.error}`);

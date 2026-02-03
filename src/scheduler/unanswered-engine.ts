@@ -173,7 +173,10 @@ export class UnansweredEngine {
       }
 
       let emails: EmailSearchResult[] = [];
-      try { emails = JSON.parse(searchRes.emails) as EmailSearchResult[]; } catch { /* empty */ }
+      try {
+        const parsed = JSON.parse(searchRes.emails);
+        emails = Array.isArray(parsed) ? parsed : (parsed?.messages || []);
+      } catch { /* empty */ }
 
       // Deduplicate by threadId
       const threadMap = new Map<string, EmailSearchResult>();

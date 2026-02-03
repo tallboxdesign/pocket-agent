@@ -33,7 +33,7 @@ export type EventType =
   | 'email_processing'
   | 'error';
 
-export type EventSource = 'claude' | 'glm' | 'user' | 'system' | 'worker';
+export type EventSource = 'claude' | 'glm' | 'user' | 'system' | 'worker' | 'external';
 export type EventActor = 'user' | 'claude' | 'glm' | 'scheduler' | 'system' | string;
 
 export interface EventLogEntry {

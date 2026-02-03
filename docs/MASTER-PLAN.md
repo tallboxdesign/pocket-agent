@@ -1586,7 +1586,7 @@ Surfaces threads needing response and provides dismiss/resolve workflows. Design
 2. **Next-run timing in Rules tab** — info line showing scan interval, last scan time, next estimated scan.
 3. **Replay rules on past emails** — `replayRules(limit)` method + UI button. Re-evaluates active rules against already-classified emails, skipping already-executed combinations.
 4. **Reclassify emails** — `reclassifyEmails(messageIds, account)` method. Fetches fresh email content, re-runs GLM classification, updates DB + Gmail labels + routing. Per-row "Retry" button on failed/invalid emails + bulk "Reclassify" action.
-5. **Fix unanswered scan** — auto-detect `gmail.userEmail` from account name. Show scan errors in UI instead of silent failure.
+5. **Fix unanswered scan** — unwrap `gog` response `{ messages: [...] }` format (was silently getting 0 results); auto-detect `gmail.userEmail` from account name; show scan errors in UI.
 
 ---
 
