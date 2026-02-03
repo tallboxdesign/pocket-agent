@@ -760,6 +760,48 @@ multiline</pre>
         : '🔇 Voice replies OFF — text only.');
     });
 
+    // Handle /unanswered command - list threads needing response
+    this.bot.command('unanswered', async (ctx) => {
+      const arg = ctx.message?.text?.replace('/unanswered', '').trim() || '';
+      try {
+        const { getUnansweredEngine } = await import('../scheduler/unanswered-engine');
+        const engine = getUnansweredEngine();
+        if (!engine) {
+          await ctx.reply('Unanswered engine not initialized. Enable it in Settings > Email Processing > Unanswered.');
+          return;
+        }
+
+        // Parse filters: label:Clients age:2h
+        const filter: { labels?: string[]; ageMinutesGt?: number; state?: string; limit?: number } = { state: 'unanswered', limit: 20 };
+        if (arg) {
+          const labelMatch = arg.match(/label:(\S+)/);
+          if (labelMatch) filter.labels = [labelMatch[1]];
+          const ageMatch = arg.match(/age:(\d+)([hm])/);
+          if (ageMatch) {
+            const val = parseInt(ageMatch[1], 10);
+            filter.ageMinutesGt = ageMatch[2] === 'h' ? val * 60 : val;
+          }
+        }
+
+        const threads = engine.list(filter);
+        if (threads.length === 0) {
+          await ctx.reply('No unanswered threads found.');
+          return;
+        }
+
+        const lines = threads.map((t, i) =>
+          `${i + 1}. ${t.subject || '(no subject)'}\n   From: ${t.sender || 'unknown'} | ${t.label || '-'}\n   Since: ${t.first_seen_at}`,
+        );
+
+        await ctx.reply(
+          `Unanswered threads (${threads.length}):\n\n${lines.join('\n\n')}`,
+        );
+      } catch (err) {
+        console.warn('[Telegram] /unanswered failed:', err);
+        await ctx.reply('Failed to fetch unanswered threads.');
+      }
+    });
+
     // Handle all text messages
     this.bot.on('message:text', async (ctx: Context) => {
       const message = ctx.message?.text;

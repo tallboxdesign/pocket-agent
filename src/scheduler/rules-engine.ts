@@ -482,6 +482,23 @@ export class RulesEngine {
         break;
       case 'do_nothing':
         break;
+      case 'send_unanswered_digest':
+        // Delegated to UnansweredEngine via its own scheduling; no-op in rules for now
+        break;
+      case 'mark_resolved':
+        if (email.threadId) {
+          this.db.prepare(
+            "UPDATE unanswered_state SET state = 'resolved', resolved_at = datetime('now') WHERE thread_id = ? AND account = ? AND state = 'unanswered'",
+          ).run(email.threadId, email.account);
+        }
+        break;
+      case 'dismiss':
+        if (email.threadId) {
+          this.db.prepare(
+            "UPDATE unanswered_state SET state = 'dismissed', dismissed_at = datetime('now') WHERE thread_id = ? AND account = ? AND state = 'unanswered'",
+          ).run(email.threadId, email.account);
+        }
+        break;
       default:
         console.warn(`[RulesEngine] Unknown action type: ${action.type}`);
     }

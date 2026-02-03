@@ -1885,6 +1885,7 @@
               <div class="ep-tab" data-tab="ep-status-tab" onclick="epSwitchTab(this)">Status</div>
               <div class="ep-tab" data-tab="ep-history-tab" onclick="epSwitchTab(this); epPopulateFilterLabels(); epLoadHistory()">History</div>
               <div class="ep-tab" data-tab="ep-rules-tab" onclick="epSwitchTab(this); epLoadRules()">Rules</div>
+              <div class="ep-tab" data-tab="ep-unanswered-tab" onclick="epSwitchTab(this); uaLoad()">Unanswered <span id="ua-badge" style="background:var(--accent,#4a9eff);color:#fff;border-radius:8px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></div>
             </div>
 
             <!-- BASICS TAB -->
@@ -2167,6 +2168,62 @@
                 </div>
                 <div id="ep-execution-log" style="margin-top:6px;max-height:200px;overflow-y:auto;">
                   <div class="ep-no-data" style="text-align:center;padding:12px;font-size:11px;">Click Refresh to load</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- UNANSWERED TAB -->
+            <div class="ep-tab-panel" id="ep-unanswered-tab">
+              <!-- Settings row -->
+              <div class="ep-group" style="margin-bottom:10px;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
+                    <input type="checkbox" id="ua-enabled" onchange="uaSaveSettings()">
+                    Enable Scan
+                  </label>
+                  <label style="font-size:11px;display:flex;align-items:center;gap:4px;">
+                    Interval:
+                    <select id="ua-interval" onchange="uaSaveSettings()" style="font-size:11px;">
+                      <option value="15">15 min</option>
+                      <option value="30">30 min</option>
+                      <option value="60" selected>60 min</option>
+                      <option value="120">2 hr</option>
+                      <option value="240">4 hr</option>
+                    </select>
+                  </label>
+                  <label style="font-size:11px;display:flex;align-items:center;gap:4px;">
+                    Lookback:
+                    <select id="ua-lookback" onchange="uaSaveSettings()" style="font-size:11px;">
+                      <option value="7">7 days</option>
+                      <option value="14">14 days</option>
+                      <option value="30" selected>30 days</option>
+                      <option value="60">60 days</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Actions row -->
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                <div style="display:flex;gap:6px;">
+                  <select id="ua-filter-label" onchange="uaLoad()" style="font-size:11px;padding:3px 6px;">
+                    <option value="">All labels</option>
+                  </select>
+                </div>
+                <div style="flex:1;"></div>
+                <button class="ep-btn" onclick="uaScanNow()" id="ua-scan-btn" style="padding:3px 10px;font-size:11px;">Scan Now</button>
+                <button class="ep-btn" onclick="uaSendDigest()" style="padding:3px 10px;font-size:11px;">Send Digest</button>
+                <button class="ep-btn" onclick="uaResolveAll()" style="padding:3px 10px;font-size:11px;" title="Resolve all visible threads">Resolve All</button>
+                <button class="ep-btn" onclick="uaDismissAll()" style="padding:3px 10px;font-size:11px;" title="Dismiss all visible threads">Dismiss All</button>
+              </div>
+
+              <!-- Status -->
+              <div id="ua-status" style="font-size:11px;color:var(--text-muted);margin-bottom:8px;display:none;"></div>
+
+              <!-- Thread list -->
+              <div id="ua-thread-list">
+                <div class="ep-no-data" style="text-align:center;padding:20px;">
+                  Enable scanning and click Scan Now to find unanswered threads.
                 </div>
               </div>
             </div>
@@ -5001,6 +5058,166 @@ Never mention internal labels, automation, or filtering.`;
         const btn = document.querySelector(`[data-rule-id="${id}"] .ep-rule-buttons button`);
         if (btn) epTestRule(parseInt(id), btn);
       }, 200);
+    }
+
+    // ---- Unanswered Command Center ----
+
+    let uaThreads = [];
+
+    async function uaLoad() {
+      try {
+        // Load settings
+        const s = await window.pocketAgent.unansweredGetSettings();
+        document.getElementById('ua-enabled').checked = s.enabled;
+        document.getElementById('ua-interval').value = s.intervalMin;
+        document.getElementById('ua-lookback').value = s.lookbackDays;
+
+        // Populate label filter from known labels
+        const filterSel = document.getElementById('ua-filter-label');
+        const curVal = filterSel.value;
+        const labels = epGmailLabels.length > 0 ? epGmailLabels : epActiveLabels;
+        filterSel.innerHTML = '<option value="">All labels</option>' +
+          labels.map(l => `<option value="${l}" ${l === curVal ? 'selected' : ''}>${epDisplayName(l)}</option>`).join('');
+
+        // Load threads
+        const filter = { state: 'unanswered', limit: 100 };
+        const labelVal = filterSel.value;
+        if (labelVal) filter.labels = [labelVal];
+
+        const res = await window.pocketAgent.unansweredList(filter);
+        uaThreads = res.threads || [];
+        uaRender(uaThreads, res.total);
+        uaUpdateBadge(res.total);
+      } catch (err) {
+        console.warn('[UA] Load failed:', err);
+      }
+    }
+
+    function uaRender(threads, total) {
+      const container = document.getElementById('ua-thread-list');
+      if (!threads || threads.length === 0) {
+        container.innerHTML = '<div class="ep-no-data" style="text-align:center;padding:20px;">No unanswered threads found. Run a scan to check.</div>';
+        return;
+      }
+
+      const rows = threads.map((t, i) => {
+        const age = uaFormatAge(t.first_seen_at);
+        const subj = (t.subject || '(no subject)').replace(/</g, '&lt;').slice(0, 60);
+        const sender = (t.sender || 'unknown').replace(/</g, '&lt;').slice(0, 30);
+        const label = t.label ? `<span style="background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;font-size:10px;">${epDisplayName(t.label)}</span>` : '';
+        return `<div class="ep-rule-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;" data-ua-idx="${i}">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${(t.subject || '').replace(/"/g, '&quot;')}">${subj}</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:1px;">From: ${sender} ${label} &middot; ${age}</div>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0;">
+            <button class="ep-btn" onclick="uaResolve('${t.account}','${t.thread_id}')" title="Resolve" style="padding:2px 6px;font-size:10px;">R</button>
+            <button class="ep-btn" onclick="uaDismiss('${t.account}','${t.thread_id}')" title="Dismiss" style="padding:2px 6px;font-size:10px;">X</button>
+          </div>
+        </div>`;
+      }).join('');
+
+      container.innerHTML = rows +
+        `<div style="font-size:10px;color:var(--text-muted);text-align:center;padding:6px;">Showing ${threads.length} of ${total} unanswered threads</div>`;
+    }
+
+    function uaFormatAge(dateStr) {
+      if (!dateStr) return '?';
+      const ms = Date.now() - new Date(dateStr + 'Z').getTime();
+      const mins = Math.floor(ms / 60000);
+      if (mins < 60) return mins + 'm';
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return hrs + 'h';
+      return Math.floor(hrs / 24) + 'd';
+    }
+
+    function uaUpdateBadge(count) {
+      const badge = document.getElementById('ua-badge');
+      if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'inline';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    async function uaSaveSettings() {
+      await window.pocketAgent.unansweredSaveSettings({
+        enabled: String(document.getElementById('ua-enabled').checked),
+        intervalMin: document.getElementById('ua-interval').value,
+        lookbackDays: document.getElementById('ua-lookback').value,
+      });
+      showToast('Unanswered settings saved', 'success');
+    }
+
+    async function uaScanNow() {
+      const btn = document.getElementById('ua-scan-btn');
+      const status = document.getElementById('ua-status');
+      btn.disabled = true;
+      btn.textContent = 'Scanning...';
+      status.style.display = 'block';
+      status.textContent = 'Scanning for unanswered threads...';
+
+      try {
+        const results = await window.pocketAgent.unansweredScan();
+        const arr = Array.isArray(results) ? results : [results];
+        const summary = arr.map(r =>
+          `${r.account || 'account'}: ${r.threadsScanned || 0} scanned, ${r.newUnanswered || 0} new, ${r.autoResolved || 0} resolved`,
+        ).join('; ');
+        status.textContent = summary;
+        showToast('Scan complete', 'success');
+        await uaLoad();
+      } catch (err) {
+        status.textContent = 'Scan failed: ' + (err.message || err);
+        showToast('Scan failed', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Scan Now';
+      }
+    }
+
+    async function uaResolve(account, threadId) {
+      await window.pocketAgent.unansweredResolve(account, threadId);
+      uaLoad();
+    }
+
+    async function uaDismiss(account, threadId) {
+      await window.pocketAgent.unansweredDismiss(account, threadId);
+      uaLoad();
+    }
+
+    async function uaResolveAll() {
+      const filter = { state: 'unanswered' };
+      const labelVal = document.getElementById('ua-filter-label').value;
+      if (labelVal) filter.labels = [labelVal];
+      const res = await window.pocketAgent.unansweredResolveAll(filter);
+      showToast(`Resolved ${res.count || 0} threads`, 'success');
+      uaLoad();
+    }
+
+    async function uaDismissAll() {
+      const filter = { state: 'unanswered' };
+      const labelVal = document.getElementById('ua-filter-label').value;
+      if (labelVal) filter.labels = [labelVal];
+      const res = await window.pocketAgent.unansweredDismissAll(filter);
+      showToast(`Dismissed ${res.count || 0} threads`, 'success');
+      uaLoad();
+    }
+
+    async function uaSendDigest() {
+      const accounts = epParseJson(await window.pocketAgent.getSetting('gmail.emailProcessing.accounts'), []);
+      if (accounts.length === 0) {
+        showToast('No accounts configured', 'error');
+        return;
+      }
+      const res = await window.pocketAgent.unansweredDigest(accounts[0]);
+      if (res.throttled) {
+        showToast('Digest throttled — try again later', 'error');
+      } else if (res.sent) {
+        showToast(`Digest sent (${res.threadCount} threads)`, 'success');
+      } else {
+        showToast('No unanswered threads for digest', 'success');
+      }
     }
 
     // ====================================================================

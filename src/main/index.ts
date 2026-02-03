@@ -171,6 +171,7 @@ let scheduler: CronScheduler | null = null;
 let telegramBot: TelegramBot | null = null;
 let emailProcessor: import('../scheduler/email-processor').EmailProcessor | null = null;
 let rulesEngine: import('../scheduler/rules-engine').RulesEngine | null = null;
+let unansweredEngine: import('../scheduler/unanswered-engine').UnansweredEngine | null = null;
 let chatWindow: BrowserWindow | null = null;
 let cronWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
@@ -1820,6 +1821,101 @@ Instructions:
     } catch (err) { return { success: false, error: err instanceof Error ? err.message : 'Failed' }; }
   });
 
+  // --- Unanswered Command Center ---
+
+  async function ensureUnansweredEngine(): Promise<void> {
+    await ensureEmailProcessor();
+    if (!unansweredEngine) {
+      const { UnansweredEngine } = await import('../scheduler/unanswered-engine');
+      unansweredEngine = new UnansweredEngine(emailProcessor!.getDb());
+      unansweredEngine.setTelegramSender((text: string) => {
+        const chatId = SettingsManager.get('telegram.defaultChatId');
+        if (chatId && telegramBot) {
+          telegramBot.sendMessage(Number(chatId), text).catch((err: unknown) => {
+            console.warn('[UnansweredEngine] Telegram send failed:', err);
+          });
+        }
+      });
+      unansweredEngine.setNotificationHandler((title: string, body: string) => {
+        showNotification(title, body);
+      });
+    }
+  }
+
+  ipcMain.handle('unanswered:scan', async (_evt: unknown, account?: string) => {
+    try {
+      await ensureUnansweredEngine();
+      if (account) return await unansweredEngine!.scan(account);
+      return await unansweredEngine!.scanAll();
+    } catch (err) { return { error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('unanswered:list', async (_evt: unknown, filter?: Record<string, unknown>) => {
+    try {
+      await ensureUnansweredEngine();
+      return {
+        threads: unansweredEngine!.list(filter as import('../scheduler/unanswered-engine').UnansweredFilter),
+        total: unansweredEngine!.count(filter as import('../scheduler/unanswered-engine').UnansweredFilter),
+      };
+    } catch { return { threads: [], total: 0 }; }
+  });
+
+  ipcMain.handle('unanswered:resolve', async (_evt: unknown, account: string, threadId: string) => {
+    try {
+      await ensureUnansweredEngine();
+      unansweredEngine!.resolve(account, threadId);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('unanswered:resolveAll', async (_evt: unknown, filter?: Record<string, unknown>) => {
+    try {
+      await ensureUnansweredEngine();
+      const count = unansweredEngine!.resolveAll(filter as import('../scheduler/unanswered-engine').UnansweredFilter);
+      return { ok: true, count };
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('unanswered:dismiss', async (_evt: unknown, account: string, threadId: string) => {
+    try {
+      await ensureUnansweredEngine();
+      unansweredEngine!.dismiss(account, threadId);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('unanswered:dismissAll', async (_evt: unknown, filter?: Record<string, unknown>) => {
+    try {
+      await ensureUnansweredEngine();
+      const count = unansweredEngine!.dismissAll(filter as import('../scheduler/unanswered-engine').UnansweredFilter);
+      return { ok: true, count };
+    } catch (err) { return { ok: false, error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('unanswered:digest', async (_evt: unknown, account: string) => {
+    try {
+      await ensureUnansweredEngine();
+      return await unansweredEngine!.sendDigest(account);
+    } catch (err) { return { sent: false, threadCount: 0, throttled: false, error: err instanceof Error ? err.message : 'Failed' }; }
+  });
+
+  ipcMain.handle('unanswered:getSettings', async () => {
+    return {
+      enabled: SettingsManager.get('gmail.unanswered.enabled') === 'true',
+      intervalMin: SettingsManager.get('gmail.unanswered.intervalMin') || '60',
+      lookbackDays: SettingsManager.get('gmail.unanswered.lookbackDays') || '30',
+      labels: JSON.parse(SettingsManager.get('gmail.unanswered.labels') || '[]'),
+      digestThrottleHours: SettingsManager.get('gmail.unanswered.digestThrottleHours') || '4',
+    };
+  });
+
+  ipcMain.handle('unanswered:saveSettings', async (_evt: unknown, settings: Record<string, string>) => {
+    for (const [key, value] of Object.entries(settings)) {
+      SettingsManager.set(`gmail.unanswered.${key}`, value);
+    }
+    return { ok: true };
+  });
+
   ipcMain.handle('telegram:restart', async () => {
     try {
       if (telegramBot) {
@@ -2565,6 +2661,30 @@ async function initializeAgent(): Promise<void> {
       });
       emailProcessor.start();
       console.log('[Main] Email processor started');
+
+      // Start unanswered scan if enabled
+      if (SettingsManager.get('gmail.unanswered.enabled') === 'true') {
+        try {
+          const { UnansweredEngine } = await import('../scheduler/unanswered-engine');
+          unansweredEngine = new UnansweredEngine(emailProcessor.getDb());
+          unansweredEngine.setNotificationHandler((title: string, body: string) => {
+            showNotification(title, body);
+          });
+          unansweredEngine.setTelegramSender((text: string) => {
+            const chatId = SettingsManager.get('telegram.defaultChatId');
+            if (chatId && telegramBot) {
+              telegramBot.sendMessage(Number(chatId), text).catch((err: unknown) => {
+                console.warn('[UnansweredEngine] Telegram send failed:', err);
+              });
+            }
+          });
+          const intervalMin = Number(SettingsManager.get('gmail.unanswered.intervalMin') || '60');
+          unansweredEngine.startSchedule(intervalMin);
+          console.log(`[Main] Unanswered scan started (every ${intervalMin} min)`);
+        } catch (uaErr) {
+          console.error('[Main] Failed to start unanswered scan:', uaErr);
+        }
+      }
     } catch (error) {
       console.error('[Main] Failed to start email processor:', error);
     }
@@ -2764,6 +2884,9 @@ app.on('before-quit', async () => {
   await stopAgent();
   if (memory) {
     memory.close();
+  }
+  if (unansweredEngine) {
+    unansweredEngine.stopSchedule();
   }
   closeTaskDb(); // Clean up task tools database connection
   closeKanbanDb(); // Clean up kanban database connection

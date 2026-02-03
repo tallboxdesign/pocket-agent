@@ -122,6 +122,17 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   rulesGetExecutions: (ruleId?: number, limit?: number) => ipcRenderer.invoke('rules:getExecutions', ruleId, limit),
   rulesRunDailySummary: () => ipcRenderer.invoke('rules:runDailySummary'),
 
+  // Unanswered Command Center
+  unansweredScan: (account?: string) => ipcRenderer.invoke('unanswered:scan', account),
+  unansweredList: (filter?: Record<string, unknown>) => ipcRenderer.invoke('unanswered:list', filter),
+  unansweredResolve: (account: string, threadId: string) => ipcRenderer.invoke('unanswered:resolve', account, threadId),
+  unansweredResolveAll: (filter?: Record<string, unknown>) => ipcRenderer.invoke('unanswered:resolveAll', filter),
+  unansweredDismiss: (account: string, threadId: string) => ipcRenderer.invoke('unanswered:dismiss', account, threadId),
+  unansweredDismissAll: (filter?: Record<string, unknown>) => ipcRenderer.invoke('unanswered:dismissAll', filter),
+  unansweredDigest: (account: string) => ipcRenderer.invoke('unanswered:digest', account),
+  unansweredGetSettings: () => ipcRenderer.invoke('unanswered:getSettings'),
+  unansweredSaveSettings: (settings: Record<string, string>) => ipcRenderer.invoke('unanswered:saveSettings', settings),
+
   onEmailProgress: (callback: (data: { status: string; [key: string]: unknown }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: { status: string; [key: string]: unknown }) => callback(data);
     ipcRenderer.on('gmail:progress', listener);
@@ -324,6 +335,16 @@ declare global {
       rulesTest: (id: number, limit?: number) => Promise<Array<{ email: { subject: string; sender: string; label: string }; matched: boolean; conditions: Array<{ type: string; value: string; passed: boolean }> }>>;
       rulesGetExecutions: (ruleId?: number, limit?: number) => Promise<Array<Record<string, unknown>>>;
       rulesRunDailySummary: () => Promise<{ success: boolean; summary?: string; error?: string }>;
+      // Unanswered Command Center
+      unansweredScan: (account?: string) => Promise<unknown>;
+      unansweredList: (filter?: Record<string, unknown>) => Promise<{ threads: Array<Record<string, unknown>>; total: number }>;
+      unansweredResolve: (account: string, threadId: string) => Promise<{ ok: boolean; error?: string }>;
+      unansweredResolveAll: (filter?: Record<string, unknown>) => Promise<{ ok: boolean; count?: number; error?: string }>;
+      unansweredDismiss: (account: string, threadId: string) => Promise<{ ok: boolean; error?: string }>;
+      unansweredDismissAll: (filter?: Record<string, unknown>) => Promise<{ ok: boolean; count?: number; error?: string }>;
+      unansweredDigest: (account: string) => Promise<{ sent: boolean; threadCount: number; throttled: boolean }>;
+      unansweredGetSettings: () => Promise<{ enabled: boolean; intervalMin: string; lookbackDays: string; labels: string[]; digestThrottleHours: string }>;
+      unansweredSaveSettings: (settings: Record<string, string>) => Promise<{ ok: boolean }>;
       onEmailProgress: (callback: (data: { status: string; [key: string]: unknown }) => void) => () => void;
       openSettings: () => Promise<void>;
       openChat: () => Promise<void>;
