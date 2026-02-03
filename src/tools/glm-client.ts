@@ -207,6 +207,14 @@ export async function glmBulk(params: GlmRequestParams): Promise<GlmResponse> {
 }
 
 /**
+ * Check if the current bulk model is a Zhipu model (needs rate-limit delays).
+ */
+export function isBulkModelZhipu(): boolean {
+  const bulkModel = SettingsManager.get('zhipu.bulkModel') || DEFAULT_BULK_MODEL;
+  return bulkModel.startsWith('glm-');
+}
+
+/**
  * Check if any worker model is configured (Zhipu or OpenAI key set).
  */
 export function isGlmConfigured(): boolean {

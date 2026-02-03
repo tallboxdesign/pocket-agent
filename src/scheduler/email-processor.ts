@@ -17,7 +17,7 @@ import { SettingsManager } from '../settings';
 import {
   readEmails, getMessage, listLabels, modifyLabels, createLabel,
 } from '../tools/gog-wrapper';
-import { glmBulk } from '../tools/glm-client';
+import { glmBulk, isBulkModelZhipu } from '../tools/glm-client';
 import { logEvent } from '../memory/event-log';
 
 // ============================================================================
@@ -902,8 +902,8 @@ export class EmailProcessor {
             console.log(`[EmailProcessor] Batch ${currentBatch}/${batches.length} (prompt: ${prompt.length} chars): classifying ${batch.map(e => e.subject || '(no subject)').join(' | ')}`);
             this.emitProgress(`Classifying batch ${currentBatch}/${batches.length}...`, { account, batch: currentBatch, total: batches.length, subjects: batch.map(e => e.subject || '(no subject)') });
 
-            // Rate limit safety: delay before each GLM call
-            await sleep(2000);
+            // Rate limit safety: delay before each call (Zhipu only — OpenAI doesn't need it)
+            if (isBulkModelZhipu()) await sleep(2000);
 
             let glmRes: { success: boolean; content?: string };
             try {
@@ -1373,7 +1373,7 @@ export class EmailProcessor {
     const batches = chunk(fullEmails, 5);
     const batchResults = await withConcurrency(batches, glmConc, async (batch) => {
       const prompt = buildGlmPrompt(promptLabels, examplesByLabel, batch, reviewLabel);
-      await sleep(2000);
+      if (isBulkModelZhipu()) await sleep(2000);
 
       try {
         const glmRes = await withRetry(async () => {
