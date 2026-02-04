@@ -95,6 +95,11 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   glmHealthCheck: () => ipcRenderer.invoke('glm:healthCheck'),
   gogStatus: () => ipcRenderer.invoke('gog:status'),
 
+  // Browser launcher
+  detectInstalledBrowsers: () => ipcRenderer.invoke('browser:detectInstalled'),
+  launchBrowser: (id: string, port?: number) => ipcRenderer.invoke('browser:launch', id, port),
+  testBrowserConnection: (url?: string) => ipcRenderer.invoke('browser:testConnection', url),
+
   // Gmail Email Processing
   gmailFetchLabels: (account?: string) => ipcRenderer.invoke('gmail:fetchLabels', account),
   gmailFetchRecentEmails: (account?: string) => ipcRenderer.invoke('gmail:fetchRecentEmails', account),
@@ -317,6 +322,10 @@ declare global {
       restartAgent: () => Promise<{ success: boolean }>;
       glmHealthCheck: () => Promise<{ ok: boolean; models?: string[]; error?: string }>;
       gogStatus: () => Promise<{ ok: boolean; accounts?: string; error?: string }>;
+      // Browser launcher
+      detectInstalledBrowsers: () => Promise<Array<{ id: string; name: string; path: string; installed: boolean }>>;
+      launchBrowser: (id: string, port?: number) => Promise<{ success: boolean; error?: string; alreadyRunning?: boolean }>;
+      testBrowserConnection: (url?: string) => Promise<{ connected: boolean; error?: string; browserInfo?: unknown }>;
       gmailFetchLabels: (account?: string) => Promise<{ success: boolean; labels?: string; error?: string }>;
       gmailFetchRecentEmails: (account?: string) => Promise<{ success: boolean; emails?: string; error?: string }>;
       gmailGetEmailPreview: (messageId: string, account?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
@@ -350,7 +359,7 @@ declare global {
       unansweredGetSettings: () => Promise<{ enabled: boolean; intervalMin: string; lookbackDays: string; labels: string[]; digestThrottleHours: string }>;
       unansweredSaveSettings: (settings: Record<string, string>) => Promise<{ ok: boolean }>;
       onEmailProgress: (callback: (data: { status: string; [key: string]: unknown }) => void) => () => void;
-      openSettings: () => Promise<void>;
+      openSettings: (tab?: string) => Promise<void>;
       openChat: () => Promise<void>;
       startOAuth: () => Promise<{ success: boolean; error?: string }>;
       completeOAuth: (code: string) => Promise<{ success: boolean; error?: string }>;

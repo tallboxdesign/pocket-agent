@@ -1502,6 +1502,22 @@ function setupIPC(): void {
     return models;
   });
 
+  // Browser launcher IPC handlers
+  ipcMain.handle('browser:detectInstalled', async () => {
+    const { detectInstalledBrowsers } = await import('../browser/launcher');
+    return detectInstalledBrowsers();
+  });
+
+  ipcMain.handle('browser:launch', async (_, browserId: string, port?: number) => {
+    const { launchBrowser } = await import('../browser/launcher');
+    return launchBrowser(browserId, port);
+  });
+
+  ipcMain.handle('browser:testConnection', async (_, cdpUrl?: string) => {
+    const { testCdpConnection } = await import('../browser/launcher');
+    return testCdpConnection(cdpUrl);
+  });
+
   ipcMain.handle('glm:healthCheck', async () => {
     const { glmHealthCheck, isGlmConfigured } = await import('../tools/glm-client');
     if (!isGlmConfigured()) return { ok: false, error: 'No API key' };

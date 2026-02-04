@@ -2387,6 +2387,24 @@
 
         <div class="settings-grid" id="browser-config" style="margin-top: 10px;">
           <div class="setting-row">
+            <label>Use My Browser</label>
+            <div class="toggle" id="browser.useMyBrowser-toggle" onclick="toggleSetting('browser.useMyBrowser')"></div>
+          </div>
+          <div class="setting-row">
+            <label>Browser</label>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <select id="browser-selector" style="width: 160px; padding: 6px 8px; border-radius: 6px; border: 1px solid #333; background: #1a1a2e; color: #e0e0e0; font-size: 13px;">
+                <option value="">Detecting...</option>
+              </select>
+              <button onclick="launchSelectedBrowser()" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #333; background: #7c3aed; color: white; cursor: pointer; font-size: 13px;">Launch</button>
+              <button onclick="testBrowserConnection()" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #333; background: #1a1a2e; color: #e0e0e0; cursor: pointer; font-size: 13px;">Test</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <label></label>
+            <span id="browser-launch-status" style="font-size: 12px; color: #888;"></span>
+          </div>
+          <div class="setting-row">
             <label>CDP URL</label>
             <input type="text" id="browser.cdpUrl" placeholder="http://localhost:9222" style="width: 180px;">
           </div>
@@ -2482,6 +2500,7 @@
       loadSkillsSummary();
       checkGlmStatus();
       checkGogStatus();
+      detectBrowsers();
       epInit();
 
       // Listen for tab navigation from main process
@@ -5837,6 +5856,70 @@ Never mention internal labels, automation, or filtering.`;
         console.error('Failed to load skills summary:', err);
         statusEl.className = 'status error';
         statusEl.textContent = 'Failed to load';
+      }
+    }
+
+    // Browser launcher functions
+    async function detectBrowsers() {
+      try {
+        const browsers = await window.pocketAgent.detectInstalledBrowsers();
+        const selector = document.getElementById('browser-selector');
+        if (!selector) return;
+        selector.innerHTML = '';
+        if (browsers.length === 0) {
+          selector.innerHTML = '<option value="">No browsers found</option>';
+          return;
+        }
+        for (const b of browsers) {
+          const opt = document.createElement('option');
+          opt.value = b.id;
+          opt.textContent = b.name;
+          selector.appendChild(opt);
+        }
+      } catch {
+        const selector = document.getElementById('browser-selector');
+        if (selector) selector.innerHTML = '<option value="">Detection failed</option>';
+      }
+    }
+
+    async function launchSelectedBrowser() {
+      const selector = document.getElementById('browser-selector');
+      const statusEl = document.getElementById('browser-launch-status');
+      if (!selector || !selector.value) return;
+      statusEl.textContent = 'Launching...';
+      statusEl.style.color = '#888';
+      try {
+        const result = await window.pocketAgent.launchBrowser(selector.value);
+        if (result.success) {
+          statusEl.textContent = 'Connected!';
+          statusEl.style.color = '#4ade80';
+        } else {
+          statusEl.textContent = result.error || 'Launch failed';
+          statusEl.style.color = '#f87171';
+        }
+      } catch (err) {
+        statusEl.textContent = err.message;
+        statusEl.style.color = '#f87171';
+      }
+    }
+
+    async function testBrowserConnection() {
+      const statusEl = document.getElementById('browser-launch-status');
+      const cdpUrl = document.getElementById('browser.cdpUrl')?.value || undefined;
+      statusEl.textContent = 'Testing...';
+      statusEl.style.color = '#888';
+      try {
+        const result = await window.pocketAgent.testBrowserConnection(cdpUrl);
+        if (result.connected) {
+          statusEl.textContent = 'Connected!';
+          statusEl.style.color = '#4ade80';
+        } else {
+          statusEl.textContent = result.error || 'Not connected';
+          statusEl.style.color = '#f87171';
+        }
+      } catch (err) {
+        statusEl.textContent = err.message;
+        statusEl.style.color = '#f87171';
       }
     }
 

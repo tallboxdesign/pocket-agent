@@ -11,6 +11,7 @@
 import { ElectronTier } from './electron-tier';
 import { CdpTier } from './cdp-tier';
 import { BrowserAction, BrowserResult, BrowserTier, BrowserToolInput } from './types';
+import { SettingsManager } from '../settings';
 
 export * from './types';
 
@@ -50,20 +51,30 @@ export class BrowserManager {
   private selectTier(action: BrowserAction): BrowserTier {
     // Explicit tier requested
     if (action.tier && (action.tier === 'electron' || action.tier === 'cdp')) {
+      console.log(`[Browser] Tier explicitly requested: ${action.tier}`);
       return action.tier;
     }
 
     // Auth required → CDP
     if (action.requiresAuth) {
+      console.log('[Browser] Auth required, using CDP tier');
+      return 'cdp';
+    }
+
+    // User preference: always use their browser (CDP)
+    if (SettingsManager.get('browser.useMyBrowser') === 'true') {
+      console.log('[Browser] useMyBrowser enabled, preferring CDP tier');
       return 'cdp';
     }
 
     // If we were already using CDP (for auth), stay there
     if (this.lastTier === 'cdp' && this.cdpTier?.isConnected()) {
+      console.log('[Browser] Staying on CDP tier (already connected)');
       return 'cdp';
     }
 
     // Default to Electron for JS rendering
+    console.log('[Browser] Using default Electron tier');
     return 'electron';
   }
 

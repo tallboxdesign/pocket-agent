@@ -373,6 +373,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: 'Chrome DevTools Protocol URL',
     type: 'string',
   },
+  {
+    key: 'browser.useMyBrowser',
+    defaultValue: 'false',
+    encrypted: false,
+    category: 'browser',
+    label: 'Use My Browser',
+    description: 'Always use your browser instead of headless mode',
+    type: 'boolean',
+  },
 
   // Scheduler settings
   {
