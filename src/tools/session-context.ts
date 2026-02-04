@@ -21,3 +21,20 @@ export function setCurrentSessionId(sessionId: string): void {
 export function getCurrentSessionId(): string {
   return currentSessionId;
 }
+
+// Telegram message context — set before each agent query so tools can target the right message
+let telegramMessageContext: { chatId: number; messageId: number } | null = null;
+
+/**
+ * Set the Telegram message context (chatId + messageId) for the current query
+ */
+export function setTelegramMessageContext(ctx: { chatId: number; messageId: number } | null): void {
+  telegramMessageContext = ctx;
+}
+
+/**
+ * Get the Telegram message context for the current query
+ */
+export function getTelegramMessageContext(): { chatId: number; messageId: number } | null {
+  return telegramMessageContext;
+}

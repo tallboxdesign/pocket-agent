@@ -602,7 +602,9 @@ class AgentManagerClass extends EventEmitter {
       this.emitStatus({ type: 'done' });
 
       // If no text response, make a follow-up call to get one
-      if (!response) {
+      // Skip if agent used telegram_react — an empty response is intentional (reaction only)
+      const usedReact = this.toolsUsedThisTurn.has('mcp__pocket-agent__telegram_react');
+      if (!response && !usedReact) {
         console.log('[AgentManager] No text response, requesting summary...');
         this.emitStatus({ type: 'thinking', message: 'summarizing...' });
 
@@ -1045,6 +1047,7 @@ class AgentManagerClass extends EventEmitter {
         'mcp__pocket-agent__kanban_move_task_to_project',
         // Custom MCP tools - telegram
         'mcp__pocket-agent__send_telegram_photo',
+        'mcp__pocket-agent__telegram_react',
         'mcp__pocket-agent__restart_telegram',
         // Custom MCP tools - gmail (gog CLI)
         'mcp__pocket-agent__read_emails',
@@ -1565,6 +1568,9 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
       voice_status: 'checking voice settings',
       voice_toggle: 'toggling auto-read',
       voice_config: 'configuring voice',
+
+      // Telegram tools
+      telegram_react: 'reacting to your message',
     };
     return friendlyNames[name] || name;
   }
@@ -1876,7 +1882,9 @@ ${conversationText}`;
   private buildChannelContext(channel: string): string {
     if (channel === 'telegram') {
       return `## Current Channel: Telegram
-The user is messaging via Telegram. A short voice summary is automatically sent alongside your text reply. You do NOT need to call speak(). Just write a detailed text response.`;
+The user is messaging via Telegram. A short voice summary is automatically sent alongside your text reply. You do NOT need to call speak(). Just write a detailed text response.
+
+You can use telegram_react to place an emoji reaction (👍, ❤️, 🔥, etc.) on the user's message. When a reaction alone is sufficient (e.g., acknowledging a request you're about to execute), react and return an empty response to save tokens.`;
     }
     if (channel === 'desktop' || channel === 'default') {
       return `## Current Channel: Desktop App

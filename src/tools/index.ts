@@ -26,6 +26,10 @@ import {
   handleSendTelegramPhotoTool,
 } from './telegram-photo-tool';
 import {
+  getTelegramReactToolDefinition,
+  handleTelegramReactTool,
+} from './telegram-react-tool';
+import {
   getNotifyToolDefinition,
   handleNotifyTool,
   getPtyExecToolDefinition,
@@ -51,7 +55,7 @@ export { getGmailTools } from './gmail-tools';
 export { getGlmWorkerTools } from './glm-worker';
 export { closeKanbanDb } from '../kanban';
 export { showNotification, execWithPty } from './macos';
-export { setCurrentSessionId, getCurrentSessionId } from './session-context';
+export { setCurrentSessionId, getCurrentSessionId, setTelegramMessageContext, getTelegramMessageContext } from './session-context';
 
 export interface MCPServerConfig {
   command: string;
@@ -483,6 +487,21 @@ export async function buildSdkMcpServers(
     );
     tools.push(photoTool);
 
+    // Telegram react tool
+    const wrappedReactHandler = wrapToolHandler('telegram_react', handleTelegramReactTool, getToolTimeout('telegram_react'));
+    const reactTool = tool(
+      'telegram_react',
+      getTelegramReactToolDefinition().description,
+      {
+        emoji: z.string(),
+      },
+      async (args) => {
+        const result = await wrappedReactHandler(args);
+        return { content: [{ type: 'text', text: result }] };
+      }
+    );
+    tools.push(reactTool);
+
     // Create the SDK MCP server
     const server = createSdkMcpServer({
       name: 'pocket-agent-tools',
@@ -658,6 +677,15 @@ export function getCustomTools(config: ToolsConfig): Array<{
     description: photoDef.description,
     input_schema: photoDef.input_schema as Record<string, unknown>,
     handler: handleSendTelegramPhotoTool,
+  });
+
+  // Telegram react tool
+  const reactDef = getTelegramReactToolDefinition();
+  tools.push({
+    name: reactDef.name,
+    description: reactDef.description,
+    input_schema: reactDef.input_schema as Record<string, unknown>,
+    handler: handleTelegramReactTool,
   });
 
   // Telegram restart tool

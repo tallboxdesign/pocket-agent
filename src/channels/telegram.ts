@@ -1,9 +1,11 @@
 import { Bot, Context, InputFile } from 'grammy';
+import type { ReactionTypeEmoji } from '@grammyjs/types';
 import { BaseChannel } from './index';
 import { AgentManager, ImageContent } from '../agent';
 import { SettingsManager } from '../settings';
 import { transcribeAudio, isTranscriptionAvailable } from '../utils/transcribe';
 import { synthesizeSpeech, stripMarkdown, summarizeForVoice } from '../voice/tts';
+import { setTelegramMessageContext } from '../tools/session-context';
 import { app, Notification } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -817,6 +819,12 @@ multiline</pre>
         ctx.replyWithChatAction('typing').catch(() => {});
       }, 4000);
 
+      // Set Telegram message context so tools (e.g. telegram_react) can target this message
+      const messageId = ctx.message?.message_id;
+      if (messageId) {
+        setTelegramMessageContext({ chatId, messageId });
+      }
+
       try {
         // Look up which session this chat is linked to
         const memory = AgentManager.getMemory();
@@ -824,8 +832,10 @@ multiline</pre>
 
         const result = await AgentManager.processMessage(message, 'telegram', sessionId);
 
-        // Send response, splitting if necessary
-        await this.sendResponse(ctx, result.response);
+        // Send response, splitting if necessary (skip if empty — agent may have only reacted)
+        if (result.response.trim()) {
+          await this.sendResponse(ctx, result.response);
+        }
 
         // Notify callback for cross-channel sync (to desktop)
         if (this.onMessageCallback) {
@@ -847,8 +857,9 @@ multiline</pre>
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
         await ctx.reply(`❌ Error: ${errorMsg}`);
       } finally {
-        // Always clear the typing interval to prevent leaks
+        // Always clear the typing interval and message context
         clearInterval(typingInterval);
+        setTelegramMessageContext(null);
       }
     });
 
@@ -866,6 +877,12 @@ multiline</pre>
       const typingInterval = setInterval(() => {
         ctx.replyWithChatAction('typing').catch(() => {});
       }, 4000);
+
+      // Set Telegram message context
+      const messageId = ctx.message?.message_id;
+      if (messageId) {
+        setTelegramMessageContext({ chatId, messageId });
+      }
 
       try {
         // Get the largest photo (last in array)
@@ -921,8 +938,10 @@ multiline</pre>
 
         const result = await AgentManager.processMessage(promptWithPath, 'telegram', sessionId, [imageContent]);
 
-        // Send response
-        await this.sendResponse(ctx, result.response);
+        // Send response (skip if empty — agent may have only reacted)
+        if (result.response.trim()) {
+          await this.sendResponse(ctx, result.response);
+        }
 
         // Notify callback for cross-channel sync
         if (this.onMessageCallback) {
@@ -944,6 +963,7 @@ multiline</pre>
         await ctx.reply(`❌ Error processing photo: ${errorMsg}`);
       } finally {
         clearInterval(typingInterval);
+        setTelegramMessageContext(null);
       }
     });
 
@@ -971,6 +991,12 @@ multiline</pre>
       const typingInterval = setInterval(() => {
         ctx.replyWithChatAction('typing').catch(() => {});
       }, 4000);
+
+      // Set Telegram message context
+      const messageId = ctx.message?.message_id;
+      if (messageId) {
+        setTelegramMessageContext({ chatId, messageId });
+      }
 
       try {
         // Get file info from Telegram
@@ -1021,8 +1047,10 @@ multiline</pre>
           attachmentType: 'voice',
         });
 
-        // Send response
-        await this.sendResponse(ctx, result.response);
+        // Send response (skip if empty — agent may have only reacted)
+        if (result.response.trim()) {
+          await this.sendResponse(ctx, result.response);
+        }
 
         // Notify callback for cross-channel sync
         if (this.onMessageCallback) {
@@ -1051,6 +1079,7 @@ multiline</pre>
         await ctx.reply(`❌ Error processing voice message: ${errorMsg}`);
       } finally {
         clearInterval(typingInterval);
+        setTelegramMessageContext(null);
       }
     });
 
@@ -1084,6 +1113,12 @@ multiline</pre>
       const typingInterval = setInterval(() => {
         ctx.replyWithChatAction('typing').catch(() => {});
       }, 4000);
+
+      // Set Telegram message context
+      const messageId = ctx.message?.message_id;
+      if (messageId) {
+        setTelegramMessageContext({ chatId, messageId });
+      }
 
       try {
         // Get file info from Telegram
@@ -1138,8 +1173,10 @@ multiline</pre>
           attachmentType: 'audio',
         });
 
-        // Send response
-        await this.sendResponse(ctx, result.response);
+        // Send response (skip if empty — agent may have only reacted)
+        if (result.response.trim()) {
+          await this.sendResponse(ctx, result.response);
+        }
 
         // Notify callback for cross-channel sync
         if (this.onMessageCallback) {
@@ -1167,6 +1204,7 @@ multiline</pre>
         await ctx.reply(`❌ Error processing audio: ${errorMsg}`);
       } finally {
         clearInterval(typingInterval);
+        setTelegramMessageContext(null);
       }
     });
 
@@ -1368,6 +1406,28 @@ multiline</pre>
       return true;
     } catch (error) {
       console.error(`[Telegram] Failed to send photo to chat ${chatId}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * React to a message with an emoji
+   */
+  async reactToMessage(chatId: number, messageId: number, emoji: string): Promise<boolean> {
+    if (!this.isRunning) {
+      console.error('[Telegram] Bot not running, cannot react');
+      return false;
+    }
+
+    try {
+      // Cast emoji to the grammY ReactionTypeEmoji union — Telegram validates server-side
+      await this.bot.api.setMessageReaction(chatId, messageId, [
+        { type: 'emoji', emoji: emoji as ReactionTypeEmoji['emoji'] },
+      ]);
+      console.log(`[Telegram] Reacted with ${emoji} on message ${messageId} in chat ${chatId}`);
+      return true;
+    } catch (error) {
+      console.error(`[Telegram] Failed to react on message ${messageId}:`, error);
       return false;
     }
   }
