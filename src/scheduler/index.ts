@@ -107,11 +107,11 @@ export class CronScheduler {
 
     // Start periodic check for calendar/task reminders (every 30 seconds)
     this.reminderInterval = setInterval(() => {
-      this.checkReminders();
+      this.checkReminders().catch(err => console.error('[Scheduler] Error checking reminders:', err));
     }, 30000);
 
     // Run initial reminder check
-    this.checkReminders();
+    this.checkReminders().catch(err => console.error('[Scheduler] Error checking reminders:', err));
   }
 
   /**

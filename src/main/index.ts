@@ -2678,8 +2678,12 @@ async function initializeAgent(): Promise<void> {
         openChatWindow();
         // Wait a bit for window to load, then send message
         setTimeout(() => {
-          if (chatWindow && !chatWindow.isDestroyed()) {
-            chatWindow.webContents.send('scheduler:message', { jobName, prompt, response, sessionId });
+          try {
+            if (chatWindow && !chatWindow.isDestroyed()) {
+              chatWindow.webContents.send('scheduler:message', { jobName, prompt, response, sessionId });
+            }
+          } catch (err) {
+            console.error('[Scheduler] Failed to send message to chat window:', err);
           }
         }, 1000);
       }

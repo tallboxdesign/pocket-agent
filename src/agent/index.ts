@@ -412,7 +412,11 @@ class AgentManagerClass extends EventEmitter {
    */
   private async processQueue(sessionId: string): Promise<void> {
     const queue = this.messageQueueBySession.get(sessionId);
-    if (!queue || queue.length === 0) return;
+    if (!queue || queue.length === 0) {
+      // Clean up empty queue entries to prevent memory leaks
+      if (queue) this.messageQueueBySession.delete(sessionId);
+      return;
+    }
 
     const next = queue.shift()!;
     console.log(`[AgentManager] Processing queued message for session ${sessionId}, ${queue.length} remaining`);
@@ -818,7 +822,7 @@ class AgentManagerClass extends EventEmitter {
       for (const item of queue) {
         item.reject(new Error('Queue cleared'));
       }
-      queue.length = 0;
+      this.messageQueueBySession.delete(sessionId);
       console.log(`[AgentManager] Queue cleared for session ${sessionId}`);
     }
   }

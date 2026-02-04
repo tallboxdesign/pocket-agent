@@ -606,8 +606,10 @@ export class MemoryManager {
 
     console.log(`[Memory] Embedding ${factsWithoutEmbeddings.length} facts...`);
 
-    for (const fact of factsWithoutEmbeddings) {
-      await this.embedFact(fact);
+    const batchSize = 5;
+    for (let i = 0; i < factsWithoutEmbeddings.length; i += batchSize) {
+      const batch = factsWithoutEmbeddings.slice(i, i + batchSize);
+      await Promise.all(batch.map(fact => this.embedFact(fact)));
     }
 
     console.log('[Memory] Finished embedding facts');
@@ -1338,20 +1340,26 @@ export class MemoryManager {
     `).all(sessionId, limit) as Array<{ id: number; content: string }>;
 
     let embedded = 0;
-    for (const msg of unembeddedMessages) {
-      try {
-        const embedding = await embed(msg.content);
-        const embeddingBuffer = serializeEmbedding(embedding);
+    const batchSize = 5;
+    for (let i = 0; i < unembeddedMessages.length; i += batchSize) {
+      const batch = unembeddedMessages.slice(i, i + batchSize);
+      const results = await Promise.all(batch.map(async (msg) => {
+        try {
+          const embedding = await embed(msg.content);
+          const embeddingBuffer = serializeEmbedding(embedding);
 
-        this.db.prepare(`
-          INSERT OR REPLACE INTO message_embeddings (message_id, embedding)
-          VALUES (?, ?)
-        `).run(msg.id, embeddingBuffer);
+          this.db.prepare(`
+            INSERT OR REPLACE INTO message_embeddings (message_id, embedding)
+            VALUES (?, ?)
+          `).run(msg.id, embeddingBuffer);
 
-        embedded++;
-      } catch (error) {
-        console.error(`[Memory] Failed to embed message ${msg.id}:`, error);
-      }
+          return true;
+        } catch (error) {
+          console.error(`[Memory] Failed to embed message ${msg.id}:`, error);
+          return false;
+        }
+      }));
+      embedded += results.filter(Boolean).length;
     }
 
     if (embedded > 0) {
