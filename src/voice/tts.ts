@@ -1,8 +1,26 @@
 /**
- * Text-to-Speech service using Microsoft Edge TTS (Brian voice)
+ * Text-to-Speech service with dual backends:
+ * 1. Microsoft Edge TTS (Brian voice) — cloud, higher quality
+ * 2. macOS `say` command — local, always works
+ *
+ * Tries Edge TTS first; falls back to macOS say if it fails.
  */
 
+// Patch Edge TTS Chromium version BEFORE importing EdgeTTS class.
+// Microsoft rejects old Sec-MS-GEC-Version values with 403.
+// When Edge TTS breaks again, update CHROMIUM_FULL_VERSION to match
+// the latest stable Edge version from:
+// https://learn.microsoft.com/en-us/deployedge/microsoft-edge-relnotes-security
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const drm = require('node-edge-tts/dist/drm');
+  drm.CHROMIUM_FULL_VERSION = '143.0.3650.75';
+} catch {
+  console.warn('[TTS] Could not patch node-edge-tts DRM constants');
+}
+
 import { EdgeTTS } from 'node-edge-tts';
+import { execFile } from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -10,9 +28,12 @@ import path from 'path';
 const TTS_VOICE = 'en-US-BrianMultilingualNeural';
 const TTS_FORMAT = 'audio-24khz-96kbitrate-mono-mp3';
 
+// macOS fallback voice (Daniel is the best built-in English male voice)
+const MACOS_VOICE = 'Daniel';
+
 /**
- * Synthesize text to MP3 audio file using Edge TTS.
- * Returns the file path of the generated audio.
+ * Synthesize text to MP3 audio file.
+ * Tries Edge TTS first, falls back to macOS `say` + ffmpeg.
  * Caches results by text content hash.
  */
 export async function synthesizeSpeech(text: string, outputDir: string): Promise<string> {
@@ -32,18 +53,67 @@ export async function synthesizeSpeech(text: string, outputDir: string): Promise
 
   fs.mkdirSync(outputDir, { recursive: true });
 
-  const tts = new EdgeTTS({
-    voice: TTS_VOICE,
-    outputFormat: TTS_FORMAT,
-  });
+  // Try Edge TTS first (higher quality Brian voice)
+  try {
+    await synthesizeWithEdgeTTS(cleanText, outputPath);
+    return outputPath;
+  } catch (edgeError) {
+    console.warn('[TTS] Edge TTS failed, falling back to macOS say:', (edgeError as Error).message);
+  }
 
-  await tts.ttsPromise(cleanText, outputPath);
+  // Fallback: macOS say + ffmpeg
+  await synthesizeWithMacosSay(cleanText, outputPath);
   return outputPath;
 }
 
 /**
- * Strip markdown formatting from text before feeding to TTS.
+ * Edge TTS synthesis (cloud)
  */
+async function synthesizeWithEdgeTTS(text: string, outputPath: string): Promise<void> {
+  const tts = new EdgeTTS({
+    voice: TTS_VOICE,
+    outputFormat: TTS_FORMAT,
+    timeout: 12000,
+  });
+  await tts.ttsPromise(text, outputPath);
+
+  // Verify file was actually created with content
+  if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
+    throw new Error('Edge TTS produced empty output');
+  }
+}
+
+/**
+ * macOS say command synthesis (local, always works)
+ * Generates AIFF then converts to MP3 via ffmpeg
+ */
+async function synthesizeWithMacosSay(text: string, outputPath: string): Promise<void> {
+  const aiffPath = outputPath.replace(/\.mp3$/, '.aiff');
+
+  // Generate speech with macOS say
+  await new Promise<void>((resolve, reject) => {
+    execFile('say', ['-v', MACOS_VOICE, '-o', aiffPath, text], (error) => {
+      if (error) reject(new Error(`macOS say failed: ${error.message}`));
+      else resolve();
+    });
+  });
+
+  // Convert AIFF to MP3 with ffmpeg
+  await new Promise<void>((resolve, reject) => {
+    execFile('ffmpeg', ['-y', '-i', aiffPath, '-codec:a', 'libmp3lame', '-b:a', '96k', outputPath], (error) => {
+      // Clean up AIFF regardless
+      try { fs.unlinkSync(aiffPath); } catch { /* ignore */ }
+
+      if (error) reject(new Error(`ffmpeg conversion failed: ${error.message}`));
+      else resolve();
+    });
+  });
+
+  if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
+    throw new Error('macOS TTS produced empty output');
+  }
+}
+
 /**
  * Summarize text for voice output (Telegram short summaries).
  * Extracts first paragraph or 2-3 sentences, capped at maxLength.
