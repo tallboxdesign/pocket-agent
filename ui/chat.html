@@ -968,6 +968,36 @@
       }
     }
 
+    /* Scroll buttons */
+    .scroll-btn {
+      position: fixed;
+      right: 24px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      opacity: 0;
+      transition: opacity 0.2s, background 0.2s;
+      pointer-events: none;
+    }
+
+    .scroll-btn.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .scroll-btn:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
     /* Input Area */
     #input-area {
       padding: 16px 20px 20px 20px;
@@ -1326,6 +1356,36 @@
       color: rgba(255, 255, 255, 0.6);
     }
 
+    .message-footer {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    .message:hover .message-footer {
+      opacity: 1;
+    }
+
+    .message-copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 11px;
+      padding: 2px 8px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .message-copy-btn:hover {
+      color: var(--text-primary);
+      border-color: var(--text-secondary);
+    }
+
     /* File Input (hidden) */
     #file-input {
       display: none;
@@ -1620,6 +1680,13 @@
   </div>
 
   <div id="messages"></div>
+
+  <button id="scroll-top-btn" class="scroll-btn" style="display:none; top: 80px;" onclick="scrollToTop()" title="Scroll to top">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
+  </button>
+  <button id="scroll-bottom-btn" class="scroll-btn" style="display:none; bottom: 100px;" onclick="scrollToBottom()" title="Scroll to bottom">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+  </button>
 
   <div id="input-area">
     <div class="input-container">
@@ -2575,6 +2642,7 @@
       const contentDiv = document.createElement('div');
       contentDiv.className = 'message-content';
       contentDiv.innerHTML = formatContent(content);
+      interceptLinks(contentDiv);
       wrapper.appendChild(contentDiv);
 
       // Add timestamp
@@ -3043,9 +3111,24 @@
         div.appendChild(timestampDiv);
       }
 
+      // Intercept link clicks to open in external browser
+      interceptLinks(div);
+
       // Add TTS play button for assistant messages
       if (role === 'assistant' && content) {
         addTTSButton(div, content);
+      }
+
+      // Add message footer with copy button
+      if (content && role !== 'system') {
+        const footer = document.createElement('div');
+        footer.className = 'message-footer';
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'message-copy-btn';
+        copyBtn.textContent = 'Copy';
+        copyBtn.onclick = () => copyMessageText(div, copyBtn);
+        footer.appendChild(copyBtn);
+        div.appendChild(footer);
       }
 
       // Insert before status indicator if one exists (keeps indicator at bottom)
@@ -3127,6 +3210,39 @@
       }
       // Fallback if marked isn't loaded
       return text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function copyMessageText(messageDiv, btn) {
+      // Clone the message element and remove footer before extracting text
+      const clone = messageDiv.cloneNode(true);
+      const footer = clone.querySelector('.message-footer');
+      if (footer) footer.remove();
+      const timestamp = clone.querySelector('.message-timestamp');
+      if (timestamp) timestamp.remove();
+      const ttsBtn = clone.querySelector('.tts-btn');
+      if (ttsBtn) ttsBtn.remove();
+      const badge = clone.querySelector('.role-badge');
+      if (badge) badge.remove();
+
+      const text = clone.textContent?.trim() || '';
+      navigator.clipboard.writeText(text).then(() => {
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      });
+    }
+
+    function interceptLinks(element) {
+      element.addEventListener('click', (e) => {
+        const link = e.target.closest('a[href]');
+        if (link) {
+          e.preventDefault();
+          const href = link.getAttribute('href');
+          if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+            window.pocketAgent.openExternal(href);
+          }
+        }
+      });
     }
 
     function addTimestamp(date) {
@@ -3278,6 +3394,26 @@
         });
       });
     }
+
+    function scrollToTop() {
+      messagesDiv.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const SCROLL_THRESHOLD = 200;
+    function updateScrollButtons() {
+      const scrollTopBtn = document.getElementById('scroll-top-btn');
+      const scrollBottomBtn = document.getElementById('scroll-bottom-btn');
+      if (!scrollTopBtn || !scrollBottomBtn) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = messagesDiv;
+      const distanceFromTop = scrollTop;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+      scrollTopBtn.classList.toggle('visible', distanceFromTop > SCROLL_THRESHOLD);
+      scrollBottomBtn.classList.toggle('visible', distanceFromBottom > SCROLL_THRESHOLD);
+    }
+
+    messagesDiv.addEventListener('scroll', updateScrollButtons);
 
     function handleKeydown(e) {
       // Tab: Accept the suggestion and place cursor at end
