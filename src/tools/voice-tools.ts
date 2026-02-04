@@ -13,6 +13,11 @@ import path from 'path';
 import { synthesizeSpeech } from '../voice/tts';
 import { SettingsManager } from '../settings';
 
+// Track active channel so speak tool skips desktop broadcast for Telegram
+let activeChannel: string = 'desktop';
+export function setActiveChannel(channel: string): void { activeChannel = channel; }
+export function getActiveChannel(): string { return activeChannel; }
+
 // ============================================================================
 // speak — Synthesize and play text aloud
 // ============================================================================
@@ -20,15 +25,15 @@ import { SettingsManager } from '../settings';
 export function getSpeakToolDefinition() {
   return {
     name: 'speak',
-    description: `Synthesize text and play it aloud to the user via TTS (text-to-speech).
+    description: `Synthesize text and play it aloud in the desktop chat window via TTS.
 
-Use this to speak to the user:
-- When the user sent a voice message (respond with voice too)
-- When delivering reminders or announcements
-- When the user asks you to "say" or "read" something aloud
-- When greeting the user verbally
+DO NOT use this tool for Telegram conversations — Telegram voice replies are sent automatically.
+Only use this for DESKTOP chat when:
+- The user asks you to "say" or "read" something aloud
+- Delivering reminders in the desktop window
+- Greeting the user verbally in desktop chat
 
-The text will be converted to speech using Edge TTS and played in the chat window.
+The text will be converted to speech and played in the desktop chat window.
 Markdown is automatically stripped before synthesis.`,
     input_schema: {
       type: 'object' as const,
@@ -48,6 +53,11 @@ export async function handleSpeakTool(input: unknown): Promise<string> {
 
   if (!params.text) {
     return JSON.stringify({ success: false, error: 'text is required' });
+  }
+
+  // Skip desktop playback for Telegram — voice replies are handled by sendVoiceReply
+  if (activeChannel === 'telegram') {
+    return JSON.stringify({ success: true, skipped: true, reason: 'Telegram voice replies are automatic' });
   }
 
   try {

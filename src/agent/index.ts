@@ -6,6 +6,7 @@ import { loadInstructions } from '../config/instructions';
 import { SettingsManager } from '../settings';
 import { logEvent } from '../memory/event-log';
 import { EventEmitter } from 'events';
+import { setActiveChannel } from '../tools/voice-tools';
 
 // Token limits - defaults, can be overridden by settings
 const DEFAULT_MAX_CONTEXT_TOKENS = 150000;
@@ -518,6 +519,9 @@ class AgentManagerClass extends EventEmitter {
         : undefined;
 
       const options = await this.buildOptions(factsContext, soulContext, abortController, lastUserMessageTimestamp, channel);
+
+      // Set active channel so speak tool skips desktop broadcast for Telegram
+      setActiveChannel(channel);
 
       // Configure provider environment based on model (sets ANTHROPIC_BASE_URL, AUTH_TOKEN, etc.)
       configureProviderEnvironment(this.model);
