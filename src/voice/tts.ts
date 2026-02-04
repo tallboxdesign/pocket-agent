@@ -28,8 +28,8 @@ import path from 'path';
 const TTS_VOICE = 'en-US-BrianMultilingualNeural';
 const TTS_FORMAT = 'audio-24khz-96kbitrate-mono-mp3';
 
-// macOS fallback voice — use Enhanced/Premium if available, else basic
-const MACOS_VOICE = 'Daniel (Enhanced)';
+// macOS fallback voice — Siri neural voice (Voice 2, 257 MB, must be downloaded in System Settings)
+const MACOS_VOICE = 'Siri';
 
 /**
  * Synthesize text to MP3 audio file.
