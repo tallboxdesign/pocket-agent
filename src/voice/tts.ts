@@ -117,9 +117,10 @@ async function synthesizeWithMacosSay(text: string, outputPath: string): Promise
 /**
  * Summarize text for voice output (Telegram short summaries).
  * Extracts first paragraph or 2-3 sentences, capped at maxLength.
+ * Skips meta-commentary lines about voice/audio that the agent may prepend.
  */
 export function summarizeForVoice(text: string, maxLength: number = 300): string {
-  const cleaned = stripMarkdown(text);
+  const cleaned = stripMarkdownAndMeta(stripMarkdown(text));
   if (cleaned.length <= maxLength) return cleaned;
 
   const firstPara = cleaned.split(/\n\n/)[0].trim();
@@ -138,6 +139,24 @@ export function summarizeForVoice(text: string, maxLength: number = 300): string
   const truncated = cleaned.slice(0, maxLength);
   const lastSpace = truncated.lastIndexOf(' ');
   return (lastSpace > maxLength / 2 ? truncated.slice(0, lastSpace) : truncated).trim() + '...';
+}
+
+/**
+ * Strip meta-commentary about voice/audio the agent often prepends.
+ * e.g. "Voice sent with the cleaner summary - should be playing now with Daniel's voice."
+ */
+function stripMarkdownAndMeta(text: string): string {
+  const lines = text.split('\n');
+  const filtered: string[] = [];
+  let pastMeta = false;
+  for (const line of lines) {
+    if (!pastMeta && /^(voice sent|here.?s the voice|should be playing|text version for reference)/i.test(line.trim())) {
+      continue;
+    }
+    pastMeta = true;
+    filtered.push(line);
+  }
+  return filtered.join('\n').trim();
 }
 
 export function stripMarkdown(text: string): string {
