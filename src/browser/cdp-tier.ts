@@ -166,11 +166,39 @@ export class CdpTier {
     try {
       const page = await this.ensurePage();
 
-      await page.waitForSelector(selector, { timeout: 5000 });
+      // Wait for element with shorter timeout
+      const element = await page.waitForSelector(selector, { timeout: 5000 });
+      if (!element) {
+        return {
+          success: false,
+          tier: 'cdp',
+          error: `Element not found: ${selector}`,
+        };
+      }
+
+      // Check if element is visible and enabled
+      const isClickable = await page.evaluate((sel: string) => {
+        const el = document.querySelector(sel) as HTMLElement;
+        if (!el) return { clickable: false, reason: 'not found' };
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none') return { clickable: false, reason: 'hidden (display:none)' };
+        if (style.visibility === 'hidden') return { clickable: false, reason: 'hidden (visibility)' };
+        if ((el as HTMLButtonElement).disabled) return { clickable: false, reason: 'disabled' };
+        return { clickable: true };
+      }, selector);
+
+      if (!isClickable.clickable) {
+        return {
+          success: false,
+          tier: 'cdp',
+          error: `Element not clickable: ${isClickable.reason}`,
+        };
+      }
+
       await page.click(selector);
 
-      // Wait for any navigation
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Brief wait for any immediate effects
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       return {
         success: true,
@@ -223,7 +251,10 @@ export class CdpTier {
     try {
       const page = await this.ensurePage();
 
-      const result = await page.evaluate(script);
+      // Wrap script in IIFE to avoid variable redeclaration issues
+      // when multiple evaluate calls use the same variable names
+      const wrappedScript = `(() => { ${script} })()`;
+      const result = await page.evaluate(wrappedScript);
 
       return {
         success: true,

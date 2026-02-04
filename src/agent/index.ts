@@ -597,8 +597,30 @@ class AgentManagerClass extends EventEmitter {
 
       this.emitStatus({ type: 'done' });
 
+      // If no text response, make a follow-up call to get one
       if (!response) {
-        response = 'I processed your request but have no text response.';
+        console.log('[AgentManager] No text response, requesting summary...');
+        this.emitStatus({ type: 'thinking', message: 'summarizing...' });
+
+        const summaryResult = query!({
+          prompt: 'Briefly summarize what you just did in 1-2 sentences.',
+          options: {
+            ...options,
+            maxThinkingTokens: undefined, // No extended thinking for summary
+          },
+        });
+
+        for await (const message of summaryResult) {
+          if (abortController.signal.aborted) break;
+          response = this.extractFromMessage(message, response);
+        }
+
+        // Final fallback if summary also fails
+        if (!response) {
+          response = 'Done.';
+        }
+
+        this.emitStatus({ type: 'done' });
       }
 
       // Log LLM call to event log
