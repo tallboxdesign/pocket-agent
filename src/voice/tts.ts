@@ -28,8 +28,8 @@ import path from 'path';
 const TTS_VOICE = 'en-US-BrianMultilingualNeural';
 const TTS_FORMAT = 'audio-24khz-96kbitrate-mono-mp3';
 
-// macOS fallback voice (Daniel is the best built-in English male voice)
-const MACOS_VOICE = 'Daniel';
+// macOS fallback voice — use Enhanced/Premium if available, else basic
+const MACOS_VOICE = 'Daniel (Enhanced)';
 
 /**
  * Synthesize text to MP3 audio file.
@@ -100,7 +100,7 @@ async function synthesizeWithMacosSay(text: string, outputPath: string): Promise
 
   // Convert AIFF to MP3 with ffmpeg
   await new Promise<void>((resolve, reject) => {
-    execFile('ffmpeg', ['-y', '-i', aiffPath, '-codec:a', 'libmp3lame', '-b:a', '96k', outputPath], (error) => {
+    execFile('ffmpeg', ['-y', '-i', aiffPath, '-codec:a', 'libmp3lame', '-b:a', '128k', outputPath], (error) => {
       // Clean up AIFF regardless
       try { fs.unlinkSync(aiffPath); } catch { /* ignore */ }
 
