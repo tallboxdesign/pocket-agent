@@ -809,10 +809,16 @@
       color: var(--text-secondary);
     }
 
+    .message .table-wrapper {
+      overflow-x: auto;
+      margin: 0.5em 0;
+      max-width: 100%;
+    }
+
     .message table {
       border-collapse: collapse;
-      margin: 0.5em 0;
-      width: 100%;
+      min-width: 100%;
+      white-space: nowrap;
       font-size: 0.95em;
     }
 
@@ -2133,11 +2139,14 @@
     async function loadSessions() {
       try {
         sessions = await window.pocketAgent.getSessions();
-        renderTabs();
-        // Set current session to the first one (most recently active) or default
-        if (sessions.length > 0) {
+        // Restore persisted session if it still exists
+        const savedSessionId = localStorage.getItem('currentSessionId');
+        if (savedSessionId && sessions.find(s => s.id === savedSessionId)) {
+          currentSessionId = savedSessionId;
+        } else if (sessions.length > 0) {
           currentSessionId = sessions[0].id;
         }
+        renderTabs();
       } catch (err) {
         console.error('Failed to load sessions:', err);
       }
@@ -2272,6 +2281,7 @@
 
       // Switch to new session
       currentSessionId = sessionId;
+      localStorage.setItem('currentSessionId', currentSessionId);
       renderTabs();
       messagesDiv.innerHTML = '';
       await loadHistory();
@@ -2348,6 +2358,7 @@
         }
         sessions.push(result.session); // Add to end (right side)
         currentSessionId = result.session.id;
+        localStorage.setItem('currentSessionId', currentSessionId);
         renderTabs();
         messagesDiv.innerHTML = '';
         showEmptyState();
@@ -2465,6 +2476,7 @@
         // If we deleted the current session, switch to another
         if (sessionId === currentSessionId) {
           currentSessionId = sessions[0]?.id || 'default';
+          localStorage.setItem('currentSessionId', currentSessionId);
           messagesDiv.innerHTML = '';
           await loadHistory();
         }
@@ -3093,6 +3105,9 @@
           gfm: true, // GitHub flavored markdown
         });
         let html = marked.parse(text);
+        // Wrap tables for horizontal scrolling
+        html = html.replace(/<table>/g, '<div class="table-wrapper"><table>');
+        html = html.replace(/<\/table>/g, '</table></div>');
         // Render screenshot images inline
         html = html.replace(
           /(?<!")(?<!=)(\/(?:Users|tmp|var|home|Library)[^\s<>"'`\)]*\/screenshots\/[^\s<>"'`\)]*\.(?:png|jpg|jpeg|gif|webp))/gi,

@@ -20,6 +20,7 @@ import { getKanbanTools } from './kanban-tools';
 import { getGmailTools } from './gmail-tools';
 import { getGlmWorkerTools } from './glm-worker';
 import { getVoiceTools } from './voice-tools';
+import { getProjectTools } from './project-tools';
 import {
   getSendTelegramPhotoToolDefinition,
   handleSendTelegramPhotoTool,
@@ -442,6 +443,30 @@ export async function buildSdkMcpServers(
       tools.push(sdkTool);
     }
 
+    // Project tools
+    const projectTools = getProjectTools();
+    for (const projTool of projectTools) {
+      const wrappedHandler = wrapToolHandler(projTool.name, projTool.handler, getToolTimeout(projTool.name));
+      const sdkTool = tool(
+        projTool.name,
+        projTool.description,
+        Object.fromEntries(
+          Object.entries(projTool.input_schema.properties || {}).map(([key, value]: [string, unknown]) => {
+            const prop = value as { type?: string };
+            if (prop.type === 'string') return [key, z.string().optional()];
+            if (prop.type === 'number') return [key, z.number().optional()];
+            if (prop.type === 'boolean') return [key, z.boolean().optional()];
+            return [key, z.any().optional()];
+          })
+        ),
+        async (args) => {
+          const result = await wrappedHandler(args);
+          return { content: [{ type: 'text', text: result }] };
+        }
+      );
+      tools.push(sdkTool);
+    }
+
     // Telegram photo tool
     const wrappedPhotoHandler = wrapToolHandler('send_telegram_photo', handleSendTelegramPhotoTool, getToolTimeout('send_telegram_photo'));
     const photoTool = tool(
@@ -612,6 +637,17 @@ export function getCustomTools(config: ToolsConfig): Array<{
       description: voiceTool.description,
       input_schema: voiceTool.input_schema as Record<string, unknown>,
       handler: voiceTool.handler,
+    });
+  }
+
+  // Project tools
+  const projectToolsCustom = getProjectTools();
+  for (const projTool of projectToolsCustom) {
+    tools.push({
+      name: projTool.name,
+      description: projTool.description,
+      input_schema: projTool.input_schema as Record<string, unknown>,
+      handler: projTool.handler,
     });
   }
 

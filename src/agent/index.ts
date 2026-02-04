@@ -902,6 +902,36 @@ class AgentManagerClass extends EventEmitter {
     return false;
   }
 
+  /**
+   * Get the current workspace directory
+   */
+  getWorkspace(): string {
+    return this.workspace;
+  }
+
+  /**
+   * Get the project root directory
+   */
+  getProjectRoot(): string {
+    return this.projectRoot;
+  }
+
+  /**
+   * Set the workspace directory
+   */
+  setWorkspace(path: string): void {
+    this.workspace = path;
+    console.log(`[AgentManager] Workspace set to: ${path}`);
+  }
+
+  /**
+   * Reset workspace to project root
+   */
+  resetWorkspace(): void {
+    this.workspace = this.projectRoot;
+    console.log(`[AgentManager] Workspace reset to project root: ${this.projectRoot}`);
+  }
+
   private async buildOptions(factsContext: string, soulContext: string, abortController: AbortController, lastMessageTimestamp?: string, channel?: string): Promise<SDKOptions> {
     const appendParts: string[] = [];
 
