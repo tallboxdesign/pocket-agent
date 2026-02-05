@@ -1,7 +1,7 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
-**Last Updated:** 2026-02-03
+**Last Updated:** 2026-02-04
 **Status:** IN PROGRESS — v4.1 Email Intelligence
 **Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-4.7 (utility model)
 
@@ -47,6 +47,7 @@ If in doubt, **do nothing** rather than risk data loss.
 18. [Task Consolidation & Kanban Automation](#18-task-consolidation--kanban-automation)
 19. [Voice / TTS Agent Tools](#19-voice--tts-agent-tools)
 20. [Label Precision — Definition & Negative Guidance](#20-label-precision--definition--negative-guidance)
+21. [Telegram Emoji Reactions Tool](#21-telegram-emoji-reactions-tool--done)
 
 ---
 
@@ -1002,40 +1003,133 @@ Part of the daily summary (Section 5). GLM receives project data and returns a r
 ## 17. Upstream Ports (from KenKaiii/pocket-agent)
 
 ### What
-Cherry-pick valuable improvements from the original repo without adopting the cat theme, click sounds, or splash screen. Manual port to avoid merge conflicts with our Kanban, voice, and TTS work.
+Port ALL valuable improvements from upstream v1.0.14 → v2.0.4 (21 commits) without breaking our custom features (email processing, rules engine, unanswered scan, kanban, voice/TTS, GLM multi-provider routing, label management).
 
-### 17.1 Skills Setup — Inline API Key Entry
-**Source:** `c770b6d` (upstream)
-- 5 new skill setup wizards: 1Password, Gemini, Himalaya (email), Notion, Trello
-- Inline API key modal on the Superpowers page — no need to navigate to Settings
-- Per-env-var input fields with "Get key" links to provider pages
-- **Method:** Take upstream `ui/skills-setup.html` directly (we never modified this file)
+### Safety Protocol
+- **Backup branch** before any changes: `backup/my-voice-features-before-upstream-port`
+- `npm run typecheck && npm run lint` after every phase
+- Build + install + full smoke test at the end
+- Rollback: `git reset --hard backup/my-voice-features-before-upstream-port`
 
-### 17.2 Session State Persistence
-**Source:** `c770b6d` (upstream)
-- Per-session input text — draft text saved when switching tabs, restored when switching back
-- Per-session attachments — dragged-in files preserved per tab
-- Per-session suggestions — ghost text suggestions preserved per tab
-- Per-session queued messages — pending message tracking per tab
-- Per-session pending user messages — unsaved messages re-rendered on tab switch
-- **Method:** Manually port the Map-based state refactoring into our `ui/chat.html`, skipping cat theme and click sounds
+### DO NOT Port (protect our features)
+- `extractFactsBeforeCompaction` — we actively use it (`agent/index.ts:1568`)
+- `pty_exec` tool — we actively use it (`agent/index.ts:944,1168-1173`)
+- Tool description shortening — our descriptions have NL scheduling docs, channel detection
+- Splash screen / cat theme / click sounds / Pixelify Sans font / About modal
+- Upstream's basic GLM 4.7 support — we have superior multi-provider routing
 
-### 17.3 Stopped Query Bug Fix
-**Source:** `c770b6d` (upstream)
-- Suppress "Aborted" error messages when user intentionally stops a query
-- Add `showTimestamp` parameter to `addMessage()` — stopped messages shown without timestamp
-- **Method:** Small targeted edit in our `ui/chat.html`
+### Skip Entirely (11 commits)
+`64e5a06` cat UI, `c770b6d` splash+sounds, `50508cc` MIT+README, `acfa217` splash fix,
+`af55b0f` badge styling (we have better), `147d56e` basic GLM (we have better),
+version bumps: `6c58df2` `8dac6d6` `1e03577` `594ee4e` `9e0ea9a` `7eab8f4` `4386fd6` `6f1db44`
 
-### What We Skip
-- Splash screen with shimmer animation (`ui/splash.html`)
-- Click sounds on every button (`assets/click.mp3`, `assets/normal-click.mp3`)
-- "Franky the Cat" identity (pixel cat spinner, paw print send button, Pixelify Sans font)
-- Cat-themed status messages in `src/agent/index.ts`
-- These can be revisited later if desired
+---
 
-### Files to Modify
-- REPLACE: `ui/skills-setup.html` — take upstream version
-- MODIFY: `ui/chat.html` — session state Maps + stopped query fix (manual port)
+### 17.1 Phase 1 — Clean Cherry-Picks (3 commits)
+Dry-run tested, no conflicts.
+
+| Commit | What | File |
+|--------|------|------|
+| `9ef7724` | Telegram markdown — fix italic regex corrupting `@@PROTECTED_N@@` markers | `src/channels/telegram.ts` |
+| `8f9c569` | Menu z-index — fix dropdown overlapping scroll buttons | `ui/chat.html` |
+| `e992662` | NVM path detection — dynamic node path resolution for packaged app | `src/main/index.ts` |
+
+### 17.2 Phase 2 — Performance + Memory Leaks (d338555, selective)
+
+| Change | File | What |
+|--------|------|------|
+| Parallelize embeddings | `src/memory/index.ts` | Batch-of-5 `Promise.all` in `embedAllFacts()` and `embedRecentMessages()` |
+| Catch promise rejection | `src/scheduler/index.ts` | `.catch()` on `checkReminders()` calls |
+| Try/catch scheduler send | `src/main/index.ts` | Wrap `chatWindow.webContents.send('scheduler:message')` in try/catch |
+| Queue memory leak fix | `src/agent/index.ts` | `delete` queue map key instead of `.length = 0` |
+
+**SKIP**: splash webPreferences, removal of extractFactsBeforeCompaction, removal of getTokenLimits, config.example.json deletion.
+
+### 17.3 Phase 3 — Browser Automation Fixes (70cc269)
+
+| Change | File | What |
+|--------|------|------|
+| Element validation | `src/browser/cdp-tier.ts` | Check visibility/enabled before click, IIFE-wrap evaluate scripts |
+| Follow-up summary | `src/agent/index.ts` | When no text response after tool use, make follow-up query for summary |
+
+### 17.4 Phase 4 — Browser Launcher UI (b9d2a36, selective)
+
+| Change | File | What |
+|--------|------|------|
+| NEW: Browser launcher | `src/browser/launcher.ts` | detectInstalledBrowsers(), launchBrowser(), testCdpConnection() |
+| useMyBrowser setting | `src/browser/index.ts` | SettingsManager import, CDP preference check in selectTier() |
+| Setting definition | `src/settings/index.ts` | `browser.useMyBrowser` boolean setting |
+| IPC handlers | `src/main/index.ts` | browser:detectInstalled, browser:launch, browser:testConnection |
+| Preload API | `src/main/preload.ts` | 3 new browser control methods + TS declarations |
+| UI controls | `ui/settings.html` | Browser selector, Launch/Test buttons, Use My Browser toggle |
+
+**SKIP**: full settings.html section rewrite (keep our structure, add controls inline), screenshot path change.
+
+### 17.5 Phase 5 — Session Persistence + Safety + Project Tools (342e689, selective)
+
+| Change | File | What |
+|--------|------|------|
+| NEW: Safety module | `src/agent/safety.ts` | Input validation and safety hooks (617 lines) |
+| NEW: Project tools | `src/tools/project-tools.ts` | Project file operation tools (313 lines) |
+| NEW: Project MCP | `src/mcp/project-server.ts` | MCP server for project operations (281 lines) |
+| NEW: Safety tests | `tests/unit/safety.test.ts` | Safety module test suite (354 lines) |
+| Workspace methods | `src/agent/index.ts` | getWorkspace(), getProjectRoot(), setWorkspace(), resetWorkspace() |
+| Register project tools | `src/tools/index.ts` | Import + register in buildSdkMcpServers() and getCustomTools() |
+| Session persistence | `ui/chat.html` | localStorage save/restore of currentSessionId (3 spots) |
+| Table wrapper | `ui/chat.html` | CSS for scrollable tables + JS to wrap `<table>` in div |
+
+**SKIP**: tool description shortening, pty_exec removal.
+
+### 17.6 Phase 6 — Chat UI Enhancements (e8cc313 + 0ad2276 + 2f4b279, selective)
+
+| Change | Source | What |
+|--------|--------|------|
+| Link click interceptor | `e8cc313` | Intercept `<a>` clicks → openExternal() for http/https links |
+| Scroll-to-top/bottom buttons | `0ad2276` | CSS + HTML + JS for scroll buttons with visibility threshold |
+| Copy button on messages | `2f4b279` | Footer with copy button, copyMessageText() clipboard function |
+
+**SKIP**: About modal (upstream branding), click sounds, chat search (defer — ~490 lines, separate follow-up).
+
+### 17.7 Phase 7 — Preload TypeScript fix
+
+| Change | File | What |
+|--------|------|------|
+| Fix TS declaration | `src/main/preload.ts` | `openSettings: (tab?: string) => Promise<void>` (line 353) |
+| Browser declarations | `src/main/preload.ts` | Add TS types for browser control APIs |
+
+### Files Modified (total)
+
+| File | Phases |
+|------|--------|
+| `src/agent/index.ts` | 2, 3, 5 |
+| `src/browser/cdp-tier.ts` | 3 |
+| `src/browser/index.ts` | 4 |
+| `src/browser/launcher.ts` | 4 (NEW) |
+| `src/agent/safety.ts` | 5 (NEW) |
+| `src/tools/project-tools.ts` | 5 (NEW) |
+| `src/mcp/project-server.ts` | 5 (NEW) |
+| `tests/unit/safety.test.ts` | 5 (NEW) |
+| `src/tools/index.ts` | 5 |
+| `src/memory/index.ts` | 2 |
+| `src/scheduler/index.ts` | 2 |
+| `src/main/index.ts` | 1, 2, 4 |
+| `src/main/preload.ts` | 4, 7 |
+| `src/settings/index.ts` | 4 |
+| `src/channels/telegram.ts` | 1 |
+| `ui/chat.html` | 1, 5, 6 |
+| `ui/settings.html` | 4 |
+
+### 17.10 UI Improvements (2026-02-05)
+
+**Rule Editor Modal — Resizable**
+The rule editor modal was cutting off content (textarea going under the window). Made it responsive and resizable:
+- Added `.ep-modal.resizable` CSS class with `resize: both`
+- Default width 600px, min 400px, max 90vw
+- Min height 400px, max 90vh
+- Removed inline `max-height:460px` constraint on modal body
+- User can drag bottom-right corner to resize
+
+**File:** `ui/settings.html`
 
 ---
 
@@ -1253,6 +1347,55 @@ Voice behavior differs by channel:
 - MODIFY: `src/agent/index.ts` — inject channel into system prompt + `buildChannelContext()`
 - MODIFY: `ui/chat.html` — always pre-cache voice, auto-play gated by toggle
 
+### Edge TTS Fallback (2026-02-04)
+Microsoft changed the Edge TTS WebSocket synthesis protocol, breaking all Node.js libraries (`node-edge-tts`, `@andresaya/edge-tts`, `edge-tts-universal`). The auth token update (Chromium version 143.0.3650.75) allows connection, but synthesis messages get rejected (close code 1011).
+
+**Solution:** Dual-backend TTS with automatic fallback:
+1. Try Edge TTS first (will auto-work when protocol is fixed)
+2. Fall back to macOS `say` command with `Daniel (Enhanced)` voice + ffmpeg MP3 conversion
+
+**Files Modified:**
+- `src/voice/tts.ts` — Added `synthesizeWithMacosSay()`, try/catch wrapper, DRM patch at import time
+
+### Channel-Aware Speak Tool (2026-02-04)
+The `speak` tool was broadcasting audio to desktop windows even during Telegram conversations, causing unwanted audio playback.
+
+**Solution:**
+- Track active channel via `setActiveChannel()`/`getActiveChannel()` in voice-tools
+- `handleSpeakTool` skips desktop broadcast when `activeChannel === 'telegram'`
+- Updated tool description to explicitly say "DO NOT use for Telegram"
+- `src/agent/index.ts` calls `setActiveChannel(channel)` before each query
+
+### Meta-Commentary Stripping (2026-02-04)
+Agent responses often start with meta-commentary like "Voice sent with the cleaner summary..." which `summarizeForVoice()` was reading aloud instead of the actual content.
+
+**Solution:**
+- Added `stripMarkdownAndMeta()` function to `src/voice/tts.ts`
+- Filters out lines starting with voice-related meta phrases before extracting summary
+
+---
+
+## 21. Telegram Emoji Reactions Tool ✅ DONE
+
+### What
+Agent can place emoji reactions (👍, ❤️, 🔥, etc.) on user Telegram messages instead of generating full text replies, saving output tokens. When a reaction alone is sufficient (e.g., acknowledging a request), the agent reacts and returns an empty response.
+
+### Implementation
+- **`src/tools/session-context.ts`** — Added `telegramMessageContext` (chatId + messageId) set/cleared per handler
+- **`src/tools/telegram-react-tool.ts`** (NEW) — `getTelegramReactToolDefinition()` + `handleTelegramReactTool(input)`, reads context from session-context
+- **`src/channels/telegram.ts`** — `reactToMessage()` method via grammY `setMessageReaction` API; all 4 message handlers (text, photo, voice, audio) set/clear context and skip empty responses
+- **`src/tools/index.ts`** — Registered in both `buildSdkMcpServers()` and `getCustomTools()`
+- **`src/agent/index.ts`** — Added to `allowedTools`, `buildChannelContext('telegram')` mentions react tool, skip forced summary follow-up when `telegram_react` was used
+
+### Files Created/Modified
+| File | Change |
+|------|--------|
+| `src/tools/session-context.ts` | Added telegramMessageContext get/set |
+| `src/tools/telegram-react-tool.ts` | NEW — tool definition + handler |
+| `src/channels/telegram.ts` | reactToMessage(), context tracking, empty response skip |
+| `src/tools/index.ts` | Import + register in SDK + custom tools |
+| `src/agent/index.ts` | allowedTools, channel context, summary skip, friendly name |
+
 ---
 
 ## Implementation Order (Priority)
@@ -1288,13 +1431,14 @@ Voice behavior differs by channel:
 
 ### Phase 2 — Unified Task System & Data Completeness ← CURRENT
 _Foundation: everything routes through Kanban, data is clean, nothing lost_
-22. Rewire `task_add/list/complete/delete` tools → Kanban Personal project (unifies all tasks into one system)
+22. ✅ Rewire `task_add/list/complete/delete` tools → Kanban Personal project (unifies all tasks into one system)
 23. Actor tracking fixes — ensure every Kanban mutation correctly sets actor (user/claude/glm/system)
 24. Store tool output in event_log — save first 2000 chars of every tool result (closes the last data gap)
 25. Project selector in New Task modal (quick win, depends on unified task system)
 26. Auto-task recording — agent auto-creates Kanban task when no task context exists
 27. `/continue` command — shows list of all active projects with status/issues, user picks one to resume
-28. Voice/TTS agent tools + channel-aware voice — 4 MCP tools, channel injection, Telegram /voice command, desktop pre-cache
+28. ✅ Voice/TTS agent tools + channel-aware voice — 4 MCP tools, channel injection, Telegram /voice command, desktop pre-cache (Section 19)
+28b. ✅ Telegram emoji reactions — `telegram_react` tool for token-saving acknowledgments (Section 21)
 29. Label precision — definition + negative guidance fields per label (Section 20)
 30. Label routing — per-label archive-from-inbox + mark-read after classification/correction/rules (Section 20)
 31. Bulk label correction — multi-select emails in history, apply one label to all, train-as-example toggle (Section 20)

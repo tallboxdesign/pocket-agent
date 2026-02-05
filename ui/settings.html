@@ -1227,6 +1227,20 @@
       flex-direction: column;
       box-shadow: 0 20px 60px rgba(0,0,0,0.5);
     }
+    .ep-modal.resizable {
+      width: 600px;
+      min-width: 400px;
+      max-width: 90vw;
+      min-height: 400px;
+      max-height: 90vh;
+      resize: both;
+      overflow: hidden;
+    }
+    .ep-modal.resizable .ep-modal-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
     .ep-modal-header {
       display: flex;
       justify-content: space-between;
@@ -2267,12 +2281,12 @@
 
         <!-- Rule Editor Modal -->
         <div class="ep-modal-overlay" id="ep-rule-editor-modal">
-          <div class="ep-modal" style="max-width:560px;">
+          <div class="ep-modal resizable">
             <div class="ep-modal-header">
               <h3 id="ep-rule-editor-title">New Rule</h3>
               <button class="ep-modal-close" onclick="epCloseRuleEditor()">&times;</button>
             </div>
-            <div class="ep-modal-body" style="max-height:460px;overflow-y:auto;">
+            <div class="ep-modal-body">
               <input type="hidden" id="ep-rule-edit-id" value="">
 
               <div class="ep-group">
