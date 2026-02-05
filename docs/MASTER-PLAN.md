@@ -1133,6 +1133,54 @@ The rule editor modal was cutting off content (textarea going under the window).
 
 ---
 
+### 17.11 Upstream Port Phase 2 (2026-02-05) — PLANNED
+
+Port 7 new commits from upstream v2.0.5 → v2.0.8, coexisting with our features.
+
+**Commits to Port:**
+| Commit | Feature | Value |
+|--------|---------|-------|
+| `ce5a566` | Telegram /new, /model, /help commands + model sync | ⭐⭐⭐ HIGH |
+| `7d9d698` | Telegram icon instant update on link/unlink | ⭐⭐ MEDIUM |
+| `0be37c9` | Routine vs reminder tool naming (clearer descriptions) | ⭐⭐⭐ HIGH |
+| `699d324` | CDP auto-reconnect + power management (App Nap prevention) | ⭐⭐⭐ HIGH |
+| `9beafb1` | Compaction notification fix (wasCompacted flag) | ⭐⭐ MEDIUM |
+| `1d6b2fa` | Compaction model fallback (try Haiku, then user's model) | ⭐⭐⭐ HIGH |
+| `e843859` | Mind map organic connectors + drag performance | ⭐⭐ MEDIUM |
+
+**Skip (branding/cosmetic):**
+- Pixel cat animation, pixel heart, Pixelify Sans font, "Who made me" text changes
+
+**Coexistence Rules:**
+- **KEEP** our `/clear`, `/mychatid`, `/voice` commands alongside new `/new`, `/model`, `/help`
+- **KEEP** old tool names as aliases if renaming (non-breaking)
+- **KEEP** our legend div in mind map (upstream removed it)
+- **DO NOT** add Pixelify Sans font or playNormalClick() sounds
+
+**Phases:**
+1. Telegram commands (/new, /model, /help) + model sync to desktop
+2. Telegram icon instant update on link/unlink
+3. Routine vs reminder tool descriptions (aliased, non-breaking)
+4. CDP auto-reconnect + power management (powerSaveBlocker)
+5. Compaction notification fix (newSummaryCreated stat)
+6. Compaction model fallback loop
+7. Mind map organic connectors (manual port, skip font/sounds)
+
+**Files Modified:**
+- `src/channels/telegram.ts` — new commands, session link broadcast
+- `src/agent/index.ts` — setModel(), compaction fixes
+- `src/browser/cdp-tier.ts` — health check, auto-reconnect
+- `src/main/index.ts` — power management, session IPC
+- `src/main/preload.ts` — model/session listeners
+- `src/memory/index.ts` — newSummaryCreated stat
+- `src/tools/scheduler-tools.ts` — routine/reminder descriptions
+- `ui/chat.html` — model sync, compaction toast
+- `ui/facts-graph.html` — organic connectors
+
+**Full plan:** `.claude/plans/upstream-port-phase2.md`
+
+---
+
 ## 18. Task Consolidation & Kanban Automation
 
 ### Problem
