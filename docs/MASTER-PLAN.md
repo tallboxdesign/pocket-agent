@@ -1534,6 +1534,42 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 43. ✅ Reminder decision tree — clear instructions for `create_reminder` vs Apple Reminders vs Things vs `schedule_task` (Section 23.1)
 44. Dynamic rules pattern — routing rules live in facts, agent searches on-demand instead of system prompt bloat (Section 23.1) — instructions added, full pattern is ongoing
 
+### Phase 2B — Multi-Agent Research System ← IMMEDIATE PRIORITY
+_Enables parallel research with multiple SDK agents, compiled by GLM_
+
+45. **Research Orchestrator** — `src/agent/research.ts`
+    - `breakIntoSubTopics(query)` — GLM splits user query into 2-4 focused sub-topics
+    - `spawnResearchAgent(subTopic)` — wrapper around SDK `query()` with research-focused prompt
+    - `executeResearch(request)` — spawns parallel agents via `Promise.all()`
+    - `compileResults(results[])` — GLM deduplicates and compiles findings
+    - Progress streaming via EventEmitter
+
+46. **Research Tools** — `src/tools/research-tools.ts`
+    - `research(query, project?)` — triggers multi-agent research, returns job_id
+    - `research_status(job_id)` — check progress (agents running, sources found)
+    - `get_research(job_id)` — retrieve completed research report
+
+47. **Research Database** — `research_jobs` table
+    - Schema: `id, query, sub_topics JSON, status, agent_results JSON, compiled_report, sources JSON, token_usage JSON, created_at, completed_at`
+    - Tracks each research job lifecycle
+
+48. **Kanban Integration**
+    - Auto-create task tagged `research` when research starts
+    - Update task description as agents complete
+    - Final compiled report stored in task
+    - Voice summary button for TTS readout
+
+49. **Notifications & Progress**
+    - Telegram: "🔍 Research started: 3 agents on 'Sofia house prices'"
+    - Telegram: "✅ Research complete: 42 sources, report ready"
+    - Desktop notifications for completion
+    - Real-time progress in chat UI
+
+50. **SDK Agent Optimizations for Research** (from Section 23 review)
+    - Retry logic with exponential backoff (prevent mid-research failures)
+    - Streaming progress (show agent activity in real-time)
+    - Per-agent token tracking
+
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
 _Central service: `src/scheduler/glm-loop.ts` — orchestrates all parallel GLM jobs_
@@ -2131,3 +2167,206 @@ This allows unlimited rules without growing the system prompt.
 | `src/kanban/index.ts` | Add `getProjectByName(name)` method |
 
 ### Status: ✅ IMPLEMENTED (2026-02-06)
+
+---
+
+## 24. Multi-Agent Research System — Implementation Plan
+
+### Overview
+
+Enable the manager agent to spawn multiple parallel Claude SDK agents for deep research. Each sub-agent focuses on one aspect of the query, results are compiled by GLM, and stored in Kanban.
+
+### Architecture
+
+```
+User: "Research house prices in Sofia"
+              ↓
+┌─────────────────────────────────────────────────────────────┐
+│  MANAGER AGENT (main Claude instance)                       │
+│  1. Receives research request                               │
+│  2. Calls GLM to break into sub-topics                      │
+│  3. Creates research_job in DB (status: 'running')          │
+│  4. Creates Kanban task tagged 'research'                   │
+└─────────────────────────────────────────────────────────────┘
+              ↓
+        Promise.all([...])  ← PARALLEL EXECUTION
+              ↓
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ SDK Agent 1 │  │ SDK Agent 2 │  │ SDK Agent 3 │
+│ Topic A     │  │ Topic B     │  │ Topic C     │
+│ 20 turns    │  │ 20 turns    │  │ 20 turns    │
+│ WebSearch   │  │ WebSearch   │  │ WebSearch   │
+│ WebFetch    │  │ WebFetch    │  │ WebFetch    │
+└─────────────┘  └─────────────┘  └─────────────┘
+              ↓
+┌─────────────────────────────────────────────────────────────┐
+│  GLM POST-PROCESSOR                                         │
+│  - Deduplicate findings                                     │
+│  - Compile into report                                      │
+│  - Generate executive summary                               │
+└─────────────────────────────────────────────────────────────┘
+              ↓
+    Kanban task + Telegram notification
+```
+
+### Core Mechanism: Parallel SDK Queries
+
+The key insight: multiple `query()` calls run in parallel via `Promise.all()`:
+
+```typescript
+const subTopics = await glmSplitQuery(query);  // GLM breaks into 3 topics
+
+const agentPromises = subTopics.map(topic =>
+  runResearchAgent(topic)  // Each is an independent SDK query()
+);
+
+const results = await Promise.all(agentPromises);  // Run all in parallel
+
+const report = await glmCompile(results);  // GLM merges findings
+```
+
+### Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/agent/research.ts` | ResearchOrchestrator class with execute(), progress events |
+| `src/tools/research-tools.ts` | `research`, `research_status`, `get_research` tools |
+
+### Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/tools/index.ts` | Register research tools |
+| `src/agent/index.ts` | Add research tools to allowedTools |
+| `src/memory/db.ts` | Add `research_jobs` table schema |
+| `ui/kanban.html` | Research filter button, voice summary on research tasks |
+
+### Database Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS research_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  query TEXT NOT NULL,
+  sub_topics TEXT,           -- JSON array
+  status TEXT DEFAULT 'pending',
+  agent_results TEXT,        -- JSON array
+  compiled_report TEXT,
+  summary TEXT,              -- For TTS
+  sources TEXT,              -- JSON array
+  kanban_task_id INTEGER,
+  token_usage TEXT,          -- JSON
+  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ')),
+  completed_at TEXT
+);
+```
+
+### Key Interfaces
+
+```typescript
+interface ResearchRequest {
+  query: string;
+  projectId?: number;
+  maxAgents?: number;        // default 3, max 5
+  maxTurnsPerAgent?: number; // default 20
+}
+
+interface ResearchResult {
+  jobId: number;
+  report: string;            // Full markdown
+  summary: string;           // TTS-friendly
+  sources: Array<{ url: string; title: string; topic: string }>;
+  tokenUsage: { prompt: number; completion: number; total: number };
+  kanbanTaskId: number;
+}
+```
+
+### Cost Optimization
+
+| Component | Model | Cost |
+|-----------|-------|------|
+| Split query into topics | GLM Flash | ~$0.001 |
+| Research agents (x3) | Sonnet 4.5 | ~$0.15-0.30 each |
+| Compile results | GLM | ~$0.01 |
+| **Total per research** | | ~$0.50-1.00 |
+
+Using Sonnet instead of Opus for research agents saves ~70% while maintaining quality.
+
+### Progress Streaming → Telegram Messages
+
+**Decision:** Stream progress via Telegram messages so user knows it's working.
+
+When research starts and progresses, send Telegram updates:
+```
+🔬 Starting research: "house prices in Sofia"
+   Breaking into 3 sub-topics...
+
+📚 Agent 1/3 started: "Population and demographics"
+📚 Agent 2/3 started: "Real estate prices by district"
+📚 Agent 3/3 started: "Cost of living comparison"
+
+✅ Agent 1 done: 8 sources found
+✅ Agent 2 done: 12 sources found
+✅ Agent 3 done: 6 sources found
+
+📝 Compiling results...
+
+✅ Research complete! 26 sources, ~$0.47
+   View full report in Kanban
+```
+
+**Implementation:**
+
+```typescript
+class ResearchOrchestrator extends EventEmitter {
+  constructor(private telegramBot: TelegramBot, private chatId: number) {
+    super();
+
+    this.on('start', async ({ query, subTopics }) => {
+      await telegramBot.sendMessage(chatId,
+        `🔬 Starting research: "${query}"\n   Breaking into ${subTopics.length} sub-topics...`
+      );
+    });
+
+    this.on('agent-start', async ({ agentIndex, topic, total }) => {
+      await telegramBot.sendMessage(chatId,
+        `📚 Agent ${agentIndex}/${total} started: "${topic}"`
+      );
+    });
+
+    this.on('agent-complete', async ({ agentIndex, sourcesFound }) => {
+      await telegramBot.sendMessage(chatId,
+        `✅ Agent ${agentIndex} done: ${sourcesFound} sources found`
+      );
+    });
+
+    this.on('complete', async ({ sources, cost }) => {
+      await telegramBot.sendMessage(chatId,
+        `✅ Research complete! ${sources.length} sources, ~$${cost.toFixed(2)}\n   View full report in Kanban`
+      );
+    });
+  }
+}
+```
+
+### Integration Points
+
+1. **Telegram**: `/research <query>` command
+2. **Chat UI**: "Research this" button on messages
+3. **Kanban**: Research tasks auto-created, tagged `research`
+4. **Voice**: "Read research summary" triggers TTS on executive summary
+
+### Status: ✅ IMPLEMENTED — Core research orchestrator complete
+
+**Files Created:**
+- `src/agent/research.ts` — ResearchOrchestrator with parallel SDK agents
+- `src/tools/research-tools.ts` — `research` and `research_status` tools
+
+**Files Modified:**
+- `src/tools/index.ts` — Registered research tools
+- `src/agent/index.ts` — Added to allowedTools
+- `src/main/index.ts` — Connected Telegram bot for progress streaming
+
+**Next Steps:**
+- Add `research_jobs` table to database for persistence
+- Create Kanban tasks for research results
+- Add research filter button to Kanban UI

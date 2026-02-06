@@ -857,6 +857,9 @@ class AgentManagerClass extends EventEmitter {
         'mcp__pocket-agent__set_project',
         'mcp__pocket-agent__get_project',
         'mcp__pocket-agent__clear_project',
+        // Custom MCP tools - research (multi-agent)
+        'mcp__pocket-agent__research',
+        'mcp__pocket-agent__research_status',
       ],
       persistSession: false,
     };

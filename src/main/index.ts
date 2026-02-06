@@ -9,7 +9,7 @@ import { createTelegramBot, TelegramBot } from '../channels/telegram';
 import { SettingsManager } from '../settings';
 import { loadIdentity, saveIdentity, getIdentityPath } from '../config/identity';
 import { loadInstructions, saveInstructions, getInstructionsPath } from '../config/instructions';
-import { closeTaskDb, closeKanbanDb } from '../tools';
+import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
 import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
 import { initializeUpdater, setupUpdaterIPC, setSettingsWindow } from './updater';
 import cityTimezones from 'city-timezones';
@@ -2104,6 +2104,7 @@ Respond with ONLY valid JSON, no markdown, no explanation:
       if (scheduler) {
         scheduler.setTelegramBot(telegramBot);
       }
+      setResearchTelegramBot(telegramBot);
       console.log('[Main] Telegram restarted via IPC');
       return { success: true };
     } catch (error) {
@@ -2890,6 +2891,7 @@ async function initializeAgent(): Promise<void> {
         if (scheduler) {
           scheduler.setTelegramBot(telegramBot);
         }
+        setResearchTelegramBot(telegramBot);
 
         console.log('[Main] Telegram started');
       }

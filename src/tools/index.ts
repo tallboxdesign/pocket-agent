@@ -30,6 +30,10 @@ import {
   handleTelegramReactTool,
 } from './telegram-react-tool';
 import {
+  getResearchTools,
+  setResearchTelegramBot,
+} from './research-tools';
+import {
   getNotifyToolDefinition,
   handleNotifyTool,
 } from './macos';
@@ -54,6 +58,7 @@ export { getGlmWorkerTools } from './glm-worker';
 export { closeKanbanDb } from '../kanban';
 export { showNotification } from './macos';
 export { setCurrentSessionId, getCurrentSessionId, setTelegramMessageContext, getTelegramMessageContext } from './session-context';
+export { setResearchTelegramBot } from './research-tools';
 
 export interface MCPServerConfig {
   command: string;
@@ -483,6 +488,30 @@ export async function buildSdkMcpServers(
       }
     );
     tools.push(reactTool);
+
+    // Research tools (multi-agent research orchestrator)
+    const researchTools = getResearchTools();
+    for (const resTool of researchTools) {
+      const wrappedHandler = wrapToolHandler(resTool.name, resTool.handler, getToolTimeout(resTool.name));
+      const sdkTool = tool(
+        resTool.name,
+        resTool.description,
+        Object.fromEntries(
+          Object.entries(resTool.input_schema.properties || {}).map(([key, value]: [string, unknown]) => {
+            const prop = value as { type?: string };
+            if (prop.type === 'string') return [key, z.string().optional()];
+            if (prop.type === 'number') return [key, z.number().optional()];
+            if (prop.type === 'boolean') return [key, z.boolean().optional()];
+            return [key, z.any().optional()];
+          })
+        ),
+        async (args) => {
+          const result = await wrappedHandler(args);
+          return { content: [{ type: 'text', text: result }] };
+        }
+      );
+      tools.push(sdkTool);
+    }
 
     // Create the SDK MCP server
     const server = createSdkMcpServer({
