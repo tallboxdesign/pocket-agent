@@ -6,19 +6,6 @@
  * Tries Edge TTS first; falls back to macOS say if it fails.
  */
 
-// Patch Edge TTS Chromium version BEFORE importing EdgeTTS class.
-// Microsoft rejects old Sec-MS-GEC-Version values with 403.
-// When Edge TTS breaks again, update CHROMIUM_FULL_VERSION to match
-// the latest stable Edge version from:
-// https://learn.microsoft.com/en-us/deployedge/microsoft-edge-relnotes-security
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const drm = require('node-edge-tts/dist/drm');
-  drm.CHROMIUM_FULL_VERSION = '143.0.3650.75';
-} catch {
-  console.warn('[TTS] Could not patch node-edge-tts DRM constants');
-}
-
 import { EdgeTTS } from 'edge-tts-universal';
 import { execFile } from 'child_process';
 import crypto from 'crypto';
@@ -26,10 +13,22 @@ import fs from 'fs';
 import path from 'path';
 
 const TTS_VOICE = 'en-US-BrianMultilingualNeural';
-const TTS_FORMAT = 'audio-24khz-96kbitrate-mono-mp3';
+const EDGE_TTS_TIMEOUT = 10000; // 10 seconds timeout for Edge TTS
 
-// macOS fallback voice — use Enhanced/Premium if available, else basic
+// macOS fallback voice — Daniel (Enhanced) is high quality British English
 const MACOS_VOICE = 'Daniel (Enhanced)';
+
+/**
+ * Promise with timeout wrapper
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(message)), ms)
+    ),
+  ]);
+}
 
 /**
  * Synthesize text to MP3 audio file.
@@ -67,11 +66,17 @@ export async function synthesizeSpeech(text: string, outputDir: string): Promise
 }
 
 /**
- * Edge TTS synthesis (cloud)
+ * Edge TTS synthesis (cloud) with timeout
  */
 async function synthesizeWithEdgeTTS(text: string, outputPath: string): Promise<void> {
   const tts = new EdgeTTS(text, TTS_VOICE);
-  const result = await tts.synthesize();
+
+  // Add timeout to prevent hanging
+  const result = await withTimeout(
+    tts.synthesize(),
+    EDGE_TTS_TIMEOUT,
+    `Edge TTS timed out after ${EDGE_TTS_TIMEOUT}ms`
+  );
 
   // Convert Blob to Buffer for Node.js
   const arrayBuffer = await result.audio.arrayBuffer();

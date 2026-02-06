@@ -2389,6 +2389,14 @@ class ResearchOrchestrator extends EventEmitter {
 | 24 | Research Persistence | Add `research_jobs` table |
 | 15 | Research Kanban UI | Add filter button for research tasks |
 
+### 🐛 Bug Fixes (2026-02-06)
+
+| Issue | Root Cause | Fix |
+|-------|------------|-----|
+| Telegram stops responding after 1 message | Health check detected stale connection but only logged instead of reconnecting. `lastSuccessfulPoll` wasn't updated on message receipt. | Made health check actually trigger reconnection. Update `lastSuccessfulPoll` on every message handler. |
+| TTS timing out (30s) | Edge TTS (cloud) hanging indefinitely with no timeout. Dead DRM patch code for wrong package (`node-edge-tts` vs `edge-tts-universal`). | Added 10-second timeout to Edge TTS. Removed dead DRM patch. Falls back to macOS `say` quickly. |
+| Voice sounds robotic | Wrong macOS voice selected (Samantha instead of Daniel Enhanced) | Use `Daniel (Enhanced)` for high-quality British English fallback |
+
 ### 📋 Upcoming Priorities
 1. **Research Persistence** — Save research jobs to SQLite
 2. **Kanban Integration** — Auto-create tasks tagged `research`
