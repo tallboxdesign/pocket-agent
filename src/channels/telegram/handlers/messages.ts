@@ -23,18 +23,31 @@ export async function handleTextMessage(
   const message = ctx.message?.text;
   const chatId = ctx.chat?.id;
   const messageId = ctx.message?.message_id;
-  if (!message || !chatId) return;
+
+  console.log(`[Telegram:Text] Received message: "${message?.slice(0, 50)}..." chatId=${chatId}`);
+
+  if (!message || !chatId) {
+    console.log('[Telegram:Text] No message or chatId, returning early');
+    return;
+  }
 
   const { onMessageCallback, sendResponse } = deps;
 
   if (messageId) setTelegramMessageContext({ chatId, messageId });
+
+  console.log('[Telegram:Text] Starting withTyping...');
   try {
     const result = await withTyping(ctx, async () => {
+      console.log('[Telegram:Text] Inside withTyping, getting sessionId...');
       const memory = AgentManager.getMemory();
       const sessionId = memory?.getSessionForChat(chatId) || 'default';
+      console.log(`[Telegram:Text] SessionId=${sessionId}, calling processMessage...`);
 
-      return AgentManager.processMessage(message, 'telegram', sessionId);
+      const res = await AgentManager.processMessage(message, 'telegram', sessionId);
+      console.log(`[Telegram:Text] processMessage returned, response length=${res.response.length}`);
+      return res;
     });
+    console.log('[Telegram:Text] withTyping completed successfully');
 
     await sendResponse(ctx, result.response);
 

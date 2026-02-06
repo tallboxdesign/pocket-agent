@@ -145,6 +145,7 @@ export class TelegramBot extends BaseChannel {
 
     // Document messages - register BEFORE text to ensure proper handling
     this.bot.on('message:document', async (ctx: Context) => {
+      this.lastSuccessfulPoll = Date.now();  // Update on any message
       await handleDocumentMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -153,6 +154,7 @@ export class TelegramBot extends BaseChannel {
 
     // Location messages
     this.bot.on('message:location', async (ctx: Context) => {
+      this.lastSuccessfulPoll = Date.now();
       await handleLocationMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -160,6 +162,7 @@ export class TelegramBot extends BaseChannel {
     });
 
     this.bot.on('edited_message:location', async (ctx: Context) => {
+      this.lastSuccessfulPoll = Date.now();
       await handleEditedLocation(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -168,6 +171,7 @@ export class TelegramBot extends BaseChannel {
 
     // Photo messages
     this.bot.on('message:photo', async (ctx: Context) => {
+      this.lastSuccessfulPoll = Date.now();
       await handlePhotoMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -176,6 +180,7 @@ export class TelegramBot extends BaseChannel {
 
     // Voice messages
     this.bot.on('message:voice', async (ctx: Context) => {
+      this.lastSuccessfulPoll = Date.now();
       await handleVoiceMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -184,6 +189,7 @@ export class TelegramBot extends BaseChannel {
 
     // Audio files
     this.bot.on('message:audio', async (ctx: Context) => {
+      this.lastSuccessfulPoll = Date.now();
       await handleAudioMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -192,6 +198,7 @@ export class TelegramBot extends BaseChannel {
 
     // Text messages - register LAST as fallback
     this.bot.on('message:text', async (ctx: Context) => {
+      this.lastSuccessfulPoll = Date.now();
       await handleTextMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -464,11 +471,18 @@ export class TelegramBot extends BaseChannel {
 
   private startHealthCheck(): void {
     this.stopHealthCheck();
-    this.healthCheckTimer = setInterval(() => {
+    this.healthCheckTimer = setInterval(async () => {
       if (!this.isRunning || this.intentionalStop) return;
       const elapsed = Date.now() - this.lastSuccessfulPoll;
       if (elapsed > 120_000) {
-        console.warn(`[Telegram] No activity for ${Math.round(elapsed / 1000)}s — connection may be stale`);
+        console.warn(`[Telegram] No activity for ${Math.round(elapsed / 1000)}s — connection stale, reconnecting...`);
+        // Actually reconnect instead of just logging!
+        try {
+          await this.bot.stop();
+        } catch (e) {
+          console.warn('[Telegram] Error stopping bot during health check reconnect:', e);
+        }
+        this.scheduleReconnect('health check detected stale connection');
       }
     }, 60_000);
   }
