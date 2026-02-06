@@ -2394,8 +2394,7 @@ class ResearchOrchestrator extends EventEmitter {
 | Issue | Root Cause | Fix |
 |-------|------------|-----|
 | Telegram stops responding after 1 message | Health check detected stale connection but only logged instead of reconnecting. `lastSuccessfulPoll` wasn't updated on message receipt. | Made health check actually trigger reconnection. Update `lastSuccessfulPoll` on every message handler. |
-| TTS timing out (30s) | Edge TTS (cloud) hanging indefinitely with no timeout. Dead DRM patch code for wrong package (`node-edge-tts` vs `edge-tts-universal`). | Added 10-second timeout to Edge TTS. Removed dead DRM patch. Falls back to macOS `say` quickly. |
-| Voice sounds robotic | Wrong macOS voice selected (Samantha instead of Daniel Enhanced) | Use `Daniel (Enhanced)` for high-quality British English fallback |
+| TTS timing out (30s) / Voice robotic | Node.js Edge TTS packages (`edge-tts-universal`) broken/hanging. Fallback to macOS `say` was robotic. | Switched to Python `edge-tts` CLI which works reliably. Now uses **Brian** voice (en-US-BrianMultilingualNeural) - young American male neural voice. Fallback is Daniel (Enhanced) if CLI fails. |
 
 ### 📋 Upcoming Priorities
 1. **Research Persistence** — Save research jobs to SQLite

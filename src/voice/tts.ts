@@ -1,34 +1,21 @@
 /**
  * Text-to-Speech service with dual backends:
- * 1. Microsoft Edge TTS (Brian voice) — cloud, higher quality
+ * 1. Microsoft Edge TTS (Brian voice) — cloud, higher quality, via Python CLI
  * 2. macOS `say` command — local, always works
  *
  * Tries Edge TTS first; falls back to macOS say if it fails.
  */
 
-import { EdgeTTS } from 'edge-tts-universal';
 import { execFile } from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
 const TTS_VOICE = 'en-US-BrianMultilingualNeural';
-const EDGE_TTS_TIMEOUT = 10000; // 10 seconds timeout for Edge TTS
+const EDGE_TTS_TIMEOUT = 15000; // 15 seconds timeout for Edge TTS CLI
 
 // macOS fallback voice — Daniel (Enhanced) is high quality British English
 const MACOS_VOICE = 'Daniel (Enhanced)';
-
-/**
- * Promise with timeout wrapper
- */
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(message)), ms)
-    ),
-  ]);
-}
 
 /**
  * Synthesize text to MP3 audio file.
@@ -66,29 +53,36 @@ export async function synthesizeSpeech(text: string, outputDir: string): Promise
 }
 
 /**
- * Edge TTS synthesis (cloud) with timeout
+ * Edge TTS synthesis via Python CLI (more reliable than Node.js packages)
+ * Uses: pip install edge-tts
  */
 async function synthesizeWithEdgeTTS(text: string, outputPath: string): Promise<void> {
-  const tts = new EdgeTTS(text, TTS_VOICE);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Edge TTS timed out after ${EDGE_TTS_TIMEOUT}ms`));
+    }, EDGE_TTS_TIMEOUT);
 
-  // Add timeout to prevent hanging
-  const result = await withTimeout(
-    tts.synthesize(),
-    EDGE_TTS_TIMEOUT,
-    `Edge TTS timed out after ${EDGE_TTS_TIMEOUT}ms`
-  );
+    // Use edge-tts CLI: edge-tts --voice VOICE --text "TEXT" --write-media OUTPUT
+    execFile('edge-tts', [
+      '--voice', TTS_VOICE,
+      '--text', text,
+      '--write-media', outputPath
+    ], (error) => {
+      clearTimeout(timeout);
+      if (error) {
+        reject(new Error(`Edge TTS CLI failed: ${error.message}`));
+        return;
+      }
 
-  // Convert Blob to Buffer for Node.js
-  const arrayBuffer = await result.audio.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+      // Verify file was created with content
+      if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
+        reject(new Error('Edge TTS produced empty output'));
+        return;
+      }
 
-  // Write audio buffer to file
-  fs.writeFileSync(outputPath, buffer);
-
-  // Verify file was actually created with content
-  if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
-    throw new Error('Edge TTS produced empty output');
-  }
+      resolve();
+    });
+  });
 }
 
 /**
