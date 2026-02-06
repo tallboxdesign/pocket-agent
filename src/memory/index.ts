@@ -78,6 +78,7 @@ export interface SmartContext {
     summarizedMessages: number;
     recentCount: number;
     relevantCount: number;
+    newSummaryCreated: boolean;  // True if a new rolling summary was created this turn
   };
 }
 
@@ -1124,6 +1125,7 @@ export class MemoryManager {
         summarizedMessages,
         recentCount: recentMessages.length,
         relevantCount: relevantMessages.length,
+        newSummaryCreated: false,  // Not creating new summary in this function
       },
     };
   }

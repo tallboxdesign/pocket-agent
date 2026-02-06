@@ -32,8 +32,6 @@ import {
 import {
   getNotifyToolDefinition,
   handleNotifyTool,
-  getPtyExecToolDefinition,
-  handlePtyExecTool,
 } from './macos';
 import { wrapToolHandler, getToolTimeout, logActiveToolsStatus } from './diagnostics';
 
@@ -54,7 +52,7 @@ export { getKanbanTools } from './kanban-tools';
 export { getGmailTools } from './gmail-tools';
 export { getGlmWorkerTools } from './glm-worker';
 export { closeKanbanDb } from '../kanban';
-export { showNotification, execWithPty } from './macos';
+export { showNotification } from './macos';
 export { setCurrentSessionId, getCurrentSessionId, setTelegramMessageContext, getTelegramMessageContext } from './session-context';
 
 export interface MCPServerConfig {
@@ -153,7 +151,6 @@ export async function buildSdkMcpServers(
     // Wrap handlers with diagnostics (timing, logging, timeouts)
     const wrappedBrowserHandler = wrapToolHandler('browser', handleBrowserTool, getToolTimeout('browser'));
     const wrappedNotifyHandler = wrapToolHandler('notify', handleNotifyTool, getToolTimeout('notify'));
-    const wrappedPtyExecHandler = wrapToolHandler('pty_exec', handlePtyExecTool, getToolTimeout('pty_exec'));
 
     // Browser tool (if enabled)
     if (config.browser.enabled) {
@@ -217,22 +214,7 @@ export async function buildSdkMcpServers(
     );
     tools.push(notifyTool);
 
-    // PTY exec tool
-    const ptyExecTool = tool(
-      'pty_exec',
-      getPtyExecToolDefinition().description,
-      {
-        command: z.string(),
-        args: z.array(z.string()).optional(),
-        cwd: z.string().optional(),
-        timeout: z.number().optional(),
-      },
-      async (args) => {
-        const result = await wrappedPtyExecHandler(args);
-        return { content: [{ type: 'text', text: result }] };
-      }
-    );
-    tools.push(ptyExecTool);
+    // PTY exec tool removed - not currently implemented
 
     // Memory tools (with diagnostics wrapper)
     const memoryTools = getMemoryTools();
@@ -585,13 +567,7 @@ export function getCustomTools(config: ToolsConfig): Array<{
     handler: handleNotifyTool,
   });
 
-  const ptyExecDef = getPtyExecToolDefinition();
-  tools.push({
-    name: ptyExecDef.name,
-    description: ptyExecDef.description,
-    input_schema: ptyExecDef.input_schema as Record<string, unknown>,
-    handler: handlePtyExecTool,
-  });
+  // PTY exec tool removed - not currently implemented
 
   // Calendar tools
   const calendarTools = getCalendarTools();

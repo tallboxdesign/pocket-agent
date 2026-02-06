@@ -19,7 +19,7 @@ try {
   console.warn('[TTS] Could not patch node-edge-tts DRM constants');
 }
 
-import { EdgeTTS } from 'node-edge-tts';
+import { EdgeTTS } from 'edge-tts-universal';
 import { execFile } from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -70,12 +70,15 @@ export async function synthesizeSpeech(text: string, outputDir: string): Promise
  * Edge TTS synthesis (cloud)
  */
 async function synthesizeWithEdgeTTS(text: string, outputPath: string): Promise<void> {
-  const tts = new EdgeTTS({
-    voice: TTS_VOICE,
-    outputFormat: TTS_FORMAT,
-    timeout: 12000,
-  });
-  await tts.ttsPromise(text, outputPath);
+  const tts = new EdgeTTS(text, TTS_VOICE);
+  const result = await tts.synthesize();
+
+  // Convert Blob to Buffer for Node.js
+  const arrayBuffer = await result.audio.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  // Write audio buffer to file
+  fs.writeFileSync(outputPath, buffer);
 
   // Verify file was actually created with content
   if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
