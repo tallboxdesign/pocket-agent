@@ -36,6 +36,7 @@ export function registerCommandHandlers(deps: CommandHandlerDeps): void {
       `/new - Fresh start (keeps facts & reminders)\n` +
       `/model - List or switch AI models\n` +
       `/status - Show agent status\n` +
+      `/restart - Stop stuck query\n` +
       `/facts [query] - Search stored facts` +
       (isGroup ? `\n/link <session> - Link this group to a session\n/unlink - Unlink this group` : '')
     );
@@ -52,6 +53,7 @@ Your AI assistant with persistent memory. I remember our conversations and learn
 /new - Clear chat history (fresh start)
 /model - View or switch AI models
 /status - See stats and memory usage
+/restart - Stop stuck query
 /facts - Browse what I remember about you
 
 <b>Tips</b>
@@ -236,6 +238,29 @@ Your AI assistant with persistent memory. I remember our conversations and learn
     await ctx.reply(newValue
       ? 'Voice replies ON — I\'ll send voice summaries with my text replies.'
       : 'Voice replies OFF — text only.');
+  });
+
+  // /restart command - abort any stuck processing
+  bot.command('restart', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const memory = AgentManager.getMemory();
+    const sessionId = chatId && memory ? memory.getSessionForChat(chatId) || 'default' : 'default';
+
+    const wasProcessing = AgentManager.isQueryProcessing(sessionId);
+
+    if (wasProcessing) {
+      AgentManager.stopQuery(sessionId, true);
+      await ctx.reply('⚡ Stopped running query and cleared queue.\nReady for new messages.');
+    } else {
+      // Check if any session is stuck
+      const anyProcessing = AgentManager.isQueryProcessing();
+      if (anyProcessing) {
+        AgentManager.stopQuery(undefined, true);
+        await ctx.reply('⚡ Stopped stuck query (different session).\nReady for new messages.');
+      } else {
+        await ctx.reply('No active query to stop. Agent is ready.');
+      }
+    }
   });
 
   // /unanswered command - list threads needing response
