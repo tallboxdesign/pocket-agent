@@ -995,6 +995,7 @@ export class EmailProcessor {
                 subject: email.subject ?? '',
                 sender: email.from ?? '',
                 snippet: (email.body || '').slice(0, 300),
+                body: (email.body || '').slice(0, 2000),
                 label: labelToApply,
                 confidence: r.confidence,
                 internalDateMs: email.internalDateMs,
@@ -1271,6 +1272,16 @@ export class EmailProcessor {
     // Evaluate rules engine for label correction
     if (this.rulesEngine) {
       try {
+        // Fetch full body for draft replies (snippet from DB is too short)
+        let body = String(row.snippet || '');
+        try {
+          const msgRes = await getMessage({ messageId, account });
+          const parsed = adaptFullEmail(msgRes);
+          if (parsed) {
+            body = (parsed.body || '').slice(0, 2000);
+          }
+        } catch { /* use snippet as fallback */ }
+
         await this.rulesEngine.evaluate({
           messageId,
           threadId: threadId || undefined,
@@ -1278,6 +1289,7 @@ export class EmailProcessor {
           subject: String(row.subject || ''),
           sender: String(row.sender || ''),
           snippet: String(row.snippet || ''),
+          body,
           label: newLabel,
           confidence: String(row.confidence || 'low'),
           internalDateMs: Number(row.internal_date_ms) || 0,
@@ -1474,6 +1486,7 @@ export class EmailProcessor {
             subject: email.subject ?? '',
             sender: email.from ?? '',
             snippet: (email.body || '').slice(0, 300),
+            body: (email.body || '').slice(0, 2000),
             label: newLabel,
             confidence: r.confidence,
             internalDateMs: email.internalDateMs,

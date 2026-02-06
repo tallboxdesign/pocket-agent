@@ -1357,10 +1357,13 @@
     .hidden { display: none; }
     .ep-snippet-row.hidden { display: none; }
     .ep-snippet-cell {
-      padding: 4px 8px 8px 8px !important;
+      padding: 8px 12px 12px 12px !important;
       font-size: 11px; color: var(--text-secondary);
-      line-height: 1.4; max-width: 500px;
+      line-height: 1.5; max-width: 100%;
       word-break: break-word; white-space: normal;
+      background: var(--bg-tertiary);
+      max-height: 300px;
+      overflow-y: auto;
     }
     .ep-history-table .ep-subject-toggle {
       cursor: pointer;
@@ -2157,6 +2160,7 @@
                   </label>
                   <button class="primary" id="ep-bulk-apply-btn" onclick="epBulkApply()" disabled title="Apply the chosen label to all selected emails">Apply</button>
                   <button onclick="epBulkReclassify()" title="Re-run AI classification on selected emails">Reclassify</button>
+                  <button onclick="epOpenAiRuleBuilder()" title="Use AI to create a rule based on selected emails" style="background:var(--accent);color:#fff;border-color:var(--accent);">✨ Build Rule</button>
                   <button onclick="epBulkClear()" title="Deselect all">Clear</button>
                 </div>
                 <div class="ep-history-scroll" style="margin-top:8px;">
@@ -2350,6 +2354,58 @@
             </div>
             <div class="ep-modal-body" id="ep-modal-emails">
               <span class="ep-no-data">Loading recent emails...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Rule Builder Modal -->
+        <div class="ep-modal-overlay" id="ep-ai-rule-modal">
+          <div class="ep-modal resizable" style="width:650px;">
+            <div class="ep-modal-header">
+              <h3>✨ AI Rule Builder</h3>
+              <button class="ep-modal-close" onclick="epCloseAiRuleBuilder()">&times;</button>
+            </div>
+            <div class="ep-modal-body" style="display:flex;flex-direction:column;gap:12px;">
+              <div>
+                <div style="font-size:11px;font-weight:600;margin-bottom:4px;">Selected Emails (<span id="ep-ai-rule-count">0</span>)</div>
+                <div id="ep-ai-rule-emails" style="max-height:150px;overflow-y:auto;background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:11px;"></div>
+              </div>
+              <div>
+                <div style="font-size:11px;font-weight:600;margin-bottom:4px;">How should I handle these emails?</div>
+                <textarea id="ep-ai-rule-prompt" rows="4" placeholder="Example: Accept paid guest post requests with our pricing ($150 for regular posts, $250 for homepage). Decline free/exchange requests politely and suggest they consider paid options." style="width:100%;box-sizing:border-box;padding:8px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;font-size:12px;resize:vertical;"></textarea>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button onclick="epRunAiRuleBuilder()" id="ep-ai-rule-generate-btn" class="primary" style="flex:1;">Generate Rule</button>
+              </div>
+              <div id="ep-ai-rule-result" style="display:none;">
+                <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:var(--success);">AI Suggestion</div>
+                <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;padding:10px;">
+                  <div style="margin-bottom:8px;">
+                    <span style="font-size:10px;color:var(--text-muted);">Rule Name:</span>
+                    <input type="text" id="ep-ai-rule-name" style="width:100%;margin-top:2px;padding:4px 8px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;font-size:12px;">
+                  </div>
+                  <div style="margin-bottom:8px;">
+                    <span style="font-size:10px;color:var(--text-muted);">Conditions:</span>
+                    <div id="ep-ai-rule-conditions" style="margin-top:4px;font-size:11px;background:var(--bg-tertiary);padding:6px;border-radius:4px;font-family:monospace;"></div>
+                  </div>
+                  <div style="margin-bottom:8px;">
+                    <span style="font-size:10px;color:var(--text-muted);">Action:</span>
+                    <span id="ep-ai-rule-action" style="margin-left:4px;font-size:11px;font-weight:600;"></span>
+                  </div>
+                  <div>
+                    <span style="font-size:10px;color:var(--text-muted);">Draft Reply Instructions:</span>
+                    <textarea id="ep-ai-rule-instructions" rows="4" style="width:100%;margin-top:4px;box-sizing:border-box;padding:6px 8px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;font-size:11px;resize:vertical;"></textarea>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:10px;">
+                  <button onclick="epCreateRuleFromAi()" class="primary" style="flex:1;">Create Rule</button>
+                  <button onclick="epRunAiRuleBuilder()" style="flex:0 0 auto;">Regenerate</button>
+                </div>
+              </div>
+              <div id="ep-ai-rule-loading" style="display:none;text-align:center;padding:20px;color:var(--text-muted);">
+                <span style="font-size:12px;">Analyzing emails...</span>
+              </div>
+              <div id="ep-ai-rule-error" style="display:none;color:var(--error);font-size:11px;padding:8px;background:rgba(244,67,54,0.1);border-radius:4px;"></div>
             </div>
           </div>
         </div>
@@ -4411,9 +4467,60 @@
       } catch (err) { showToast('File failed: ' + err.message, 'error'); }
     }
 
-    function epToggleSnippet(rowId) {
+    async function epToggleSnippet(rowId) {
       const row = document.getElementById(rowId);
-      if (row) row.classList.toggle('hidden');
+      if (!row) return;
+
+      // If already visible, just hide
+      if (!row.classList.contains('hidden')) {
+        row.classList.add('hidden');
+        return;
+      }
+
+      // Show the row
+      row.classList.remove('hidden');
+
+      // Check if we already fetched full body
+      const cell = row.querySelector('.ep-snippet-cell');
+      if (cell.dataset.loaded === 'true') return;
+
+      // Extract msgId and account from the previous row
+      const prevRow = row.previousElementSibling;
+      const msgId = prevRow?.dataset.msgid;
+      const account = prevRow?.dataset.account;
+      if (!msgId) return;
+
+      // Show loading state
+      const origContent = cell.innerHTML;
+      cell.innerHTML = '<em style="color:var(--text-muted);">Loading full email...</em>';
+
+      try {
+        const res = await window.pocketAgent.gmailGetEmailPreview(msgId, account);
+        console.log('[epToggleSnippet] Raw response:', res);
+        if (res.success && res.message) {
+          const parsed = JSON.parse(res.message);
+          console.log('[epToggleSnippet] Parsed:', parsed);
+          // gog returns: { headers: {...}, message: { snippet: "..." }, body: "full text" }
+          // Prefer body (full text) over snippet
+          const fullBody = parsed.body || '';
+          const snippet = parsed.message?.snippet || '';
+          const body = fullBody || snippet || origContent;
+          console.log('[epToggleSnippet] body length:', body.length, 'fullBody:', fullBody.length, 'snippet:', snippet.length);
+          // Format: show up to 2000 chars, preserve line breaks
+          const formatted = body.slice(0, 2000)
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br>');
+          cell.innerHTML = formatted || '<em>No content</em>';
+          cell.dataset.loaded = 'true';
+        } else {
+          console.log('[epToggleSnippet] Failed:', res.error);
+          cell.innerHTML = origContent; // Fallback to snippet
+        }
+      } catch (err) {
+        console.error('[epToggleSnippet] Error:', err);
+        cell.innerHTML = origContent; // Fallback to snippet
+      }
     }
 
     function epHistoryPage(dir) {
@@ -4650,6 +4757,163 @@
       showToast(msg, failed > 0 ? 'error' : 'success');
       epBulkClear();
       epLoadHistory();
+    }
+
+    // ---- AI Rule Builder ----
+
+    let epAiRuleSuggestion = null;
+
+    function epOpenAiRuleBuilder() {
+      if (epBulkSelected.size === 0) {
+        showToast('Select at least one email first', 'error');
+        return;
+      }
+
+      const modal = document.getElementById('ep-ai-rule-modal');
+      const emailsDiv = document.getElementById('ep-ai-rule-emails');
+      const countSpan = document.getElementById('ep-ai-rule-count');
+
+      // Show selected emails
+      const emailsList = [];
+      document.querySelectorAll('#ep-history-body tr').forEach(tr => {
+        const msgId = tr.dataset.msgid;
+        if (epBulkSelected.has(msgId)) {
+          const tds = tr.querySelectorAll('td');
+          const sender = tds[2]?.textContent?.trim() || '';
+          const subject = tds[3]?.textContent?.trim() || '';
+          const label = tds[4]?.textContent?.trim() || '';
+          emailsList.push({ msgId, sender, subject, label });
+        }
+      });
+
+      countSpan.textContent = emailsList.length;
+      emailsDiv.innerHTML = emailsList.map(e =>
+        `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+          <div style="font-weight:500;color:var(--text-primary);">${e.subject || '(no subject)'}</div>
+          <div style="font-size:10px;color:var(--text-muted);">From: ${e.sender} | Label: ${e.label}</div>
+        </div>`
+      ).join('');
+
+      // Reset state
+      document.getElementById('ep-ai-rule-prompt').value = '';
+      document.getElementById('ep-ai-rule-result').style.display = 'none';
+      document.getElementById('ep-ai-rule-loading').style.display = 'none';
+      document.getElementById('ep-ai-rule-error').style.display = 'none';
+      document.getElementById('ep-ai-rule-generate-btn').disabled = false;
+      epAiRuleSuggestion = null;
+
+      modal.classList.add('open');
+    }
+
+    function epCloseAiRuleBuilder() {
+      document.getElementById('ep-ai-rule-modal').classList.remove('open');
+    }
+
+    async function epRunAiRuleBuilder() {
+      const prompt = document.getElementById('ep-ai-rule-prompt').value.trim();
+      if (!prompt) {
+        showToast('Please describe how you want to handle these emails', 'error');
+        return;
+      }
+
+      const generateBtn = document.getElementById('ep-ai-rule-generate-btn');
+      const resultDiv = document.getElementById('ep-ai-rule-result');
+      const loadingDiv = document.getElementById('ep-ai-rule-loading');
+      const errorDiv = document.getElementById('ep-ai-rule-error');
+
+      generateBtn.disabled = true;
+      resultDiv.style.display = 'none';
+      errorDiv.style.display = 'none';
+      loadingDiv.style.display = 'block';
+
+      // Gather selected email data
+      const emails = [];
+      document.querySelectorAll('#ep-history-body tr').forEach(tr => {
+        const msgId = tr.dataset.msgid;
+        if (epBulkSelected.has(msgId)) {
+          const data = epBulkSelected.get(msgId);
+          const tds = tr.querySelectorAll('td');
+          emails.push({
+            messageId: msgId,
+            account: data.account,
+            subject: tds[3]?.textContent?.trim() || '',
+            sender: tds[2]?.textContent?.trim() || '',
+            label: tds[4]?.textContent?.trim() || '',
+          });
+        }
+      });
+
+      try {
+        const res = await window.pocketAgent.rulesAiBuildRule(emails, prompt);
+        loadingDiv.style.display = 'none';
+        generateBtn.disabled = false;
+
+        if (!res.ok) {
+          errorDiv.textContent = res.error || 'AI failed to generate rule';
+          if (res.raw) errorDiv.textContent += '\n\nRaw response: ' + res.raw;
+          errorDiv.style.display = 'block';
+          return;
+        }
+
+        epAiRuleSuggestion = res.suggestion;
+
+        // Populate result
+        document.getElementById('ep-ai-rule-name').value = res.suggestion.name || '';
+        document.getElementById('ep-ai-rule-conditions').innerHTML = (res.suggestion.conditions || [])
+          .map(c => `<div><span style="color:var(--accent);">${c.type}</span>: "${c.value}"</div>`)
+          .join('') || '<span style="color:var(--text-muted);">No conditions</span>';
+        document.getElementById('ep-ai-rule-action').textContent = res.suggestion.action === 'draft_reply' ? 'Draft Reply' : res.suggestion.action;
+        document.getElementById('ep-ai-rule-instructions').value = res.suggestion.draftInstructions || '';
+
+        resultDiv.style.display = 'block';
+      } catch (err) {
+        loadingDiv.style.display = 'none';
+        generateBtn.disabled = false;
+        errorDiv.textContent = err.message || 'Failed to generate rule';
+        errorDiv.style.display = 'block';
+      }
+    }
+
+    async function epCreateRuleFromAi() {
+      if (!epAiRuleSuggestion) {
+        showToast('No suggestion to create', 'error');
+        return;
+      }
+
+      const name = document.getElementById('ep-ai-rule-name').value.trim() || 'AI Generated Rule';
+      const instructions = document.getElementById('ep-ai-rule-instructions').value.trim();
+
+      // Build rule object
+      const rule = {
+        name,
+        trigger: 'on_label_applied',
+        conditions_json: JSON.stringify(epAiRuleSuggestion.conditions || []),
+        actions_json: JSON.stringify([
+          epAiRuleSuggestion.action === 'draft_reply'
+            ? { type: 'draft_reply', config: { instructions, tone: 'professional' } }
+            : { type: epAiRuleSuggestion.action || 'do_nothing', config: {} }
+        ]),
+        mode: 'draft',
+        priority: 100,
+      };
+
+      try {
+        const created = await window.pocketAgent.rulesCreate(rule);
+        if (created.error) throw new Error(created.error);
+
+        showToast(`Rule "${name}" created! Check the Rules tab.`, 'success');
+        epCloseAiRuleBuilder();
+        epBulkClear();
+
+        // Switch to Rules tab
+        document.querySelectorAll('.ep-tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.ep-tab-panel').forEach(p => p.classList.remove('active'));
+        document.querySelector('.ep-tab-btn[data-tab="rules"]')?.classList.add('active');
+        document.getElementById('ep-rules-panel')?.classList.add('active');
+        epLoadRules();
+      } catch (err) {
+        showToast('Failed to create rule: ' + (err.message || err), 'error');
+      }
     }
 
     async function epUpdateRetryFailedBtn() {

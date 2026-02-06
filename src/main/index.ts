@@ -1877,6 +1877,107 @@ Instructions:
     } catch (err) { return { total: 0, matched: 0, executed: 0, errors: 0, error: err instanceof Error ? err.message : 'Failed' }; }
   });
 
+  // AI Rule Builder - analyze emails and suggest rules
+  ipcMain.handle('rules:aiBuildRule', async (
+    _evt: unknown,
+    emails: Array<{ messageId: string; account: string; subject?: string; sender?: string; label?: string }>,
+    userPrompt: string,
+  ) => {
+    try {
+      const { glmFlash } = await import('../tools/glm-client');
+      const { getMessage } = await import('../tools/gog-wrapper');
+
+      // Fetch full body for each email (up to 5 to avoid token limits)
+      const emailsToAnalyze = emails.slice(0, 5);
+      const emailDetails: Array<{ subject: string; sender: string; label: string; body: string }> = [];
+
+      for (const e of emailsToAnalyze) {
+        try {
+          const msgRes = await getMessage({ messageId: e.messageId, account: e.account });
+          if (msgRes.success && msgRes.message) {
+            const parsed = JSON.parse(msgRes.message);
+            const headers = parsed.headers || {};
+            const msg = parsed.message || {};
+            const body = parsed.body || msg.snippet || '';
+            emailDetails.push({
+              subject: headers.subject || e.subject || '',
+              sender: headers.from || e.sender || '',
+              label: e.label || '',
+              body: body.slice(0, 1500),
+            });
+          }
+        } catch { /* skip failed fetches */ }
+      }
+
+      if (emailDetails.length === 0) {
+        return { ok: false, error: 'Could not fetch any email details' };
+      }
+
+      // Build prompt for GLM
+      const emailsBlock = emailDetails.map((e, i) =>
+        `--- Email ${i + 1} ---\nFrom: ${e.sender}\nSubject: ${e.subject}\nLabel: ${e.label}\nBody:\n${e.body}`
+      ).join('\n\n');
+
+      const prompt = `You are an email automation expert. Analyze the following emails and create a rule configuration.
+
+USER'S INTENT:
+${userPrompt}
+
+EMAILS TO ANALYZE:
+${emailsBlock}
+
+Based on the user's intent and the email patterns, generate a JSON rule with:
+1. "name": A short descriptive name for this rule
+2. "conditions": Array of conditions to match these emails. Use types like:
+   - {"type": "label_is", "value": "LabelName"} - match specific label
+   - {"type": "body_contains", "value": "keyword"} - match body text (case-insensitive)
+   - {"type": "subject_contains", "value": "keyword"} - match subject
+   - {"type": "sender_domain", "value": "domain.com"} - match sender domain
+3. "action": Either "draft_reply" or "do_nothing"
+4. "draftInstructions": If action is draft_reply, detailed instructions for writing the reply. Be specific about tone, what to include/exclude, any URLs or pricing to mention.
+
+Respond with ONLY valid JSON, no markdown, no explanation:
+{"name": "...", "conditions": [...], "action": "...", "draftInstructions": "..."}`;
+
+      const glmRes = await glmFlash({
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 1500,
+        temperature: 0.3,
+        disableThinking: true,
+      });
+
+      if (!glmRes.success || !glmRes.content) {
+        return { ok: false, error: 'AI failed to generate rule' };
+      }
+
+      // Parse the JSON response
+      let result;
+      try {
+        // Extract JSON from response (handle markdown code blocks)
+        let jsonStr = glmRes.content.trim();
+        if (jsonStr.startsWith('```')) {
+          jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+        }
+        result = JSON.parse(jsonStr);
+      } catch {
+        return { ok: false, error: 'AI returned invalid JSON', raw: glmRes.content };
+      }
+
+      return {
+        ok: true,
+        suggestion: {
+          name: result.name || 'New Rule',
+          conditions: result.conditions || [],
+          action: result.action || 'draft_reply',
+          draftInstructions: result.draftInstructions || '',
+        },
+        emailCount: emailDetails.length,
+      };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Failed to build rule' };
+    }
+  });
+
   // --- Unanswered Command Center ---
 
   async function ensureUnansweredEngine(): Promise<void> {

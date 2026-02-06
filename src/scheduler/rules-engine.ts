@@ -63,6 +63,7 @@ export interface EmailContext {
   subject: string;
   sender: string;
   snippet: string;
+  body?: string;  // Full email body (up to 2000 chars) for draft replies
   label: string;
   confidence: string;
   internalDateMs: number;
@@ -243,6 +244,18 @@ export class RulesEngine {
         added_at TEXT DEFAULT (datetime('now')),
         summary_run_id TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS draft_reply_tracker (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id TEXT NOT NULL,
+        account TEXT NOT NULL,
+        replied_to_message_id TEXT NOT NULL,
+        rule_id INTEGER,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(thread_id, account, replied_to_message_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_draft_tracker_thread ON draft_reply_tracker(thread_id, account);
     `);
   }
 
@@ -579,6 +592,15 @@ export class RulesEngine {
       }
     }
 
+    // Check for duplicate draft — skip if we already drafted a reply to this exact message
+    const existingDraft = this.db.prepare(
+      'SELECT id FROM draft_reply_tracker WHERE thread_id = ? AND account = ? AND replied_to_message_id = ?',
+    ).get(email.threadId || email.messageId, email.account, email.messageId) as { id: number } | undefined;
+
+    if (existingDraft) {
+      throw new Error('skipped_duplicate_draft');
+    }
+
     const prompt = this.buildDraftReplyPrompt(email, config);
     const glmRes = await glmFlash({
       messages: [{ role: 'user', content: prompt }],
@@ -603,6 +625,12 @@ export class RulesEngine {
       replyToMessageId: email.messageId,
       account: email.account,
     });
+
+    // Track this draft to prevent duplicates
+    // Key: thread_id + message_id — allows new draft if new inbound message arrives
+    this.db.prepare(
+      'INSERT OR IGNORE INTO draft_reply_tracker (thread_id, account, replied_to_message_id) VALUES (?, ?, ?)',
+    ).run(email.threadId || email.messageId, email.account, email.messageId);
 
     // Apply AI/Draft label so user can track AI-drafted emails
     if (email.threadId) {
@@ -659,7 +687,7 @@ export class RulesEngine {
       'Email context:',
       `From: ${email.sender}`,
       `Subject: ${email.subject}`,
-      `Preview: ${email.snippet}`,
+      `Body: ${email.body || email.snippet}`,
       '',
       'Write the reply now. Plain text only.',
       '',
@@ -941,5 +969,6 @@ export class RulesEngine {
   private cleanupOldExecutions(): void {
     this.db.prepare("DELETE FROM email_rule_executions WHERE executed_at < datetime('now', '-30 days')").run();
     this.db.prepare("DELETE FROM thread_state_cache WHERE fetched_at < datetime('now', '-7 days')").run();
+    this.db.prepare("DELETE FROM draft_reply_tracker WHERE created_at < datetime('now', '-90 days')").run();
   }
 }

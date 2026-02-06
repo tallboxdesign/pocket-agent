@@ -128,6 +128,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   rulesGetExecutions: (ruleId?: number, limit?: number) => ipcRenderer.invoke('rules:getExecutions', ruleId, limit),
   rulesRunDailySummary: () => ipcRenderer.invoke('rules:runDailySummary'),
   rulesReplay: (limit?: number) => ipcRenderer.invoke('rules:replay', limit),
+  rulesAiBuildRule: (emails: Array<{ messageId: string; account: string; subject?: string; sender?: string; label?: string }>, userPrompt: string) =>
+    ipcRenderer.invoke('rules:aiBuildRule', emails, userPrompt),
 
   // Unanswered Command Center
   unansweredScan: (account?: string) => ipcRenderer.invoke('unanswered:scan', account),
@@ -348,6 +350,8 @@ declare global {
       rulesGetExecutions: (ruleId?: number, limit?: number) => Promise<Array<Record<string, unknown>>>;
       rulesRunDailySummary: () => Promise<{ success: boolean; summary?: string; error?: string }>;
       rulesReplay: (limit?: number) => Promise<{ total: number; matched: number; executed: number; errors: number; error?: string }>;
+      rulesAiBuildRule: (emails: Array<{ messageId: string; account: string; subject?: string; sender?: string; label?: string }>, userPrompt: string) =>
+        Promise<{ ok: boolean; suggestion?: { name: string; conditions: Array<{ type: string; value: string }>; action: string; draftInstructions: string }; emailCount?: number; error?: string; raw?: string }>;
       // Unanswered Command Center
       unansweredScan: (account?: string) => Promise<unknown>;
       unansweredList: (filter?: Record<string, unknown>) => Promise<{ threads: Array<Record<string, unknown>>; total: number }>;
