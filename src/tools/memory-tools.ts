@@ -19,17 +19,25 @@ export function setMemoryManager(memory: MemoryManager): void {
 export function getRememberToolDefinition() {
   return {
     name: 'remember',
-    description: 'Save important information to long-term memory. Use proactively when user shares personal info, preferences, projects, people, or decisions. Categories: user_info, preferences, projects, people, work, notes, decisions.',
+    description: `Save important information to long-term memory. Use proactively when user shares personal info, preferences, projects, people, or decisions.
+
+IMPORTANT: Use UNIQUE subject names to prevent overwriting previous facts:
+- Good: project_rule_ken, project_rule_semantics, preference_voice_speed
+- Bad: project_rule (overwrites previous rules with same subject)
+
+Format: {type}_{identifier} — e.g., routing_ken, preference_coffee, person_mom
+
+Categories: user_info, preferences, projects, people, work, notes, decisions, rules.`,
     input_schema: {
       type: 'object' as const,
       properties: {
         category: {
           type: 'string',
-          description: 'Category: user_info, preferences, projects, people, work, notes, decisions',
+          description: 'Category: user_info, preferences, projects, people, work, notes, decisions, rules',
         },
         subject: {
           type: 'string',
-          description: 'Short identifier for this fact (e.g., "name", "coffee_preference", "project_x")',
+          description: 'UNIQUE identifier for this fact. Use format: type_specific (e.g., "routing_ken", "preference_voice", "person_mom"). Same category+subject OVERWRITES existing fact.',
         },
         content: {
           type: 'string',

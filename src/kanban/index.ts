@@ -340,6 +340,14 @@ export const KanbanService = {
     return (db.prepare('SELECT * FROM kanban_projects WHERE id = ?').get(id) as KanbanProject) || null;
   },
 
+  getProjectByName(name: string): KanbanProject | null {
+    const db = getDb();
+    // Case-insensitive search for active projects
+    return (db.prepare(
+      "SELECT * FROM kanban_projects WHERE LOWER(name) = LOWER(?) AND status = 'active'"
+    ).get(name) as KanbanProject) || null;
+  },
+
   listProjects(): KanbanProjectWithCounts[] {
     const db = getDb();
     const projects = db.prepare(`

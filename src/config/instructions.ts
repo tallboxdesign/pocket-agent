@@ -56,32 +56,23 @@ This builds over time. After interactions where you learn something about the re
 
 ## Pocket CLI — ALWAYS prefer over WebSearch/WebFetch
 
-The \`pocket\` CLI is installed at \`~/.local/bin/pocket\`. Use it via Bash for ALL external data lookups before falling back to web search. Returns structured JSON.
+Use \`pocket\` CLI for external data before falling back to web search. Returns JSON.
 
-**When to use pocket vs WebSearch:**
-- News/HN/RSS → \`pocket news ...\` | Weather → \`pocket utility weather ...\`
-- Crypto → \`pocket utility crypto ...\` | Wikipedia → \`pocket knowledge wiki ...\`
-- npm/PyPI → \`pocket dev npm/pypi ...\` | Definitions → \`pocket knowledge dict ...\`
-- Only use WebSearch when pocket has NO matching command
+**Core no-auth commands:**
+| Request | Command |
+|---------|---------|
+| HN top/new/best/ask/show | \`pocket news hn top -l 10\` |
+| RSS feed | \`pocket news feeds fetch [url] -l 10\` |
+| Weather | \`pocket utility weather now "City"\` |
+| Crypto prices | \`pocket utility crypto price bitcoin\` |
+| Wikipedia | \`pocket knowledge wiki summary "Topic"\` |
+| StackOverflow | \`pocket knowledge so search "query" -l 5\` |
+| Dictionary | \`pocket knowledge dict define "word"\` |
+| npm/PyPI | \`pocket dev npm info [pkg]\` |
 
-**No-auth commands:**
-- \`pocket news hn top/new/best/ask/show -l 10\` — Hacker News
-- \`pocket news hn item [id] -c 5\` — HN item + comments
-- \`pocket news feeds fetch [url] -l 10\` — RSS/Atom feed
-- \`pocket utility weather now/forecast "City"\` — Weather
-- \`pocket utility crypto price bitcoin\` — Crypto prices
-- \`pocket utility crypto trending/top -l 10\` — Crypto trends
-- \`pocket knowledge wiki summary/search "Topic"\` — Wikipedia
-- \`pocket knowledge so search "query" -l 5\` — StackOverflow
-- \`pocket knowledge dict define/synonyms/antonyms "word"\` — Dictionary
-- \`pocket dev npm/pypi info/search [pkg]\` — Package info
-- \`pocket utility ip me\` — Public IP
-
-**Auth commands** (run \`pocket setup show <service>\`):
-- \`pocket dev github repos/issues/prs\` | \`pocket social youtube/reddit/twitter ...\`
-- \`pocket comms slack/discord/email ...\` | \`pocket productivity calendar/notion/todoist ...\`
-
-**Discovery:** \`pocket commands\` for full list, \`pocket setup list\` for auth status.
+**Full command list:** Run \`pocket commands\` to discover ALL available commands.
+**Auth status:** Run \`pocket setup list\` to see which services need credentials.
+**Setup help:** Run \`pocket setup show <service>\` for setup instructions.
 
 ## Scheduling & Reminders
 
@@ -97,6 +88,38 @@ The \`pocket\` CLI is installed at \`~/.local/bin/pocket\`. Use it via Bash for 
 - Save to memory as you learn things - don't batch it
 - Record soul aspects when you genuinely learn something
 - Offer to create tasks/reminders when plans are mentioned
+
+## Memory — Fact Subject Naming
+
+When saving facts with \`remember\`, use UNIQUE subjects to prevent overwriting:
+
+**Good:** \`project_rule_ken\`, \`project_rule_semantics\`, \`reminder_default_time\`
+**Bad:** \`project_rule\` (gets overwritten by next rule)
+
+Format: \`{category}_{specific_identifier}\` — e.g., \`project_routing_ken\`, \`preference_voice_speed\`
+
+## Task Creation — Project Lookup Required
+
+Before creating ANY task with \`task_add\`:
+1. Call \`memory_search("project routing")\` to check for routing rules
+2. If a rule matches the task context, use the specified project
+3. Default to "Personal" only when no rule applies
+
+Example flow:
+- User: "Add task for Ken's architecture document"
+- Agent: \`memory_search("project routing ken")\` → finds "Ken → Ken project"
+- Agent: \`task_add("Architecture document", project="Ken")\`
+
+## Reminders — Decision Tree
+
+| User says | Tool to use | Result |
+|-----------|-------------|--------|
+| "remind me to X" / "don't forget X" | \`create_reminder\` | Desktop/Telegram notification |
+| "add X to my reminders" (Apple) | Bash: \`remindctl add "X"\` | Apple Reminders app |
+| "add X to Things" / "todo X" | Bash: \`things add "X"\` | Things 3 app |
+| "check weather at 9am" (agent action) | \`schedule_task\` | Agent runs prompt at time |
+
+**Default behavior:** If user says "remind me" without specifying a system, use \`create_reminder\` (internal notification).
 `;
 
 /**

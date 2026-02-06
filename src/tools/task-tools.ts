@@ -138,6 +138,9 @@ export function getTaskAddToolDefinition() {
     name: 'task_add',
     description: `Add a new task/todo item with optional due date, priority, and reminder.
 
+BEFORE creating a task: call memory_search("project routing") to check for routing rules.
+If a rule matches the task context, use the specified project name.
+
 Use when user wants to:
 - Create a todo item
 - Add something to their task list
@@ -146,13 +149,14 @@ Use when user wants to:
 Priority levels: low, medium (default), high
 
 Examples:
-- task_add("Buy groceries")
-- task_add("Call mom", due="tomorrow 5pm", priority="high")
-- task_add("Submit report", due="friday", reminder_minutes=60)`,
+- task_add("Buy groceries") → Personal project (default)
+- task_add("Ken architecture doc", project="Ken") → Ken project
+- task_add("Call mom", due="tomorrow 5pm", priority="high")`,
     input_schema: {
       type: 'object' as const,
       properties: {
         title: { type: 'string', description: 'Task title' },
+        project: { type: 'string', description: 'Project name (default: Personal). Search memory for routing rules first.' },
         description: { type: 'string', description: 'Optional task description' },
         due: { type: 'string', description: 'Due date (e.g., "tomorrow", "friday 5pm")' },
         priority: { type: 'string', description: 'Priority: low, medium, high (default: medium)' },
@@ -167,6 +171,7 @@ Examples:
 export async function handleTaskAddTool(input: unknown): Promise<string> {
   const params = input as {
     title: string;
+    project?: string;
     description?: string;
     due?: string;
     priority?: string;
@@ -186,10 +191,17 @@ export async function handleTaskAddTool(input: unknown): Promise<string> {
   const priority = toPriority(params.priority);
 
   try {
-    const personal = KanbanService.getOrCreatePersonalProject();
+    // Find project by name, or fall back to Personal
+    let project = params.project
+      ? KanbanService.getProjectByName(params.project)
+      : null;
+
+    if (!project) {
+      project = KanbanService.getOrCreatePersonalProject();
+    }
 
     const task = KanbanService.createTask({
-      project_id: personal.id,
+      project_id: project.id,
       title: params.title,
       description: params.description,
       status: 'todo',
@@ -203,6 +215,7 @@ export async function handleTaskAddTool(input: unknown): Promise<string> {
       success: true,
       id: task.id,
       title: task.title,
+      project: project.name,
       due: dueDate ? formatDateTime(dueDate) : null,
       priority,
       session_id: getCurrentSessionId(),

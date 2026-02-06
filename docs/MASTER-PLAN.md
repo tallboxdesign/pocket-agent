@@ -1529,6 +1529,10 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 38. AI Define button — per-label "AI Define" button that calls GLM Flash to generate precise definition + negative guidance from user text and example emails (Section 20)
 39. Thread state conditions — rules engine `thread_state` condition (unread/unreplied/awaiting_reply/replied_with_answer/user_only), gog thread fetch with 30-min SQLite cache, lazy evaluation (Section 20)
 40. Routing UI improvements — no-action warning, inline exception controls with Archive/Mark-read checkboxes, quick presets (Archive all / Archive+Read / Keep in Inbox), 7-day routing stats counter, dry-run preview table (Section 20)
+41. ✅ Agent memory naming — enforce unique fact subjects to prevent overwriting (Section 23.1)
+42. ✅ Task project routing — add `project` param to `task_add`, agent must search memory for routing rules before creating tasks (Section 23.1)
+43. ✅ Reminder decision tree — clear instructions for `create_reminder` vs Apple Reminders vs Things vs `schedule_task` (Section 23.1)
+44. Dynamic rules pattern — routing rules live in facts, agent searches on-demand instead of system prompt bloat (Section 23.1) — instructions added, full pattern is ongoing
 
 ### Phase 3 — GLM Background Loop & Scheduling
 _Depends on: unified tasks (Phase 2), complete event data (Phase 2)_
@@ -1905,6 +1909,17 @@ Go CLI binary (`pocket`) providing 42 internet service integrations. Installed v
 
 ### 22.1 Agent CLI Awareness Fix (2026-02-06) ✅ DONE
 
+### 22.2 CLI Instructions Optimization (2026-02-06) ✅ DONE
+
+**Problem:** Full CLI command reference in CLAUDE.md was ~60 lines (~800 tokens). Adding more tools = prompt bloat.
+
+**Fix:** Trimmed to core no-auth commands (8 rows) + dynamic discovery instructions:
+- `pocket commands` — discover ALL commands
+- `pocket setup list` — check auth status
+- `pocket setup show <service>` — setup help
+
+**Result:** ~400 tokens saved. Agent can discover new tools dynamically without prompt updates.
+
 **Problem discovered:** The deployed `~/Documents/Pocket-agent/CLAUDE.md` (the agent's live instructions) had zero mention of the Pocket CLI. The default template in `src/config/instructions.ts` had a sparse 4-example section, but the file on disk was created before the v2.1.5 merge and was never updated. The agent would use WebSearch for queries that the CLI handles better.
 
 **Fix applied:**
@@ -2020,3 +2035,99 @@ This keeps prompt small while making rules "ever-growing" in facts.
 | Agent claims but doesn't act | Model behavior — improve prompt clarity | Low (can't fully fix) |
 
 ### Status: 🔬 RESEARCH COMPLETE — Awaiting implementation
+
+---
+
+### 23.1 Implementation Plan — Agent Memory & Behavior Fixes
+
+#### A. Instructions Update (`src/config/instructions.ts` + `~/Documents/Pocket-agent/CLAUDE.md`)
+
+Add new section after "Proactive Behavior":
+
+```markdown
+## Memory — Fact Subject Naming
+
+When saving facts with \`remember\`, use UNIQUE subjects to prevent overwriting:
+
+**Good:** `project_rule_ken`, `project_rule_semantics`, `reminder_default_time`
+**Bad:** `project_rule` (gets overwritten by next rule)
+
+Format: `{category}_{specific_identifier}` — e.g., `project_routing_ken`, `preference_voice_speed`
+
+## Task Creation — Project Lookup Required
+
+Before creating ANY task with \`task_add\`:
+1. Call \`memory_search("project routing")\` to check for routing rules
+2. If a rule matches the task context, use the specified project
+3. Default to "Personal" only when no rule applies
+
+Example flow:
+- User: "Add task for Ken's architecture document"
+- Agent: \`memory_search("project routing ken")\` → finds "Ken → Ken project"
+- Agent: \`task_add("Architecture document", project="Ken")\`
+
+## Reminders — Decision Tree
+
+| User says | Tool to use | Result |
+|-----------|-------------|--------|
+| "remind me to X" / "don't forget X" | \`create_reminder\` | Desktop/Telegram notification |
+| "add X to my reminders" (Apple) | Bash: \`remindctl add "X"\` | Apple Reminders app |
+| "add X to Things" / "todo X" | Bash: \`things add "X"\` | Things 3 app |
+| "check weather at 9am" (agent action) | \`schedule_task\` | Agent runs prompt at time |
+
+**Default behavior:** If user says "remind me" without specifying a system, use \`create_reminder\` (internal notification).
+```
+
+#### B. Task Tool Enhancement (`src/tools/task-tools.ts`)
+
+Add `project` parameter to `task_add`:
+
+```typescript
+// In getTaskAddToolDefinition():
+properties: {
+  title: { type: 'string', description: 'Task title' },
+  project: { type: 'string', description: 'Project name (default: Personal). Check memory for routing rules first.' },
+  // ... existing properties
+}
+
+// In handleTaskAddTool():
+const projectName = params.project || 'Personal';
+const project = KanbanService.getProjectByName(projectName)
+  || KanbanService.getOrCreatePersonalProject();
+```
+
+#### C. Remember Tool Enhancement (`src/tools/memory-tools.ts`)
+
+Update tool description to enforce unique subjects:
+
+```typescript
+description: `Save important information to long-term memory.
+
+IMPORTANT: Use UNIQUE subject names to prevent overwriting:
+- Good: project_rule_ken, preference_voice, reminder_default
+- Bad: project_rule (overwrites previous rules)
+
+Format: {type}_{identifier} — e.g., project_routing_semantics
+```
+
+#### D. Dynamic Rules Pattern (Future)
+
+Instead of system prompt bloat, agent searches facts on-demand:
+
+1. **Routing rules** live in facts: `category: "rules", subject: "project_routing_ken", content: "Ken tasks → Ken project"`
+2. **System prompt** contains: "Before task/reminder actions, search rules in memory"
+3. **Agent flow:** User request → `memory_search("routing rules")` → apply matching rule → execute
+
+This allows unlimited rules without growing the system prompt.
+
+#### Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/config/instructions.ts` | Add Memory naming, Task lookup, Reminder decision sections |
+| `~/Documents/Pocket-agent/CLAUDE.md` | Same content (live instructions file) |
+| `src/tools/task-tools.ts` | Add `project` param to task_add |
+| `src/tools/memory-tools.ts` | Update remember description for unique subjects |
+| `src/kanban/index.ts` | Add `getProjectByName(name)` method |
+
+### Status: ✅ IMPLEMENTED (2026-02-06)
