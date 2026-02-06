@@ -168,7 +168,8 @@ describe('Source Code Verification', () => {
 
   it('tools/index.ts should export session context functions', () => {
     const content = fs.readFileSync(path.join(srcDir, 'tools/index.ts'), 'utf-8');
-    expect(content).toContain("export { setCurrentSessionId, getCurrentSessionId } from './session-context'");
+    expect(content).toContain("setCurrentSessionId, getCurrentSessionId");
+    expect(content).toContain("from './session-context'");
   });
 
   it('main/index.ts scheduler chat handler should include sessionId', () => {

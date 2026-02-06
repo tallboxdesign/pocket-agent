@@ -1133,9 +1133,10 @@ The rule editor modal was cutting off content (textarea going under the window).
 
 ---
 
-### 17.11 Upstream Port Phase 2 (2026-02-05) — PLANNED
+### 17.11 Upstream Port Phase 2 (2026-02-05) — SUPERSEDED by 17.12
 
-Port 7 new commits from upstream v2.0.5 → v2.0.8, coexisting with our features.
+~~Port 7 new commits from upstream v2.0.5 → v2.0.8, coexisting with our features.~~
+All items below are included in the full v2.1.5 merge (17.12).
 
 **Commits to Port:**
 | Commit | Feature | Value |
@@ -1178,6 +1179,35 @@ Port 7 new commits from upstream v2.0.5 → v2.0.8, coexisting with our features
 - `ui/facts-graph.html` — organic connectors
 
 **Full plan:** `.claude/plans/upstream-port-phase2.md`
+
+### 17.12 Upstream Port Phase 3 — v2.1.5 Full Merge + Pocket CLI (2026-02-06) ✅ DONE
+
+Full merge of upstream/main (57 commits ahead) into my-voice-features via `integration/upstream-v2.1.5` branch. Supersedes 17.11 — all planned ports are included.
+
+**What was integrated:**
+- **Modular Telegram** — 21-file directory structure replacing monolithic `telegram.ts`
+- **Claude Opus 4.6** — Default model upgraded from Sonnet 4.5
+- **Agent SDK 0.2.32** — `canUseTool` safety hooks, `PreToolUse` event
+- **Config auto-repopulation** — Automatic backup/update of identity.md/CLAUDE.md on version change
+- **Pocket CLI** — Go binary with 42 internet service integrations, installed via Settings tab
+- **Splash screen** — New startup splash with progress indicators
+- **PDF reading** — `pdf-parse` support for document handler
+- **Project tools** — New project management tools
+- **Browser improvements** — Better tier selection, consolidated screenshot saving
+
+**Our features preserved (zero loss):**
+- Voice/TTS pipeline (Brian voice, Edge TTS, Daniel fallback, summarizeForVoice)
+- `/voice`, `/unanswered`, `/approve`, `/reject` Telegram commands
+- `sendVoiceReply()` as modular `features/voice.ts`
+- `sendPhoto()`, raw-emoji `reactToMessage()`, `restartTelegramBot()`
+- Reconnection with exponential backoff + health check
+- `setTelegramMessageContext` in message/media handlers
+- Email intelligence (Gmail, GLM classification, rules engine, unanswered scanner)
+- Kanban project management
+- AI rule builder for email automation
+- All custom tools (voice, photo, react, restart, gmail, glm-worker, kanban)
+
+**Version:** `2.1.5-voice.1`
 
 ---
 
@@ -1842,3 +1872,35 @@ Surfaces threads needing response and provides dismiss/resolve workflows. Design
 ```
 
 All migrations use `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN` for backwards compatibility.
+
+---
+
+## 22. Pocket CLI — External Tool Integration
+
+### Overview
+Go CLI binary (`pocket`) providing 42 internet service integrations. Installed via Settings > Pocket CLI tab. The agent shells out to `pocket <category> <service> <action>` for ad-hoc queries.
+
+### Categories & Services
+| Category | Services |
+|----------|----------|
+| Social | Twitter, Reddit, Mastodon, Bluesky, Hacker News |
+| Comms | Email (IMAP/SMTP), Slack, Discord, Telegram API |
+| News | HN, RSS, Google News, TechCrunch |
+| Knowledge | Wikipedia, Wolfram Alpha, Stack Overflow |
+| Dev Tools | GitHub, GitLab, Jira, Linear, Sentry |
+| Productivity | Todoist, Notion, Trello, Google Calendar |
+| Utility | Weather, Crypto, Stocks, Currency, URL shortener |
+| AI | OpenAI, Anthropic, Gemini, Perplexity |
+
+### How It Works
+1. User clicks "Install" in Settings > Pocket CLI tab
+2. IPC handler `pocket-cli:install` downloads and installs the Go binary
+3. Binary placed in user PATH (e.g., `~/.local/bin/pocket`)
+4. Agent uses `execSync('pocket ...')` or shell tool to query services
+
+### No Overlap with Existing Features
+- **CLI email** (IMAP/SMTP) is for ad-hoc queries; our Gmail integration (Section 8) uses API + GLM classification for scheduled intelligence
+- **CLI Todoist/Notion/Trello** hits external services; our Kanban (Section 18) is local SQLite
+- Voice/TTS pipeline is entirely separate
+
+### Status: ✅ DONE (installed via upstream v2.1.5 merge)

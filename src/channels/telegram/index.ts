@@ -15,7 +15,7 @@
 import * as fs from 'fs';
 import { Bot, Context, InputFile } from 'grammy';
 import type { ReactionTypeEmoji } from '@grammyjs/types';
-import { app, Notification } from 'electron';
+import { Notification } from 'electron';
 import { BaseChannel } from '../index';
 import { SettingsManager } from '../../settings';
 
@@ -45,8 +45,6 @@ import { registerCallbackHandler, CallbackHandlerDeps } from './handlers/callbac
 import {
   createReactionHandler,
   registerReactionHandler,
-  sendReaction,
-  AgentReactions,
   sendVoiceReply,
 } from './features';
 
