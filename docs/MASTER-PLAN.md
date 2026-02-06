@@ -1,7 +1,7 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
-**Last Updated:** 2026-02-04
+**Last Updated:** 2026-02-06
 **Status:** IN PROGRESS — v4.1 Email Intelligence
 **Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-4.7 (utility model)
 
@@ -1189,7 +1189,7 @@ Full merge of upstream/main (57 commits ahead) into my-voice-features via `integ
 - **Claude Opus 4.6** — Default model upgraded from Sonnet 4.5
 - **Agent SDK 0.2.32** — `canUseTool` safety hooks, `PreToolUse` event
 - **Config auto-repopulation** — Automatic backup/update of identity.md/CLAUDE.md on version change
-- **Pocket CLI** — Go binary with 42 internet service integrations, installed via Settings tab
+- **Pocket CLI** — Go binary with 42 internet service integrations, installed via Settings tab, agent instructions updated with full command reference and priority rules (Section 22.1)
 - **Splash screen** — New startup splash with progress indicators
 - **PDF reading** — `pdf-parse` support for document handler
 - **Project tools** — New project management tools
@@ -1903,4 +1903,120 @@ Go CLI binary (`pocket`) providing 42 internet service integrations. Installed v
 - **CLI Todoist/Notion/Trello** hits external services; our Kanban (Section 18) is local SQLite
 - Voice/TTS pipeline is entirely separate
 
-### Status: ✅ DONE (installed via upstream v2.1.5 merge)
+### 22.1 Agent CLI Awareness Fix (2026-02-06) ✅ DONE
+
+**Problem discovered:** The deployed `~/Documents/Pocket-agent/CLAUDE.md` (the agent's live instructions) had zero mention of the Pocket CLI. The default template in `src/config/instructions.ts` had a sparse 4-example section, but the file on disk was created before the v2.1.5 merge and was never updated. The agent would use WebSearch for queries that the CLI handles better.
+
+**Fix applied:**
+- Updated `~/Documents/Pocket-agent/CLAUDE.md` with full CLI command reference (20+ no-auth commands, 11 auth services)
+- Added explicit priority rule: "ALWAYS prefer pocket CLI over WebSearch/WebFetch"
+- Added decision guide: when to use `pocket` vs WebSearch
+- Updated `src/config/instructions.ts` default template with same comprehensive reference
+
+**Key instruction added:** "Only use WebSearch when pocket has NO matching command" — ensures the agent reaches for `pocket news hn top` instead of googling "hacker news."
+
+### Status: ✅ DONE (installed via upstream v2.1.5 merge, agent instructions updated 2026-02-06)
+
+---
+
+## 23. Agent Memory & Behavior Issues — Research Findings
+
+### Overview
+Investigation into why the agent misplaces project assignments, forgets reminders, and why facts count appears stuck.
+
+### Issue 1: Facts UPSERT (Overwrite) Behavior
+
+**Location:** `src/memory/index.ts:1467-1486`
+
+The `saveFact()` function uses **upsert logic**:
+```typescript
+IF exists(category + subject) → UPDATE existing fact
+ELSE → INSERT new fact
+```
+
+**Problem:** If the agent saves multiple facts with the same `category + subject` (e.g., all project rules use subject `"project_rule"`), they overwrite each other. This explains why fact count stays low (e.g., 14) even when user adds more rules.
+
+**Fix:** Agent should use **unique subject names** like `project_rule_ken`, `project_rule_semantics`, `reminder_rule_default`.
+
+### Issue 2: What the Agent Actually Reads
+
+Every message, the agent receives facts via `getFactsForContext()`:
+```markdown
+## Known Facts
+
+### preferences
+- **semantics_content_rule**: When user shares anything semantics...
+
+### projects
+- **project_routing**: Ken → Ken project...
+```
+
+The agent sees ALL facts, but:
+- Facts are not in the system prompt (good for token efficiency)
+- Agent must proactively search/apply them (model behavior issue)
+
+### Issue 3: Project Routing Not Working
+
+**Root cause:** No enforced project lookup before task creation.
+
+The agent has facts about project routing but doesn't consistently apply them because:
+1. No system prompt instruction saying "ALWAYS search project rules before creating tasks"
+2. `task_add` tool hardcodes "Personal" project — no project_id parameter
+3. Agent claims it will follow rules but fails to invoke the right tools
+
+**Fix needed:**
+- Add to system prompt: "Before creating ANY task, call `memory_search('project routing')` to get assignment rules"
+- Or: Add `project_id` parameter to `task_add` with guidance on selection
+
+### Issue 4: Reminders vs Tasks Confusion
+
+**Current tools:**
+| Tool | What It Does |
+|------|--------------|
+| `create_reminder` | Internal scheduler — agent fires notification to itself |
+| `schedule_task` | Scheduled agent action (check weather, etc.) |
+| Apple Reminders | External `remindctl` skill — adds to macOS Reminders app |
+| Things 3 | External `things` skill — adds to Things app |
+
+**Problem:** When user says "remind me", agent doesn't know which system to use.
+
+**Fix:** Add decision rule to system prompt:
+```
+"remind me" / "don't forget" with date → Apple Reminders (remindctl)
+Agent needs to DO something → schedule_task
+Information to remember → remember tool (facts)
+```
+
+### Issue 5: Mind Map Shows Connections But Count Stuck
+
+The mind map shows **facts as nodes** and **connections as links**:
+- 14 facts with 38 connections is valid — connections come from semantic similarity + category grouping
+- The count IS accurate; issue is overwriting (Issue 1)
+
+### Issue 6: Prompt Bloat Concern
+
+**User concern:** Adding more rules to system prompt = mega tokens every message.
+
+**Proposed pattern: Skills-based dynamic lookup**
+```
+INSTEAD OF:
+  System prompt: 1000 lines of rules → tokens every message
+
+DO:
+  System prompt: "Before actions, search facts for relevant rules"
+  Agent: Calls memory_search("project routing") → applies dynamically
+```
+
+This keeps prompt small while making rules "ever-growing" in facts.
+
+### Recommended Fixes
+
+| Issue | Fix | Priority |
+|-------|-----|----------|
+| Overwriting facts | Use unique subjects per rule | High |
+| Project misplacement | Add mandatory `memory_search` before task creation | High |
+| Reminder confusion | Clear decision tree in system prompt | Medium |
+| Prompt bloat | Dynamic skill/fact lookup pattern | Medium |
+| Agent claims but doesn't act | Model behavior — improve prompt clarity | Low (can't fully fix) |
+
+### Status: 🔬 RESEARCH COMPLETE — Awaiting implementation

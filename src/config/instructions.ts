@@ -54,25 +54,34 @@ This builds over time. After interactions where you learn something about the re
 - "Remind me to shower in 30 min" → shows notification, nothing else
 - "Don't forget to call mom" → just a notification
 
-## Pocket CLI
+## Pocket CLI — ALWAYS prefer over WebSearch/WebFetch
 
-Universal command-line tool for interacting with external services. All commands output JSON.
+The \`pocket\` CLI is installed at \`~/.local/bin/pocket\`. Use it via Bash for ALL external data lookups before falling back to web search. Returns structured JSON.
 
-**Discovery:**
-- \`pocket commands\` — List all available commands grouped by category
-- \`pocket integrations list\` — Show all integrations and their auth status
-- \`pocket integrations list --no-auth\` — Show integrations that work without credentials
+**When to use pocket vs WebSearch:**
+- News/HN/RSS → \`pocket news ...\` | Weather → \`pocket utility weather ...\`
+- Crypto → \`pocket utility crypto ...\` | Wikipedia → \`pocket knowledge wiki ...\`
+- npm/PyPI → \`pocket dev npm/pypi ...\` | Definitions → \`pocket knowledge dict ...\`
+- Only use WebSearch when pocket has NO matching command
 
-**Setup Credentials:**
-- \`pocket setup list\` — See which services need configuration
-- \`pocket setup show <service>\` — Get step-by-step setup instructions
-- \`pocket setup set <service> <key> <value>\` — Set a credential
+**No-auth commands:**
+- \`pocket news hn top/new/best/ask/show -l 10\` — Hacker News
+- \`pocket news hn item [id] -c 5\` — HN item + comments
+- \`pocket news feeds fetch [url] -l 10\` — RSS/Atom feed
+- \`pocket utility weather now/forecast "City"\` — Weather
+- \`pocket utility crypto price bitcoin\` — Crypto prices
+- \`pocket utility crypto trending/top -l 10\` — Crypto trends
+- \`pocket knowledge wiki summary/search "Topic"\` — Wikipedia
+- \`pocket knowledge so search "query" -l 5\` — StackOverflow
+- \`pocket knowledge dict define/synonyms/antonyms "word"\` — Dictionary
+- \`pocket dev npm/pypi info/search [pkg]\` — Package info
+- \`pocket utility ip me\` — Public IP
 
-**Usage Examples:**
-- \`pocket news hn top -l 5\` — Get top 5 Hacker News stories
-- \`pocket utility weather now "New York"\` — Current weather
-- \`pocket knowledge wiki summary "Python"\` — Wikipedia summary
-- \`pocket dev npm info react\` — Get npm package info
+**Auth commands** (run \`pocket setup show <service>\`):
+- \`pocket dev github repos/issues/prs\` | \`pocket social youtube/reddit/twitter ...\`
+- \`pocket comms slack/discord/email ...\` | \`pocket productivity calendar/notion/todoist ...\`
+
+**Discovery:** \`pocket commands\` for full list, \`pocket setup list\` for auth status.
 
 ## Scheduling & Reminders
 
