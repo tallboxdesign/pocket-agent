@@ -9,10 +9,10 @@ import {
   getResearchOrchestrator,
   ResearchRequest,
 } from '../agent/research';
-import { TelegramBot } from '../channels/telegram';
+import type { TelegramBot } from '../channels/telegram';
 import { getTelegramMessageContext } from './session-context';
 
-// Store for telegram bot reference
+// Store for telegram bot reference (type-only import to avoid circular deps)
 let telegramBotInstance: TelegramBot | null = null;
 
 /**
