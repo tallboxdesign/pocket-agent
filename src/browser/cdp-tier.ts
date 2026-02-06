@@ -19,20 +19,104 @@ export class CdpTier {
   private currentUrl: string = '';
   private cdpUrl: string;
   private downloadPath: string = process.cwd();
+  private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private reconnecting: boolean = false;
+  private lastConnectionError: string | null = null;
 
   constructor(cdpUrl: string = DEFAULT_CDP_URL) {
     this.cdpUrl = cdpUrl;
   }
 
   /**
+   * Check if CDP endpoint is reachable
+   */
+  private async checkHealth(): Promise<boolean> {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const response = await fetch(`${this.cdpUrl}/json/version`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Start health check interval
+   */
+  private startHealthCheck(): void {
+    // Stop any existing interval
+    this.stopHealthCheck();
+
+    // Check every 30 seconds
+    this.healthCheckInterval = setInterval(async () => {
+      if (this.browser && !this.reconnecting) {
+        const isHealthy = await this.checkHealth();
+        if (!isHealthy) {
+          console.log('[CDP] Health check failed, connection may be stale');
+          this.handleDisconnect();
+        }
+      }
+    }, 30000);
+  }
+
+  /**
+   * Stop health check interval
+   */
+  private stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+  }
+
+  /**
+   * Handle browser disconnection
+   */
+  private handleDisconnect(): void {
+    console.log('[CDP] Browser disconnected');
+    this.browser = null;
+    this.page = null;
+    this.pages.clear();
+    this.currentUrl = '';
+  }
+
+  /**
    * Connect to Chrome via CDP
    */
   async connect(): Promise<BrowserResult> {
+    // Prevent multiple simultaneous reconnection attempts
+    if (this.reconnecting) {
+      return {
+        success: false,
+        tier: 'cdp',
+        error: 'Reconnection already in progress',
+      };
+    }
+
+    this.reconnecting = true;
+    this.lastConnectionError = null;
+
     try {
       // Check if Chrome is running with CDP
-      const response = await fetch(`${this.cdpUrl}/json/version`);
-      if (!response.ok) {
+      const isReachable = await this.checkHealth();
+      if (!isReachable) {
         throw new Error('Chrome not running with remote debugging');
+      }
+
+      // Disconnect existing browser if any
+      if (this.browser) {
+        try {
+          this.browser.disconnect();
+        } catch {
+          // Ignore disconnect errors
+        }
+        this.browser = null;
+        this.page = null;
+        this.pages.clear();
       }
 
       this.browser = await puppeteer.connect({
@@ -40,10 +124,19 @@ export class CdpTier {
         defaultViewport: null,
       });
 
+      // Listen for disconnection
+      this.browser.on('disconnected', () => {
+        console.log('[CDP] Browser disconnected event received');
+        this.handleDisconnect();
+      });
+
       // Get existing pages
       const pages = await this.browser.pages();
       this.page = pages[0] || await this.browser.newPage();
       this.currentUrl = this.page.url();
+
+      // Start health monitoring
+      this.startHealthCheck();
 
       console.log('[CDP] Connected to Chrome');
 
@@ -53,11 +146,15 @@ export class CdpTier {
         url: this.currentUrl,
       };
     } catch (error) {
+      const errorMsg = this.getConnectionHelp(error);
+      this.lastConnectionError = errorMsg;
       return {
         success: false,
         tier: 'cdp',
-        error: this.getConnectionHelp(error),
+        error: errorMsg,
       };
+    } finally {
+      this.reconnecting = false;
     }
   }
 
@@ -78,15 +175,37 @@ export class CdpTier {
   }
 
   /**
-   * Ensure connected
+   * Ensure connected with auto-reconnect
    */
   private async ensurePage(): Promise<Page> {
-    if (!this.page || !this.browser?.connected) {
+    // Check if we need to reconnect
+    const needsReconnect = !this.page || !this.browser || !this.browser.connected;
+
+    if (needsReconnect) {
+      console.log('[CDP] Connection lost, attempting reconnect...');
       const result = await this.connect();
       if (!result.success) {
-        throw new Error(result.error || 'Failed to connect');
+        throw new Error(result.error || 'Failed to connect to Chrome. Make sure Chrome is running with --remote-debugging-port=9222');
       }
     }
+
+    // Verify page is still valid
+    if (!this.page) {
+      throw new Error('No page available after connection');
+    }
+
+    // Double-check the page is responsive
+    try {
+      await this.page.evaluate(() => true);
+    } catch {
+      console.log('[CDP] Page unresponsive, reconnecting...');
+      this.handleDisconnect();
+      const result = await this.connect();
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to reconnect');
+      }
+    }
+
     return this.page!;
   }
 
@@ -845,16 +964,17 @@ export class CdpTier {
    * Check if connected
    */
   isConnected(): boolean {
-    return this.browser?.connected || false;
+    return !!(this.browser?.connected && this.page);
   }
 
   /**
    * Get current state
    */
-  getState(): { url: string; connected: boolean } {
+  getState(): { url: string; connected: boolean; lastError?: string } {
     return {
       url: this.currentUrl,
       connected: this.isConnected(),
+      lastError: this.lastConnectionError || undefined,
     };
   }
 
@@ -862,12 +982,20 @@ export class CdpTier {
    * Disconnect from Chrome
    */
   disconnect(): void {
+    this.stopHealthCheck();
+
     if (this.browser) {
-      this.browser.disconnect();
+      try {
+        this.browser.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
     }
     this.browser = null;
     this.page = null;
+    this.pages.clear();
     this.currentUrl = '';
+    this.lastConnectionError = null;
     console.log('[CDP] Disconnected');
   }
 }

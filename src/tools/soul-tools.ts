@@ -19,22 +19,7 @@ export function setSoulMemoryManager(memory: MemoryManager): void {
 export function getSoulSetToolDefinition() {
   return {
     name: 'soul_set',
-    description: `Set or update an aspect of your soul/identity.
-
-Use this to record and evolve your understanding of yourself:
-- Communication style preferences you've developed
-- Boundaries and principles you've learned
-- Relationship dynamics with the user
-- Learned preferences about how to help this user
-- Self-reflections and insights
-
-Aspects are unique - setting an existing aspect updates it.
-
-Examples:
-- soul_set("communication_style", "User prefers concise responses without excessive enthusiasm")
-- soul_set("boundaries", "Always confirm before sending emails or messages on user's behalf")
-- soul_set("relationship", "User is a software developer who appreciates technical depth")
-- soul_set("learned_preferences", "User likes when I proactively suggest task/calendar entries")`,
+    description: 'Set or update an aspect of your soul/identity. Use for communication style, boundaries, relationship dynamics, and learned preferences. Setting an existing aspect updates it.',
     input_schema: {
       type: 'object' as const,
       properties: {

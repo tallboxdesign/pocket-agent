@@ -17,10 +17,20 @@ contextBridge.exposeInMainWorld('pocketAgent', {
     ipcRenderer.on('scheduler:message', listener);
     return () => ipcRenderer.removeListener('scheduler:message', listener);
   },
-  onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio' }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio' }) => callback(data);
+  onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio'; wasCompacted?: boolean }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio'; wasCompacted?: boolean }) => callback(data);
     ipcRenderer.on('telegram:message', listener);
     return () => ipcRenderer.removeListener('telegram:message', listener);
+  },
+  onSessionsChanged: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('sessions:changed', listener);
+    return () => ipcRenderer.removeListener('sessions:changed', listener);
+  },
+  onModelChanged: (callback: (model: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, model: string) => callback(model);
+    ipcRenderer.on('model:changed', listener);
+    return () => ipcRenderer.removeListener('model:changed', listener);
   },
   getHistory: (limit?: number, sessionId?: string) => ipcRenderer.invoke('agent:history', limit, sessionId),
   getStats: (sessionId?: string) => ipcRenderer.invoke('agent:stats', sessionId),
@@ -89,6 +99,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   validateAnthropicKey: (key: string) => ipcRenderer.invoke('settings:validateAnthropic', key),
   validateOpenAIKey: (key: string) => ipcRenderer.invoke('settings:validateOpenAI', key),
   validateMoonshotKey: (key: string) => ipcRenderer.invoke('settings:validateMoonshot', key),
+  validateGlmKey: (key: string) => ipcRenderer.invoke('settings:validateGlm', key),
   validateTelegramToken: (token: string) => ipcRenderer.invoke('settings:validateTelegram', token),
   getAvailableModels: () => ipcRenderer.invoke('settings:getAvailableModels'),
   restartAgent: () => ipcRenderer.invoke('agent:restart'),
@@ -233,6 +244,14 @@ contextBridge.exposeInMainWorld('pocketAgent', {
     return () => ipcRenderer.removeListener('updater:status', listener);
   },
 
+  // Browser control
+  detectInstalledBrowsers: () => ipcRenderer.invoke('browser:detectInstalled'),
+  launchBrowser: (browserId: string, port?: number) => ipcRenderer.invoke('browser:launch', browserId, port),
+  testBrowserConnection: (cdpUrl?: string) => ipcRenderer.invoke('browser:testConnection', cdpUrl),
+
+  // Shell commands
+  runCommand: (command: string) => ipcRenderer.invoke('shell:runCommand', command),
+
   // Navigation
   onNavigateTab: (callback: (tab: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, tab: string) => callback(tab);
@@ -260,7 +279,9 @@ declare global {
       onStatus: (callback: (status: { type: string; toolName?: string; toolInput?: string; message?: string }) => void) => () => void;
       saveAttachment: (name: string, dataUrl: string) => Promise<string>;
       onSchedulerMessage: (callback: (data: { jobName: string; prompt: string; response: string; sessionId: string }) => void) => () => void;
-      onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio' }) => void) => () => void;
+      onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio'; wasCompacted?: boolean }) => void) => () => void;
+      onSessionsChanged: (callback: () => void) => () => void;
+      onModelChanged: (callback: (model: string) => void) => () => void;
       getHistory: (limit?: number, sessionId?: string) => Promise<Array<{ role: string; content: string; timestamp: string; metadata?: { source?: string; jobName?: string } }>>;
       getStats: (sessionId?: string) => Promise<{ messageCount: number; factCount: number; estimatedTokens: number; sessionCount?: number } | null>;
       clearConversation: (sessionId?: string) => Promise<{ success: boolean }>;
@@ -319,6 +340,7 @@ declare global {
       validateAnthropicKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       validateOpenAIKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       validateMoonshotKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
+      validateGlmKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       validateTelegramToken: (token: string) => Promise<{ valid: boolean; error?: string; botInfo?: unknown }>;
       getAvailableModels: () => Promise<Array<{ id: string; name: string; provider: string }>>;
       restartAgent: () => Promise<{ success: boolean }>;
@@ -447,6 +469,12 @@ declare global {
       installUpdate: () => Promise<{ success: boolean; error?: string }>;
       getUpdateStatus: () => Promise<{ status: string; info?: { version: string }; progress?: { percent: number }; error?: string }>;
       onUpdateStatus: (callback: (status: { status: string; info?: { version: string }; progress?: { percent: number }; error?: string }) => void) => () => void;
+      // Browser control
+      detectInstalledBrowsers: () => Promise<Array<{ id: string; name: string; path: string; processName: string; installed: boolean }>>;
+      launchBrowser: (browserId: string, port?: number) => Promise<{ success: boolean; error?: string; alreadyRunning?: boolean }>;
+      testBrowserConnection: (cdpUrl?: string) => Promise<{ connected: boolean; error?: string; browserInfo?: unknown }>;
+      // Shell commands
+      runCommand: (command: string) => Promise<string>;
     };
   }
 }

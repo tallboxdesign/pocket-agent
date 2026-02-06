@@ -19,23 +19,7 @@ export function setMemoryManager(memory: MemoryManager): void {
 export function getRememberToolDefinition() {
   return {
     name: 'remember',
-    description: `Save important information to long-term memory.
-
-Use this PROACTIVELY when the user shares:
-- Personal info (name, location, work, birthday)
-- Preferences (likes, dislikes, communication style)
-- Projects they're working on
-- People important to them
-- Decisions or commitments made
-- Any fact they'd want you to recall later
-
-Categories: user_info, preferences, projects, people, work, notes, decisions
-
-Examples:
-- remember("user_info", "name", "John")
-- remember("preferences", "coffee", "Prefers oat milk lattes")
-- remember("projects", "website_redesign", "Redesigning company website, due March 15")
-- remember("people", "Sarah", "Best friend, works at Google")`,
+    description: 'Save important information to long-term memory. Use proactively when user shares personal info, preferences, projects, people, or decisions. Categories: user_info, preferences, projects, people, work, notes, decisions.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -93,16 +77,7 @@ export async function handleRememberTool(input: unknown): Promise<string> {
 export function getForgetToolDefinition() {
   return {
     name: 'forget',
-    description: `Remove a fact from long-term memory.
-
-Use when:
-- User asks you to forget something
-- Information is outdated
-- A correction needs to be made (forget old, remember new)
-
-You can forget by:
-- Category + subject (recommended)
-- Fact ID (if known)`,
+    description: 'Remove a fact from long-term memory. Forget by category + subject, or by fact ID.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -219,19 +194,7 @@ export async function handleListFactsTool(input: unknown): Promise<string> {
 export function getMemorySearchToolDefinition() {
   return {
     name: 'memory_search',
-    description: `Search long-term memory using semantic + keyword hybrid search.
-
-Use this PROACTIVELY to:
-- Recall relevant facts before answering questions about the user
-- Find context before the conversation gets compacted
-- Look up previous decisions, preferences, or project details
-
-Returns top 6 results with relevance scores. Uses 70% semantic (embedding) similarity + 30% keyword (BM25) matching.
-
-Examples:
-- memory_search("user's job") -> finds work-related facts
-- memory_search("coffee preferences") -> finds preference facts
-- memory_search("project deadline") -> finds project facts`,
+    description: 'Search long-term memory using semantic + keyword hybrid search. Use proactively to recall facts about the user. Returns top 6 results.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -298,21 +261,7 @@ export async function handleMemorySearchTool(input: unknown): Promise<string> {
 export function getDailyLogToolDefinition() {
   return {
     name: 'daily_log',
-    description: `Add an entry to today's daily log. The daily log is a journal of activities and events throughout the day.
-
-Use this to record:
-- Significant conversations or topics discussed
-- Tasks completed or started
-- User's mood or state if mentioned
-- Key decisions or events
-- Reminders triggered
-
-This helps maintain continuity across sessions and provides context about what happened during the day.
-
-Examples:
-- daily_log("Discussed project deadline - moved to next Friday")
-- daily_log("User completed the website redesign task")
-- daily_log("Morning check-in - user mentioned feeling tired")`,
+    description: "Add an entry to today's daily log. Record significant conversations, completed tasks, user mood, or key events.",
     input_schema: {
       type: 'object' as const,
       properties: {

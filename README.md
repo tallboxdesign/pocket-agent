@@ -1,68 +1,77 @@
-# Pocket Agent
+# 🐱 Pocket Agent
 
-**Your AI that actually knows you.**
+<p align="center">
+  <img src="https://raw.githubusercontent.com/KenKaiii/pocket-agent/main/assets/icon_rounded_1024.png" alt="Pocket Agent" width="200">
+</p>
 
-A desktop assistant that runs 24/7 in your menu bar. It remembers your conversations, learns about you over time, and you can talk to it from your desktop or Telegram.
+<p align="center">
+  <strong>Your AI that actually knows you.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/KenKaiii/pocket-agent/releases/latest"><img src="https://img.shields.io/github/v/release/KenKaiii/pocket-agent?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
+  <a href="https://youtube.com/@kenkaidoesai"><img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
+  <a href="https://skool.com/kenkai"><img src="https://img.shields.io/badge/Skool-Community-7C3AED?style=for-the-badge" alt="Skool"></a>
+</p>
+
+**Pocket Agent** is a personal AI that lives in your menu bar 24/7. It remembers everything, learns who you are, and actually gets better at helping you over time.
+
+It's not just a chatbot. It extracts facts about you, runs automations while you sleep, manages your calendar and tasks, and evolves to work with *you specifically*. Talk to it from your desktop or Telegram. Set up routines that do stuff on your behalf. It's an assistant that's always there.
 
 ---
 
-## Why this exists
+## 🧠 Why this exists
 
-Every time you open ChatGPT, you start from zero. Explain your job. Explain your project. Explain what you like. Again. And again.
+Every AI assistant starts from zero. Every. Single. Time.
 
-That gets old fast.
+Pocket Agent keeps everything. Not just chat logs, but facts about your life, your projects, your preferences. It uses semantic search to pull up stuff from months ago. And it has a "soul" system that learns *how* to work with you better over time.
 
-Pocket Agent keeps everything. Every conversation. Every fact it learns about you. So when you come back tomorrow—or three months from now—it actually knows what you're talking about.
+The more you use it, the more useful it becomes.
 
 ---
 
-## What it actually does
+## ✨ What it actually does
 
-### Remembers everything
-Stores every message locally. Extracts facts about you (your projects, preferences, people you mention). When you bring something up later, it has context.
+### Persistent memory that actually works
+Not just storing messages. It actively extracts and organizes knowledge about you. Projects you're working on. People you mention. Decisions you've made. Preferences you've expressed. All searchable. When you mention something from three months ago, it knows what you're talking about.
 
-### Runs in the background
-Lives in your menu bar. Always there when you need it. Set up scheduled tasks and it'll ping you—daily standup reminders, weekly recaps, whatever you want.
+### Routines and automations
+Create scheduled prompts that run automatically and take action:
+- "Every morning at 8am, check my calendar and Slack, then give me a briefing"
+- "Every Friday at 5pm, review what I accomplished this week and update my progress doc"
+- "Monitor this webpage daily and alert me if the price drops"
 
-### Multiple conversation tabs
-Create up to 5 separate sessions. One for work stuff. One for personal things. One for a specific project. Each session has its own isolated memory—they don't bleed into each other.
+These aren't just reminders. They're full agent executions with access to tools, browser automation, and your conversation history.
 
-### Works on Telegram too
-Set up a Telegram bot and talk to the same assistant from your phone. Same memory, same context. You can even add the bot to group chats and link each group to a different session—so your work group stays separate from your personal one.
+### Self-improving over time
+The "soul" system learns how to work with *you specifically*. Not facts about you, but facts about the dynamic. Your communication style. What kind of responses you prefer. Boundaries you've set. It gets better the more you use it.
 
-### Browser automation
-Two modes depending on what you need:
+### Browser automation with authenticated sessions
+Two modes:
+- **Basic mode:** Hidden window for screenshots, clicking, form filling, data extraction
+- **Chrome mode:** Connects to your actual browser with all your logged-in sessions (Gmail, GitHub, whatever). No re-authentication needed.
 
-**Basic mode (default):** Runs in a hidden window. Good for:
-- Taking screenshots of websites
-- Clicking buttons and filling forms
-- Extracting text, links, or table data
-- Running JavaScript on pages
+Automate workflows that require being logged in. Scrape data from sites you have access to. Fill out forms across multiple sites.
 
-**Chrome mode:** Connects to your actual Chrome browser (you launch it with a debug flag). This one can:
-- Access your logged-in sessions (Gmail, GitHub, whatever)
-- Work with multiple tabs
-- Do authenticated workflows without re-logging in
+### Multi-session isolation
+Up to 5 separate conversation threads, each with completely isolated memory. Work stuff doesn't bleed into personal stuff. Each session has its own facts, tasks, calendar, and conversation history.
 
-Not magic—you're not going to automate complex multi-step workflows out of the box. But for grabbing data from pages or doing simple interactions, it works.
+### Telegram integration
+Same brain, different interface. Talk to it from your phone with full access to memory and tools. Add the bot to group chats and link each group to a different session. Your work group stays separate from your personal one.
 
-### Scheduling
-Tell it things like:
-- "remind me every morning at 9am to check my calendar"
-- "every friday at 5pm, ask me what I accomplished this week"
-- "in 2 hours, ping me about the meeting"
+### Calendar, tasks, and reminders
+Built-in task management with priorities, due dates, and automatic reminders. Calendar events with location and time-based alerts. Daily logs for journaling. The agent can create, modify, and remind you about any of it.
 
-Uses natural language or cron expressions if you're into that.
-
-### Calendar and tasks
-Basic built-in calendar and todo list. Create events, set reminders, track tasks. Nothing fancy, but it's there and it remembers everything.
+### 40+ skill integrations
+Notion, GitHub, Slack, Apple Notes, Apple Reminders, Google Workspace, Trello, Obsidian, and more. Plus MCP server support for adding your own. Full terminal access when you need it.
 
 ### Customizable personality
-Edit the identity file to change how it talks. Make it formal, casual, sarcastic—whatever works for you.
+Edit the identity file to change how it talks. Make it formal, casual, terse, verbose. Whatever works for you.
 
 ---
 
-## Getting started
+## 🚀 Getting started
 
 ### Download
 
@@ -82,7 +91,7 @@ That's it.
 
 ---
 
-## Telegram setup (optional)
+## 📱 Telegram setup (optional)
 
 If you want to talk to it from your phone:
 
@@ -98,7 +107,7 @@ If you want to talk to it from your phone:
 
 ---
 
-## Browser automation details
+## 🌐 Browser automation details
 
 **Default mode** runs in a hidden Electron window. No setup needed. Works for:
 - Screenshots
@@ -125,7 +134,7 @@ Then it can access your logged-in sessions and manage multiple tabs.
 
 ---
 
-## Privacy
+## 🔒 Privacy
 
 - Everything stored locally in SQLite on your machine
 - Conversations go to Anthropic's API (that's how it works)
@@ -134,15 +143,15 @@ Then it can access your logged-in sessions and manage multiple tabs.
 
 ---
 
-## Extensibility
+## 🔌 Extensibility
 
-There's a skill system with 70+ integrations (Notion, GitHub, Slack, Apple Notes, etc.) and support for MCP servers if you want to extend it. Plus full terminal access.
+There's a skill system with 40+ integrations (Notion, GitHub, Slack, Apple Notes, etc.) and support for MCP servers if you want to extend it. Plus full terminal access.
 
 Most people won't need this stuff, but it's there if you do.
 
 ---
 
-## For developers
+## 🛠️ For developers
 
 ```bash
 git clone https://github.com/KenKaiii/pocket-agent.git
@@ -155,19 +164,23 @@ Stack: Electron + Claude Agent SDK + SQLite + TypeScript
 
 ---
 
-## Community
+## 👥 Community
 
-- [YouTube @kenkaidoesai](https://youtube.com/@kenkaidoesai) — tutorials and demos
-- [Skool community](https://skool.com/kenkai) — come hang out
+- [YouTube @kenkaidoesai](https://youtube.com/@kenkaidoesai) - tutorials and demos
+- [Skool community](https://skool.com/kenkai) - come hang out
 
 ---
 
-## License
+## 📄 License
 
 MIT
 
 ---
 
-**An AI that actually remembers you exists now. That's pretty cool.**
+<p align="center">
+  <strong>An AI that remembers you, learns from you, and works for you. Even when you're not there.</strong>
+</p>
 
-[Download →](https://github.com/KenKaiii/pocket-agent/releases/latest)
+<p align="center">
+  <a href="https://github.com/KenKaiii/pocket-agent/releases/latest"><img src="https://img.shields.io/badge/Download-Latest%20Release-blue?style=for-the-badge" alt="Download"></a>
+</p>

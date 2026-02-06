@@ -7,7 +7,7 @@
   <title>Welcome to Pocket Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-primary: #0a0a0b;
@@ -80,10 +80,10 @@
     }
 
     h1 {
-      font-family: 'Sora', sans-serif;
-      font-size: 24px;
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 28px;
       font-weight: 700;
-      letter-spacing: -0.03em;
+      letter-spacing: 0;
       margin-bottom: 6px;
       text-align: center;
       animation: textIn 0.5s ease 0.1s both;
@@ -178,6 +178,7 @@
     }
 
     .auth-option-text h3 {
+      font-family: 'Pixelify Sans', sans-serif;
       font-size: 15px;
       font-weight: 600;
       margin-bottom: 4px;
@@ -436,8 +437,9 @@
     }
 
     .success-text h2 {
-      font-size: 20px;
-      font-weight: 600;
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
       margin-bottom: 6px;
     }
 
@@ -533,21 +535,21 @@
       </div>
 
       <div class="button-row">
-        <button class="primary" id="keychain-btn" onclick="initKeychain()">
+        <button class="primary" id="keychain-btn" onclick="playNormalClick(); initKeychain()">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           Secure My Keys
         </button>
       </div>
 
       <div class="skip-link">
-        <a onclick="skipKeychain()">skip for now</a>
+        <a onclick="playNormalClick(); skipKeychain()">skip for now</a>
       </div>
     </div>
 
     <!-- Step 1: Choose Auth Method -->
     <div class="step" id="step-auth">
       <div class="auth-options">
-        <div class="auth-option" onclick="selectAuth('oauth')">
+        <div class="auth-option" onclick="playNormalClick(); selectAuth('oauth')">
           <div class="auth-option-icon oauth">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
           </div>
@@ -558,7 +560,7 @@
           <span class="auth-option-badge">Best Choice</span>
         </div>
 
-        <div class="auth-option" onclick="selectAuth('api')">
+        <div class="auth-option" onclick="playNormalClick(); selectAuth('api')">
           <div class="auth-option-icon api">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           </div>
@@ -580,8 +582,8 @@
       </div>
 
       <div class="button-row">
-        <button class="secondary" onclick="showStep('step-auth')">Back</button>
-        <button class="oauth" id="oauth-btn" onclick="startOAuth()">
+        <button class="secondary" onclick="playNormalClick(); showStep('step-auth')">Back</button>
+        <button class="oauth" id="oauth-btn" onclick="playNormalClick(); startOAuth()">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
           Sign in
         </button>
@@ -604,15 +606,15 @@
       </div>
 
       <div class="button-row">
-        <button class="secondary" onclick="cancelOAuth()">Cancel</button>
-        <button class="primary" id="oauth-complete-btn" onclick="completeOAuth()">
+        <button class="secondary" onclick="playNormalClick(); cancelOAuth()">Cancel</button>
+        <button class="primary" id="oauth-complete-btn" onclick="playNormalClick(); completeOAuth()">
           Continue
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </button>
       </div>
 
       <div class="optional-section">
-        <div class="optional-header" onclick="toggleOptional()">
+        <div class="optional-header" onclick="playNormalClick(); toggleOptional()">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
           <h4>bonus: add more AI providers</h4>
         </div>
@@ -642,15 +644,15 @@
       </div>
 
       <div class="button-row">
-        <button class="secondary" onclick="showStep('step-auth')">Back</button>
-        <button class="primary" id="api-btn" onclick="validateAndSave()">
+        <button class="secondary" onclick="playNormalClick(); showStep('step-auth')">Back</button>
+        <button class="primary" id="api-btn" onclick="playNormalClick(); validateAndSave()">
           Continue
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </button>
       </div>
 
       <div class="optional-section">
-        <div class="optional-header" onclick="toggleOptional()">
+        <div class="optional-header" onclick="playNormalClick(); toggleOptional()">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
           <h4>bonus: add more AI providers</h4>
         </div>
@@ -681,7 +683,7 @@
       </div>
 
       <div class="button-row" style="margin-top: 24px;">
-        <button class="primary" onclick="finishSetup()">
+        <button class="primary" onclick="playNormalClick(); finishSetup()">
           Let's Chat!
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         </button>
@@ -689,7 +691,24 @@
     </div>
   </div>
 
+  <!-- Click Sound -->
+  <audio id="normal-click-sound" preload="auto" src="../assets/normal-click.mp3"></audio>
+
   <script>
+    // Click sound
+    const normalClickSound = document.getElementById('normal-click-sound');
+    function playNormalClick() {
+      if (normalClickSound) {
+        normalClickSound.currentTime = 0;
+        normalClickSound.play().catch(() => {});
+      }
+    }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('button, .toggle, .tab, .auth-option, select')) {
+        playNormalClick();
+      }
+    });
+
     let selectedAuth = null;
     let keychainInitialized = false;
 

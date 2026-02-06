@@ -38,7 +38,7 @@ export interface AppConfig {
 const DEFAULT_CONFIG: AppConfig = {
   anthropic: {
     apiKey: '',
-    model: 'claude-opus-4-5-20251101',
+    model: 'claude-opus-4-6',
   },
   openai: {
     apiKey: '',

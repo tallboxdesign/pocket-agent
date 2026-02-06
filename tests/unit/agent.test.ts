@@ -536,7 +536,7 @@ describe('AgentManager', () => {
 
   describe('Configuration', () => {
     it('should define default model', () => {
-      const DEFAULT_MODEL = 'claude-opus-4-5-20251101';
+      const DEFAULT_MODEL = 'claude-opus-4-6';
       expect(DEFAULT_MODEL).toContain('claude');
     });
 

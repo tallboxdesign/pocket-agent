@@ -7,7 +7,7 @@
   <title>Personalize</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-primary: #0a0a0b;
@@ -55,10 +55,10 @@
     }
 
     header h1 {
-      font-family: 'Sora', sans-serif;
-      font-size: 14px;
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 16px;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      letter-spacing: 0;
     }
 
     header h1 span {
@@ -167,6 +167,7 @@
       padding: 10px 20px;
       color: var(--text-secondary);
       cursor: pointer;
+      font-family: 'Pixelify Sans', sans-serif;
       font-size: 13px;
       font-weight: 500;
       transition: all 0.15s ease;
@@ -215,6 +216,7 @@
     }
 
     .section-header h2 {
+      font-family: 'Pixelify Sans', sans-serif;
       font-size: 15px;
       font-weight: 600;
       margin-bottom: 4px;
@@ -679,8 +681,8 @@
   <header>
     <h1><span>Personalize</span></h1>
     <div class="header-actions">
-      <button class="secondary" onclick="window.close()">Done</button>
-      <button id="reboot-btn" class="reboot" onclick="restartAgent()" disabled title="Reboot to apply changes">
+      <button class="secondary" onclick="playNormalClick(); window.close()">Done</button>
+      <button id="reboot-btn" class="reboot" onclick="playNormalClick(); restartAgent()" disabled title="Reboot to apply changes">
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;">
           <path d="M21 2v6h-6"/>
           <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
@@ -737,8 +739,8 @@
         <div class="action-bar">
           <span class="info">Reboot me to apply changes!</span>
           <div class="buttons">
-            <button class="secondary" onclick="reloadIdentity()">Undo</button>
-            <button onclick="saveIdentity()" id="save-identity-btn">Save</button>
+            <button class="secondary" onclick="playNormalClick(); reloadIdentity()">Undo</button>
+            <button onclick="playNormalClick(); saveIdentity()" id="save-identity-btn">Save</button>
           </div>
         </div>
       </div>
@@ -759,8 +761,8 @@
         <div class="action-bar">
           <span class="info">Reboot me to apply changes!</span>
           <div class="buttons">
-            <button class="secondary" onclick="reloadInstructions()">Undo</button>
-            <button onclick="saveInstructions()" id="save-instructions-btn">Save</button>
+            <button class="secondary" onclick="playNormalClick(); reloadInstructions()">Undo</button>
+            <button onclick="playNormalClick(); saveInstructions()" id="save-instructions-btn">Save</button>
           </div>
         </div>
       </div>
@@ -832,14 +834,31 @@
         <div class="action-bar">
           <span class="info" id="profile-status">I'll remember this! 🧠</span>
           <div class="buttons">
-            <button onclick="saveProfile()">Save</button>
+            <button onclick="playNormalClick(); saveProfile()">Save</button>
           </div>
         </div>
       </div>
     </main>
   </div>
 
+  <!-- Click Sound -->
+  <audio id="normal-click-sound" preload="auto" src="../assets/normal-click.mp3"></audio>
+
   <script>
+    // Click sound
+    const normalClickSound = document.getElementById('normal-click-sound');
+    function playNormalClick() {
+      if (normalClickSound) {
+        normalClickSound.currentTime = 0;
+        normalClickSound.play().catch(() => {});
+      }
+    }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('button, .toggle, .tab, .nav-item, select')) {
+        playNormalClick();
+      }
+    });
+
     // Track original content for detecting changes
     let originalIdentity = '';
     let originalInstructions = '';

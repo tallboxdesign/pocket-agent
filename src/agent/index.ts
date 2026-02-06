@@ -1,56 +1,47 @@
 import { MemoryManager, Message, SmartContextOptions } from '../memory';
-import { buildMCPServers, buildSdkMcpServers, setMemoryManager, setSoulMemoryManager, setPhotoToolMemoryManager, ToolsConfig, validateToolsConfig, setCurrentSessionId } from '../tools';
+import { buildMCPServers, buildSdkMcpServers, setMemoryManager, setSoulMemoryManager, ToolsConfig, validateToolsConfig, setCurrentSessionId } from '../tools';
 import { closeBrowserManager } from '../browser';
 import { loadIdentity } from '../config/identity';
 import { loadInstructions } from '../config/instructions';
 import { SettingsManager } from '../settings';
-import { logEvent } from '../memory/event-log';
 import { EventEmitter } from 'events';
-import { setActiveChannel } from '../tools/voice-tools';
-
-// Token limits - defaults, can be overridden by settings
-const DEFAULT_MAX_CONTEXT_TOKENS = 150000;
-const COMPACTION_RATIO = 0.8; // Start compacting at 80% capacity
+import { buildCanUseToolCallback, buildPreToolUseHook, setStatusEmitter } from './safety';
 
 // Smart context defaults
 const DEFAULT_RECENT_MESSAGE_LIMIT = 20;
 const DEFAULT_ROLLING_SUMMARY_INTERVAL = 50;
 const DEFAULT_SEMANTIC_RETRIEVAL_COUNT = 5;
 
-// Get token limits from settings
-function getTokenLimits(): { maxContextTokens: number; compactionThreshold: number } {
-  const maxContextTokens = Number(SettingsManager.get('agent.maxContextTokens')) || DEFAULT_MAX_CONTEXT_TOKENS;
-  const compactionThreshold = Math.floor(maxContextTokens * COMPACTION_RATIO);
-  return { maxContextTokens, compactionThreshold };
-}
-
 // Provider configuration for different LLM backends
-type ProviderType = 'anthropic' | 'moonshot';
+type ProviderType = 'anthropic' | 'moonshot' | 'glm';
 
 interface ProviderConfig {
   baseUrl?: string;
-  useAuthToken: boolean;  // Use ANTHROPIC_AUTH_TOKEN (Bearer) vs ANTHROPIC_API_KEY (x-api-key)
 }
 
 const PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
   'anthropic': {
     // No baseUrl = uses default Anthropic endpoint
-    useAuthToken: false,
   },
   'moonshot': {
     baseUrl: 'https://api.moonshot.ai/anthropic/',
-    useAuthToken: true,  // Moonshot uses Bearer token auth
+  },
+  'glm': {
+    baseUrl: 'https://api.z.ai/api/anthropic/',
   },
 };
 
 // Model to provider mapping
 const MODEL_PROVIDERS: Record<string, ProviderType> = {
   // Anthropic models
+  'claude-opus-4-6': 'anthropic',
   'claude-opus-4-5-20251101': 'anthropic',
   'claude-sonnet-4-5-20250929': 'anthropic',
   'claude-haiku-4-5-20251001': 'anthropic',
   // Moonshot/Kimi models
   'kimi-k2.5': 'moonshot',
+  // Z.AI GLM models
+  'glm-4.7': 'glm',
 };
 
 /**
@@ -86,6 +77,19 @@ function configureProviderEnvironment(model: string): void {
     delete process.env.ANTHROPIC_API_KEY;
 
     console.log('[AgentManager] Provider configured: Moonshot (Kimi)');
+  } else if (provider === 'glm') {
+    // Z.AI GLM requires base URL and uses Bearer token auth
+    const glmKey = SettingsManager.get('glm.apiKey');
+    if (!glmKey) {
+      throw new Error('Z.AI GLM API key not configured. Please add your key in Settings > LLM.');
+    }
+
+    process.env.ANTHROPIC_BASE_URL = config.baseUrl;
+    process.env.ANTHROPIC_AUTH_TOKEN = glmKey;
+    // Clear ANTHROPIC_API_KEY so SDK uses AUTH_TOKEN instead
+    delete process.env.ANTHROPIC_API_KEY;
+
+    console.log('[AgentManager] Provider configured: Z.AI GLM');
   } else {
     // Anthropic provider - ensure no base URL override
     delete process.env.ANTHROPIC_BASE_URL;
@@ -94,70 +98,6 @@ function configureProviderEnvironment(model: string): void {
     console.log('[AgentManager] Provider configured: Anthropic');
   }
 }
-
-/**
- * Classify whether an error is recoverable (can retry/fallback) or fatal
- */
-type ErrorType = 'auth' | 'rate_limit' | 'network' | 'api' | 'fatal';
-
-function classifyError(error: unknown): { recoverable: boolean; type: ErrorType; message: string } {
-  const msg = error instanceof Error ? error.message : String(error);
-  const lower = msg.toLowerCase();
-
-  // Auth errors
-  if (lower.includes('401') || lower.includes('403') ||
-      lower.includes('unauthorized') || lower.includes('forbidden') ||
-      (lower.includes('invalid') && lower.includes('key')) ||
-      lower.includes('api key not configured')) {
-    return { recoverable: true, type: 'auth', message: msg };
-  }
-
-  // Rate limiting
-  if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests')) {
-    return { recoverable: true, type: 'rate_limit', message: msg };
-  }
-
-  // Network errors
-  if (lower.includes('econnrefused') || lower.includes('etimedout') ||
-      lower.includes('enotfound') || lower.includes('fetch failed') ||
-      lower.includes('network') || lower.includes('socket hang up') ||
-      lower.includes('econnreset') || lower.includes('enetunreach')) {
-    return { recoverable: true, type: 'network', message: msg };
-  }
-
-  // API server errors
-  if (lower.includes('overloaded') || lower.includes('500') ||
-      lower.includes('502') || lower.includes('503') || lower.includes('504')) {
-    return { recoverable: true, type: 'api', message: msg };
-  }
-
-  // User abort — not really an error
-  if (lower.includes('aborted') || lower.includes('stopped by user')) {
-    return { recoverable: true, type: 'api', message: msg };
-  }
-
-  return { recoverable: false, type: 'fatal', message: msg };
-}
-
-// ---------- Tool-use truthfulness enforcement ----------
-// Detects when the user asked for a reminder but the agent responded
-// without actually calling create_reminder. Triggers a single retry.
-
-function userWantsReminder(userText: string): boolean {
-  const t = userText.toLowerCase();
-  return (
-    t.includes('remind me') ||
-    t.includes("don't forget") ||
-    t.includes('dont forget') ||
-    t.includes('set a reminder')
-  );
-}
-
-const REMINDER_CORRECTION_PROMPT = [
-  'You must call the create_reminder tool in this turn.',
-  'Do not claim a reminder is set unless you emitted a tool_use block.',
-  'After the tool call succeeds, reply with a brief confirmation.',
-].join(' ');
 
 // Get smart context options from settings
 function getSmartContextOptions(currentQuery?: string): SmartContextOptions {
@@ -171,7 +111,7 @@ function getSmartContextOptions(currentQuery?: string): SmartContextOptions {
 
 // Status event types
 export type AgentStatus = {
-  type: 'thinking' | 'tool_start' | 'tool_end' | 'responding' | 'done' | 'subagent_start' | 'subagent_update' | 'subagent_end' | 'queued' | 'queue_processing';
+  type: 'thinking' | 'tool_start' | 'tool_end' | 'tool_blocked' | 'responding' | 'done' | 'subagent_start' | 'subagent_update' | 'subagent_end' | 'queued' | 'queue_processing';
   toolName?: string;
   toolInput?: string;
   message?: string;
@@ -182,10 +122,24 @@ export type AgentStatus = {
   // Queue tracking
   queuePosition?: number;
   queuedMessage?: string;
+  // Safety blocking
+  blockedReason?: string;
 };
 
 // SDK types (loaded dynamically)
 type SDKQuery = AsyncGenerator<unknown, void>;
+type CanUseToolCallback = (
+  toolName: string,
+  input: Record<string, unknown>,
+  options: { signal: AbortSignal; toolUseID: string }
+) => Promise<{ behavior: 'allow' } | { behavior: 'deny'; message: string; interrupt: boolean }>;
+type PreToolUseHookCallback = (input: { tool_name: string; tool_input: unknown }) => Promise<{
+  hookSpecificOutput: {
+    hookEventName: 'PreToolUse';
+    permissionDecision: 'allow' | 'deny';
+    permissionDecisionReason?: string;
+  };
+}>;
 type SDKOptions = {
   model?: string;
   cwd?: string;
@@ -198,6 +152,10 @@ type SDKOptions = {
   systemPrompt?: string | { type: 'preset'; preset: 'claude_code'; append?: string };
   mcpServers?: Record<string, unknown>;
   settingSources?: ('project' | 'user')[];  // Load skills from .claude/skills/
+  canUseTool?: CanUseToolCallback;  // Pre-tool-use validation callback
+  hooks?: {
+    PreToolUse?: Array<{ hooks: PreToolUseHookCallback[] }>;
+  };
 };
 
 // Thinking level to token budget mapping
@@ -218,7 +176,7 @@ export interface ImageContent {
 // Attachment info for tracking attachments in metadata
 export interface AttachmentInfo {
   hasAttachment: boolean;
-  attachmentType?: 'photo' | 'voice' | 'audio';
+  attachmentType?: 'photo' | 'voice' | 'audio' | 'document' | 'location';
 }
 
 // Content block types for SDK
@@ -274,7 +232,7 @@ class AgentManagerClass extends EventEmitter {
   private memory: MemoryManager | null = null;
   private projectRoot: string = process.cwd();
   private workspace: string = process.cwd();  // Isolated working directory for agent
-  private model: string = 'claude-opus-4-5-20251101';
+  private model: string = 'claude-opus-4-6';
   private toolsConfig: ToolsConfig | null = null;
   private initialized: boolean = false;
   private identity: string = '';
@@ -283,7 +241,6 @@ class AgentManagerClass extends EventEmitter {
   private processingBySession: Map<string, boolean> = new Map();
   private lastSuggestedPrompt: string | undefined = undefined;
   private messageQueueBySession: Map<string, Array<{ message: string; channel: string; images?: ImageContent[]; attachmentInfo?: AttachmentInfo; resolve: (result: ProcessResult) => void; reject: (error: Error) => void }>> = new Map();
-  private toolsUsedThisTurn: Set<string> = new Set();
 
   private constructor() {
     super();
@@ -300,7 +257,7 @@ class AgentManagerClass extends EventEmitter {
     this.memory = config.memory;
     this.projectRoot = config.projectRoot || process.cwd();
     this.workspace = config.workspace || this.projectRoot;
-    this.model = config.model || 'claude-opus-4-5-20251101';
+    this.model = config.model || 'claude-opus-4-6';
     this.toolsConfig = config.tools || null;
     this.initialized = true;
 
@@ -309,7 +266,11 @@ class AgentManagerClass extends EventEmitter {
     this.memory.setSummarizer(this.createSummary.bind(this));
     setMemoryManager(this.memory);
     setSoulMemoryManager(this.memory);
-    setPhotoToolMemoryManager(this.memory);
+
+    // Set up safety status emitter for UI feedback on blocked tools
+    setStatusEmitter((status) => {
+      this.emitStatus(status);
+    });
 
     console.log('[AgentManager] Initialized');
     console.log('[AgentManager] Project root:', this.projectRoot);
@@ -354,6 +315,17 @@ class AgentManagerClass extends EventEmitter {
 
   isInitialized(): boolean {
     return this.initialized && this.memory !== null;
+  }
+
+  getModel(): string {
+    return this.model;
+  }
+
+  setModel(model: string): void {
+    this.model = model;
+    SettingsManager.set('agent.model', model);
+    console.log('[AgentManager] Model changed to:', model);
+    this.emit('model:changed', model);
   }
 
   async processMessage(
@@ -403,7 +375,7 @@ class AgentManagerClass extends EventEmitter {
         type: 'queued',
         queuePosition,
         queuedMessage: userMessage.slice(0, 100),
-        message: `Message queued (#${queuePosition})`,
+        message: `in the litter queue (#${queuePosition})`,
       });
     });
   }
@@ -413,11 +385,7 @@ class AgentManagerClass extends EventEmitter {
    */
   private async processQueue(sessionId: string): Promise<void> {
     const queue = this.messageQueueBySession.get(sessionId);
-    if (!queue || queue.length === 0) {
-      // Clean up empty queue entries to prevent memory leaks
-      if (queue) this.messageQueueBySession.delete(sessionId);
-      return;
-    }
+    if (!queue || queue.length === 0) return;
 
     const next = queue.shift()!;
     console.log(`[AgentManager] Processing queued message for session ${sessionId}, ${queue.length} remaining`);
@@ -426,7 +394,7 @@ class AgentManagerClass extends EventEmitter {
     this.emitStatus({
       type: 'queue_processing',
       queuedMessage: next.message.slice(0, 100),
-      message: 'Processing queued message...',
+      message: 'digging it up now...',
     });
 
     try {
@@ -458,12 +426,10 @@ class AgentManagerClass extends EventEmitter {
     const abortController = new AbortController();
     this.abortControllersBySession.set(sessionId, abortController);
     this.lastSuggestedPrompt = undefined;
-    this.toolsUsedThisTurn.clear();
     let wasCompacted = false;
 
     // Set session context for MCP tools to use
     setCurrentSessionId(sessionId);
-    const executionStartTime = Date.now();
 
     try {
       // Use smart context: recent messages + rolling summary + semantic retrieval
@@ -472,7 +438,10 @@ class AgentManagerClass extends EventEmitter {
       const factsContext = memory.getFactsForContext();
       const soulContext = memory.getSoulContext();
 
-      console.log(`[AgentManager] Smart context: ${smartContext.stats.recentCount} recent, ${smartContext.stats.summarizedMessages} summarized, ${smartContext.stats.relevantCount} relevant (${smartContext.totalTokens} tokens)`);
+      // Set wasCompacted if a new rolling summary was created this turn
+      wasCompacted = smartContext.stats.newSummaryCreated;
+
+      console.log(`[AgentManager] Smart context: ${smartContext.stats.recentCount} recent, ${smartContext.stats.summarizedMessages} summarized, ${smartContext.stats.relevantCount} relevant (${smartContext.totalTokens} tokens)${wasCompacted ? ' [COMPACTED]' : ''}`);
 
       const contextParts: string[] = [];
 
@@ -518,10 +487,7 @@ class AgentManagerClass extends EventEmitter {
         ? userMessages[userMessages.length - 1].timestamp
         : undefined;
 
-      const options = await this.buildOptions(factsContext, soulContext, abortController, lastUserMessageTimestamp, channel);
-
-      // Set active channel so speak tool skips desktop broadcast for Telegram
-      setActiveChannel(channel);
+      const options = await this.buildOptions(factsContext, soulContext, abortController, lastUserMessageTimestamp);
 
       // Configure provider environment based on model (sets ANTHROPIC_BASE_URL, AUTH_TOKEN, etc.)
       configureProviderEnvironment(this.model);
@@ -529,7 +495,7 @@ class AgentManagerClass extends EventEmitter {
       // Build prompt - use async generator for images, string for text-only
       let queryResult;
       console.log('[AgentManager] Calling query() with model:', options.model, 'thinking:', options.maxThinkingTokens || 'default');
-      this.emitStatus({ type: 'thinking', message: 'hmm let me think 🤔' });
+      this.emitStatus({ type: 'thinking', message: '*stretches paws* thinking...' });
 
       if (images && images.length > 0) {
         // For images, create an async generator that yields SDKUserMessage
@@ -574,41 +540,14 @@ class AgentManagerClass extends EventEmitter {
         response = this.extractFromMessage(message, response);
       }
 
-      // --- Tool-use truthfulness check: reminder ---
-      // If user asked for a reminder but the agent never called create_reminder,
-      // discard the false response and retry once with a correction prompt.
-      const reminderToolKey = 'mcp__pocket-agent__create_reminder';
-      if (userWantsReminder(userMessage) && !this.toolsUsedThisTurn.has(reminderToolKey)) {
-        console.warn('[AgentManager] Reminder requested but create_reminder not called — retrying once');
-        // Discard first attempt text and tool tracker
-        response = '';
-        this.toolsUsedThisTurn.clear();
-
-        // Retry with correction injected into the prompt
-        const retryPrompt = `${fullPromptText}\n\n[SYSTEM CORRECTION] ${REMINDER_CORRECTION_PROMPT}`;
-        const retryResult = query!({ prompt: retryPrompt, options });
-        for await (const message of retryResult) {
-          if (abortController.signal.aborted) throw new Error('Query stopped by user');
-          this.processStatusFromMessage(message);
-          response = this.extractFromMessage(message, response);
-        }
-
-        if (!this.toolsUsedThisTurn.has(reminderToolKey)) {
-          console.error('[AgentManager] Retry also failed to call create_reminder');
-          response = 'I wasn\'t able to set the reminder — please try again.';
-        }
-      }
-
       this.emitStatus({ type: 'done' });
 
       // If no text response, make a follow-up call to get one
-      // Skip if agent used telegram_react — an empty response is intentional (reaction only)
-      const usedReact = this.toolsUsedThisTurn.has('mcp__pocket-agent__telegram_react');
-      if (!response && !usedReact) {
+      if (!response) {
         console.log('[AgentManager] No text response, requesting summary...');
         this.emitStatus({ type: 'thinking', message: 'summarizing...' });
 
-        const summaryResult = query!({
+        const summaryResult = query({
           prompt: 'Briefly summarize what you just did in 1-2 sentences.',
           options: {
             ...options,
@@ -628,20 +567,6 @@ class AgentManagerClass extends EventEmitter {
 
         this.emitStatus({ type: 'done' });
       }
-
-      // Log LLM call to event log
-      try {
-        const llmDuration = Date.now() - executionStartTime;
-        logEvent({
-          event_type: 'llm_call',
-          source: 'claude',
-          actor: 'claude',
-          session_id: sessionId,
-          data: { model: this.model, channel, responseLength: response.length },
-          success: true,
-          duration_ms: llmDuration,
-        });
-      } catch { /* don't let event logging break the agent */ }
 
       // Skip saving HEARTBEAT_OK responses from scheduled jobs to memory/chat
       const isScheduledJob = channel.startsWith('cron:');
@@ -700,118 +625,12 @@ class AgentManagerClass extends EventEmitter {
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      const errorClass = classifyError(error);
       console.error('[AgentManager] Query failed:', errorMsg);
-      console.error('[AgentManager] Error type:', errorClass.type, 'Recoverable:', errorClass.recoverable);
       if (error instanceof Error && error.stack) {
         console.error('[AgentManager] Stack trace:', error.stack);
       }
+      // Log full error object for debugging
       console.error('[AgentManager] Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-
-      // Log error to event log
-      try {
-        logEvent({
-          event_type: 'error',
-          source: 'claude',
-          actor: 'claude',
-          session_id: sessionId,
-          data: { model: this.model, channel, errorType: errorClass.type },
-          success: false,
-          error: errorMsg,
-          duration_ms: Date.now() - executionStartTime,
-        });
-      } catch { /* don't let event logging break error handling */ }
-
-      // === FALLBACK LOGIC ===
-      const fallbackModel = SettingsManager.get('agent.fallbackModel');
-      if (errorClass.recoverable && fallbackModel && fallbackModel !== this.model) {
-        console.log(`[AgentManager] Attempting fallback: ${this.model} → ${fallbackModel} (reason: ${errorClass.type})`);
-        this.emitStatus({ type: 'thinking', message: 'Primary model failed, switching to backup...' });
-
-        try {
-          configureProviderEnvironment(fallbackModel);
-          const query = await loadSDK();
-          if (!query) throw new Error('Failed to load SDK for fallback');
-
-          const fallbackOptions = await this.buildOptions(
-            memory.getFactsForContext(),
-            memory.getSoulContext(),
-            abortController,
-            undefined,
-            channel
-          );
-          fallbackOptions.model = fallbackModel;
-
-          // Rebuild prompt context
-          const smartCtx = await memory.getSmartContext(sessionId, getSmartContextOptions(userMessage));
-          const parts: string[] = [];
-          if (smartCtx.rollingSummary) parts.push(`[Summary of previous conversations]\n${smartCtx.rollingSummary}`);
-          if (smartCtx.relevantMessages.length > 0) {
-            parts.push(`[Relevant past context]\n${smartCtx.relevantMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n')}`);
-          }
-          if (smartCtx.recentMessages.length > 0) {
-            parts.push(`[Recent conversation]\n${smartCtx.recentMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n')}`);
-          }
-          const fallbackPrompt = parts.length > 0
-            ? `${parts.join('\n\n---\n\n')}\n\n---\n\nUser: ${userMessage}`
-            : userMessage;
-
-          const fallbackResult = query({ prompt: fallbackPrompt, options: fallbackOptions });
-          let fallbackResponse = '';
-          for await (const message of fallbackResult) {
-            if (abortController.signal.aborted) throw new Error('Query stopped by user');
-            this.processStatusFromMessage(message);
-            fallbackResponse = this.extractFromMessage(message, fallbackResponse);
-          }
-
-          this.emitStatus({ type: 'done' });
-          if (!fallbackResponse) fallbackResponse = 'I processed your request but have no text response.';
-
-          // Prepend fallback notice
-          fallbackResponse = `_[Backup model: ${fallbackModel} — primary model was unavailable]_\n\n${fallbackResponse}`;
-
-          // Log fallback success
-          try {
-            logEvent({
-              event_type: 'llm_call',
-              source: 'claude',
-              actor: 'claude',
-              session_id: sessionId,
-              data: { model: fallbackModel, channel, fallbackFrom: this.model, reason: errorClass.type },
-              success: true,
-              duration_ms: Date.now() - executionStartTime,
-            });
-          } catch { /* ignore */ }
-
-          // Save messages
-          const userMsgId = memory.saveMessage('user', userMessage, sessionId);
-          const assistantMsgId = memory.saveMessage('assistant', fallbackResponse, sessionId);
-          memory.embedMessage(userMsgId).catch(e => console.error('[AgentManager] Embed failed:', e));
-          memory.embedMessage(assistantMsgId).catch(e => console.error('[AgentManager] Embed failed:', e));
-          this.extractAndStoreFacts(userMessage);
-
-          return {
-            response: fallbackResponse,
-            tokensUsed: memory.getStats().estimatedTokens,
-            wasCompacted,
-            suggestedPrompt: this.lastSuggestedPrompt,
-          };
-        } catch (fallbackError) {
-          console.error('[AgentManager] Fallback also failed:', fallbackError);
-          try {
-            logEvent({
-              event_type: 'error',
-              source: 'claude',
-              actor: 'claude',
-              session_id: sessionId,
-              data: { model: fallbackModel, fallbackFailed: true },
-              success: false,
-              error: fallbackError instanceof Error ? fallbackError.message : 'Fallback failed',
-            });
-          } catch { /* ignore */ }
-        }
-      }
-      // === END FALLBACK ===
 
       // Only save user message if not aborted
       if (!abortController.signal.aborted) {
@@ -850,8 +669,12 @@ class AgentManagerClass extends EventEmitter {
       for (const item of queue) {
         item.reject(new Error('Queue cleared'));
       }
+      // Delete the key entirely to prevent memory leak from accumulated empty arrays
       this.messageQueueBySession.delete(sessionId);
       console.log(`[AgentManager] Queue cleared for session ${sessionId}`);
+    } else if (queue) {
+      // Clean up empty queue entries
+      this.messageQueueBySession.delete(sessionId);
     }
   }
 
@@ -870,7 +693,7 @@ class AgentManagerClass extends EventEmitter {
       if (this.processingBySession.get(sessionId) && abortController) {
         console.log(`[AgentManager] Stopping query for session ${sessionId}...`);
         abortController.abort();
-        // Don't emit 'done' here — it broadcasts to ALL sessions.
+        // Note: Don't emit 'done' here - it would broadcast to ALL sessions.
         // The frontend handles cleanup on its end when stopping/deleting a session.
         return true;
       }
@@ -916,39 +739,35 @@ class AgentManagerClass extends EventEmitter {
   }
 
   /**
-   * Get the project root directory
+   * Get the default project root directory
    */
   getProjectRoot(): string {
     return this.projectRoot;
   }
 
   /**
-   * Set the workspace directory
+   * Set the workspace directory for agent file operations.
+   * This takes effect on the next SDK query (cwd option).
    */
   setWorkspace(path: string): void {
+    console.log('[AgentManager] Workspace changed:', this.workspace, '->', path);
     this.workspace = path;
-    console.log(`[AgentManager] Workspace set to: ${path}`);
   }
 
   /**
-   * Reset workspace to project root
+   * Reset workspace to default project root
    */
   resetWorkspace(): void {
+    console.log('[AgentManager] Workspace reset to project root:', this.projectRoot);
     this.workspace = this.projectRoot;
-    console.log(`[AgentManager] Workspace reset to project root: ${this.projectRoot}`);
   }
 
-  private async buildOptions(factsContext: string, soulContext: string, abortController: AbortController, lastMessageTimestamp?: string, channel?: string): Promise<SDKOptions> {
+  private async buildOptions(factsContext: string, soulContext: string, abortController: AbortController, lastMessageTimestamp?: string): Promise<SDKOptions> {
     const appendParts: string[] = [];
 
     // Add temporal context first (current time awareness)
     const temporalContext = this.buildTemporalContext(lastMessageTimestamp);
     appendParts.push(temporalContext);
-
-    // Add channel context (tells agent which channel it's on)
-    if (channel) {
-      appendParts.push(this.buildChannelContext(channel));
-    }
 
     if (this.instructions) {
       appendParts.push(this.instructions);
@@ -996,6 +815,10 @@ class AgentManagerClass extends EventEmitter {
       abortController,
       tools: { type: 'preset', preset: 'claude_code' },
       settingSources: ['project'],  // Load skills from .claude/skills/
+      canUseTool: buildCanUseToolCallback(),  // Pre-tool-use safety validation
+      hooks: {
+        PreToolUse: [buildPreToolUseHook()],  // Pre-tool-use safety hook
+      },
       allowedTools: [
         // Built-in SDK tools
         'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch',
@@ -1003,7 +826,6 @@ class AgentManagerClass extends EventEmitter {
         // Custom MCP tools - browser & system
         'mcp__pocket-agent__browser',
         'mcp__pocket-agent__notify',
-        'mcp__pocket-agent__pty_exec',
         // Custom MCP tools - memory
         'mcp__pocket-agent__remember',
         'mcp__pocket-agent__forget',
@@ -1031,43 +853,10 @@ class AgentManagerClass extends EventEmitter {
         'mcp__pocket-agent__task_complete',
         'mcp__pocket-agent__task_delete',
         'mcp__pocket-agent__task_due',
-        // Custom MCP tools - kanban
-        'mcp__pocket-agent__kanban_create_project',
-        'mcp__pocket-agent__kanban_list_projects',
-        'mcp__pocket-agent__kanban_create_task',
-        'mcp__pocket-agent__kanban_update_task',
-        'mcp__pocket-agent__kanban_move_task',
-        'mcp__pocket-agent__kanban_get_board',
-        'mcp__pocket-agent__kanban_get_task',
-        'mcp__pocket-agent__kanban_delete_task',
-        'mcp__pocket-agent__kanban_add_comment',
-        'mcp__pocket-agent__kanban_review_task',
-        'mcp__pocket-agent__kanban_log_research',
-        'mcp__pocket-agent__kanban_add_attachment',
-        'mcp__pocket-agent__kanban_move_task_to_project',
-        // Custom MCP tools - telegram
-        'mcp__pocket-agent__send_telegram_photo',
-        'mcp__pocket-agent__telegram_react',
-        'mcp__pocket-agent__restart_telegram',
-        // Custom MCP tools - gmail (gog CLI)
-        'mcp__pocket-agent__read_emails',
-        'mcp__pocket-agent__get_email',
-        'mcp__pocket-agent__send_email',
-        'mcp__pocket-agent__list_email_labels',
-        'mcp__pocket-agent__create_email_label',
-        'mcp__pocket-agent__modify_email_labels',
-        'mcp__pocket-agent__create_email_draft',
-        'mcp__pocket-agent__list_email_drafts',
-        // Custom MCP tools - GLM worker
-        'mcp__pocket-agent__summarize_text',
-        'mcp__pocket-agent__classify_content',
-        'mcp__pocket-agent__extract_info',
-        'mcp__pocket-agent__bulk_process',
-        // Voice tools
-        'mcp__pocket-agent__speak',
-        'mcp__pocket-agent__voice_status',
-        'mcp__pocket-agent__voice_toggle',
-        'mcp__pocket-agent__voice_config',
+        // Custom MCP tools - project
+        'mcp__pocket-agent__set_project',
+        'mcp__pocket-agent__get_project',
+        'mcp__pocket-agent__clear_project',
       ],
       persistSession: false,
     };
@@ -1106,8 +895,6 @@ class AgentManagerClass extends EventEmitter {
     return `## Your Capabilities as Pocket Agent
 
 You are a persistent personal AI assistant with special capabilities.
-
-GOLDEN RULE: NEVER fabricate tool results. If a tool returns an error or fails, tell the user honestly. NEVER invent fake emails, fake search results, fake file contents, or fake data. If you don't have real data, say so.
 
 ### Your Workspace
 Your working directory is: ${this.workspace}
@@ -1203,18 +990,6 @@ Set requires_auth=true for pages needing login.
 For CDP, user must start Chrome with: --remote-debugging-port=9222
 \`\`\`
 
-BROWSER BEST PRACTICES:
-- When asked to screenshot a page, navigate to the ACTUAL page first — never screenshot Google search results or intermediate pages.
-- If you search for something, click through to the real result page BEFORE taking a screenshot.
-- After navigating, wait for the page to load (use wait_for with a selector or a short delay) before taking the screenshot.
-- ALWAYS dismiss cookie consent popups before taking a screenshot. Use browser_click to click "Accept all", "Accept", "Essential cookies only", "Reject all", or similar buttons. Common selectors: button containing "Accept", button containing "Reject", button containing "Consent", [class*="cookie"] button, [id*="cookie"] button. Take the screenshot ONLY after the popup is gone.
-- Use extract action to get page data when you need text content; use screenshot when the user wants to SEE the page visually.
-
-MANDATORY after taking a screenshot — do NOT ask, just do it:
-1. Use send_telegram_photo to send the screenshot image to the user
-2. Use kanban_log_research to log the research with the screenshot attached
-Never ask "should I log this?" or "want me to send?" — always do both automatically.
-
 ### Native Notifications
 You can send native desktop notifications:
 
@@ -1224,100 +999,8 @@ notify(title="Task Complete", body="Your download has finished")
 notify(title="Reminder", body="Meeting in 5 minutes", urgency="critical")
 \`\`\`
 
-### Interactive Commands (PTY)
-For interactive CLI commands that need a terminal:
-
-\`\`\`bash
-# Use pty_exec instead of Bash when you need:
-# - Interactive prompts (npm init, git interactive)
-# - Commands that require TTY
-# - Colored output
-pty_exec(command="npm init")
-pty_exec(command="htop", timeout=30000)
-\`\`\`
-
-### Voice / Text-to-Speech
-You have voice capabilities! Behavior depends on channel:
-
-**Telegram:** Voice is AUTOMATIC. A short spoken summary is sent alongside every text reply. You do NOT need to call speak(). Just write a detailed text response. User can toggle voice with /voice command.
-
-**Desktop:** Voice is always pre-generated for your responses.
-- Speaker toggle OFF (default): Voice is cached but not auto-played. User clicks speaker icon on any message to listen instantly.
-- Speaker toggle ON: Voice auto-plays with each response.
-
-Tools:
-- speak: Synthesize and play text aloud on demand (when user asks to "say" or "read" something)
-- voice_status: Check current voice settings
-- voice_toggle: Enable/disable auto-play on desktop
-- voice_config: Configure Telegram voice replies
-
-Use speak() only when the user explicitly asks you to "say" or "read" something aloud.
-
-### Kanban Project Management
-You have a Kanban board for organizing projects and tasks:
-
-- kanban_create_project: Create a project with name, description, color
-- kanban_list_projects: List all projects with task counts
-- kanban_create_task: Add task to a project (backlog/todo/in_progress/review/done)
-- kanban_update_task: Update task fields
-- kanban_move_task: Move task between columns
-- kanban_get_board: See full board for a project
-- kanban_get_task: Get task details with activity log
-- kanban_delete_task: Remove a task
-- kanban_add_comment: Add notes to a task
-- kanban_review_task: Approve or reject tasks in Review column
-- kanban_log_research: Log completed research/work to the board
-- kanban_add_attachment: Attach files, links, screenshots, or folders to a task
-
-MANDATORY: After completing ANY research work (screenshots, web searches, analysis, data gathering),
-ALWAYS use kanban_log_research to log results automatically — do NOT ask the user first.
-This creates a task in the Review column of the Research project.
-Also ALWAYS send screenshots to the user via send_telegram_photo — never just show the file path.
-
-### Gmail (via gog CLI)
-You have DIRECT access to Gmail — use these tools, do NOT use the browser for email.
-Two accounts are authenticated and ready:
-- **office.tallbox@gmail.com** (primary work account)
-- **jorgepa.tallbox@gmail.com** (secondary account)
-
-Tools:
-- read_emails: List recent emails (default: last 24h). Use account= to specify which account.
-- get_email: Read full email body by message ID
-- send_email: Send an email
-- create_email_draft: Create a draft
-- list_email_drafts: List drafts
-- list_email_labels: List all labels for an account
-- create_email_label: Create a new label
-- modify_email_labels: Add/remove labels on emails
-
-Gmail categories: category:primary, category:updates, category:social, category:promotions, category:forums
-
-Examples:
-- read_emails(query="category:primary OR category:updates newer_than:1d") — check main emails
-- read_emails(account="jorgepa.tallbox@gmail.com", query="category:primary newer_than:12h")
-- read_emails(query="is:unread label:important")
-- read_emails(query="from:alice@example.com newer_than:7d")
-
-DEFAULT: When user says "check my emails", always search category:primary and category:updates, not the entire mailbox.
-
-IMPORTANT: Always use these tools for email. Never suggest browser or Chrome debugging for Gmail access.
-CRITICAL: NEVER fabricate, invent, or hallucinate email content. If read_emails fails or returns an error, report the error honestly. Do NOT make up fake emails to fill the gap. This applies to ALL tool results — if a tool fails, say it failed.
-
-### GLM Worker (Utility Model)
-You can delegate lightweight tasks to GLM-4.7 to save tokens:
-- summarize_text: Summarize long text
-- classify_content: Classify text into categories (e.g., email labeling)
-- extract_info: Extract structured data from text
-- bulk_process: Process multiple items in one call
-
-Use GLM for: email classification, log summarization, data extraction, routine processing.
-Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
-
-### Self-Healing
-- restart_telegram: Restart Telegram connection if it disconnects
-
 ### Limitations
-- Cannot send SMS
+- Cannot send SMS or make calls
 - For full desktop automation, user needs to enable Computer Use (Docker-based)`;
   }
 
@@ -1335,9 +1018,7 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
         if (suggestion) {
           this.lastSuggestedPrompt = suggestion;
         }
-        // Only update if we got actual text — tool-only messages return empty
-        // and should not overwrite previously accumulated text
-        return cleanedText || current;
+        return cleanedText;
       }
     }
 
@@ -1349,7 +1030,7 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
         if (suggestion) {
           this.lastSuggestedPrompt = suggestion;
         }
-        return cleanedText || current;
+        return cleanedText;
       }
     }
 
@@ -1423,7 +1104,6 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
         for (const block of content) {
           if (block?.type === 'tool_use') {
             const rawName = block.name as string;
-            this.toolsUsedThisTurn.add(rawName);
             const toolName = this.formatToolName(rawName);
             const toolInput = this.formatToolInput(block.input);
 
@@ -1449,7 +1129,7 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
                 type: 'tool_start',
                 toolName,
                 toolInput,
-                message: `Using ${toolName}...`,
+                message: `batting at ${toolName}...`,
               });
             }
           }
@@ -1476,19 +1156,19 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
                 this.emitStatus({
                   type: 'subagent_update',
                   agentCount: this.activeSubagents.size,
-                  message: `${this.activeSubagents.size} helper${this.activeSubagents.size > 1 ? 's' : ''} still working 🔄`,
+                  message: `${this.activeSubagents.size} kitty${this.activeSubagents.size > 1 ? 'ies' : ''} still hunting`,
                 });
               } else {
                 this.emitStatus({
                   type: 'subagent_end',
                   agentCount: 0,
-                  message: 'helpers done, processing... ✨',
+                  message: 'squad done! cleaning up...',
                 });
               }
             } else {
               this.emitStatus({
                 type: 'tool_end',
-                message: 'got it, thinking... 💭',
+                message: 'caught it! processing...',
               });
             }
           }
@@ -1499,78 +1179,68 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
     // Handle system messages
     if (msg.type === 'system') {
       if (msg.subtype === 'init') {
-        this.emitStatus({ type: 'thinking', message: 'Initializing...' });
+        this.emitStatus({ type: 'thinking', message: 'waking up from a nap...' });
       }
     }
   }
 
   private getSubagentMessage(agentType: string): string {
     const messages: Record<string, string> = {
-      'Explore': 'sent out a scout to explore 🔭',
-      'Plan': 'calling in the architect 📐',
-      'Bash': 'spawning a terminal wizard 🧙',
-      'general-purpose': 'summoning a helper 🤖',
+      'Explore': 'sent a curious kitten to explore',
+      'Plan': 'calling in the architect cat',
+      'Bash': 'summoning a terminal tabby',
+      'general-purpose': 'summoning a helper kitty',
     };
-    return messages[agentType] || `spawning ${agentType} agent 🚀`;
+    return messages[agentType] || `summoning ${agentType} cat friend`;
   }
 
   private formatToolName(name: string): string {
-    // Fun, casual tool names that match PA's vibe
+    // Fun, cat-themed tool names that match PA's vibe
     const friendlyNames: Record<string, string> = {
       // SDK built-in tools
-      Read: 'peeking at this file 👀',
-      Write: 'writing stuff down ✍️',
-      Edit: 'tweaking some code',
-      Bash: 'running terminal magic 🪄',
-      Glob: 'hunting for files 🔍',
+      Read: 'sniffing this file',
+      Write: 'scratching notes down',
+      Edit: 'pawing at some code',
+      Bash: 'hacking at the terminal',
+      Glob: 'hunting for files',
       Grep: 'digging through code',
-      WebSearch: 'googling it rn',
-      WebFetch: 'grabbing that page',
-      Task: 'summoning a helper 🧙',
+      WebSearch: 'prowling the web',
+      WebFetch: 'fetching that page',
+      Task: 'summoning a helper kitty',
       NotebookEdit: 'editing notebook',
 
       // Memory tools
-      remember: 'saving this to the brain 🧠',
-      forget: 'yeeting from memory',
-      list_facts: 'checking what i know',
-      memory_search: 'searching the archives',
+      remember: 'stashing in my cat brain',
+      forget: 'knocking it off the shelf',
+      list_facts: 'checking my memories',
+      memory_search: 'sniffing through archives',
 
       // Browser tool
-      browser: 'doing browser things 🌐',
+      browser: 'pouncing on browser',
 
       // Computer use tool
-      computer: 'taking over the desktop 🖥️',
+      computer: 'walking on the keyboard',
 
       // Scheduler tools
-      schedule_task: 'setting a reminder ⏰',
+      schedule_task: 'setting an alarm meow',
       list_scheduled_tasks: 'checking the schedule',
-      delete_scheduled_task: 'nuking that reminder',
+      delete_scheduled_task: 'knocking that off',
 
       // macOS tools
-      notify: 'sending a ping 🔔',
-      pty_exec: 'running fancy terminal stuff',
+      notify: 'sending a meow',
 
       // Task tools
-      task_add: 'adding to the todo list ✅',
+      task_add: 'adding to the hunt list',
       task_list: 'checking your tasks',
-      task_complete: 'marking it done 🎉',
-      task_delete: 'removing that task',
-      task_due: 'checking what\'s due',
+      task_complete: 'caught it!',
+      task_delete: 'batting that away',
+      task_due: 'sniffing what\'s due',
 
       // Calendar tools
-      calendar_add: 'adding to calendar 📅',
+      calendar_add: 'marking territory',
       calendar_list: 'checking the calendar',
       calendar_upcoming: 'seeing what\'s coming up',
-      calendar_delete: 'removing that event',
-
-      // Voice tools
-      speak: 'speaking out loud 🔊',
-      voice_status: 'checking voice settings',
-      voice_toggle: 'toggling auto-read',
-      voice_config: 'configuring voice',
-
-      // Telegram tools
-      telegram_react: 'reacting to your message',
+      calendar_delete: 'scratching that out',
     };
     return friendlyNames[name] || name;
   }
@@ -1625,108 +1295,6 @@ Keep complex reasoning, decisions, and tool orchestration for yourself (Claude).
     return '';
   }
 
-  private async runCompaction(sessionId: string = 'default'): Promise<void> {
-    if (!this.memory) return;
-
-    console.log('[AgentManager] Running compaction for session:', sessionId);
-
-    // Before compaction, extract and save important facts from recent messages
-    await this.extractFactsBeforeCompaction(sessionId);
-
-    const { maxContextTokens } = getTokenLimits();
-    await this.memory.getConversationContext(maxContextTokens, sessionId);
-    const stats = this.memory.getStats(sessionId);
-    console.log(`[AgentManager] Compaction complete. Now at ${stats.estimatedTokens} tokens`);
-  }
-
-  /**
-   * Extract important facts from recent conversation before compaction
-   */
-  private async extractFactsBeforeCompaction(sessionId: string = 'default'): Promise<void> {
-    if (!this.memory) return;
-
-    try {
-      const query = await loadSDK();
-      if (!query) return;
-
-      // Get recent messages that haven't been processed for facts
-      const recentMessages = this.memory.getRecentMessages(30, sessionId);
-      if (recentMessages.length < 5) return;
-
-      const conversationText = recentMessages
-        .map(m => `${m.role.toUpperCase()}: ${m.content}`)
-        .join('\n\n');
-
-      const extractionPrompt = `Analyze this conversation and extract important facts about the user that should be saved to long-term memory. Only extract concrete, specific information - not general conversation topics.
-
-Focus on:
-- Personal info (name, location, job, etc.)
-- Preferences and opinions
-- Projects and goals
-- Important dates or deadlines
-- Relationships and people mentioned
-- Decisions made
-
-For each fact, output in this exact format (one per line):
-FACT|category|subject|content
-
-Categories: user_info, preferences, projects, people, work, notes, decisions
-
-Example:
-FACT|user_info|name|John Smith
-FACT|work|employer|Works at Acme Corp as a software engineer
-FACT|preferences|coffee|Prefers oat milk lattes
-
-If no important facts are found, output: NO_FACTS
-
-Conversation:
-${conversationText}`;
-
-      const options: SDKOptions = {
-        model: 'claude-haiku-4-5-20251001',
-        maxTurns: 1,
-        abortController: new AbortController(),
-        tools: [],
-        persistSession: false,
-      };
-
-      const queryResult = query({ prompt: extractionPrompt, options });
-      let response = '';
-
-      for await (const message of queryResult) {
-        response = this.extractFromMessage(message, response);
-      }
-
-      if (!response || response.includes('NO_FACTS')) {
-        console.log('[AgentManager] No new facts extracted before compaction');
-        return;
-      }
-
-      // Parse and save facts
-      const lines = response.split('\n').filter(line => line.startsWith('FACT|'));
-      let savedCount = 0;
-
-      for (const line of lines) {
-        const parts = line.split('|');
-        if (parts.length >= 4) {
-          const [, category, subject, ...contentParts] = parts;
-          const content = contentParts.join('|').trim();
-
-          if (category && subject && content) {
-            this.memory.saveFact(category.trim(), subject.trim(), content);
-            savedCount++;
-          }
-        }
-      }
-
-      if (savedCount > 0) {
-        console.log(`[AgentManager] Extracted ${savedCount} facts before compaction`);
-      }
-    } catch (error) {
-      console.error('[AgentManager] Fact extraction before compaction failed:', error);
-      // Don't block compaction on fact extraction failure
-    }
-  }
 
   private async createSummary(messages: Message[]): Promise<string> {
     if (messages.length === 0) {
@@ -1737,40 +1305,53 @@ ${conversationText}`;
       .map(m => `${m.role.toUpperCase()}: ${m.content}`)
       .join('\n\n---\n\n');
 
-    try {
-      const query = await loadSDK();
-      if (!query) throw new Error('Failed to load SDK');
+    const summaryPrompt = `Summarize this conversation concisely, preserving key facts about the user (name, preferences, work), important decisions, ongoing tasks, and context needed to continue the conversation:\n\n${conversationText}`;
 
-      const summaryPrompt = `Summarize this conversation concisely, preserving key facts about the user (name, preferences, work), important decisions, ongoing tasks, and context needed to continue the conversation:\n\n${conversationText}`;
-
-      const options: SDKOptions = {
-        model: 'claude-haiku-4-5-20251001',
-        maxTurns: 1,
-        abortController: new AbortController(),
-        tools: [],
-        persistSession: false,
-      };
-
-      const queryResult = query({ prompt: summaryPrompt, options });
-      let summary = '';
-
-      for await (const message of queryResult) {
-        summary = this.extractFromMessage(message, summary);
-      }
-
-      console.log(`[AgentManager] Created summary of ${messages.length} messages`);
-      return summary || `Previous conversation (${messages.length} messages) summarized.`;
-    } catch (error) {
-      console.error('[AgentManager] Summarization failed:', error);
-
-      const userMessages = messages.filter(m => m.role === 'user');
-      const snippets = userMessages
-        .slice(-10)
-        .map(m => m.content.slice(0, 100))
-        .join('; ');
-
-      return `Previous conversation (${messages.length} messages). Topics discussed: ${snippets}`;
+    // Try Haiku first (cheap/fast), fall back to user's model if unavailable
+    const modelsToTry = ['claude-haiku-4-5-20251001'];
+    if (this.model !== 'claude-haiku-4-5-20251001') {
+      modelsToTry.push(this.model);
     }
+
+    for (const model of modelsToTry) {
+      try {
+        const query = await loadSDK();
+        if (!query) throw new Error('Failed to load SDK');
+
+        configureProviderEnvironment(model);
+
+        const options: SDKOptions = {
+          model,
+          maxTurns: 1,
+          abortController: new AbortController(),
+          tools: [],
+          persistSession: false,
+        };
+
+        const queryResult = query({ prompt: summaryPrompt, options });
+        let summary = '';
+
+        for await (const message of queryResult) {
+          summary = this.extractFromMessage(message, summary);
+        }
+
+        console.log(`[AgentManager] Created summary of ${messages.length} messages using ${model}`);
+        return summary || `Previous conversation (${messages.length} messages) summarized.`;
+      } catch (error) {
+        console.warn(`[AgentManager] Summarization with ${model} failed:`, error);
+        // Continue to next model
+      }
+    }
+
+    // All models failed - use basic summary
+    console.error('[AgentManager] All summarization attempts failed, using basic summary');
+    const userMessages = messages.filter(m => m.role === 'user');
+    const snippets = userMessages
+      .slice(-10)
+      .map(m => m.content.slice(0, 100))
+      .join('; ');
+
+    return `Previous conversation (${messages.length} messages). Topics discussed: ${snippets}`;
   }
 
   /**
@@ -1873,28 +1454,6 @@ ${conversationText}`;
     }
 
     return lines.join('\n');
-  }
-
-  /**
-   * Build channel context for the system prompt.
-   * Tells the agent which channel it's on and how voice behaves.
-   */
-  private buildChannelContext(channel: string): string {
-    if (channel === 'telegram') {
-      return `## Current Channel: Telegram
-The user is messaging via Telegram. A short voice summary is automatically sent alongside your text reply. You do NOT need to call speak(). Just write a detailed text response.
-
-You can use telegram_react to place an emoji reaction (👍, ❤️, 🔥, etc.) on the user's message. When a reaction alone is sufficient (e.g., acknowledging a request you're about to execute), react and return an empty response to save tokens.`;
-    }
-    if (channel === 'desktop' || channel === 'default') {
-      return `## Current Channel: Desktop App
-The user is on the desktop app. Voice is pre-generated for each response. Auto-play depends on user's speaker toggle.`;
-    }
-    if (channel.startsWith('cron:')) {
-      return `## Current Channel: Scheduled Job
-This is an automated scheduled job. No voice output.`;
-    }
-    return '';
   }
 
   private extractAndStoreFacts(userMessage: string): void {

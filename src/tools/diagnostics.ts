@@ -184,7 +184,6 @@ export const TOOL_TIMEOUTS = {
   calendar_list: 10000,
   calendar_upcoming: 10000,
   calendar_delete: 5000,
-  pty_exec: 60000, // Shell commands can take longer
 
   // Slow tools - browser operations
   browser: 45000, // Browser can be slow

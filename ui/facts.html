@@ -7,7 +7,7 @@
   <title>My Brain</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-primary: #0a0a0b;
@@ -55,10 +55,10 @@
     }
 
     header h1 {
-      font-family: 'Sora', sans-serif;
-      font-size: 14px;
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 16px;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      letter-spacing: 0;
     }
 
     header h1 span {
@@ -369,8 +369,8 @@
       <span class="fact-count" id="fact-count"></span>
     </div>
     <div class="header-actions">
-      <button onclick="window.close()">Done</button>
-      <button onclick="loadFacts()">Refresh Memory</button>
+      <button onclick="playNormalClick(); window.close()">Done</button>
+      <button onclick="playNormalClick(); loadFacts()">Refresh Memory</button>
     </div>
   </header>
 
@@ -378,7 +378,24 @@
     <!-- Table will be inserted here -->
   </div>
 
+  <!-- Click Sound -->
+  <audio id="normal-click-sound" preload="auto" src="../assets/normal-click.mp3"></audio>
+
   <script>
+    // Click sound
+    const normalClickSound = document.getElementById('normal-click-sound');
+    function playNormalClick() {
+      if (normalClickSound) {
+        normalClickSound.currentTime = 0;
+        normalClickSound.play().catch(() => {});
+      }
+    }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('button, .toggle, .tab, select, .fact-row')) {
+        playNormalClick();
+      }
+    });
+
     async function loadFacts() {
       try {
         const facts = await window.pocketAgent.listFacts();
@@ -423,7 +440,7 @@
                   <td class="subject">${escapeHtml(f.subject)}</td>
                   <td class="content-cell">${escapeHtml(f.content)}</td>
                   <td class="actions">
-                    <button class="delete-btn" onclick="deleteFact(${f.id})" title="Forget this">
+                    <button class="delete-btn" onclick="playNormalClick(); deleteFact(${f.id})" title="Forget this">
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="3 6 5 6 21 6"/>
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>

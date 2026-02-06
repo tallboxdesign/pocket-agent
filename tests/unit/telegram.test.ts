@@ -68,6 +68,7 @@ vi.mock('grammy', () => {
         if (event === 'message:text') {
           mockState.messageHandler = handler;
         }
+        // Ignore other event handlers for now - we only test text messages
       }
 
       catch(handler: (err: Error) => void) {
@@ -86,6 +87,22 @@ vi.mock('grammy', () => {
       }
     },
     Context: class MockContext {},
+    Keyboard: class MockKeyboard {
+      text() { return this; }
+      row() { return this; }
+      requestLocation() { return this; }
+      requestContact() { return this; }
+      resized() { return this; }
+      oneTime() { return this; }
+      persistent() { return this; }
+      selected() { return this; }
+      placeholder() { return this; }
+    },
+    InlineKeyboard: class MockInlineKeyboard {
+      text() { return this; }
+      row() { return this; }
+      url() { return this; }
+    },
   };
 });
 
@@ -112,6 +129,15 @@ vi.mock('../../src/agent', () => ({
     getAllFacts: () => getAllFactsMock(),
     searchFacts: (...args: unknown[]) => searchFactsMock(...args),
     clearConversation: () => clearConversationMock(),
+    getMemory: () => ({
+      getSessionForChat: () => 'default',
+      getSessions: () => [],
+      getSessionByName: () => null,
+      linkTelegramChat: vi.fn(),
+      unlinkTelegramChat: vi.fn(),
+    }),
+    getModel: () => 'claude-opus-4-6',
+    setModel: vi.fn(),
   },
 }));
 
@@ -205,7 +231,7 @@ describe('TelegramBot', () => {
       expect(mockState.commands.has('start')).toBe(true);
       expect(mockState.commands.has('status')).toBe(true);
       expect(mockState.commands.has('facts')).toBe(true);
-      expect(mockState.commands.has('clear')).toBe(true);
+      expect(mockState.commands.has('new')).toBe(true);
       expect(mockState.commands.has('mychatid')).toBe(true);
     });
   });
@@ -235,7 +261,10 @@ describe('TelegramBot', () => {
 
       const allowed = await runMiddlewares(ctx);
       expect(allowed).toBe(false);
-      expect(ctx.reply).toHaveBeenCalledWith('Sorry, you are not authorized to use this bot.');
+      expect(ctx.reply).toHaveBeenCalled();
+      // Check that the reply contains the unauthorized message
+      const replyCall = ctx.reply.mock.calls[0][0] as string;
+      expect(replyCall).toContain('not authorized');
     });
 
     it('should reject users with undefined user ID', async () => {
@@ -299,10 +328,10 @@ describe('TelegramBot', () => {
         const replyCall = ctx.reply.mock.calls[0][0] as string;
         expect(replyCall).toContain('Welcome to Pocket Agent');
         expect(replyCall).toContain('123'); // User ID
+        expect(replyCall).toContain('/help');
         expect(replyCall).toContain('/status');
         expect(replyCall).toContain('/facts');
-        expect(replyCall).toContain('/clear');
-        expect(replyCall).toContain('/mychatid');
+        expect(replyCall).toContain('/new');
       });
     });
 
@@ -436,7 +465,7 @@ describe('TelegramBot', () => {
       });
     });
 
-    describe('/clear command', () => {
+    describe('/new command', () => {
       it('should clear conversation history', async () => {
         new TelegramBot();
         const ctx: MockContext = {
@@ -446,13 +475,13 @@ describe('TelegramBot', () => {
           replyWithChatAction: vi.fn().mockResolvedValue(undefined),
         };
 
-        const handler = mockState.commands.get('clear');
+        const handler = mockState.commands.get('new');
         await handler!(ctx);
 
         expect(clearConversationMock).toHaveBeenCalled();
         expect(ctx.reply).toHaveBeenCalled();
         const replyCall = ctx.reply.mock.calls[0][0] as string;
-        expect(replyCall).toContain('Conversation history cleared');
+        expect(replyCall).toContain('Fresh start');
       });
     });
   });
@@ -471,7 +500,7 @@ describe('TelegramBot', () => {
       expect(mockState.messageHandler).toBeDefined();
       await mockState.messageHandler!(ctx);
 
-      expect(processMessageMock).toHaveBeenCalledWith('Hello, assistant!', 'telegram');
+      expect(processMessageMock).toHaveBeenCalledWith('Hello, assistant!', 'telegram', 'default');
     });
 
     it('should show typing indicator while processing', async () => {
@@ -570,6 +599,7 @@ describe('TelegramBot', () => {
         response: 'Mock agent response',
         channel: 'telegram',
         chatId: 1000,
+        sessionId: 'default',
       });
     });
   });
