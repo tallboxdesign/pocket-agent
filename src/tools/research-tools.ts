@@ -188,15 +188,20 @@ function setupTelegramProgress(orchestrator: ReturnType<typeof getResearchOrches
   if (!bot) return;
 
   orchestrator.on('start', async ({ query }: { query: string }) => {
-    await bot.sendMessage(chatId, `🔬 Starting research: "${query}"\n   Breaking into sub-topics...`);
+    await bot.sendMessage(chatId, `🔬 *Research Started*\n\nQuery: "${query}"\n\nSplitting into sub-topics...`);
   });
 
   orchestrator.on('topics-ready', async ({ subTopics }: { subTopics: string[] }) => {
-    await bot.sendMessage(chatId, `📋 Found ${subTopics.length} research angles`);
+    // Format agent list with names and topics
+    const agentList = subTopics.map((topic, i) => `  Agent ${i + 1}: ${topic}`).join('\n');
+    await bot.sendMessage(
+      chatId,
+      `🤖 *Spawning ${subTopics.length} Research Agents*\n\n${agentList}\n\n_Starting parallel research..._`
+    );
   });
 
   orchestrator.on('agent-start', async ({ agentIndex, topic, total }: { agentIndex: number; topic: string; total: number }) => {
-    await bot.sendMessage(chatId, `📚 Agent ${agentIndex}/${total} started: "${topic}"`);
+    await bot.sendMessage(chatId, `📚 Agent ${agentIndex}/${total} working on: "${topic}"`);
   });
 
   orchestrator.on('agent-complete', async ({ agentIndex, sourcesFound }: { agentIndex: number; sourcesFound: number }) => {

@@ -2395,6 +2395,7 @@ class ResearchOrchestrator extends EventEmitter {
 |-------|------------|-----|
 | Telegram stops responding after 1 message | Health check detected stale connection but only logged instead of reconnecting. `lastSuccessfulPoll` wasn't updated on message receipt. | Made health check actually trigger reconnection. Update `lastSuccessfulPoll` on every message handler. |
 | TTS timing out (30s) / Voice robotic | Node.js Edge TTS packages (`edge-tts-universal`) broken/hanging. Fallback to macOS `say` was robotic. | Switched to Python `edge-tts` CLI which works reliably. Now uses **Brian** voice (en-US-BrianMultilingualNeural) - young American male neural voice. Fallback is Daniel (Enhanced) if CLI fails. |
+| Research notifications incomplete | Only showed agent count, not topics | Enhanced Telegram notifications to show full agent list with what each agent will research |
 
 ### 📋 Upcoming Priorities
 1. **Research Persistence** — Save research jobs to SQLite
