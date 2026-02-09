@@ -6,13 +6,14 @@
  * Tries Edge TTS first; falls back to macOS say if it fails.
  */
 
-import { execFile } from 'child_process';
+import { execFile, ChildProcess } from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
 const TTS_VOICE = 'en-US-BrianMultilingualNeural';
-const EDGE_TTS_TIMEOUT = 15000; // 15 seconds timeout for Edge TTS CLI
+const EDGE_TTS_TIMEOUT = 30000; // 30 seconds — longer texts need more time
+const EDGE_TTS_RETRIES = 2; // Retry once before falling back
 
 // macOS fallback voice — Daniel (Enhanced) is high quality British English
 const MACOS_VOICE = 'Daniel (Enhanced)';
@@ -39,15 +40,25 @@ export async function synthesizeSpeech(text: string, outputDir: string): Promise
 
   fs.mkdirSync(outputDir, { recursive: true });
 
-  // Try Edge TTS first (higher quality Brian voice)
-  try {
-    await synthesizeWithEdgeTTS(cleanText, outputPath);
-    return outputPath;
-  } catch (edgeError) {
-    console.warn('[TTS] Edge TTS failed, falling back to macOS say:', (edgeError as Error).message);
+  // Try Edge TTS with retries (Brian voice)
+  let lastEdgeError: Error | undefined;
+  for (let attempt = 1; attempt <= EDGE_TTS_RETRIES; attempt++) {
+    try {
+      await synthesizeWithEdgeTTS(cleanText, outputPath);
+      return outputPath;
+    } catch (edgeError) {
+      lastEdgeError = edgeError as Error;
+      console.warn(`[TTS] Edge TTS attempt ${attempt}/${EDGE_TTS_RETRIES} failed:`, lastEdgeError.message);
+      // Clean up partial file before retry
+      try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
+      if (attempt < EDGE_TTS_RETRIES) {
+        await new Promise(r => setTimeout(r, 1000)); // 1s delay between retries
+      }
+    }
   }
 
-  // Fallback: macOS say + ffmpeg
+  // Fallback: macOS say + ffmpeg (different voice!)
+  console.warn('[TTS] All Edge TTS attempts failed, falling back to macOS Daniel voice. Last error:', lastEdgeError?.message);
   await synthesizeWithMacosSay(cleanText, outputPath);
   return outputPath;
 }
@@ -58,23 +69,30 @@ export async function synthesizeSpeech(text: string, outputDir: string): Promise
  */
 async function synthesizeWithEdgeTTS(text: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    let child: ChildProcess | undefined;
+    let settled = false;
+
     const timeout = setTimeout(() => {
-      reject(new Error(`Edge TTS timed out after ${EDGE_TTS_TIMEOUT}ms`));
+      if (!settled) {
+        settled = true;
+        child?.kill('SIGTERM');
+        reject(new Error(`Edge TTS timed out after ${EDGE_TTS_TIMEOUT}ms`));
+      }
     }, EDGE_TTS_TIMEOUT);
 
-    // Use edge-tts CLI: edge-tts --voice VOICE --text "TEXT" --write-media OUTPUT
-    execFile('edge-tts', [
+    child = execFile('edge-tts', [
       '--voice', TTS_VOICE,
       '--text', text,
       '--write-media', outputPath
     ], (error) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       if (error) {
         reject(new Error(`Edge TTS CLI failed: ${error.message}`));
         return;
       }
 
-      // Verify file was created with content
       if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 100) {
         reject(new Error('Edge TTS produced empty output'));
         return;
