@@ -1,7 +1,7 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
-**Last Updated:** 2026-02-06
+**Last Updated:** 2026-02-09
 **Status:** IN PROGRESS — v4.1 Email Intelligence
 **Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-4.7 (utility model)
 
@@ -1451,6 +1451,27 @@ Agent responses often start with meta-commentary like "Voice sent with the clean
 - Added `stripMarkdownAndMeta()` function to `src/voice/tts.ts`
 - Filters out lines starting with voice-related meta phrases before extracting summary
 
+### TTS Toggle Icon Fix (2026-02-09)
+The speaker toggle button in the chat header only changed its CSS class (purple highlight) when toggled, but the SVG icon itself never changed — making it hard to tell if auto-read was on or off at a glance.
+
+**Solution:**
+- `updateTTSToggleUI()` in `ui/chat.html` now swaps the entire SVG icon:
+  - **ON (auto-read active):** Speaker with sound waves
+  - **OFF (silent mode):** Speaker with X (muted)
+- Default icon is muted (speaker with X) since `autoTTSEnabled` starts false
+- Follows the same pattern as the Kanban mute button implementation
+
+### Edge TTS Reliability (2026-02-09)
+Brian voice was intermittently replaced by Daniel (macOS fallback) due to Edge TTS timeouts or transient network failures. The fallback was silent — user heard a different voice with no indication of why.
+
+**Solution:**
+- Increased timeout from 15s → 30s (longer responses need more synthesis time)
+- Added 1 retry with 1s delay before falling back to macOS Daniel
+- Proper child process cleanup on timeout (was leaking zombie `edge-tts` processes)
+- Clear logging when fallback triggers
+
+**File Modified:** `src/voice/tts.ts`
+
 ---
 
 ## 21. Telegram Emoji Reactions Tool ✅ DONE
@@ -1533,6 +1554,9 @@ _Foundation: everything routes through Kanban, data is clean, nothing lost_
 42. ✅ Task project routing — add `project` param to `task_add`, agent must search memory for routing rules before creating tasks (Section 23.1)
 43. ✅ Reminder decision tree — clear instructions for `create_reminder` vs Apple Reminders vs Things vs `schedule_task` (Section 23.1)
 44. Dynamic rules pattern — routing rules live in facts, agent searches on-demand instead of system prompt bloat (Section 23.1) — instructions added, full pattern is ongoing
+45b. ✅ Kanban project_name resolution — `kanban_create_task`, `kanban_log_research`, `kanban_move_task_to_project` resolve by name instead of numeric ID (Section 23.2)
+45c. ✅ TTS toggle icon — speaker icon swaps between waves (ON) and X (OFF) for clear visual state (Section 19)
+45d. ✅ Edge TTS reliability — retry + longer timeout + process cleanup to keep Brian voice consistent (Section 19)
 
 ### Phase 2B — Multi-Agent Research System ← IMMEDIATE PRIORITY
 _Enables parallel research with multiple SDK agents, compiled by GLM_
@@ -2168,6 +2192,32 @@ This allows unlimited rules without growing the system prompt.
 
 ### Status: ✅ IMPLEMENTED (2026-02-06)
 
+### 23.2 Kanban Project Name Resolution (2026-02-09)
+
+Despite adding `project` routing to `task_add` (23.1), the kanban-specific tools (`kanban_create_task`, `kanban_log_research`, `kanban_move_task_to_project`) still required numeric `project_id` — which the LLM often guessed wrong, saving tasks to the wrong project.
+
+**Root Cause:**
+1. `kanban_create_task` required `project_id` (number) — LLM guesses IDs incorrectly
+2. `kanban_log_research` hardcoded "Research" project with no override
+3. Agent instructions only covered `task_add` for project routing, so kanban tools bypassed routing
+
+**Solution:** Added `project_name` (string, case-insensitive) parameter to all three kanban tools, using existing `KanbanService.getProjectByName()` for resolution:
+
+| Tool | Change |
+|------|--------|
+| `kanban_create_task` | Added `project_name` (preferred over `project_id`), removed `project_id` from required |
+| `kanban_log_research` | Added `project_name` to override default "Research" project |
+| `kanban_move_task_to_project` | Added `project_name` (preferred over `project_id`), removed `project_id` from required |
+
+**Files Modified:**
+| File | Change |
+|------|--------|
+| `src/tools/kanban-tools.ts` | Added `project_name` param + resolution logic to 3 tools |
+| `src/config/instructions.ts` | Updated routing instructions to cover all kanban tools |
+| `~/Documents/Pocket-agent/CLAUDE.md` | Same routing guidance in live instructions |
+
+### Status: ✅ IMPLEMENTED (2026-02-09)
+
 ---
 
 ## 24. Multi-Agent Research System — Implementation Plan
@@ -2381,6 +2431,8 @@ class ResearchOrchestrator extends EventEmitter {
 | 21 | Telegram Emoji Reactions | ✅ Done |
 | 22 | Pocket CLI Integration | ✅ Done |
 | 23.1 | Agent Memory Fixes (unique subjects, task routing) | ✅ Done |
+| 23.2 | Kanban Project Name Resolution | ✅ Done |
+| 19 | TTS Toggle Icon + Edge TTS Reliability | ✅ Done |
 | 24 | Multi-Agent Research System | ✅ Core Complete |
 
 ### 🚧 In Progress
@@ -2389,13 +2441,16 @@ class ResearchOrchestrator extends EventEmitter {
 | 24 | Research Persistence | Add `research_jobs` table |
 | 15 | Research Kanban UI | Add filter button for research tasks |
 
-### 🐛 Bug Fixes (2026-02-06)
+### 🐛 Bug Fixes (2026-02-06 — 2026-02-09)
 
 | Issue | Root Cause | Fix |
 |-------|------------|-----|
 | Telegram stops responding after 1 message | Health check detected stale connection but only logged instead of reconnecting. `lastSuccessfulPoll` wasn't updated on message receipt. | Made health check actually trigger reconnection. Update `lastSuccessfulPoll` on every message handler. |
 | TTS timing out (30s) / Voice robotic | Node.js Edge TTS packages (`edge-tts-universal`) broken/hanging. Fallback to macOS `say` was robotic. | Switched to Python `edge-tts` CLI which works reliably. Now uses **Brian** voice (en-US-BrianMultilingualNeural) - young American male neural voice. Fallback is Daniel (Enhanced) if CLI fails. |
 | Research notifications incomplete | Only showed agent count, not topics | Enhanced Telegram notifications to show full agent list with what each agent will research |
+| Kanban tasks saved to wrong project | `kanban_create_task` required numeric `project_id` — LLM guessed wrong IDs | Added `project_name` (string, case-insensitive) to all kanban tools, resolves via `getProjectByName()` |
+| TTS toggle icon not reflecting state | `updateTTSToggleUI()` only toggled CSS class, SVG icon never changed | Swap entire SVG: speaker+waves (ON) vs speaker+X (OFF) |
+| Brian voice intermittently replaced by Daniel | Edge TTS timeout (15s) or transient network fail → silent fallback to macOS say | Increased timeout to 30s, added 1 retry, proper child process kill on timeout |
 
 ### 📋 Upcoming Priorities
 1. **Research Persistence** — Save research jobs to SQLite
