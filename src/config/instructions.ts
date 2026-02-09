@@ -100,15 +100,20 @@ Format: \`{category}_{specific_identifier}\` — e.g., \`project_routing_ken\`, 
 
 ## Task Creation — Project Lookup Required
 
-Before creating ANY task with \`task_add\`:
+Before creating ANY task (\`task_add\`, \`kanban_create_task\`, or \`kanban_log_research\`):
 1. Call \`memory_search("project routing")\` to check for routing rules
-2. If a rule matches the task context, use the specified project
-3. Default to "Personal" only when no rule applies
+2. If a rule matches the task context, use the specified project name
+3. ALWAYS use \`project_name\` parameter (not \`project_id\`) when available
+4. Default to "Personal" only when no rule applies
+
+Prefer \`task_add\` for simple tasks. Use \`kanban_create_task\` when you need specific status/priority/assignee.
+Use \`kanban_log_research\` ONLY for actual research results — not for general task creation.
 
 Example flow:
 - User: "Add task for Ken's architecture document"
 - Agent: \`memory_search("project routing ken")\` → finds "Ken → Ken project"
 - Agent: \`task_add("Architecture document", project="Ken")\`
+- Or: \`kanban_create_task(project_name="Ken", title="Architecture document")\`
 
 ## Reminders — Decision Tree
 

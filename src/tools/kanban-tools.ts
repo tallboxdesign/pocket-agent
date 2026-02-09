@@ -96,19 +96,20 @@ export async function handleKanbanListProjectsTool(): Promise<string> {
 export function getKanbanCreateTaskToolDefinition() {
   return {
     name: 'kanban_create_task',
-    description: `Add a task to a Kanban project.
+    description: `Add a task to a Kanban project. Prefer project_name over project_id — it resolves by name (case-insensitive). Call kanban_list_projects if unsure which project exists.
 
 Status: backlog (default), todo, in_progress, review, done
 Priority: low, medium (default), high, urgent
 
 Examples:
-- kanban_create_task(project_id=1, title="Design hero section")
-- kanban_create_task(project_id=1, title="Write copy", priority="high", status="todo")
+- kanban_create_task(project_name="Semantics", title="Design hero section")
+- kanban_create_task(project_name="Ken", title="Write copy", priority="high", status="todo")
 - kanban_create_task(project_id=1, title="Fix header", parent_task_id=5, tags="bug,frontend")`,
     input_schema: {
       type: 'object' as const,
       properties: {
-        project_id: { type: 'number', description: 'Project ID to add the task to' },
+        project_name: { type: 'string', description: 'Project name (preferred, case-insensitive). Takes priority over project_id.' },
+        project_id: { type: 'number', description: 'Project ID (use project_name instead when possible)' },
         title: { type: 'string', description: 'Task title' },
         description: { type: 'string', description: 'Task description' },
         status: { type: 'string', description: 'Column: backlog, todo, in_progress, review, done' },
@@ -118,15 +119,31 @@ Examples:
         tags: { type: 'string', description: 'Comma-separated tags' },
         estimated_minutes: { type: 'number', description: 'Estimated time in minutes' },
       },
-      required: ['project_id', 'title'],
+      required: ['title'],
     },
   };
 }
 
 export async function handleKanbanCreateTaskTool(input: unknown): Promise<string> {
-  const params = input as CreateTaskInput;
-  if (!params.project_id || !params.title) {
-    return JSON.stringify({ error: 'project_id and title are required' });
+  const params = input as CreateTaskInput & { project_name?: string };
+  if (!params.title) {
+    return JSON.stringify({ error: 'title is required' });
+  }
+
+  // Resolve project: project_name takes priority over project_id
+  let resolvedProjectId = params.project_id;
+  let resolvedProjectName: string | undefined;
+  if (params.project_name) {
+    const project = KanbanService.getProjectByName(params.project_name);
+    if (!project) {
+      return JSON.stringify({ error: `Project "${params.project_name}" not found. Use kanban_list_projects to see available projects.` });
+    }
+    resolvedProjectId = project.id;
+    resolvedProjectName = project.name;
+  }
+
+  if (!resolvedProjectId) {
+    return JSON.stringify({ error: 'Either project_name or project_id is required. Prefer project_name.' });
   }
 
   const validStatuses: KanbanStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
@@ -140,12 +157,13 @@ export async function handleKanbanCreateTaskTool(input: unknown): Promise<string
   }
 
   try {
-    const task = KanbanService.createTask(params);
+    const task = KanbanService.createTask({ ...params, project_id: resolvedProjectId });
     return JSON.stringify({
       success: true,
       task: {
         id: task.id,
         project_id: task.project_id,
+        project_name: resolvedProjectName,
         title: task.title,
         status: task.status,
         priority: task.priority,
@@ -260,37 +278,54 @@ export async function handleKanbanMoveTaskTool(input: unknown): Promise<string> 
 export function getKanbanMoveTaskToProjectToolDefinition() {
   return {
     name: 'kanban_move_task_to_project',
-    description: `Move a task to a different project on the Kanban board.
+    description: `Move a task to a different project on the Kanban board. Prefer project_name over project_id.
 
 The task keeps its current status and priority but gets a new position in the target project.
-Use kanban_list_projects first to find available project IDs.
 
 Examples:
+- kanban_move_task_to_project(task_id=5, project_name="Semantics")
 - kanban_move_task_to_project(task_id=5, project_id=2)`,
     input_schema: {
       type: 'object' as const,
       properties: {
         task_id: { type: 'number', description: 'Task ID to move' },
-        project_id: { type: 'number', description: 'Target project ID' },
+        project_name: { type: 'string', description: 'Target project name (preferred, case-insensitive). Takes priority over project_id.' },
+        project_id: { type: 'number', description: 'Target project ID (use project_name instead when possible)' },
       },
-      required: ['task_id', 'project_id'],
+      required: ['task_id'],
     },
   };
 }
 
 export async function handleKanbanMoveTaskToProjectTool(input: unknown): Promise<string> {
-  const params = input as { task_id: number; project_id: number };
-  if (!params.task_id || !params.project_id) {
-    return JSON.stringify({ error: 'task_id and project_id are required' });
+  const params = input as { task_id: number; project_name?: string; project_id?: number };
+  if (!params.task_id) {
+    return JSON.stringify({ error: 'task_id is required' });
+  }
+
+  // Resolve project: project_name takes priority over project_id
+  let resolvedProjectId = params.project_id;
+  let resolvedProjectName: string | undefined;
+  if (params.project_name) {
+    const project = KanbanService.getProjectByName(params.project_name);
+    if (!project) {
+      return JSON.stringify({ error: `Project "${params.project_name}" not found. Use kanban_list_projects to see available projects.` });
+    }
+    resolvedProjectId = project.id;
+    resolvedProjectName = project.name;
+  }
+
+  if (!resolvedProjectId) {
+    return JSON.stringify({ error: 'Either project_name or project_id is required. Prefer project_name.' });
   }
 
   try {
-    const task = KanbanService.moveTaskToProject(params.task_id, params.project_id, 'agent');
-    if (!task) return JSON.stringify({ error: `Task ${params.task_id} or project ${params.project_id} not found` });
+    const task = KanbanService.moveTaskToProject(params.task_id, resolvedProjectId, 'agent');
+    if (!task) return JSON.stringify({ error: `Task ${params.task_id} or project "${resolvedProjectName || resolvedProjectId}" not found` });
 
     return JSON.stringify({
       success: true,
-      task: { id: task.id, title: task.title, project_id: task.project_id, status: task.status },
+      task: { id: task.id, title: task.title, project_id: task.project_id, project_name: resolvedProjectName, status: task.status },
     });
   } catch (error) {
     return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to move task to project' });
@@ -546,24 +581,20 @@ export function getKanbanLogResearchToolDefinition() {
     name: 'kanban_log_research',
     description: `Log completed research or work to the Kanban board. Creates a task in the Review column so the user can see and approve your work.
 
-Use this after completing:
-- Screenshots of websites or pages
-- Web searches and analysis
-- Data gathering or research tasks
-- File analysis or code review
-- Any work the user should review
+Use this ONLY for actual research results — not for general task creation (use kanban_create_task instead).
 
-The task is created in a "Research" project (auto-created if needed).
+Default project is "Research" (auto-created if needed), but can be overridden with project_name.
 
 Examples:
-- kanban_log_research(title="Screenshot of competitor site", description="Captured homepage of example.com", tags="research,screenshot", attachments=["/path/to/screenshot.png"])
-- kanban_log_research(title="Market analysis for Sofia", description="Researched cost of living, neighborhoods, healthcare...", tags="research,analysis")`,
+- kanban_log_research(title="Screenshot of competitor site", description="Captured homepage of example.com", tags="research,screenshot")
+- kanban_log_research(project_name="Semantics", title="Market analysis", description="Researched cost of living...")`,
     input_schema: {
       type: 'object' as const,
       properties: {
         title: { type: 'string', description: 'What was researched or done' },
         description: { type: 'string', description: 'Research findings or results summary' },
-        project_id: { type: 'number', description: 'Project ID (default: auto-created Research project)' },
+        project_name: { type: 'string', description: 'Project name (case-insensitive). Overrides default "Research" project.' },
+        project_id: { type: 'number', description: 'Project ID (use project_name instead when possible)' },
         tags: { type: 'string', description: 'Comma-separated tags (e.g. "research,screenshot")' },
         attachments: {
           type: 'array',
@@ -586,6 +617,7 @@ export async function handleKanbanLogResearchTool(input: unknown): Promise<strin
   const params = input as {
     title: string;
     description: string;
+    project_name?: string;
     project_id?: number;
     tags?: string;
     attachments?: string[];
@@ -598,16 +630,30 @@ export async function handleKanbanLogResearchTool(input: unknown): Promise<strin
   }
 
   try {
-    // Find or create the Research project
-    let projectId = params.project_id;
-    if (!projectId) {
+    // Resolve project: project_name > project_id > default "Research"
+    let projectId: number | undefined;
+    let resolvedProjectName: string | undefined;
+
+    if (params.project_name) {
+      const project = KanbanService.getProjectByName(params.project_name);
+      if (!project) {
+        return JSON.stringify({ error: `Project "${params.project_name}" not found. Use kanban_list_projects to see available projects.` });
+      }
+      projectId = project.id;
+      resolvedProjectName = project.name;
+    } else if (params.project_id) {
+      projectId = params.project_id;
+    } else {
+      // Default to Research project
       const projects = KanbanService.listProjects();
       const researchProject = projects.find(p => p.name === 'Research');
       if (researchProject) {
         projectId = researchProject.id;
+        resolvedProjectName = researchProject.name;
       } else {
         const newProject = KanbanService.createProject('Research', 'Agent research results and findings', '#3b82f6');
         projectId = newProject.id;
+        resolvedProjectName = newProject.name;
       }
     }
 
@@ -661,11 +707,12 @@ export async function handleKanbanLogResearchTool(input: unknown): Promise<strin
       task: {
         id: task.id,
         project_id: projectId,
+        project_name: resolvedProjectName,
         title: task.title,
         status: task.status,
         priority: task.priority,
       },
-      message: `Research logged to project #${projectId} as task #${task.id} (review)`,
+      message: `Research logged to project "${resolvedProjectName || `#${projectId}`}" as task #${task.id} (review)`,
     });
   } catch (error) {
     return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to log research' });
