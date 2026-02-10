@@ -32,6 +32,7 @@ import { ChatTracker, createTrackingMiddleware } from './middleware/tracking';
 // Handlers
 import {
   registerCommandHandlers,
+  registerBotCommands,
   registerSessionHandlers,
   CommandHandlerDeps,
 } from './handlers/commands';
@@ -99,6 +100,11 @@ export class TelegramBot extends BaseChannel {
 
     this.setupMiddleware();
     this.setupHandlers();
+  }
+
+  /** Register bot commands with Telegram API (for manual re-registration) */
+  async registerCommands(): Promise<void> {
+    await registerBotCommands(this.bot);
   }
 
   setOnMessageCallback(callback: MessageCallback): void {
@@ -425,8 +431,14 @@ export class TelegramBot extends BaseChannel {
             console.log(`[Telegram] Bot @${botInfo.username} started`);
             console.log(`[Telegram] Authorized users: ${getAllowedUsers().join(', ')}`);
           } catch {
-            // Ignore EPIPE errors
+            // Ignore EPIPE errors on stdout
           }
+          // Register bot commands with Telegram API after bot is confirmed running
+          registerBotCommands(this.bot).then(() => {
+            console.log('[Telegram] Bot commands registered');
+          }).catch(err => {
+            console.error('[Telegram] Failed to register bot commands:', err);
+          });
         },
       }).then(() => {
         this.isRunning = false;
@@ -548,6 +560,12 @@ export function createTelegramBot(): TelegramBot | null {
     }
   }
   return telegramBotInstance;
+}
+
+export async function registerTelegramCommands(): Promise<void> {
+  if (telegramBotInstance) {
+    await telegramBotInstance.registerCommands();
+  }
 }
 
 export async function restartTelegramBot(): Promise<{ success: boolean; error?: string }> {

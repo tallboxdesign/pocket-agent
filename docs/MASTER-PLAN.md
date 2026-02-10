@@ -50,6 +50,7 @@ If in doubt, **do nothing** rather than risk data loss.
 21. [Telegram Emoji Reactions Tool](#21-telegram-emoji-reactions-tool--done)
 25. [Windows Build & Distribution](#25-windows-build--distribution)
 26. [Workflow-Routine Integration](#26-workflow-routine-integration)
+27. [Telegram Bot Command Registration](#27-telegram-bot-command-registration)
 
 ---
 
@@ -2571,3 +2572,43 @@ Allow routines to reference a workflow by name. When the scheduler fires, it loa
 - **Backwards compatible** — Routines without `@workflow:` prefix continue working as plain prompts
 - **Merge-safe** — If upstream changes the scheduler, the only conflict point is the prompt expansion logic, which is a small isolated block
 - **Shared vocabulary** — Upstream's "commands" = our "workflows". Both read from `.claude/commands/`. We just add the ability to trigger them on a schedule
+
+---
+
+## 27. Telegram Bot Command Registration
+
+**Status:** IN PROGRESS
+**Added:** 2026-02-10
+
+### Problem
+Telegram caches the slash command menu (`/help`, `/start`, etc.) from whatever bot previously used the same token. If the bot was previously used by another project (e.g. ClawdBot/OpenClaw), stale commands persist in the Telegram UI until `setMyCommands` is called.
+
+### Implementation
+
+#### 27.1 `registerBotCommands()` — `src/channels/telegram/handlers/commands.ts`
+- Exported function that calls `bot.api.setMyCommands()` with our command list
+- Merges built-in commands (help, status, new, model, workflow, facts, voice, unanswered, link, unlink, restart) with workflow commands loaded from `.claude/commands/`
+- Sanitizes workflow names to Telegram's `[a-z0-9_]` format, max 32 chars
+- Limits total commands to Telegram's 100-command cap
+
+#### 27.2 Called from `onStart` callback — `src/channels/telegram/index.ts`
+- `registerBotCommands(this.bot)` is called inside the Grammy `onStart` callback
+- This fires reliably when the bot connects to Telegram's polling API
+- **Key lesson:** Grammy's `bot.start()` returns a promise that resolves when the bot STOPS, not starts. Code after `await bot.start()` never executes during normal operation. Always use the `onStart` callback.
+
+#### 27.3 `registerCommands()` public method
+- `TelegramBot.registerCommands()` delegates to `registerBotCommands(this.bot)` without exposing the private `bot` property
+- Available for manual re-registration (e.g., after adding new workflows)
+
+#### 27.4 `registerTelegramCommands()` module export
+- Calls `telegramBotInstance.registerCommands()` on the singleton
+- Can be called from main process or other modules without accessing bot internals
+
+### Security
+- `bot` property remains **private** — no external access to the Grammy Bot instance
+- Auth middleware checks allowlist on every message (not cached)
+- Constructor throws if allowlist is empty
+
+### Known Issue
+- If the bot token was previously used by another bot project, Telegram may cache the old commands aggressively. The `setMyCommands` call should replace them, but the user may need to close and reopen the chat to see updates.
+- Telegram Desktop/Mobile clients sometimes cache command menus for hours — this is a Telegram client-side caching issue, not a bot-side issue.

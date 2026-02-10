@@ -508,17 +508,14 @@ export function registerSessionHandlers(deps: CommandHandlerDeps): void {
     onSessionLinkCallback?.({ sessionId: currentSessionId, linked: false });
   });
 
-  // Register command menu with Telegram API (replaces any stale commands)
-  registerBotCommands(bot).catch(err =>
-    console.error('[Telegram] Failed to set bot commands:', err)
-  );
 }
 
 /**
- * Register the bot's command menu with Telegram.
+ * Register the bot's command menu with Telegram API.
+ * Call this after bot.start() succeeds (in onStart callback).
  * Includes built-in commands + all workflow commands from .claude/commands/
  */
-async function registerBotCommands(bot: Bot): Promise<void> {
+export async function registerBotCommands(bot: Bot): Promise<void> {
   const builtIn: Array<{ command: string; description: string }> = [
     { command: 'help', description: 'Show available commands' },
     { command: 'status', description: 'Agent status and stats' },
@@ -534,11 +531,14 @@ async function registerBotCommands(bot: Bot): Promise<void> {
   ];
 
   // Add workflow commands dynamically
+  // Telegram allows only [a-z0-9_] in command names, max 32 chars
   const workflows = loadWorkflowCommands();
-  const workflowCommands = workflows.map(w => ({
-    command: w.name,
-    description: w.description || `Run ${w.name} workflow`,
-  }));
+  const workflowCommands = workflows
+    .map(w => ({
+      command: w.name.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 32),
+      description: (w.description || `Run ${w.name} workflow`).slice(0, 256),
+    }))
+    .filter(w => !builtIn.some(b => b.command === w.command)); // avoid duplicates
 
   const allCommands = [...builtIn, ...workflowCommands];
 
