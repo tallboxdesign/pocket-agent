@@ -7,6 +7,7 @@ import { AgentManager } from '../../../agent';
 import { MessageCallback } from '../types';
 import { withTyping } from '../utils/typing';
 import { setTelegramMessageContext } from '../../../tools/session-context';
+import { findWorkflowCommand } from '../../../config/commands-loader';
 
 export interface MessageHandlerDeps {
   onMessageCallback: MessageCallback | null;
@@ -35,6 +36,21 @@ export async function handleTextMessage(
 
   if (messageId) setTelegramMessageContext({ chatId, messageId });
 
+  // Check if this is a workflow slash command (e.g., /create-workflow some context)
+  let fullMessage = message;
+  if (message.startsWith('/')) {
+    const spaceIdx = message.indexOf(' ');
+    const commandName = (spaceIdx !== -1 ? message.substring(1, spaceIdx) : message.substring(1))
+      .replace(/@\w+$/, ''); // Strip @botname suffix
+    const userText = spaceIdx !== -1 ? message.substring(spaceIdx + 1).trim() : '';
+    const workflow = findWorkflowCommand(commandName);
+
+    if (workflow) {
+      fullMessage = `[Workflow: ${workflow.name}]\n${workflow.content}\n[/Workflow]`;
+      if (userText) fullMessage += `\n\n${userText}`;
+    }
+  }
+
   console.log('[Telegram:Text] Starting withTyping...');
   try {
     const result = await withTyping(ctx, async () => {
@@ -43,7 +59,7 @@ export async function handleTextMessage(
       const sessionId = memory?.getSessionForChat(chatId) || 'default';
       console.log(`[Telegram:Text] SessionId=${sessionId}, calling processMessage...`);
 
-      const res = await AgentManager.processMessage(message, 'telegram', sessionId);
+      const res = await AgentManager.processMessage(fullMessage, 'telegram', sessionId);
       console.log(`[Telegram:Text] processMessage returned, response length=${res.response.length}`);
       return res;
     });
@@ -51,6 +67,16 @@ export async function handleTextMessage(
 
     await sendResponse(ctx, result.response);
 
+    // Send media photos if present
+    if (result.media && result.media.length > 0 && ctx.chat?.id) {
+      const { getTelegramBot } = await import('../index');
+      const bot = getTelegramBot();
+      if (bot) {
+        await bot.sendPhotos(ctx.chat.id, result.media);
+      }
+    }
+
+    // Notify callback for cross-channel sync (to desktop)
     if (onMessageCallback) {
       const memory = AgentManager.getMemory();
       const sessionId = memory?.getSessionForChat(chatId) || 'default';
@@ -62,6 +88,7 @@ export async function handleTextMessage(
         chatId,
         sessionId,
         wasCompacted: result.wasCompacted,
+        media: result.media,
       });
     }
 

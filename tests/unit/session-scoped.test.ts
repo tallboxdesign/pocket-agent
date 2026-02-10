@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { setCurrentSessionId, getCurrentSessionId } from '../../src/tools/session-context';
+import { setCurrentSessionId, getCurrentSessionId, runWithSessionId } from '../../src/tools/session-context';
 import fs from 'fs';
 import path from 'path';
 
@@ -18,7 +18,7 @@ describe('Session Context', () => {
     expect(getCurrentSessionId()).toBe('default');
   });
 
-  it('should set and get session ID', () => {
+  it('should set and get session ID via fallback', () => {
     setCurrentSessionId('work');
     expect(getCurrentSessionId()).toBe('work');
 
@@ -30,6 +30,71 @@ describe('Session Context', () => {
     setCurrentSessionId('test-session-123');
     expect(getCurrentSessionId()).toBe('test-session-123');
     expect(getCurrentSessionId()).toBe('test-session-123');
+  });
+});
+
+describe('AsyncLocalStorage Session Isolation', () => {
+  beforeEach(() => {
+    setCurrentSessionId('default');
+  });
+
+  it('should isolate session ID within runWithSessionId', () => {
+    runWithSessionId('isolated-session', () => {
+      expect(getCurrentSessionId()).toBe('isolated-session');
+    });
+
+    // Outside, falls back to the fallback value
+    expect(getCurrentSessionId()).toBe('default');
+  });
+
+  it('should support nested runWithSessionId with different IDs', () => {
+    runWithSessionId('outer', () => {
+      expect(getCurrentSessionId()).toBe('outer');
+
+      runWithSessionId('inner', () => {
+        expect(getCurrentSessionId()).toBe('inner');
+      });
+
+      // Back to outer after inner completes
+      expect(getCurrentSessionId()).toBe('outer');
+    });
+  });
+
+  it('should isolate concurrent async contexts', async () => {
+    const results: string[] = [];
+
+    const task1 = runWithSessionId('session-A', async () => {
+      results.push(`task1-start: ${getCurrentSessionId()}`);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      results.push(`task1-end: ${getCurrentSessionId()}`);
+    });
+
+    const task2 = runWithSessionId('session-B', async () => {
+      results.push(`task2-start: ${getCurrentSessionId()}`);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      results.push(`task2-end: ${getCurrentSessionId()}`);
+    });
+
+    await Promise.all([task1, task2]);
+
+    expect(results).toContain('task1-start: session-A');
+    expect(results).toContain('task1-end: session-A');
+    expect(results).toContain('task2-start: session-B');
+    expect(results).toContain('task2-end: session-B');
+  });
+
+  it('should return the value from the wrapped function', () => {
+    const result = runWithSessionId('test', () => {
+      return 42;
+    });
+    expect(result).toBe(42);
+  });
+
+  it('should return a promise from an async wrapped function', async () => {
+    const result = await runWithSessionId('test', async () => {
+      return 'async-result';
+    });
+    expect(result).toBe('async-result');
   });
 });
 
@@ -122,10 +187,10 @@ describe('Source Code Verification', () => {
     expect(content).toMatch(/UPDATE cron_jobs SET.*session_id/s);
   });
 
-  it('agent/index.ts should import and use setCurrentSessionId', () => {
-    const content = fs.readFileSync(path.join(srcDir, 'agent/index.ts'), 'utf-8');
-    expect(content).toContain('setCurrentSessionId');
-    expect(content).toContain('setCurrentSessionId(sessionId)');
+  it('agent/persistent-session.ts should import and use runWithSessionId', () => {
+    const content = fs.readFileSync(path.join(srcDir, 'agent/persistent-session.ts'), 'utf-8');
+    expect(content).toContain('runWithSessionId');
+    expect(content).toContain('runWithSessionId(this.sessionId');
   });
 
   it('scheduler/index.ts should include session_id in calendar reminder queries', () => {
@@ -168,7 +233,7 @@ describe('Source Code Verification', () => {
 
   it('tools/index.ts should export session context functions', () => {
     const content = fs.readFileSync(path.join(srcDir, 'tools/index.ts'), 'utf-8');
-    expect(content).toContain("setCurrentSessionId, getCurrentSessionId");
+    expect(content).toContain('runWithSessionId');
     expect(content).toContain("from './session-context'");
   });
 
@@ -176,5 +241,41 @@ describe('Source Code Verification', () => {
     const content = fs.readFileSync(path.join(srcDir, 'main/index.ts'), 'utf-8');
     expect(content).toMatch(/setChatHandler\(.*sessionId.*\)/s);
     expect(content).toContain("{ jobName, prompt, response, sessionId }");
+  });
+
+  it('agent/index.ts AgentStatus type should include sessionId field', () => {
+    const content = fs.readFileSync(path.join(srcDir, 'agent/index.ts'), 'utf-8');
+    expect(content).toMatch(/export type AgentStatus = \{[\s\S]*?sessionId\?: string/);
+  });
+
+  it('agent/index.ts should use lastSuggestedPromptBySession instead of single variable', () => {
+    const content = fs.readFileSync(path.join(srcDir, 'agent/index.ts'), 'utf-8');
+    expect(content).toContain('lastSuggestedPromptBySession');
+    expect(content).not.toMatch(/private lastSuggestedPrompt:/);
+  });
+
+  it('agent/index.ts should use activeSubagentsBySession instead of single map', () => {
+    const content = fs.readFileSync(path.join(srcDir, 'agent/index.ts'), 'utf-8');
+    expect(content).toContain('activeSubagentsBySession');
+    expect(content).toContain('getActiveSubagents');
+    expect(content).not.toMatch(/private activeSubagents:/);
+  });
+
+  it('agent/index.ts should configure provider environment in buildPersistentOptions', () => {
+    const content = fs.readFileSync(path.join(srcDir, 'agent/index.ts'), 'utf-8');
+    expect(content).toContain('configureProviderEnvironment');
+    expect(content).toContain('buildPersistentOptions');
+  });
+
+  it('agent/index.ts should import getCurrentSessionId', () => {
+    const content = fs.readFileSync(path.join(srcDir, 'agent/index.ts'), 'utf-8');
+    expect(content).toContain('getCurrentSessionId');
+    expect(content).toMatch(/import.*getCurrentSessionId.*from/);
+  });
+
+  it('main/index.ts status handler should filter by sessionId', () => {
+    const content = fs.readFileSync(path.join(srcDir, 'main/index.ts'), 'utf-8');
+    expect(content).toContain('status.sessionId');
+    expect(content).toMatch(/if \(status\.sessionId && status\.sessionId !== effectiveSessionId\) return/);
   });
 });

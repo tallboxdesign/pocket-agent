@@ -1,25 +1,42 @@
 /**
  * Session context for MCP tools
  *
- * Provides a shared session context that tools can access to determine
- * which session they should operate on. This is set by the AgentManager
- * before each query and read by tools that need session-scoped data.
+ * Uses AsyncLocalStorage to propagate session context through async call chains,
+ * preventing race conditions when concurrent sessions call executeMessage().
+ * Each concurrent execution has its own isolated context without changing
+ * any tool handler signatures.
  */
 
-let currentSessionId: string = 'default';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const asyncLocalStorage = new AsyncLocalStorage<string>();
+
+// Fallback for contexts outside AsyncLocalStorage (e.g. tests, initialization)
+let fallbackSessionId: string = 'default';
 
 /**
- * Set the current session ID for tools to use
+ * Set the current session ID (fallback for use outside async context)
+ * Prefer runWithSessionId() for production use.
  */
 export function setCurrentSessionId(sessionId: string): void {
-  currentSessionId = sessionId;
+  fallbackSessionId = sessionId;
 }
 
 /**
- * Get the current session ID
+ * Get the current session ID.
+ * Reads from AsyncLocalStorage first, falls back to the global variable.
  */
 export function getCurrentSessionId(): string {
-  return currentSessionId;
+  return asyncLocalStorage.getStore() ?? fallbackSessionId;
+}
+
+/**
+ * Run a function with an isolated session context.
+ * All calls to getCurrentSessionId() within fn (including async continuations)
+ * will return the provided sessionId.
+ */
+export function runWithSessionId<T>(sessionId: string, fn: () => T): T {
+  return asyncLocalStorage.run(sessionId, fn);
 }
 
 // Telegram message context — set before each agent query so tools can target the right message

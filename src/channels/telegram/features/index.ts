@@ -6,9 +6,6 @@ export {
   createReactionHandler,
   registerReactionHandler,
   sendReaction,
-  removeReaction,
-  getMessageReactions,
-  cleanupReactionHistory,
   AgentReactions,
   ReactionHandler,
 } from './reactions';

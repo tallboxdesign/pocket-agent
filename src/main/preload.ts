@@ -12,13 +12,15 @@ contextBridge.exposeInMainWorld('pocketAgent', {
     return () => ipcRenderer.removeListener('agent:status', listener);
   },
   saveAttachment: (name: string, dataUrl: string) => ipcRenderer.invoke('attachment:save', name, dataUrl),
+  extractText: (filePath: string) => ipcRenderer.invoke('attachment:extract-text', filePath),
+  readMedia: (filePath: string) => ipcRenderer.invoke('agent:readMedia', filePath),
   onSchedulerMessage: (callback: (data: { jobName: string; prompt: string; response: string; sessionId: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: { jobName: string; prompt: string; response: string; sessionId: string }) => callback(data);
     ipcRenderer.on('scheduler:message', listener);
     return () => ipcRenderer.removeListener('scheduler:message', listener);
   },
-  onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio'; wasCompacted?: boolean }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio'; wasCompacted?: boolean }) => callback(data);
+  onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio'; wasCompacted?: boolean; media?: Array<{ type: string; filePath: string; mimeType: string }> }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio'; wasCompacted?: boolean; media?: Array<{ type: string; filePath: string; mimeType: string }> }) => callback(data);
     ipcRenderer.on('telegram:message', listener);
     return () => ipcRenderer.removeListener('telegram:message', listener);
   },
@@ -63,6 +65,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   openPath: (filePath: string) => ipcRenderer.invoke('app:openPath', filePath),
   showInFolder: (filePath: string) => ipcRenderer.invoke('app:showInFolder', filePath),
+  openImage: (src: string) => ipcRenderer.invoke('app:openImage', src),
 
   // Customize
   getIdentity: () => ipcRenderer.invoke('customize:getIdentity'),
@@ -160,18 +163,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   cancelOAuth: () => ipcRenderer.invoke('auth:cancelOAuth'),
   isOAuthPending: () => ipcRenderer.invoke('auth:isOAuthPending'),
 
-  // Skills
-  getSkillsStatus: () => ipcRenderer.invoke('skills:getStatus'),
-  installSkillDeps: (skillName: string) => ipcRenderer.invoke('skills:install', skillName),
-  uninstallSkillDeps: (skillName: string) => ipcRenderer.invoke('skills:uninstall', skillName),
-  openSkillsSetup: () => ipcRenderer.invoke('app:openSkillsSetup'),
-  openPermissionSettings: (permissionType: string) => ipcRenderer.invoke('skills:openPermissionSettings', permissionType),
-  checkPermission: (permissionType: string) => ipcRenderer.invoke('skills:checkPermission', permissionType),
-  getSkillSetupConfig: (skillName: string) => ipcRenderer.invoke('skills:getSetupConfig', skillName),
-  runSkillSetupCommand: (params: { skillName: string; stepId: string; inputs?: Record<string, string> }) =>
-    ipcRenderer.invoke('skills:runSetupCommand', params),
-  selectFile: (options?: { title?: string; filters?: Array<{ name: string; extensions: string[] }> }) =>
-    ipcRenderer.invoke('skills:selectFile', options || {}),
+  // Commands (Workflows)
+  getCommands: () => ipcRenderer.invoke('commands:list'),
 
   // Kanban
   openKanban: () => ipcRenderer.invoke('app:openKanban'),
@@ -247,6 +240,9 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   // Shell commands
   runCommand: (command: string) => ipcRenderer.invoke('shell:runCommand', command),
 
+  // Platform info
+  getPlatform: () => process.platform,
+
   // Navigation
   onNavigateTab: (callback: (tab: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, tab: string) => callback(tab);
@@ -269,16 +265,18 @@ interface Session {
 declare global {
   interface Window {
     pocketAgent: {
-      send: (message: string, sessionId?: string) => Promise<{ success: boolean; response?: string; error?: string; tokensUsed?: number; suggestedPrompt?: string }>;
+      send: (message: string, sessionId?: string) => Promise<{ success: boolean; response?: string; error?: string; tokensUsed?: number; suggestedPrompt?: string; media?: Array<{ type: string; filePath: string; mimeType: string }> }>;
       stop: (sessionId?: string) => Promise<{ success: boolean }>;
       onStatus: (callback: (status: { type: string; toolName?: string; toolInput?: string; message?: string }) => void) => () => void;
       saveAttachment: (name: string, dataUrl: string) => Promise<string>;
+      extractText: (filePath: string) => Promise<string>;
+      readMedia: (filePath: string) => Promise<string | null>;
       onSchedulerMessage: (callback: (data: { jobName: string; prompt: string; response: string; sessionId: string }) => void) => () => void;
-      onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio'; wasCompacted?: boolean }) => void) => () => void;
+      onTelegramMessage: (callback: (data: { userMessage: string; response: string; chatId: number; sessionId: string; hasAttachment?: boolean; attachmentType?: 'photo' | 'voice' | 'audio'; wasCompacted?: boolean; media?: Array<{ type: string; filePath: string; mimeType: string }> }) => void) => () => void;
       onSessionsChanged: (callback: () => void) => () => void;
       onModelChanged: (callback: (model: string) => void) => () => void;
       getHistory: (limit?: number, sessionId?: string) => Promise<Array<{ role: string; content: string; timestamp: string; metadata?: { source?: string; jobName?: string } }>>;
-      getStats: (sessionId?: string) => Promise<{ messageCount: number; factCount: number; estimatedTokens: number; sessionCount?: number } | null>;
+      getStats: (sessionId?: string) => Promise<{ messageCount: number; factCount: number; estimatedTokens: number; sessionCount?: number; contextTokens?: number; contextWindow?: number } | null>;
       clearConversation: (sessionId?: string) => Promise<{ success: boolean }>;
       // Sessions
       getSessions: () => Promise<Session[]>;
@@ -306,6 +304,7 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       openPath: (filePath: string) => Promise<void>;
       showInFolder: (filePath: string) => Promise<void>;
+      openImage: (src: string) => Promise<void>;
       // Customize
       getIdentity: () => Promise<string>;
       saveIdentity: (content: string) => Promise<{ success: boolean }>;
@@ -414,6 +413,8 @@ declare global {
       transcribeAudio: (audioData: ArrayBuffer) => Promise<{ success: boolean; text?: string; error?: string }>;
       onVoicePlay: (callback: (audioPath: string) => void) => () => void;
       onVoiceTtsToggled: (callback: (enabled: boolean) => void) => () => void;
+      // Commands (Workflows)
+      getCommands: () => Promise<Array<{ name: string; description: string; filename: string; content: string }>>;
       // Skills
       getSkillsStatus: () => Promise<{
         skills: Array<{
@@ -466,6 +467,8 @@ declare global {
       testBrowserConnection: (cdpUrl?: string) => Promise<{ connected: boolean; error?: string; browserInfo?: unknown }>;
       // Shell commands
       runCommand: (command: string) => Promise<string>;
+      // Platform info
+      getPlatform: () => string;
     };
   }
 }

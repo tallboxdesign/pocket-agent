@@ -731,7 +731,7 @@
         </div>
         <div class="editor-container">
           <div class="editor-toolbar">
-            <span class="file-path">~/Documents/Pocket-agent/identity.md</span>
+            <span class="file-path" id="identity-file-path">~/Documents/Pocket-agent/identity.md</span>
             <span class="status saved" id="identity-status">Saved</span>
           </div>
           <textarea class="editor" id="identity-editor" placeholder="waking up..."></textarea>
@@ -753,7 +753,7 @@
         </div>
         <div class="editor-container">
           <div class="editor-toolbar">
-            <span class="file-path">~/Documents/Pocket-agent/CLAUDE.md</span>
+            <span class="file-path" id="instructions-file-path">~/Documents/Pocket-agent/CLAUDE.md</span>
             <span class="status saved" id="instructions-status">Saved</span>
           </div>
           <textarea class="editor" id="instructions-editor" placeholder="waking up..."></textarea>
@@ -1246,6 +1246,14 @@
         }
       }
 
+    });
+
+    // Set actual file paths (cross-platform)
+    window.pocketAgent.getIdentityPath().then(p => {
+      document.getElementById('identity-file-path').textContent = p;
+    });
+    window.pocketAgent.getInstructionsPath().then(p => {
+      document.getElementById('instructions-file-path').textContent = p;
     });
 
     // Initialize

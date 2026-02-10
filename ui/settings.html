@@ -1549,9 +1549,9 @@
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         Browser
       </div>
-      <div class="nav-item" data-section="skills">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-        Superpowers
+      <div class="nav-item" data-section="pocket_cli">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8l4 4-4 4"/><line x1="13" y1="16" x2="17" y2="16"/></svg>
+        Pocket CLI
       </div>
       <div class="nav-item" data-section="updates">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
@@ -2481,20 +2481,40 @@
         </div>
       </section>
 
-      <!-- Skills Section -->
-      <section id="skills" class="section">
-        <h2 class="section-title">Superpowers</h2>
-        <p class="section-desc">Unlock abilities like email, messaging, notes, and more!</p>
+      <!-- Pocket CLI Section -->
+      <section id="pocket_cli" class="section">
+        <h2 class="section-title">Pocket CLI</h2>
+        <p class="section-desc">Lets your AI interact with real services like Twitter, YouTube, Hacker News, Wikipedia, and more.</p>
 
         <div class="settings-grid">
           <div class="setting-row">
-            <label>Status</label>
-            <div id="skills-status-line" class="status info" style="margin: 0;">checking...</div>
+            <label>Auto-check for updates</label>
+            <div class="toggle" id="pocketCli.autoCheck-toggle" onclick="playNormalClick(); toggleSetting('pocketCli.autoCheck')"></div>
+          </div>
+        </div>
+
+        <div class="settings-grid" style="margin-top: 12px;">
+          <div class="setting-row">
+            <label>Current Version</label>
+            <span id="pocket-cli-version" class="key-link" style="font-size: 12px;">—</span>
           </div>
           <div class="setting-row">
-            <label>Configure</label>
-            <button onclick="openSkillsSetup()" class="skills-setup-btn" style="margin: 0;">Open Skills Lab</button>
+            <label>Status</label>
+            <div id="pocket-cli-status" class="status info" style="margin: 0;">Ready</div>
           </div>
+          <div class="setting-row">
+            <label>Actions</label>
+            <div style="display: flex; gap: 6px;">
+              <button id="pocket-cli-check-btn" onclick="playNormalClick(); checkPocketCliUpdates()" class="skills-setup-btn" style="margin: 0;">Check Now</button>
+              <button id="pocket-cli-install-btn" onclick="playNormalClick(); installPocketCli()" class="skills-setup-btn" style="margin: 0; display: none;">Install</button>
+              <button id="pocket-cli-update-btn" onclick="playNormalClick(); updatePocketCli()" class="skills-setup-btn" style="margin: 0; display: none; background: var(--accent); color: white; border-color: var(--accent);">Update</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="pocket-cli-info" class="info-box" style="margin-top: 12px; display: none;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span id="pocket-cli-info-text"></span>
         </div>
       </section>
 
@@ -2567,10 +2587,10 @@
       await loadAppVersion();
       setupNavigation();
       setupAutoSave();
-      loadSkillsSummary();
+      initializeBrowserSection();
+      initPocketCli();
       checkGlmStatus();
       checkGogStatus();
-      detectBrowsers();
       epInit();
 
       // Listen for tab navigation from main process
@@ -2794,6 +2814,11 @@
         const voiceEnabled = settings['telegram.voiceReplies'] === 'true';
         voiceToggle.classList.toggle('active', voiceEnabled);
       }
+
+      // Pocket CLI auto-check toggle (defaults to true)
+      const pocketCliToggle = document.getElementById('pocketCli.autoCheck-toggle');
+      const pocketCliAutoCheck = settings['pocketCli.autoCheck'] !== 'false';
+      pocketCliToggle.classList.toggle('active', pocketCliAutoCheck);
 
       // Updates auto-check toggle (defaults to true)
       const updatesToggle = document.getElementById('updates.autoCheck-toggle');
@@ -6117,95 +6142,320 @@ Never mention internal labels, automation, or filtering.`;
       }
     }
 
-    // Skills functions
-    async function loadSkillsSummary() {
-      const statusEl = document.getElementById('skills-status-line');
+    // Pocket CLI functions
+    let pocketCliInstalledVersion = null;
+    const CLI_IS_WINDOWS = window.pocketAgent.getPlatform() === 'win32';
+
+    // Platform-aware shell commands for Pocket CLI
+    const cliCommands = {
+      which: CLI_IS_WINDOWS
+        ? '(Get-Command pocket -ErrorAction SilentlyContinue).Source'
+        : 'which pocket',
+      version: (pocketPath) => CLI_IS_WINDOWS
+        ? null // No reliable way to extract version from Windows binary without strings
+        : `strings "${pocketPath}" | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+$' | head -1`,
+      fetchLatest: CLI_IS_WINDOWS
+        ? 'Invoke-RestMethod https://api.github.com/repos/KenKaiii/pocket-agent-cli/releases/latest | ConvertTo-Json -Depth 10'
+        : 'curl -fsSL https://api.github.com/repos/KenKaiii/pocket-agent-cli/releases/latest',
+      install: CLI_IS_WINDOWS
+        ? [
+            '$installDir = Join-Path $env:LOCALAPPDATA "pocket-agent-cli"',
+            'New-Item -ItemType Directory -Force -Path $installDir | Out-Null',
+            '$release = Invoke-RestMethod "https://api.github.com/repos/KenKaiii/pocket-agent-cli/releases/latest"',
+            '$asset = $release.assets | Where-Object { $_.name -like "*windows*amd64*" } | Select-Object -First 1',
+            'if (-not $asset) { throw "No Windows release asset found" }',
+            '$zipPath = Join-Path $env:TEMP "pocket_cli.zip"',
+            'Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath',
+            'Expand-Archive -Path $zipPath -DestinationPath $installDir -Force',
+            'Remove-Item $zipPath -Force',
+            '$userPath = [Environment]::GetEnvironmentVariable("Path", "User")',
+            'if ($userPath -notlike "*$installDir*") { [Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User") }',
+            'Write-Output "Installed to $installDir"',
+          ].join('; ')
+        : 'curl -fsSL https://raw.githubusercontent.com/KenKaiii/pocket-agent-cli/main/scripts/install.sh | sed "s/^.*exec .*$//" | bash',
+    };
+
+    async function initPocketCli() {
+      const versionEl = document.getElementById('pocket-cli-version');
+      const statusEl = document.getElementById('pocket-cli-status');
+      const checkBtn = document.getElementById('pocket-cli-check-btn');
+      const installBtn = document.getElementById('pocket-cli-install-btn');
+
+      // Check if pocket command exists and get version
       try {
-        const result = await window.pocketAgent.getSkillsStatus();
-        const { total, available, unavailable } = result.summary;
-        if (unavailable === 0) {
+        const result = await window.pocketAgent.runCommand(cliCommands.which);
+        if (result && result.trim()) {
+          // Try to extract version from binary (macOS only; Windows shows "Installed")
+          const versionCmd = cliCommands.version(result.trim());
+          if (versionCmd) {
+            try {
+              const versionResult = await window.pocketAgent.runCommand(versionCmd);
+              if (versionResult && versionResult.trim()) {
+                pocketCliInstalledVersion = versionResult.trim().replace(/^v/, '');
+                versionEl.textContent = `v${pocketCliInstalledVersion}`;
+              } else {
+                versionEl.textContent = 'Installed';
+              }
+            } catch (e) {
+              versionEl.textContent = 'Installed';
+            }
+          } else {
+            versionEl.textContent = 'Installed';
+          }
           statusEl.className = 'status success';
-          statusEl.textContent = `${available} powers ready!`;
+          statusEl.textContent = 'Installed';
+          installBtn.style.display = 'none';
+          checkBtn.style.display = 'inline-block';
         } else {
           statusEl.className = 'status warning';
-          statusEl.textContent = `${available} ready, ${unavailable} need setup`;
+          statusEl.textContent = 'Not installed';
+          installBtn.style.display = 'inline-block';
+          installBtn.textContent = 'Install';
+          checkBtn.style.display = 'none';
+          versionEl.textContent = '—';
         }
       } catch (err) {
-        console.error('Failed to load skills summary:', err);
-        statusEl.className = 'status error';
-        statusEl.textContent = 'Failed to load';
+        statusEl.className = 'status warning';
+        statusEl.textContent = 'Not installed';
+        installBtn.style.display = 'inline-block';
+        installBtn.textContent = 'Install';
+        checkBtn.style.display = 'none';
+        versionEl.textContent = '—';
+      }
+
+      // Auto-check for updates if enabled
+      const autoCheck = settings['pocketCli.autoCheck'] !== 'false';
+      if (autoCheck && pocketCliInstalledVersion) {
+        checkPocketCliUpdates();
       }
     }
 
-    // Browser launcher functions
-    async function detectBrowsers() {
+    async function checkPocketCliUpdates() {
+      const statusEl = document.getElementById('pocket-cli-status');
+      const checkBtn = document.getElementById('pocket-cli-check-btn');
+      const updateBtn = document.getElementById('pocket-cli-update-btn');
+      const installBtn = document.getElementById('pocket-cli-install-btn');
+      const infoBox = document.getElementById('pocket-cli-info');
+      const infoText = document.getElementById('pocket-cli-info-text');
+
+      checkBtn.disabled = true;
+      checkBtn.textContent = 'Checking...';
+      statusEl.className = 'status info';
+      statusEl.textContent = 'Checking...';
+
       try {
-        const browsers = await window.pocketAgent.detectInstalledBrowsers();
-        const selector = document.getElementById('browser-selector');
-        if (!selector) return;
-        selector.innerHTML = '';
-        if (browsers.length === 0) {
-          selector.innerHTML = '<option value="">No browsers found</option>';
-          return;
+        const latestJson = await window.pocketAgent.runCommand(cliCommands.fetchLatest);
+        if (latestJson) {
+          const release = JSON.parse(latestJson);
+          const latestVersion = (release.tag_name || '').replace(/^v/, '');
+
+          if (!pocketCliInstalledVersion) {
+            // Not installed
+            statusEl.className = 'status warning';
+            statusEl.textContent = 'Not installed';
+            installBtn.style.display = 'inline-block';
+            installBtn.textContent = 'Install';
+            checkBtn.style.display = 'none';
+          } else if (latestVersion && latestVersion !== pocketCliInstalledVersion) {
+            statusEl.className = 'status info';
+            statusEl.textContent = 'Update available';
+            updateBtn.style.display = 'inline-block';
+            updateBtn.textContent = `Update to v${latestVersion}`;
+            infoBox.style.display = 'flex';
+            infoText.textContent = `v${latestVersion} is available. You are on v${pocketCliInstalledVersion}.`;
+          } else {
+            statusEl.className = 'status success';
+            statusEl.textContent = 'Up to date';
+            updateBtn.style.display = 'none';
+            infoBox.style.display = 'none';
+          }
         }
-        for (const b of browsers) {
-          const opt = document.createElement('option');
-          opt.value = b.id;
-          opt.textContent = b.name;
-          selector.appendChild(opt);
-        }
-      } catch {
-        const selector = document.getElementById('browser-selector');
-        if (selector) selector.innerHTML = '<option value="">Detection failed</option>';
+      } catch (e) {
+        statusEl.className = 'status warning';
+        statusEl.textContent = 'Unable to check';
+      } finally {
+        checkBtn.disabled = false;
+        checkBtn.textContent = 'Check Now';
       }
     }
 
-    async function launchSelectedBrowser() {
-      const selector = document.getElementById('browser-selector');
-      const statusEl = document.getElementById('browser-launch-status');
-      if (!selector || !selector.value) return;
-      statusEl.textContent = 'Launching...';
-      statusEl.style.color = '#888';
+    async function installPocketCli() {
+      const statusEl = document.getElementById('pocket-cli-status');
+      const installBtn = document.getElementById('pocket-cli-install-btn');
+
       try {
-        const result = await window.pocketAgent.launchBrowser(selector.value);
-        if (result.success) {
-          statusEl.textContent = 'Connected!';
-          statusEl.style.color = '#4ade80';
+        installBtn.disabled = true;
+        installBtn.textContent = 'Installing...';
+        statusEl.className = 'status info';
+        statusEl.textContent = 'Installing...';
+
+        await window.pocketAgent.runCommand(cliCommands.install);
+        await initPocketCli();
+
+        if (document.getElementById('pocket-cli-status').classList.contains('success')) {
+          showToast('Pocket CLI installed successfully!' + (CLI_IS_WINDOWS ? ' Restart your terminal to use it.' : ''), 'success');
         } else {
-          statusEl.textContent = result.error || 'Launch failed';
-          statusEl.style.color = '#f87171';
+          showToast('Installation completed, please check status', 'warning');
         }
       } catch (err) {
-        statusEl.textContent = err.message;
-        statusEl.style.color = '#f87171';
+        statusEl.className = 'status error';
+        statusEl.textContent = 'Install failed';
+        showToast('Failed to install Pocket CLI: ' + err.message, 'error');
+      } finally {
+        installBtn.disabled = false;
+        await initPocketCli();
+      }
+    }
+
+    async function updatePocketCli() {
+      const statusEl = document.getElementById('pocket-cli-status');
+      const updateBtn = document.getElementById('pocket-cli-update-btn');
+      const infoBox = document.getElementById('pocket-cli-info');
+      const infoText = document.getElementById('pocket-cli-info-text');
+
+      try {
+        updateBtn.disabled = true;
+        updateBtn.textContent = 'Updating...';
+        statusEl.className = 'status info';
+        statusEl.textContent = 'Updating...';
+        infoBox.style.display = 'flex';
+        infoText.textContent = 'Downloading and installing latest version...';
+
+        await window.pocketAgent.runCommand(cliCommands.install);
+        await initPocketCli();
+
+        if (document.getElementById('pocket-cli-status').classList.contains('success')) {
+          showToast('Pocket CLI updated successfully!', 'success');
+        } else {
+          showToast('Update completed, please check status', 'warning');
+        }
+      } catch (err) {
+        statusEl.className = 'status error';
+        statusEl.textContent = 'Update failed';
+        showToast('Failed to update Pocket CLI: ' + err.message, 'error');
+      } finally {
+        updateBtn.disabled = false;
+        await initPocketCli();
+      }
+    }
+
+    // Browser control functions
+    async function initializeBrowserSection() {
+      const selector = document.getElementById('browser-selector');
+      const statusEl = document.getElementById('browser-status');
+
+      try {
+        // Detect installed browsers
+        const browsers = await window.pocketAgent.detectInstalledBrowsers();
+
+        // Clear and populate selector
+        selector.innerHTML = '<option value="">Select browser...</option>';
+        browsers.forEach(browser => {
+          const option = document.createElement('option');
+          option.value = browser.id;
+          option.textContent = browser.name;
+          selector.appendChild(option);
+        });
+
+        // Auto-select first browser if only one
+        if (browsers.length === 1) {
+          selector.value = browsers[0].id;
+        }
+
+        // Test current connection
+        await testBrowserConnection();
+      } catch (err) {
+        console.error('Failed to initialize browser section:', err);
+        statusEl.className = 'status error';
+        statusEl.textContent = 'Error loading';
+      }
+    }
+
+    async function launchBrowserWithCdp() {
+      const selector = document.getElementById('browser-selector');
+      const statusEl = document.getElementById('browser-status');
+      const launchBtn = document.getElementById('browser-launch-btn');
+      const portInput = document.getElementById('browser-port');
+
+      const browserId = selector.value;
+      if (!browserId) {
+        showToast('Please select a browser first', 'error');
+        return;
+      }
+
+      const port = parseInt(portInput.value) || 9222;
+
+      // Update UI
+      launchBtn.disabled = true;
+      launchBtn.textContent = 'Launching...';
+      statusEl.className = 'status info';
+      statusEl.textContent = 'Launching...';
+
+      try {
+        const result = await window.pocketAgent.launchBrowser(browserId, port);
+
+        if (result.success) {
+          statusEl.className = 'status success';
+          statusEl.textContent = 'Connected';
+          showToast('Browser launched with remote debugging enabled!', 'success');
+
+          // Update CDP URL to match port
+          const cdpInput = document.getElementById('browser.cdpUrl');
+          cdpInput.value = `http://localhost:${port}`;
+          await window.pocketAgent.setSetting('browser.cdpUrl', cdpInput.value);
+        } else if (result.alreadyRunning) {
+          statusEl.className = 'status warning';
+          statusEl.textContent = 'Browser running';
+          showToast(result.error, 'error');
+        } else {
+          statusEl.className = 'status error';
+          statusEl.textContent = 'Launch failed';
+          showToast(result.error || 'Failed to launch browser', 'error');
+        }
+      } catch (err) {
+        statusEl.className = 'status error';
+        statusEl.textContent = 'Error';
+        showToast('Error: ' + err.message, 'error');
+      } finally {
+        launchBtn.disabled = false;
+        launchBtn.textContent = 'Launch Browser';
       }
     }
 
     async function testBrowserConnection() {
-      const statusEl = document.getElementById('browser-launch-status');
-      const cdpUrl = document.getElementById('browser.cdpUrl')?.value || undefined;
+      const statusEl = document.getElementById('browser-status');
+      const testBtn = document.getElementById('browser-test-btn');
+      const cdpInput = document.getElementById('browser.cdpUrl');
+
+      const cdpUrl = cdpInput.value || 'http://localhost:9222';
+
+      testBtn.disabled = true;
+      testBtn.textContent = 'Testing...';
+      statusEl.className = 'status info';
       statusEl.textContent = 'Testing...';
-      statusEl.style.color = '#888';
+
       try {
         const result = await window.pocketAgent.testBrowserConnection(cdpUrl);
+
         if (result.connected) {
-          statusEl.textContent = 'Connected!';
-          statusEl.style.color = '#4ade80';
+          statusEl.className = 'status success';
+          statusEl.textContent = 'Connected';
+
+          // Show browser info if available
+          if (result.browserInfo && result.browserInfo.Browser) {
+            const browserName = result.browserInfo.Browser.split('/')[0];
+            statusEl.textContent = `Connected (${browserName})`;
+          }
         } else {
-          statusEl.textContent = result.error || 'Not connected';
-          statusEl.style.color = '#f87171';
+          statusEl.className = 'status error';
+          statusEl.textContent = 'Not connected';
         }
       } catch (err) {
-        statusEl.textContent = err.message;
-        statusEl.style.color = '#f87171';
-      }
-    }
-
-    async function openSkillsSetup() {
-      try {
-        await window.pocketAgent.openSkillsSetup();
-      } catch (err) {
-        showToast('Failed to open Skills Setup: ' + err.message, 'error');
+        statusEl.className = 'status error';
+        statusEl.textContent = 'Error';
+      } finally {
+        testBtn.disabled = false;
+        testBtn.textContent = 'Test Connection';
       }
     }
 

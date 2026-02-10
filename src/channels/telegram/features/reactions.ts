@@ -34,23 +34,6 @@ function recordReaction(data: ReactionData): void {
 }
 
 /**
- * Get reactions for a message
- */
-export function getMessageReactions(chatId: number, messageId: number): ReactionData[] {
-  const key = getHistoryKey(chatId, messageId);
-  return reactionHistory.get(key) || [];
-}
-
-/**
- * Clear old reaction history
- */
-export function cleanupReactionHistory(_maxAge: number = 24 * 60 * 60 * 1000): void {
-  // Note: We don't track timestamps in ReactionData, so this is a placeholder
-  // In a real implementation, you'd add timestamps to ReactionData
-  console.log(`[Telegram] Reaction history cleanup (${reactionHistory.size} entries)`);
-}
-
-/**
  * Handle a message_reaction update
  */
 export interface ReactionHandler {
@@ -158,24 +141,6 @@ export async function sendReaction(
     return true;
   } catch (error) {
     console.error('[Telegram] Failed to send reaction:', error);
-    return false;
-  }
-}
-
-/**
- * Remove agent's reaction from a message
- */
-export async function removeReaction(
-  api: Api,
-  chatId: number,
-  messageId: number
-): Promise<boolean> {
-  try {
-    await api.setMessageReaction(chatId, messageId, []);
-    console.log(`[Telegram] Removed reaction from message ${messageId}`);
-    return true;
-  } catch (error) {
-    console.error('[Telegram] Failed to remove reaction:', error);
     return false;
   }
 }
