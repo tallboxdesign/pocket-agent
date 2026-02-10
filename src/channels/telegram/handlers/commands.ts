@@ -542,6 +542,11 @@ export async function registerBotCommands(bot: Bot): Promise<void> {
 
   const allCommands = [...builtIn, ...workflowCommands];
 
+  // Clear all existing command scopes first (removes stale commands from previous bot projects)
+  await bot.api.deleteMyCommands();
+  await bot.api.deleteMyCommands({ scope: { type: 'all_private_chats' } });
+  await bot.api.deleteMyCommands({ scope: { type: 'all_group_chats' } });
+
   // Telegram limits to 100 commands
   await bot.api.setMyCommands(allCommands.slice(0, 100));
   console.log(`[Telegram] Registered ${allCommands.length} bot commands (${builtIn.length} built-in + ${workflowCommands.length} workflows)`);
