@@ -2363,22 +2363,6 @@ Respond with ONLY valid JSON, no markdown, no explanation:
     return ClaudeOAuth.isPending();
   });
 
-  // Browser control
-  ipcMain.handle('browser:detectInstalled', async () => {
-    const { detectInstalledBrowsers } = await import('../browser/launcher');
-    return detectInstalledBrowsers();
-  });
-
-  ipcMain.handle('browser:launch', async (_, browserId: string, port?: number) => {
-    const { launchBrowser } = await import('../browser/launcher');
-    return launchBrowser(browserId, port || 9222);
-  });
-
-  ipcMain.handle('browser:testConnection', async (_, cdpUrl?: string) => {
-    const { testCdpConnection } = await import('../browser/launcher');
-    return testCdpConnection(cdpUrl || 'http://localhost:9222');
-  });
-
   // Shell commands — platform-aware shell selection
   ipcMain.handle('shell:runCommand', async (_, command: string) => {
     const execAsync = promisify(exec);

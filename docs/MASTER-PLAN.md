@@ -1,7 +1,7 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
-**Last Updated:** 2026-02-09
+**Last Updated:** 2026-02-10
 **Status:** IN PROGRESS — v4.1 Email Intelligence
 **Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-4.7 (utility model)
 
@@ -1208,6 +1208,25 @@ Full merge of upstream/main (57 commits ahead) into my-voice-features via `integ
 - All custom tools (voice, photo, react, restart, gmail, glm-worker, kanban)
 
 **Version:** `2.1.5-voice.1`
+
+### 17.13 Upstream Port Phase 4 — v2.2.6 Merge (2026-02-10) ✅ DONE
+
+Merged upstream v2.2.6 into my-voice-features. Includes persistent sessions, workflows (replacing skills), teams, media support, Windows support, and power management.
+
+**Post-merge fix required:** The merge introduced **duplicate IPC handler registrations** for `browser:detectInstalled`, `browser:launch`, and `browser:testConnection` in `src/main/index.ts`. Electron crashes fatally when the same `ipcMain.handle()` channel is registered twice, which prevented the entire app from initializing — all UI buttons appeared dead because the backend never started. Fixed by removing the duplicate block (upstream's copy at ~line 2366, keeping the original at ~line 1717).
+
+**Lesson learned:** After any upstream merge, always run the app in dev mode (`npx electron .`) and check stdout for `FATAL ERROR` before declaring success. `npm run typecheck` passing does NOT guarantee runtime correctness — duplicate IPC handlers are a runtime error, not a type error.
+
+**What was integrated:**
+- **Persistent sessions** — Multi-session support with SDK session IDs
+- **Workflows** — Commands system replacing old skills setup
+- **Teams** — Agent teams support
+- **Media handling** — Cross-channel media with `readMedia`, `extractText`, `openImage`
+- **Windows support** — Platform-aware PATH, shell selection, icon
+- **Power management** — `powerSaveBlocker` to prevent app suspension
+- **Tool blocked UI state** — Visual indicator when agent tool is blocked
+
+**Version:** `2.2.6-voice.1`
 
 ---
 
