@@ -73,43 +73,6 @@ export function confirmationKeyboard(actionId: string, yesLabel = 'Yes', noLabel
 }
 
 /**
- * Create a paginated list keyboard
- */
-export function paginationKeyboard(
-  currentPage: number,
-  totalPages: number,
-  prefix: string = 'page'
-): InlineKeyboard {
-  const builder = new InlineKeyboardBuilder();
-  const buttons: InlineKeyboardButton[] = [];
-
-  // Previous button
-  if (currentPage > 0) {
-    buttons.push({
-      text: '<< Prev',
-      callbackData: `${prefix}:${currentPage - 1}`,
-    });
-  }
-
-  // Page indicator
-  buttons.push({
-    text: `${currentPage + 1}/${totalPages}`,
-    callbackData: `${prefix}:current`, // No-op, just shows current page
-  });
-
-  // Next button
-  if (currentPage < totalPages - 1) {
-    buttons.push({
-      text: 'Next >>',
-      callbackData: `${prefix}:${currentPage + 1}`,
-    });
-  }
-
-  builder.addRow(buttons);
-  return builder.build();
-}
-
-/**
  * Create a simple options keyboard from a list of items
  */
 export function optionsKeyboard(
@@ -131,65 +94,3 @@ export function optionsKeyboard(
   return builder.build();
 }
 
-/**
- * Create a rating keyboard (1-5 stars or similar)
- */
-export function ratingKeyboard(
-  messageId: string,
-  maxRating: number = 5
-): InlineKeyboard {
-  const builder = new InlineKeyboardBuilder();
-  const buttons: InlineKeyboardButton[] = [];
-
-  for (let i = 1; i <= maxRating; i++) {
-    const stars = '*'.repeat(i);
-    buttons.push({
-      text: stars,
-      callbackData: `rate:${messageId}:${i}`,
-    });
-  }
-
-  builder.addRow(buttons);
-  return builder.build();
-}
-
-/**
- * Create a cancel-only keyboard
- */
-export function cancelKeyboard(actionId: string): InlineKeyboard {
-  return new InlineKeyboardBuilder()
-    .addButton('Cancel', `confirm:${actionId}:no`)
-    .build();
-}
-
-/**
- * Create a URL button keyboard (for linking to external resources)
- */
-export function urlKeyboard(text: string, url: string): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-  keyboard.url(text, url);
-  return keyboard;
-}
-
-/**
- * Create a mixed keyboard with callback and URL buttons
- */
-export function mixedKeyboard(
-  callbackButtons: InlineKeyboardButton[],
-  urlButtons: Array<{ text: string; url: string }>
-): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-
-  // Add callback buttons
-  for (const button of callbackButtons) {
-    keyboard.text(button.text, button.callbackData);
-  }
-  keyboard.row();
-
-  // Add URL buttons
-  for (const button of urlButtons) {
-    keyboard.url(button.text, button.url);
-  }
-
-  return keyboard;
-}

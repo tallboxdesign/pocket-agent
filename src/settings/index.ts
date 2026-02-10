@@ -214,6 +214,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: 'Claude model to use for conversations',
     type: 'string',
   },
+  // DEPRECATED: SDK handles compaction natively via persistSession + resume
   {
     key: 'agent.fallbackModel',
     defaultValue: '',
@@ -229,16 +230,17 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     encrypted: false,
     category: 'agent',
     label: 'Compaction Threshold',
-    description: 'Token count at which to start compacting context',
+    description: 'Deprecated - SDK handles this natively',
     type: 'number',
   },
+  // DEPRECATED: SDK handles context window natively via persistSession + resume
   {
     key: 'agent.maxContextTokens',
     defaultValue: '150000',
     encrypted: false,
     category: 'agent',
     label: 'Max Context Tokens',
-    description: 'Maximum tokens in conversation context',
+    description: 'Deprecated - SDK handles this natively',
     type: 'number',
   },
   {
@@ -250,31 +252,34 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: 'How much reasoning to show (none, minimal, normal, extended)',
     type: 'string',
   },
+  // DEPRECATED: SDK handles conversation history natively via persistSession + resume
   {
     key: 'agent.recentMessageLimit',
     defaultValue: '20',
     encrypted: false,
     category: 'agent',
     label: 'Recent Message Limit',
-    description: 'Number of recent messages to include in context (rest are summarized)',
+    description: 'Deprecated - SDK handles this natively',
     type: 'number',
   },
+  // DEPRECATED: SDK handles summarization natively via auto-compaction
   {
     key: 'agent.rollingSummaryInterval',
     defaultValue: '50',
     encrypted: false,
     category: 'agent',
     label: 'Rolling Summary Interval',
-    description: 'Create summaries every N messages',
+    description: 'Deprecated - SDK handles this natively',
     type: 'number',
   },
+  // DEPRECATED: SDK handles context retrieval natively via persistSession + resume
   {
     key: 'agent.semanticRetrievalCount',
     defaultValue: '5',
     encrypted: false,
     category: 'agent',
     label: 'Semantic Retrieval Count',
-    description: 'Number of semantically relevant past messages to include (0 to disable)',
+    description: 'Deprecated - SDK handles this natively',
     type: 'number',
   },
 
@@ -655,16 +660,6 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: 'Saved position and size of facts window (JSON)',
     type: 'string',
   },
-  {
-    key: 'window.skillsSetupBounds',
-    defaultValue: '',
-    encrypted: false,
-    category: 'window',
-    label: 'Skills Setup Window Bounds',
-    description: 'Saved position and size of skills setup window (JSON)',
-    type: 'string',
-  },
-
   // User Profile settings
   {
     key: 'profile.name',
@@ -970,10 +965,11 @@ class SettingsManagerClass {
       return !!oauthToken;
     }
 
-    // Check for API key authentication (Anthropic OR Moonshot)
+    // Check for API key authentication (any supported provider)
     const anthropicKey = this.get('anthropic.apiKey');
     const moonshotKey = this.get('moonshot.apiKey');
-    return !!anthropicKey || !!moonshotKey;
+    const glmKey = this.get('glm.apiKey');
+    return !!anthropicKey || !!moonshotKey || !!glmKey;
   }
 
   /**

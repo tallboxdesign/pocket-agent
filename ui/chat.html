@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: file: atom:; media-src 'self' blob: file:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: file: atom: https:; media-src 'self' blob: file:;">
   <title>Pocket Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -621,6 +621,25 @@
       height: 10px;
     }
 
+    /* Workflow badge */
+    .message.from-workflow {
+      position: relative;
+    }
+
+    .message.from-workflow::after {
+      content: 'workflow';
+      position: absolute;
+      top: -8px;
+      left: 8px;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: #ffffff;
+      background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
     /* Queue indicator in status */
     .queue-indicator {
       display: flex;
@@ -921,6 +940,88 @@
       background-clip: text;
       -webkit-text-fill-color: transparent;
       animation: shimmer 1.5s ease-in-out infinite;
+    }
+
+    /* Tool blocked state - red/orange warning vibe */
+    .status-indicator.tool-blocked {
+      border-color: #ef4444;
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(249, 115, 22, 0.15) 100%);
+      animation: blocked-pulse 0.5s ease-in-out 2;
+    }
+
+    .status-indicator.tool-blocked .status-action {
+      background: linear-gradient(
+        90deg,
+        #ef4444 0%,
+        #f97316 50%,
+        #ef4444 100%
+      );
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: shimmer 1s ease-in-out infinite;
+    }
+
+    .status-indicator.tool-blocked .status-detail {
+      color: #f97316;
+    }
+
+    @keyframes blocked-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); }
+    }
+
+    /* Pocket CLI active state - green/cyan vibe */
+    .status-indicator.pocket-cli-active {
+      border-color: #22c55e;
+      background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(103, 232, 249, 0.1) 100%);
+    }
+
+    .status-indicator.pocket-cli-active .status-action {
+      background: linear-gradient(
+        90deg,
+        #22c55e 0%,
+        #67e8f9 25%,
+        #22c55e 50%,
+        #67e8f9 75%,
+        #22c55e 100%
+      );
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+
+    .status-indicator.pocket-cli-active .status-detail {
+      color: #22c55e;
+    }
+
+    /* Agent Teams active state - blue/cyan vibe */
+    .status-indicator.team-active {
+      border-color: #3b82f6;
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(6, 182, 212, 0.1) 100%);
+    }
+
+    .status-indicator.team-active .status-action {
+      background: linear-gradient(
+        90deg,
+        #3b82f6 0%,
+        #06b6d4 25%,
+        #3b82f6 50%,
+        #06b6d4 75%,
+        #3b82f6 100%
+      );
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+
+    .status-indicator.team-active .status-detail {
+      color: #06b6d4;
     }
 
     .status-detail {
@@ -1269,6 +1370,505 @@
       transform: scale(1.08);
     }
 
+    /* Search Area */
+    #search-area {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      min-height: 30px;
+    }
+
+    .search-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      height: 30px;
+      box-sizing: border-box;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .search-toggle:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(168, 85, 247, 0.1);
+    }
+
+    .search-toggle svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    #search-area.searching .search-toggle {
+      display: none;
+    }
+
+    #search-expanded {
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #search-area.searching #search-expanded {
+      display: flex;
+    }
+
+    #search-expanded .search-icon {
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    #search-input {
+      flex: 1;
+      padding: 6px 0;
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      min-width: 0;
+    }
+
+    #search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .search-results-count {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .search-results-count.has-results {
+      color: var(--accent);
+    }
+
+    .search-nav {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .search-nav-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      background: transparent;
+      border: none;
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .search-nav-btn:hover:not(:disabled) {
+      color: var(--accent);
+      background: rgba(168, 85, 247, 0.1);
+    }
+
+    .search-nav-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .search-nav-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .search-close-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      background: transparent;
+      border: none;
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .search-close-btn:hover {
+      background: var(--error);
+      color: white;
+    }
+
+    .search-close-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Toolbar row (search + workflows side by side) */
+    #toolbar-row {
+      display: flex;
+      gap: 8px;
+      padding: 10px 20px;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    /* Workflows Area */
+    #workflows-area {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      min-height: 30px;
+    }
+
+    .workflows-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      height: 30px;
+      box-sizing: border-box;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .workflows-toggle:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(168, 85, 247, 0.1);
+    }
+
+    .workflows-toggle svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    #workflows-area.active .workflows-toggle {
+      display: none;
+    }
+
+    #workflows-expanded {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #workflows-area.active #workflows-expanded {
+      display: flex;
+    }
+
+    #workflows-grid {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .workflow-btn {
+      padding: 6px 12px;
+      background: rgba(168, 85, 247, 0.12);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      border-radius: 16px;
+      color: var(--accent-hover);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+
+    .workflow-btn:hover {
+      background: rgba(168, 85, 247, 0.25);
+      border-color: var(--accent);
+      color: white;
+      transform: translateY(-1px);
+    }
+
+    .workflows-close-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      background: transparent;
+      border: none;
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .workflows-close-btn:hover {
+      background: var(--error);
+      color: white;
+    }
+
+    .workflows-close-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Background Tasks Area */
+    #background-tasks-area {
+      flex-shrink: 0;
+      margin-left: auto;
+      position: relative;
+    }
+
+    .background-tasks-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .background-tasks-toggle:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(168, 85, 247, 0.1);
+    }
+
+    .bg-task-pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: bgPulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes bgPulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); }
+      50% { opacity: 0.6; box-shadow: 0 0 0 4px rgba(168, 85, 247, 0); }
+    }
+
+    .bg-task-count {
+      font-weight: 700;
+      font-size: 11px;
+      min-width: 14px;
+      text-align: center;
+    }
+
+    /* Dropdown (hidden by default, appears above the toggle) */
+    #background-tasks-dropdown {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 6px);
+      right: 0;
+      min-width: 260px;
+      max-width: 340px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35);
+      overflow: hidden;
+      z-index: 50;
+    }
+
+    #background-tasks-area.active #background-tasks-dropdown {
+      display: block;
+    }
+
+    .bg-dropdown-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-tertiary);
+    }
+
+    .bg-dropdown-back {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      background: transparent;
+      border: none;
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .bg-dropdown-back:hover {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+
+    .bg-dropdown-back svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .bg-dropdown-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    #background-tasks-list {
+      display: flex;
+      flex-direction: column;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .bg-task-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-primary);
+      transition: background 0.15s ease;
+    }
+
+    .bg-task-item:last-child {
+      border-bottom: none;
+    }
+
+    .bg-task-item:hover {
+      background: rgba(168, 85, 247, 0.05);
+    }
+
+    .bg-task-item .bg-task-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+      animation: bgPulse 1.5s ease-in-out infinite;
+    }
+
+    .bg-task-item .bg-task-label {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-secondary);
+    }
+
+    .bg-task-item .bg-task-type {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--accent-hover);
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+
+    .bg-task-item .bg-task-close {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      background: transparent;
+      border: none;
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      opacity: 0;
+    }
+
+    .bg-task-item:hover .bg-task-close {
+      opacity: 1;
+    }
+
+    .bg-task-close:hover {
+      background: var(--error);
+      color: white;
+    }
+
+    .bg-task-close svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    /* Workflow badge in input area */
+    .workflow-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(236, 72, 153, 0.2));
+      border: 1px solid rgba(168, 85, 247, 0.4);
+      border-radius: 12px;
+      color: var(--accent-hover);
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+      margin-right: 6px;
+      flex-shrink: 0;
+    }
+
+    .workflow-badge-remove {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      background: transparent;
+      border: none;
+      border-radius: 50%;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      padding: 0;
+    }
+
+    .workflow-badge-remove:hover {
+      color: var(--error);
+    }
+
+    .workflow-badge-remove svg {
+      width: 10px;
+      height: 10px;
+    }
+
+    #workflow-badge-container {
+      display: flex;
+      align-items: center;
+      align-self: center;
+    }
+
+    /* Search highlight */
+    mark.search-highlight {
+      background: rgba(168, 85, 247, 0.4);
+      color: inherit;
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+
+    mark.search-highlight.current {
+      background: var(--accent);
+      color: white;
+    }
+
     /* Empty State */
     .empty-state {
       flex: 1;
@@ -1424,18 +2024,20 @@
     }
 
     .attachment-icon {
-      width: 24px;
+      min-width: 28px;
       height: 24px;
+      padding: 0 4px;
       display: flex;
       align-items: center;
       justify-content: center;
       background: var(--bg-tertiary);
       border-radius: 4px;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
       flex-shrink: 0;
+      box-sizing: border-box;
     }
 
     .attachment-info {
@@ -1543,19 +2145,48 @@
     }
 
     .message-attachment {
-      display: flex;
+      display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 4px 8px;
+      padding: 6px 10px;
       background: rgba(0, 0, 0, 0.2);
-      border-radius: 6px;
-      font-size: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.3;
+      margin: 2px 0;
     }
 
     .message-attachment img {
       max-width: 200px;
       max-height: 150px;
       border-radius: 6px;
+    }
+
+    /* Response media images (from agent screenshots/tools) */
+    .message-media {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .message-media img {
+      max-width: 100%;
+      max-height: 400px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .message-media img:hover {
+      opacity: 0.9;
+    }
+
+    .message img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      cursor: pointer;
     }
   </style>
 </head>
@@ -1689,6 +2320,87 @@
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
   </button>
 
+  <!-- Toolbar Row (Search + Workflows) -->
+  <div id="toolbar-row">
+    <div id="search-area">
+      <!-- Toggle Button (shown by default) -->
+      <button class="search-toggle" id="search-toggle-btn" onclick="playNormalClick(); toggleSearch()">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <span>search</span>
+      </button>
+      <!-- Search Input (hidden by default) -->
+      <div id="search-expanded">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="search-input" placeholder="Search in chat..." oninput="handleSearchInput(event)" onkeydown="handleSearchKeydown(event)">
+        <span id="search-results-count" class="search-results-count"></span>
+        <div class="search-nav">
+          <button class="search-nav-btn" id="search-prev-btn" onclick="playNormalClick(); navigateSearch(-1)" title="Previous" disabled>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+          </button>
+          <button class="search-nav-btn" id="search-next-btn" onclick="playNormalClick(); navigateSearch(1)" title="Next" disabled>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
+        <button class="search-close-btn" onclick="playNormalClick(); closeSearch()" title="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Workflows Area -->
+    <div id="workflows-area">
+      <button class="workflows-toggle" onclick="playNormalClick(); toggleWorkflows()">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 18 22 12 16 6"></polyline>
+          <polyline points="8 6 2 12 8 18"></polyline>
+        </svg>
+        <span>workflows</span>
+      </button>
+      <div id="workflows-expanded">
+        <div id="workflows-grid"></div>
+        <button class="workflows-close-btn" onclick="playNormalClick(); closeWorkflows()" title="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Background Tasks Indicator (pushed to right) -->
+    <div id="background-tasks-area" style="display: none;">
+      <button class="background-tasks-toggle" onclick="playNormalClick(); toggleBackgroundTasks()">
+        <span class="bg-task-pulse"></span>
+        <span class="bg-task-count">0</span>
+        <span>background</span>
+      </button>
+      <div id="background-tasks-dropdown">
+        <div class="bg-dropdown-header">
+          <button class="bg-dropdown-back" onclick="playNormalClick(); closeBackgroundTasks()" title="Close">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <span class="bg-dropdown-title">Background Tasks</span>
+        </div>
+        <div id="background-tasks-list"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="input-area">
     <div class="input-container">
       <button class="attach-btn" onclick="triggerAttach()" title="Drop a file">
@@ -1704,6 +2416,7 @@
           <line x1="8" y1="23" x2="16" y2="23"/>
         </svg>
       </button>
+      <span id="workflow-badge-container"></span>
       <div class="textarea-wrapper">
         <div id="ghost-suggestion"></div>
         <textarea
@@ -2143,10 +2856,22 @@
       // Images
       'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico',
       // Documents
-      'pdf'
+      'pdf', 'docx', 'doc', 'rtf', 'odt', 'pages',
+      'xlsx', 'xls', 'ods', 'numbers',
+      'pptx', 'ppt', 'odp', 'keynote',
+      'epub', 'zip', 'tar', 'gz'
     ]);
 
     const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico']);
+    const EXTRACTABLE_EXTENSIONS = new Set([
+      'docx', 'pptx', 'xlsx', 'odt', 'odp', 'ods', 'rtf'
+    ]);
+    const BINARY_EXTENSIONS = new Set([
+      'pdf', 'doc', 'pages',
+      'xls', 'numbers',
+      'ppt', 'keynote',
+      'epub', 'zip', 'tar', 'gz'
+    ]);
     const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
     // Initialize
@@ -2360,6 +3085,7 @@
       localStorage.setItem('currentSessionId', currentSessionId);
       renderTabs();
       messagesDiv.innerHTML = '';
+      updateBackgroundTasksUI();
       await loadHistory();
 
       // Restore pending user messages that haven't been saved to history yet
@@ -2381,6 +3107,10 @@
           if (queuedIds.has(msgId)) {
             userMsgEl.classList.add('queued');
             queuedMessageElements.set(msgId, userMsgEl);
+          }
+          // Restore workflow badge
+          if (msgData.workflowName) {
+            userMsgEl.classList.add('from-workflow');
           }
         });
       }
@@ -2616,8 +3346,8 @@
       // Add Telegram indicator + user message
       addTelegramMessage('user', data.userMessage, data.hasAttachment, data.attachmentType);
 
-      // Add the agent's response
-      addMessage('assistant', data.response);
+      // Add the agent's response (with media if present)
+      addMessage('assistant', data.response, true, [], null, true, data.media);
 
       // Update stats and scroll
       updateStats();
@@ -2682,7 +3412,25 @@
               lastDate = msgDate;
             }
 
-            const msgEl = addMessage(msg.role, msg.content, false, [], msg.timestamp);
+            // Strip workflow content from user messages — show badge + user text only
+            let displayContent = msg.content;
+            let isWorkflowMsg = false;
+            if (msg.role === 'user' && msg.content.startsWith('[Workflow: ')) {
+              const endBracket = msg.content.indexOf(']');
+              const endMarker = msg.content.indexOf('[/Workflow]');
+              if (endBracket !== -1 && endMarker !== -1) {
+                const workflowName = msg.content.substring(11, endBracket);
+                const userText = msg.content.substring(endMarker + 11).replace(/^\n\n/, '').trim();
+                displayContent = workflowName + (userText ? ' ' + userText : '');
+                isWorkflowMsg = true;
+              }
+            }
+
+            const msgEl = addMessage(msg.role, displayContent, false, [], msg.timestamp);
+            // Add workflow badge
+            if (isWorkflowMsg) {
+              msgEl.classList.add('from-workflow');
+            }
             // Add scheduled badge if message came from scheduler
             if (msg.metadata?.source === 'scheduler' && msg.metadata?.jobName) {
               msgEl.classList.add('scheduled');
@@ -2711,10 +3459,14 @@
       try {
         const stats = await window.pocketAgent.getStats(currentSessionId);
         if (stats) {
-          const tokens = stats.estimatedTokens >= 1000
-            ? `${(stats.estimatedTokens / 1000).toFixed(1)}k`
-            : stats.estimatedTokens;
-          statsDiv.textContent = `${stats.messageCount} msgs · ${stats.factCount} facts · ${tokens} tokens`;
+          const formatTokens = (n) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+
+          let parts = [`${stats.messageCount} msgs`, `${stats.factCount} facts`];
+          if (stats.contextTokens != null && stats.contextWindow) {
+            parts.push(`${formatTokens(stats.contextTokens)} / ${formatTokens(stats.contextWindow)} context`);
+          }
+
+          statsDiv.textContent = parts.join(' · ');
         }
       } catch (err) {
         console.error('Failed to get stats:', err);
@@ -2803,8 +3555,9 @@
       const message = input.value.trim();
       const attachments = [...getPendingAttachments()];
       const sessionId = currentSessionId; // Capture session at start
+      const workflow = activeWorkflow; // Capture active workflow
 
-      if (!message && attachments.length === 0) return;
+      if (!message && attachments.length === 0 && !workflow) return;
 
       // Clear empty state if present
       const emptyState = messagesDiv.querySelector('.empty-state');
@@ -2819,11 +3572,13 @@
       input.style.height = 'auto';
       clearSuggestion();
       clearAttachments();
+      if (workflow) clearWorkflow();
 
       // Show user message - mark as queued if there's already a message processing
       const isVoice = nextMessageIsVoice;
       nextMessageIsVoice = false;
-      const userMsgEl = addMessage('user', message, true, attachments);
+      const displayMessage = workflow ? `${workflow.name}${message ? ' ' + message : ''}` : message;
+      const userMsgEl = addMessage('user', displayMessage, true, attachments);
 
       // Add voice badge if sent via voice
       if (isVoice) {
@@ -2833,14 +3588,16 @@
         badge.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg> voice';
         userMsgEl.appendChild(badge);
       }
-
       userMsgEl.dataset.messageId = messageId;
+      if (workflow) {
+        userMsgEl.classList.add('from-workflow');
+      }
 
       // Track pending user message for session state restoration
       if (!pendingUserMessagesBySession.has(sessionId)) {
         pendingUserMessagesBySession.set(sessionId, new Map());
       }
-      pendingUserMessagesBySession.get(sessionId).set(messageId, { content: message, attachments: attachments });
+      pendingUserMessagesBySession.get(sessionId).set(messageId, { content: displayMessage, attachments: attachments, workflowName: workflow?.name || null });
 
       if (isQueued) {
         userMsgEl.classList.add('queued');
@@ -2863,16 +3620,19 @@
 
       scrollToBottom();
 
-      // Build the full message with attachments
-      const fullMessage = await buildMessageWithAttachments(message, attachments);
+      // Build the full message with attachments and workflow
+      let fullMessage = await buildMessageWithAttachments(message, attachments);
+      if (workflow) {
+        const workflowPrefix = `[Workflow: ${workflow.name}]\n${workflow.content}\n[/Workflow]`;
+        fullMessage = fullMessage ? `${workflowPrefix}\n\n${fullMessage}` : workflowPrefix;
+      }
 
       // Set up status listener for this session (only if not already set up)
       if (!statusCleanupBySession.has(sessionId)) {
         const statusCleanup = window.pocketAgent.onStatus((status) => {
-          // Only update status if we're still on the same session
-          if (currentSessionId === sessionId) {
-            updateStatusIndicator(status, sessionId);
-          }
+          // Backend already filters events by session, so always update
+          // the correct session's indicator (even if user switched tabs)
+          updateStatusIndicator(status, sessionId);
         });
         statusCleanupBySession.set(sessionId, statusCleanup);
       }
@@ -2897,33 +3657,36 @@
         const pendingMsgs = pendingUserMessagesBySession.get(sessionId);
         if (pendingMsgs) pendingMsgs.delete(messageId);
 
-        // Only update UI if still on same session
-        if (currentSessionId === sessionId) {
-          // Check if there are more queued messages - if not, clean up
-          const hasMoreQueued = queuedMessageElements.size > 0;
+        // Clean up loading state regardless of which tab is active
+        // (otherwise indicators persist if user switched tabs mid-query)
+        const hasMoreQueued = queuedMessageElements.size > 0;
 
-          if (!hasMoreQueued) {
-            // Clean up status listener
-            const cleanup = statusCleanupBySession.get(sessionId);
-            if (cleanup) {
-              cleanup();
-              statusCleanupBySession.delete(sessionId);
-            }
-
-            // Remove status indicator
-            const currentStatusEl = statusElBySession.get(sessionId);
-            if (currentStatusEl) {
-              currentStatusEl.remove();
-              statusElBySession.delete(sessionId);
-            }
-
-            isLoadingBySession.set(sessionId, false);
-            renderTabs();
-            setButtonState(false);
+        if (!hasMoreQueued) {
+          // Clean up status listener
+          const cleanup = statusCleanupBySession.get(sessionId);
+          if (cleanup) {
+            cleanup();
+            statusCleanupBySession.delete(sessionId);
           }
 
+          // Remove status indicator
+          const currentStatusEl = statusElBySession.get(sessionId);
+          if (currentStatusEl) {
+            currentStatusEl.remove();
+            statusElBySession.delete(sessionId);
+          }
+
+          isLoadingBySession.set(sessionId, false);
+          renderTabs();
+          if (currentSessionId === sessionId) {
+            setButtonState(false);
+          }
+        }
+
+        // Only update visible UI if still on same session
+        if (currentSessionId === sessionId) {
           if (result.success) {
-            addMessage('assistant', result.response);
+            addMessage('assistant', result.response, true, [], null, true, result.media);
 
             // Voice: always pre-cache, auto-play only if toggle is ON
             if (result.response) {
@@ -3023,13 +3786,27 @@
           } catch (err) {
             parts.push(`\n\n[Image: ${att.name}] (failed to save: ${err.message})`);
           }
-        } else if (att.ext === 'pdf' && att.dataUrl) {
-          // Save PDF to temp file and reference path
+        } else if (EXTRACTABLE_EXTENSIONS.has(att.ext) && att.dataUrl) {
+          // Save Office document, extract text, and include inline
           try {
             const filePath = await window.pocketAgent.saveAttachment(att.name, att.dataUrl);
-            parts.push(`\n\n[Attached PDF: ${att.name}]\nFile saved at: ${filePath}\nUse the Read tool to view this PDF.`);
+            try {
+              const text = await window.pocketAgent.extractText(filePath);
+              const content = text.length > 50000 ? text.slice(0, 50000) + '\n... (truncated)' : text;
+              parts.push(`\n\n[Attached document: ${att.name}]\nFile saved at: ${filePath}\n\n\`\`\`\n${content}\n\`\`\``);
+            } catch {
+              parts.push(`\n\n[Attached document: ${att.name}]\nFile saved at: ${filePath}\nUse the Read tool to view this document.`);
+            }
           } catch (err) {
-            parts.push(`\n\n[PDF: ${att.name}] (failed to save: ${err.message})`);
+            parts.push(`\n\n[Document: ${att.name}] (failed to save: ${err.message})`);
+          }
+        } else if (BINARY_EXTENSIONS.has(att.ext) && att.dataUrl) {
+          // Save binary document to temp file and reference path
+          try {
+            const filePath = await window.pocketAgent.saveAttachment(att.name, att.dataUrl);
+            parts.push(`\n\n[Attached document: ${att.name}]\nFile saved at: ${filePath}\nUse the Read tool to view this document.`);
+          } catch (err) {
+            parts.push(`\n\n[Document: ${att.name}] (failed to save: ${err.message})`);
           }
         } else if (att.content) {
           // For text files, include content directly (truncate if very large)
@@ -3072,7 +3849,7 @@
       }
     }
 
-    function addMessage(role, content, animate = true, attachments = [], timestamp = null, showTimestamp = true) {
+    function addMessage(role, content, animate = true, attachments = [], timestamp = null, showTimestamp = true, media = null) {
       const div = document.createElement('div');
       div.className = `message ${role}`;
       if (!animate) div.style.animation = 'none';
@@ -3109,9 +3886,71 @@
         while (contentDiv.firstChild) {
           div.appendChild(contentDiv.firstChild);
         }
+        // Intercept link and image clicks
+        div.addEventListener('click', (e) => {
+          // Open links in external browser
+          const link = e.target.closest('a[href]');
+          if (link) {
+            e.preventDefault();
+            const href = link.getAttribute('href');
+            if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+              window.pocketAgent.openExternal(href);
+            }
+            return;
+          }
+          // Open markdown-rendered images in default image viewer
+          if (e.target.tagName === 'IMG' && !e.target.closest('.message-media')) {
+            const src = e.target.getAttribute('src');
+            if (src) {
+              window.pocketAgent.openImage(src);
+            }
+            return;
+          }
+          // Open attached files from history
+          const attEl = e.target.closest('.message-attachment[data-path]');
+          if (attEl) {
+            window.pocketAgent.openPath(attEl.dataset.path);
+          }
+        });
       }
 
-      // Add timestamp (unless explicitly disabled)
+      // Add response media images (from agent screenshots/tools)
+      if (media && media.length > 0) {
+        const mediaDiv = document.createElement('div');
+        mediaDiv.className = 'message-media';
+
+        for (const item of media) {
+          if (item.type === 'image') {
+            const img = document.createElement('img');
+            img.alt = 'Agent image';
+            img.loading = 'lazy';
+
+            // If it's already a data URI, use directly; otherwise load via IPC
+            if (item.dataUri) {
+              img.src = item.dataUri;
+            } else if (item.filePath) {
+              // Load image via IPC to get data URI
+              window.pocketAgent.readMedia(item.filePath).then(dataUri => {
+                if (dataUri) {
+                  img.src = dataUri;
+                }
+              });
+            }
+
+            // Click to open in default image viewer
+            if (item.filePath) {
+              img.title = 'Click to open';
+              img.addEventListener('click', () => {
+                window.pocketAgent.openImage(item.filePath);
+              });
+            }
+
+            mediaDiv.appendChild(img);
+          }
+        }
+
+        div.appendChild(mediaDiv);
+      }
       if (showTimestamp) {
         const ts = timestamp ? parseSqliteTimestamp(timestamp) : new Date();
         const timestampDiv = document.createElement('div');
@@ -3190,6 +4029,31 @@
     }
 
     function formatContent(text) {
+      // Pre-process: convert attachment markers into styled chips before markdown
+      // Handles: [Attached document: name], [Attached PDF: name], [Attached image: name], etc.
+      // Also strips trailing extracted content code block if present
+      text = text.replace(
+        /\[Attached [^\]]*?: ([^\]]+)\]\nFile saved at: ([^\n]+)\n(?:Use the Read tool to view this [^\n]*\.)?(?:\n*```[\s\S]*?```)?/g,
+        (_, name, filePath) => {
+          const ext = name.split('.').pop()?.toLowerCase() || '';
+          const safeExt = ext.replace(/[<>&"']/g, '');
+          const safeName = name.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+          const safePath = filePath.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+          return `\n<div class="message-attachment" data-path="${safePath}" style="cursor:pointer" title="${safePath}"><span class="attachment-icon">${safeExt}</span> ${safeName}</div>\n`;
+        }
+      );
+      // Handle legacy [File: name] format (old extracted documents stored without path)
+      // Also strips the code block that follows
+      text = text.replace(
+        /\[File: ([^\]]+\.(?:docx|pptx|xlsx|odt|odp|ods|rtf))\]\n(?:```[\s\S]*?```)?/gi,
+        (_, name) => {
+          const ext = name.split('.').pop()?.toLowerCase() || '';
+          const safeExt = ext.replace(/[<>&"']/g, '');
+          const safeName = name.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+          return `<div class="message-attachment"><span class="attachment-icon">${safeExt}</span> ${safeName}</div>\n`;
+        }
+      );
+
       // Use marked for full markdown rendering
       if (typeof marked !== 'undefined') {
         marked.setOptions({
@@ -3293,10 +4157,15 @@
       const detailEl = statusEl.querySelector('.status-detail');
 
       if (status.type === 'thinking') {
-        actionEl.textContent = status.message || 'hmm let me think 🤔';
-        detailEl.textContent = '';
-        detailEl.style.display = 'none';
-        statusEl.classList.remove('subagent-active');
+        // Don't overwrite blocked state
+        if (!statusEl.classList.contains('tool-blocked')) {
+          actionEl.textContent = status.message || 'hmm let me think 🤔';
+          detailEl.textContent = '';
+          detailEl.style.display = 'none';
+          statusEl.classList.remove('subagent-active');
+          statusEl.classList.remove('pocket-cli-active');
+          statusEl.classList.remove('team-active');
+        }
       } else if (status.type === 'tool_start') {
         actionEl.textContent = status.toolName || 'doing something cool ✨';
         if (status.toolInput) {
@@ -3308,14 +4177,41 @@
           detailEl.style.display = 'none';
         }
         statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('team-active');
+        if (status.isPocketCli) {
+          statusEl.classList.add('pocket-cli-active');
+        } else {
+          statusEl.classList.remove('pocket-cli-active');
+        }
       } else if (status.type === 'tool_end') {
-        actionEl.textContent = status.message || 'got it, thinking... 💭';
-        detailEl.textContent = '';
-        detailEl.style.display = 'none';
+        // Don't overwrite blocked state - keep showing the block message
+        if (!statusEl.classList.contains('tool-blocked')) {
+          actionEl.textContent = status.message || 'got it, thinking... 💭';
+          detailEl.textContent = '';
+          detailEl.style.display = 'none';
+          statusEl.classList.remove('subagent-active');
+          statusEl.classList.remove('pocket-cli-active');
+          statusEl.classList.remove('team-active');
+        }
+      } else if (status.type === 'tool_blocked') {
+        // Safety hook blocked a dangerous command
+        statusEl.classList.add('tool-blocked');
+        actionEl.textContent = status.message || '🙀 whoa! not allowed!';
+        if (status.blockedReason) {
+          detailEl.textContent = status.blockedReason;
+          detailEl.title = status.blockedReason;
+          detailEl.style.display = 'block';
+        } else {
+          detailEl.textContent = '';
+          detailEl.style.display = 'none';
+        }
         statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
+        statusEl.classList.remove('team-active');
       } else if (status.type === 'subagent_start') {
         // Subagent spawned - show special status
         statusEl.classList.add('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
         actionEl.textContent = status.message || 'spawning helpers 🚀';
         if (status.toolInput) {
           const countBadge = status.agentCount > 1 ? ` (${status.agentCount} active)` : '';
@@ -3334,14 +4230,92 @@
       } else if (status.type === 'subagent_end') {
         // All subagents done
         statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
+        statusEl.classList.remove('team-active');
         actionEl.textContent = status.message || 'helpers done ✨';
         detailEl.textContent = '';
         detailEl.style.display = 'none';
+      } else if (status.type === 'teammate_start') {
+        // Teammate spawned - show team status
+        statusEl.classList.add('team-active');
+        statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
+        actionEl.textContent = status.message || 'rallying the squad';
+        if (status.teammateName) {
+          detailEl.textContent = status.teammateName + (status.toolInput ? ': ' + status.toolInput : '');
+          detailEl.title = detailEl.textContent;
+          detailEl.style.display = 'block';
+        } else {
+          detailEl.textContent = '';
+          detailEl.style.display = 'none';
+        }
+      } else if (status.type === 'teammate_message') {
+        // Message sent between teammates
+        statusEl.classList.add('team-active');
+        statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
+        actionEl.textContent = status.message || 'passing a note';
+        if (status.toolInput) {
+          detailEl.textContent = status.toolInput;
+          detailEl.title = status.toolInput;
+          detailEl.style.display = 'block';
+        } else {
+          detailEl.textContent = '';
+          detailEl.style.display = 'none';
+        }
+      } else if (status.type === 'teammate_idle') {
+        // Teammate went idle
+        statusEl.classList.add('team-active');
+        statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
+        actionEl.textContent = status.message || 'teammate idle';
+        if (status.teammateName) {
+          detailEl.textContent = status.teammateName + ' finished their part';
+          detailEl.style.display = 'block';
+        } else {
+          detailEl.textContent = '';
+          detailEl.style.display = 'none';
+        }
+      } else if (status.type === 'task_completed') {
+        // Team task completed
+        statusEl.classList.add('team-active');
+        statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
+        actionEl.textContent = status.message || 'task done!';
+        if (status.taskSubject) {
+          const by = status.teammateName ? ` (by ${status.teammateName})` : '';
+          detailEl.textContent = status.taskSubject + by;
+          detailEl.title = detailEl.textContent;
+          detailEl.style.display = 'block';
+        } else {
+          detailEl.textContent = '';
+          detailEl.style.display = 'none';
+        }
+      } else if (status.type === 'background_task_start') {
+        // Background task spawned
+        if (status.backgroundTaskId) {
+          addBackgroundTask(
+            status.sessionId || currentSessionId,
+            status.backgroundTaskId,
+            status.toolName || 'task',
+            status.backgroundTaskDescription || 'background task'
+          );
+        }
+        // Don't change the main status indicator — background tasks are passive
+      } else if (status.type === 'background_task_output') {
+        // Checking on a background task — no special UI action needed
+      } else if (status.type === 'background_task_end') {
+        // Background task completed/stopped/failed — remove from UI
+        if (status.backgroundTaskId) {
+          removeBackgroundTask(status.sessionId || currentSessionId, status.backgroundTaskId);
+        }
       } else if (status.type === 'responding') {
         actionEl.textContent = 'cooking up a response... 👨‍🍳';
         detailEl.textContent = '';
         detailEl.style.display = 'none';
         statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
+        statusEl.classList.remove('team-active');
       } else if (status.type === 'queued') {
         // Message was queued - show queue position
         actionEl.textContent = status.message || 'message queued 📋';
@@ -3353,6 +4327,8 @@
           detailEl.style.display = 'none';
         }
         statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
+        statusEl.classList.remove('team-active');
       } else if (status.type === 'queue_processing') {
         // Now processing a queued message
         actionEl.textContent = status.message || 'processing queued message... 🔄';
@@ -3365,6 +4341,8 @@
           detailEl.style.display = 'none';
         }
         statusEl.classList.remove('subagent-active');
+        statusEl.classList.remove('pocket-cli-active');
+        statusEl.classList.remove('team-active');
 
         // Remove 'queued' class from the oldest queued message since it's now processing
         const queuedMsgs = messagesDiv.querySelectorAll('.message.queued');
@@ -3384,6 +4362,405 @@
       div.textContent = text;
       return div.innerHTML;
     }
+
+    function copyMessageText(messageEl, copyBtn) {
+      // Get text content, excluding footer (timestamp, copy button)
+      const clone = messageEl.cloneNode(true);
+      const footer = clone.querySelector('.message-footer');
+      if (footer) footer.remove();
+      const attachments = clone.querySelector('.message-attachments');
+      if (attachments) attachments.remove();
+
+      const text = clone.textContent.trim();
+
+      navigator.clipboard.writeText(text).then(() => {
+        // Show copied state
+        copyBtn.classList.add('copied');
+        copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>`;
+
+        setTimeout(() => {
+          copyBtn.classList.remove('copied');
+          copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>`;
+        }, 1500);
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+      });
+    }
+
+    // Search functionality
+    let searchMatches = [];
+    let currentSearchIndex = -1;
+    let searchDebounceTimer = null;
+
+    // Workflow state
+    let activeWorkflow = null;
+
+    async function toggleWorkflows() {
+      const area = document.getElementById('workflows-area');
+      if (area.classList.contains('active')) {
+        closeWorkflows();
+      } else {
+        // Hide search area when workflows is open
+        document.getElementById('search-area').style.display = 'none';
+        area.classList.add('active');
+        try {
+          const commands = await window.pocketAgent.getCommands();
+          const grid = document.getElementById('workflows-grid');
+          grid.innerHTML = '';
+          commands.forEach(cmd => {
+            const btn = document.createElement('button');
+            btn.className = 'workflow-btn';
+            btn.title = cmd.description || cmd.name;
+            btn.textContent = cmd.name;
+            btn.onclick = () => { playNormalClick(); selectWorkflow(cmd); };
+            grid.appendChild(btn);
+          });
+        } catch (err) {
+          console.error('Failed to load commands:', err);
+        }
+      }
+    }
+
+    function closeWorkflows() {
+      document.getElementById('workflows-area').classList.remove('active');
+      document.getElementById('search-area').style.display = '';
+    }
+
+    // Background tasks tracking
+    let backgroundTasksBySession = new Map(); // sessionId -> Map(taskId -> { type, description })
+
+    function addBackgroundTask(sessionId, taskId, type, description) {
+      if (!backgroundTasksBySession.has(sessionId)) {
+        backgroundTasksBySession.set(sessionId, new Map());
+      }
+      backgroundTasksBySession.get(sessionId).set(taskId, { type, description });
+      updateBackgroundTasksUI();
+    }
+
+    function getBackgroundTaskCount(sessionId) {
+      const tasks = backgroundTasksBySession.get(sessionId || currentSessionId);
+      return tasks ? tasks.size : 0;
+    }
+
+    function updateBackgroundTasksUI() {
+      const area = document.getElementById('background-tasks-area');
+      const countEl = area.querySelector('.bg-task-count');
+      const listEl = document.getElementById('background-tasks-list');
+      const tasks = backgroundTasksBySession.get(currentSessionId);
+      const count = tasks ? tasks.size : 0;
+
+      if (count === 0) {
+        area.style.display = 'none';
+        area.classList.remove('active');
+        return;
+      }
+
+      area.style.display = '';
+      countEl.textContent = count;
+
+      // Update vertical list — only current session's tasks
+      listEl.innerHTML = '';
+      for (const [tid, task] of tasks) {
+        const item = document.createElement('div');
+        item.className = 'bg-task-item';
+        item.innerHTML = `
+          <span class="bg-task-dot"></span>
+          <span class="bg-task-type">${escapeHtml(task.type)}</span>
+          <span class="bg-task-label" title="${escapeHtml(task.description)}">${escapeHtml(task.description)}</span>
+          <button class="bg-task-close" onclick="playNormalClick(); removeBackgroundTask('${currentSessionId}', '${tid}')" title="Stop task">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>`;
+        listEl.appendChild(item);
+      }
+    }
+
+    function removeBackgroundTask(sessionId, taskId) {
+      const tasks = backgroundTasksBySession.get(sessionId);
+      if (tasks) {
+        tasks.delete(taskId);
+        if (tasks.size === 0) backgroundTasksBySession.delete(sessionId);
+      }
+      updateBackgroundTasksUI();
+    }
+
+    function toggleBackgroundTasks() {
+      const area = document.getElementById('background-tasks-area');
+      if (area.classList.contains('active')) {
+        closeBackgroundTasks();
+      } else {
+        area.classList.add('active');
+      }
+    }
+
+    function closeBackgroundTasks() {
+      document.getElementById('background-tasks-area').classList.remove('active');
+    }
+
+    function selectWorkflow(command) {
+      activeWorkflow = command;
+      closeWorkflows();
+      const container = document.getElementById('workflow-badge-container');
+      container.innerHTML = `<span class="workflow-badge">${command.name}<button class="workflow-badge-remove" onclick="playNormalClick(); clearWorkflow()" title="Remove workflow"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></span>`;
+      input.placeholder = `add context for /${command.name}...`;
+      input.focus();
+    }
+
+    function clearWorkflow() {
+      activeWorkflow = null;
+      document.getElementById('workflow-badge-container').innerHTML = '';
+      input.placeholder = "what's on your mind? \u{1F431}";
+    }
+
+    function toggleSearch() {
+      const searchArea = document.getElementById('search-area');
+      const searchInput = document.getElementById('search-input');
+
+      if (searchArea.classList.contains('searching')) {
+        closeSearch();
+      } else {
+        // Hide workflows when search is open
+        document.getElementById('workflows-area').style.display = 'none';
+        searchArea.classList.add('searching');
+        searchInput.focus();
+      }
+    }
+
+    function closeSearch() {
+      const searchArea = document.getElementById('search-area');
+      const searchInput = document.getElementById('search-input');
+
+      searchArea.classList.remove('searching');
+      searchInput.value = '';
+      clearSearchHighlights();
+      updateSearchResultsCount(0, 0);
+      searchMatches = [];
+      currentSearchIndex = -1;
+      // Restore workflows visibility
+      document.getElementById('workflows-area').style.display = '';
+    }
+
+    function handleSearchInput(event) {
+      // Debounce search
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        performSearch(event.target.value);
+      }, 150);
+    }
+
+    function handleSearchKeydown(event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          navigateSearch(-1);
+        } else {
+          navigateSearch(1);
+        }
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeSearch();
+      }
+    }
+
+    function performSearch(query) {
+      clearSearchHighlights();
+      searchMatches = [];
+      currentSearchIndex = -1;
+
+      if (!query || query.trim().length === 0) {
+        updateSearchResultsCount(0, 0);
+        updateNavButtons();
+        return;
+      }
+
+      const searchTerm = query.trim().toLowerCase();
+      const messages = messagesDiv.querySelectorAll('.message');
+
+      messages.forEach(msg => {
+        // Search in text nodes, excluding timestamps and other meta elements
+        const walker = document.createTreeWalker(
+          msg,
+          NodeFilter.SHOW_TEXT,
+          {
+            acceptNode: function(node) {
+              // Skip timestamps and attachment meta
+              if (node.parentElement.classList.contains('message-timestamp') ||
+                  node.parentElement.classList.contains('message-attachment') ||
+                  node.parentElement.classList.contains('attachment-icon')) {
+                return NodeFilter.FILTER_REJECT;
+              }
+              return NodeFilter.FILTER_ACCEPT;
+            }
+          }
+        );
+
+        let node;
+        while (node = walker.nextNode()) {
+          const text = node.textContent;
+          const lowerText = text.toLowerCase();
+          let startIndex = 0;
+          let index;
+
+          while ((index = lowerText.indexOf(searchTerm, startIndex)) !== -1) {
+            searchMatches.push({
+              node: node,
+              startOffset: index,
+              endOffset: index + searchTerm.length,
+              message: msg
+            });
+            startIndex = index + 1;
+          }
+        }
+      });
+
+      // Apply highlights
+      highlightMatches();
+      updateSearchResultsCount(searchMatches.length > 0 ? 1 : 0, searchMatches.length);
+      updateNavButtons();
+
+      // Navigate to first match
+      if (searchMatches.length > 0) {
+        currentSearchIndex = 0;
+        scrollToCurrentMatch();
+      }
+    }
+
+    function highlightMatches() {
+      // Process matches in reverse order to avoid offset issues
+      const matchesByNode = new Map();
+
+      searchMatches.forEach((match, index) => {
+        if (!matchesByNode.has(match.node)) {
+          matchesByNode.set(match.node, []);
+        }
+        matchesByNode.get(match.node).push({ ...match, index });
+      });
+
+      matchesByNode.forEach((nodeMatches, node) => {
+        // Sort in reverse order for safe replacement
+        nodeMatches.sort((a, b) => b.startOffset - a.startOffset);
+
+        const text = node.textContent;
+        const parent = node.parentNode;
+        const fragment = document.createDocumentFragment();
+
+        let currentText = text;
+        let parts = [];
+
+        // Build parts array
+        for (const match of nodeMatches) {
+          const before = currentText.slice(match.endOffset);
+          const matchText = currentText.slice(match.startOffset, match.endOffset);
+          const remaining = currentText.slice(0, match.startOffset);
+
+          parts.unshift({ type: 'text', content: before });
+          parts.unshift({ type: 'match', content: matchText, index: match.index });
+
+          currentText = remaining;
+        }
+        parts.unshift({ type: 'text', content: currentText });
+
+        // Create nodes from parts
+        parts.forEach(part => {
+          if (part.type === 'text') {
+            if (part.content) {
+              fragment.appendChild(document.createTextNode(part.content));
+            }
+          } else {
+            const mark = document.createElement('mark');
+            mark.className = 'search-highlight';
+            mark.dataset.matchIndex = part.index;
+            mark.textContent = part.content;
+            fragment.appendChild(mark);
+          }
+        });
+
+        parent.replaceChild(fragment, node);
+      });
+    }
+
+    function clearSearchHighlights() {
+      const marks = messagesDiv.querySelectorAll('mark.search-highlight');
+      marks.forEach(mark => {
+        const parent = mark.parentNode;
+        const text = document.createTextNode(mark.textContent);
+        parent.replaceChild(text, mark);
+        // Normalize to merge adjacent text nodes
+        parent.normalize();
+      });
+    }
+
+    function navigateSearch(direction) {
+      if (searchMatches.length === 0) return;
+
+      // Remove current highlight
+      const currentMark = messagesDiv.querySelector('mark.search-highlight.current');
+      if (currentMark) {
+        currentMark.classList.remove('current');
+      }
+
+      // Update index
+      currentSearchIndex += direction;
+      if (currentSearchIndex >= searchMatches.length) {
+        currentSearchIndex = 0;
+      } else if (currentSearchIndex < 0) {
+        currentSearchIndex = searchMatches.length - 1;
+      }
+
+      // Update count display
+      updateSearchResultsCount(currentSearchIndex + 1, searchMatches.length);
+
+      // Scroll to and highlight current match
+      scrollToCurrentMatch();
+    }
+
+    function scrollToCurrentMatch() {
+      const marks = messagesDiv.querySelectorAll('mark.search-highlight');
+      marks.forEach((mark, idx) => {
+        const matchIndex = parseInt(mark.dataset.matchIndex);
+        if (matchIndex === currentSearchIndex) {
+          mark.classList.add('current');
+          mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          mark.classList.remove('current');
+        }
+      });
+    }
+
+    function updateSearchResultsCount(current, total) {
+      const countEl = document.getElementById('search-results-count');
+      if (total === 0) {
+        countEl.textContent = '';
+        countEl.classList.remove('has-results');
+      } else {
+        countEl.textContent = `${current}/${total}`;
+        countEl.classList.add('has-results');
+      }
+    }
+
+    function updateNavButtons() {
+      const prevBtn = document.getElementById('search-prev-btn');
+      const nextBtn = document.getElementById('search-next-btn');
+      const hasMatches = searchMatches.length > 0;
+
+      prevBtn.disabled = !hasMatches;
+      nextBtn.disabled = !hasMatches;
+    }
+
+    // Keyboard shortcut for search (Cmd/Ctrl + F)
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        toggleSearch();
+      }
+    });
 
     function showEmptyState() {
       messagesDiv.innerHTML = `
@@ -3540,8 +4917,8 @@
             isImage: IMAGE_EXTENSIONS.has(ext),
           };
 
-          if (attachment.isImage || ext === 'pdf') {
-            // Store as data URL for images and PDFs
+          if (attachment.isImage || BINARY_EXTENSIONS.has(ext) || EXTRACTABLE_EXTENSIONS.has(ext)) {
+            // Store as data URL for images and binary/extractable documents
             attachment.dataUrl = e.target.result;
             attachment.content = null;
           } else {
@@ -3555,7 +4932,7 @@
 
         reader.onerror = () => reject(reader.error);
 
-        if (IMAGE_EXTENSIONS.has(ext) || ext === 'pdf') {
+        if (IMAGE_EXTENSIONS.has(ext) || BINARY_EXTENSIONS.has(ext) || EXTRACTABLE_EXTENSIONS.has(ext)) {
           reader.readAsDataURL(file);
         } else {
           reader.readAsText(file);

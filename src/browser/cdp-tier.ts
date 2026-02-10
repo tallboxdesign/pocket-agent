@@ -51,7 +51,7 @@ export class CdpTier {
     // Stop any existing interval
     this.stopHealthCheck();
 
-    // Check every 30 seconds
+    // Check every 15 seconds (fast detection of stale connections after sleep/lock)
     this.healthCheckInterval = setInterval(async () => {
       if (this.browser && !this.reconnecting) {
         const isHealthy = await this.checkHealth();
@@ -60,7 +60,7 @@ export class CdpTier {
           this.handleDisconnect();
         }
       }
-    }, 30000);
+    }, 15000);
   }
 
   /**
@@ -78,6 +78,14 @@ export class CdpTier {
    */
   private handleDisconnect(): void {
     console.log('[CDP] Browser disconnected');
+    // Properly close the old Puppeteer WebSocket before nulling
+    if (this.browser) {
+      try {
+        this.browser.disconnect();
+      } catch {
+        // Already disconnected or dead — ignore
+      }
+    }
     this.browser = null;
     this.page = null;
     this.pages.clear();
@@ -119,10 +127,17 @@ export class CdpTier {
         this.pages.clear();
       }
 
-      this.browser = await puppeteer.connect({
+      // Wrap connect in a timeout — puppeteer.connect() can hang indefinitely
+      // if Chrome is in a bad state (e.g. partially frozen after sleep)
+      const connectPromise = puppeteer.connect({
         browserURL: this.cdpUrl,
         defaultViewport: null,
+        protocolTimeout: 30000, // Fail fast on stale protocol messages
       });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('puppeteer.connect() timed out after 10s')), 10000)
+      );
+      this.browser = await Promise.race([connectPromise, timeoutPromise]);
 
       // Listen for disconnection
       this.browser.on('disconnected', () => {
@@ -175,9 +190,27 @@ export class CdpTier {
   }
 
   /**
+   * Wait for an in-progress reconnection to finish (if any)
+   */
+  private async waitForReconnect(timeoutMs: number = 12000): Promise<boolean> {
+    const start = Date.now();
+    while (this.reconnecting && Date.now() - start < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return !this.reconnecting;
+  }
+
+  /**
    * Ensure connected with auto-reconnect
    */
   private async ensurePage(): Promise<Page> {
+    // If a reconnection is already in progress (e.g. from power event),
+    // wait for it instead of failing immediately
+    if (this.reconnecting) {
+      console.log('[CDP] Waiting for in-progress reconnection...');
+      await this.waitForReconnect();
+    }
+
     // Check if we need to reconnect
     const needsReconnect = !this.page || !this.browser || !this.browser.connected;
 
@@ -194,9 +227,15 @@ export class CdpTier {
       throw new Error('No page available after connection');
     }
 
-    // Double-check the page is responsive
+    // Double-check the page is responsive (with timeout to prevent hang on dead WebSocket)
     try {
-      await this.page.evaluate(() => true);
+      const isResponsive = await Promise.race([
+        this.page.evaluate(() => true).then(() => true),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 5000)),
+      ]);
+      if (!isResponsive) {
+        throw new Error('Page evaluate timed out');
+      }
     } catch {
       console.log('[CDP] Page unresponsive, reconnecting...');
       this.handleDisconnect();
@@ -976,6 +1015,16 @@ export class CdpTier {
       connected: this.isConnected(),
       lastError: this.lastConnectionError || undefined,
     };
+  }
+
+  /**
+   * Force reconnection (called after system wake/unlock)
+   * Proactively tears down stale connection and re-establishes.
+   */
+  async forceReconnect(): Promise<BrowserResult> {
+    console.log('[CDP] Force reconnect triggered (system wake/unlock)');
+    this.handleDisconnect();
+    return this.connect();
   }
 
   /**

@@ -1,14 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { createDmg } = require('./createDmg');
 
 /**
- * Verify if a DMG file is valid by attempting to attach it
+ * Verify if a DMG file is valid by attempting to attach it (macOS only)
  */
 function isDmgValid(dmgPath) {
   try {
-    // Try to attach the DMG in readonly mode without mounting
     execSync(`hdiutil verify "${dmgPath}"`, { stdio: 'pipe' });
     return true;
   } catch {
@@ -18,25 +16,31 @@ function isDmgValid(dmgPath) {
 
 /**
  * Get the architecture from a DMG filename
- * Returns 'arm64', 'x64', or null
  */
 function getArchFromFilename(filename) {
   if (filename.includes('arm64')) return 'arm64';
   if (filename.includes('x64')) return 'x64';
-  // Default DMG without arch suffix is typically x64
   if (!filename.includes('arm64')) return 'x64';
   return null;
 }
 
 /**
  * electron-builder afterAllArtifactBuild hook
- * Validates and rebuilds corrupted DMG files for all architectures
+ * Validates and rebuilds corrupted DMG files (macOS only)
+ * On Windows, this is a no-op pass-through
  */
 exports.default = async function(context) {
   const { outDir, artifactPaths } = context;
 
+  // DMG validation is macOS-only — skip entirely on other platforms
+  if (process.platform !== 'darwin') {
+    console.log('[afterAllArtifactBuild] Non-macOS build, skipping DMG validation');
+    return artifactPaths;
+  }
+
+  const { createDmg } = require('./createDmg');
+
   for (const artifactPath of artifactPaths) {
-    // Only process DMG files
     if (!artifactPath.endsWith('.dmg')) {
       continue;
     }
@@ -44,7 +48,6 @@ exports.default = async function(context) {
     const filename = path.basename(artifactPath);
     console.log(`[afterAllArtifactBuild] Checking DMG: ${filename}`);
 
-    // Verify the DMG is valid
     const isValid = isDmgValid(artifactPath);
     const stats = fs.statSync(artifactPath);
     const sizeMB = stats.size / (1024 * 1024);
@@ -56,14 +59,12 @@ exports.default = async function(context) {
 
     console.log(`[afterAllArtifactBuild] DMG corrupted: ${filename} - rebuilding...`);
 
-    // Determine architecture and find the corresponding .app
     const arch = getArchFromFilename(filename);
     if (!arch) {
       console.error(`[afterAllArtifactBuild] Could not determine architecture for: ${filename}`);
       continue;
     }
 
-    // Try multiple possible app directory names
     const possibleAppDirs = [
       path.join(outDir, `mac-${arch}`),
       path.join(outDir, arch === 'x64' ? 'mac' : `mac-${arch}`),
@@ -85,11 +86,9 @@ exports.default = async function(context) {
 
     console.log(`[afterAllArtifactBuild] Using app: ${appPath}`);
 
-    // Get background image path
     const backgroundPath = path.join(__dirname, 'background.png');
     const hasBackground = fs.existsSync(backgroundPath);
 
-    // Recreate the DMG
     try {
       createDmg(appPath, artifactPath, {
         volumeName: 'Pocket Agent',
@@ -106,7 +105,6 @@ exports.default = async function(context) {
       const newStats = fs.statSync(artifactPath);
       const newSizeMB = newStats.size / (1024 * 1024);
 
-      // Verify the rebuilt DMG
       if (isDmgValid(artifactPath)) {
         console.log(`[afterAllArtifactBuild] Rebuilt DMG valid: ${filename} (${newSizeMB.toFixed(2)}MB)`);
       } else {

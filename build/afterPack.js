@@ -4,6 +4,7 @@ const path = require('path');
 /**
  * electron-builder afterPack hook to reduce app size
  * Removes unused platform binaries and locale files
+ * Supports macOS and Windows builds
  */
 exports.default = async function(context) {
   const appOutDir = context.appOutDir;
@@ -12,13 +13,27 @@ exports.default = async function(context) {
 
   console.log(`[afterPack] Cleaning up for ${platform}-${arch}...`);
 
-  const resourcesPath = path.join(appOutDir, 'Pocket Agent.app', 'Contents', 'Resources');
-  const appPath = path.join(resourcesPath, 'app');
+  // Determine resource paths based on platform
+  let resourcesPath, appPath;
+
+  if (platform === 'darwin') {
+    resourcesPath = path.join(appOutDir, 'Pocket Agent.app', 'Contents', 'Resources');
+    appPath = path.join(resourcesPath, 'app');
+  } else {
+    // Windows / Linux: flat structure
+    resourcesPath = path.join(appOutDir, 'resources');
+    appPath = path.join(resourcesPath, 'app');
+  }
 
   // 1. Remove unused ripgrep platform binaries (~41MB savings)
   const ripgrepPath = path.join(appPath, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'vendor', 'ripgrep');
   if (fs.existsSync(ripgrepPath)) {
-    const keepPlatform = `${arch}-darwin`;
+    const platformMap = {
+      darwin: `${arch}-darwin`,
+      win32: `${arch}-win32`,
+      linux: `${arch}-linux`,
+    };
+    const keepPlatform = platformMap[platform] || `${arch}-${platform}`;
     const entries = fs.readdirSync(ripgrepPath);
 
     for (const entry of entries) {
@@ -32,33 +47,19 @@ exports.default = async function(context) {
     }
   }
 
-  // 2. Remove unused locale files (keep only en)
-  const localeFiles = fs.readdirSync(resourcesPath).filter(f => f.endsWith('.lproj') && f !== 'en.lproj');
-  for (const locale of localeFiles) {
-    const localePath = path.join(resourcesPath, locale);
-    console.log(`[afterPack] Removing locale ${locale}`);
-    fs.rmSync(localePath, { recursive: true, force: true });
+  // 2. Remove unused locale files (keep only en) - macOS only (.lproj)
+  if (platform === 'darwin' && fs.existsSync(resourcesPath)) {
+    const localeFiles = fs.readdirSync(resourcesPath).filter(f => f.endsWith('.lproj') && f !== 'en.lproj');
+    for (const locale of localeFiles) {
+      const localePath = path.join(resourcesPath, locale);
+      console.log(`[afterPack] Removing locale ${locale}`);
+      fs.rmSync(localePath, { recursive: true, force: true });
+    }
   }
 
   // 3. Remove unnecessary files from node_modules
   const nodeModulesPath = path.join(appPath, 'node_modules');
   if (fs.existsSync(nodeModulesPath)) {
-    // Remove markdown, license duplicates, and test files
-    const patternsToRemove = [
-      '**/CHANGELOG.md',
-      '**/HISTORY.md',
-      '**/README.md',
-      '**/*.md',
-      '**/test/**',
-      '**/tests/**',
-      '**/__tests__/**',
-      '**/docs/**',
-      '**/example/**',
-      '**/examples/**',
-      '**/.github/**',
-    ];
-
-    // Simple cleanup - remove common unnecessary files
     cleanDirectory(nodeModulesPath, ['.md', '.markdown']);
   }
 

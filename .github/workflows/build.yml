@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -52,36 +52,83 @@ jobs:
             release/*.zip
             release/latest-mac.yml
 
+  build-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and package
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npm run build && npx electron-builder --win --x64 --arm64 -p never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-build
+          path: |
+            release/*-setup.exe
+            release/*.zip
+            release/latest.yml
+
+  release:
+    needs: [build-mac, build-win]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-build
+          path: release/
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: win-build
+          path: release/
+
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             release/*.dmg
             release/*.zip
+            release/*-setup.exe
             release/latest-mac.yml
+            release/latest.yml
           body: |
             ## Pocket Agent ${{ github.ref_name }}
 
-            A persistent personal AI assistant for macOS with memory and scheduling.
+            A persistent personal AI assistant with memory and scheduling.
 
             ### Downloads
 
-            | Architecture | File |
-            |--------------|------|
-            | Apple Silicon (M1/M2/M3) | `Pocket.Agent-*-arm64.dmg` |
-            | Intel Mac | `Pocket.Agent-*-x64.dmg` |
+            | Platform | Architecture | File |
+            |----------|--------------|------|
+            | macOS | Apple Silicon (M1/M2/M3/M4) | `Pocket-Agent-*-arm64-mac.dmg` |
+            | macOS | Intel | `Pocket-Agent-*-x64-mac.dmg` |
+            | Windows | x64 | `Pocket-Agent-*-x64-setup.exe` |
+            | Windows | ARM64 | `Pocket-Agent-*-arm64-setup.exe` |
 
             ### Installation
 
+            **macOS:**
             1. Download the DMG for your Mac
             2. Open the DMG and drag Pocket Agent to Applications
             3. Launch and enter your Anthropic API key
 
-            ### What's New
-
-            - Initial release
-            - Persistent conversation memory
-            - Telegram integration
-            - Scheduled tasks with cron
-            - Code signed and notarized for macOS
+            **Windows:**
+            1. Download the setup .exe for your architecture
+            2. Run the installer (you may need to click "More info" → "Run anyway" if unsigned)
+            3. Launch Pocket Agent and enter your Anthropic API key

@@ -51,6 +51,15 @@ function getFileTypeDescription(mimeType: string, fileName: string): string {
 
   const ext = fileName.split('.').pop()?.toLowerCase();
 
+  // Office documents
+  const officeExtensions: Record<string, string> = {
+    docx: 'Word document', odt: 'OpenDocument text',
+    pptx: 'PowerPoint presentation', odp: 'OpenDocument presentation',
+    xlsx: 'Excel spreadsheet', ods: 'OpenDocument spreadsheet',
+    rtf: 'RTF document',
+  };
+  if (ext && officeExtensions[ext]) return officeExtensions[ext];
+
   // Code files
   const codeExtensions: Record<string, string> = {
     js: 'JavaScript', ts: 'TypeScript', tsx: 'TypeScript React', jsx: 'JavaScript React',
@@ -68,7 +77,7 @@ function getFileTypeDescription(mimeType: string, fileName: string): string {
 
   // Spreadsheets
   if (ext === 'csv') return 'CSV spreadsheet';
-  if (ext === 'xlsx' || ext === 'xls') return 'Excel spreadsheet';
+  if (ext === 'xls') return 'Excel spreadsheet';
 
   return 'file';
 }
@@ -83,6 +92,8 @@ function isSupportedFileType(mimeType: string, fileName: string): boolean {
   // Check by extension
   const ext = fileName.split('.').pop()?.toLowerCase();
   const supportedExtensions = [
+    // Office documents
+    'docx', 'pptx', 'xlsx', 'odt', 'odp', 'ods', 'rtf',
     // Code
     'js', 'ts', 'tsx', 'jsx', 'py', 'rb', 'java', 'c', 'cpp', 'h', 'hpp',
     'cs', 'go', 'rs', 'swift', 'kt', 'sh', 'bash', 'sql', 'html', 'css',
@@ -90,7 +101,7 @@ function isSupportedFileType(mimeType: string, fileName: string): boolean {
     // Text
     'txt', 'md', 'log', 'ini', 'cfg', 'conf',
     // Spreadsheets
-    'csv', 'xls', 'xlsx',
+    'csv', 'xls',
   ];
 
   return ext ? supportedExtensions.includes(ext) : false;
@@ -143,10 +154,11 @@ export async function handleDocumentMessage(
     await ctx.reply(
       `I can't process this file type (${mimeType}).\n\n` +
       `Supported formats:\n` +
+      `• Office documents (.docx, .pptx, .xlsx, .odt, .odp, .ods, .rtf)\n` +
       `• PDF files\n` +
       `• Code files (.js, .ts, .py, .go, etc.)\n` +
       `• Text files (.txt, .md, .log)\n` +
-      `• Spreadsheets (.csv, .xlsx)`
+      `• Spreadsheets (.csv)`
     );
     return;
   }
@@ -183,10 +195,35 @@ export async function handleDocumentMessage(
 
       console.log(`[Telegram] Saved file: ${localPath} (${fileSizeKB}KB)`);
 
-      // Build prompt for agent - tell it the file path so it can use Read tool
-      const prompt = caption
-        ? `${caption}\n\n[User sent a ${fileType} via Telegram: "${fileName}"]\nFile saved to: ${localPath}\n\nPlease read and analyze this file.`
-        : `[User sent a ${fileType} via Telegram: "${fileName}"]\nFile saved to: ${localPath}\n\nPlease read and analyze this file.`;
+      // Try to extract text from Office documents
+      const extractableExtensions = new Set(['docx', 'pptx', 'xlsx', 'odt', 'odp', 'ods', 'rtf']);
+      const ext = fileName.split('.').pop()?.toLowerCase();
+      let extractedText: string | null = null;
+
+      if (ext && extractableExtensions.has(ext)) {
+        try {
+          const { parseOffice } = await import('officeparser');
+          const ast = await parseOffice(localPath);
+          const text = ast.toText();
+          extractedText = text.length > 50000 ? text.slice(0, 50000) + '\n... (truncated)' : text;
+          console.log(`[Telegram] Extracted ${text.length} chars from ${fileName}`);
+        } catch (err) {
+          console.warn(`[Telegram] Failed to extract text from ${fileName}:`, err);
+        }
+      }
+
+      // Build prompt for agent
+      let prompt: string;
+      if (extractedText) {
+        const header = caption
+          ? `${caption}\n\n[User sent a ${fileType} via Telegram: "${fileName}"]`
+          : `[User sent a ${fileType} via Telegram: "${fileName}"]`;
+        prompt = `${header}\n\`\`\`\n${extractedText}\n\`\`\``;
+      } else {
+        prompt = caption
+          ? `${caption}\n\n[User sent a ${fileType} via Telegram: "${fileName}"]\nFile saved to: ${localPath}\n\nPlease read and analyze this file.`
+          : `[User sent a ${fileType} via Telegram: "${fileName}"]\nFile saved to: ${localPath}\n\nPlease read and analyze this file.`;
+      }
 
       // Look up which session this chat is linked to
       const memory = AgentManager.getMemory();
@@ -200,6 +237,15 @@ export async function handleDocumentMessage(
 
     // Send response
     await sendResponse(ctx, result.response);
+
+    // Send media photos if present
+    if (result.media && result.media.length > 0 && ctx.chat?.id) {
+      const { getTelegramBot } = await import('../index');
+      const bot = getTelegramBot();
+      if (bot) {
+        await bot.sendPhotos(ctx.chat.id, result.media);
+      }
+    }
 
     // Notify callback for cross-channel sync
     if (onMessageCallback) {
@@ -218,6 +264,7 @@ export async function handleDocumentMessage(
         hasAttachment: true,
         attachmentType: 'document',
         wasCompacted: result.wasCompacted,
+        media: result.media,
       });
     }
 

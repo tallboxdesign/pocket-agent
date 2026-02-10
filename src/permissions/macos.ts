@@ -278,6 +278,21 @@ export async function requestPermission(type: PermissionType): Promise<boolean> 
  * Open System Settings to the permission page
  */
 export async function openPermissionSettings(type: PermissionType): Promise<void> {
+  if (!isMacOS()) {
+    // Windows: open the Settings app to the relevant privacy page
+    const winSettingsMap: Partial<Record<PermissionType, string>> = {
+      'camera': 'ms-settings:privacy-webcam',
+      'microphone': 'ms-settings:privacy-microphone',
+      'calendar': 'ms-settings:privacy-calendar',
+      'contacts': 'ms-settings:privacy-contacts',
+    };
+    const winUrl = winSettingsMap[type];
+    if (winUrl) {
+      await shell.openExternal(winUrl);
+    }
+    return;
+  }
+
   const url = SETTINGS_URLS[type];
   if (url) {
     await shell.openExternal(url);
