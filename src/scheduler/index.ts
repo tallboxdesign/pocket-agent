@@ -4,6 +4,7 @@ import { AgentManager } from '../agent';
 import { MemoryManager, CronJob } from '../memory';
 import { SettingsManager } from '../settings';
 import { sendEmail as gogSendEmail } from '../tools/gog-wrapper';
+import { findWorkflowCommand } from '../config/commands-loader';
 import type { TelegramBot } from '../channels/telegram';
 
 /**
@@ -611,7 +612,23 @@ export class CronScheduler {
 
     try {
       // Clean prompt (remove recipient prefix if present)
-      const cleanPrompt = job.prompt.replace(/^@\S+:\s*/, '');
+      let cleanPrompt = job.prompt.replace(/^@\S+:\s*/, '');
+
+      // Expand workflow references: @workflow:name optional context
+      const workflowMatch = cleanPrompt.match(/^@workflow:(\S+)\s*([\s\S]*)$/);
+      if (workflowMatch) {
+        const [, workflowName, extraContext] = workflowMatch;
+        const workflow = findWorkflowCommand(workflowName);
+        if (workflow) {
+          cleanPrompt = `[Workflow: ${workflow.name}]\n${workflow.content}\n[/Workflow]`;
+          if (extraContext.trim()) {
+            cleanPrompt += `\n\n${extraContext.trim()}`;
+          }
+          console.log(`[Scheduler] Expanded workflow: ${workflowName}`);
+        } else {
+          console.warn(`[Scheduler] Workflow not found: ${workflowName}, sending raw prompt`);
+        }
+      }
 
       // Process through agent (use job's session)
       const sessionId = job.sessionId || 'default';

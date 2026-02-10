@@ -507,4 +507,42 @@ export function registerSessionHandlers(deps: CommandHandlerDeps): void {
     console.log(`[Telegram] Unlinked chat ${chatId}`);
     onSessionLinkCallback?.({ sessionId: currentSessionId, linked: false });
   });
+
+  // Register command menu with Telegram API (replaces any stale commands)
+  registerBotCommands(bot).catch(err =>
+    console.error('[Telegram] Failed to set bot commands:', err)
+  );
+}
+
+/**
+ * Register the bot's command menu with Telegram.
+ * Includes built-in commands + all workflow commands from .claude/commands/
+ */
+async function registerBotCommands(bot: Bot): Promise<void> {
+  const builtIn: Array<{ command: string; description: string }> = [
+    { command: 'help', description: 'Show available commands' },
+    { command: 'status', description: 'Agent status and stats' },
+    { command: 'new', description: 'Start a new session' },
+    { command: 'model', description: 'View or change AI model' },
+    { command: 'workflow', description: 'List available workflows' },
+    { command: 'facts', description: 'Show stored facts' },
+    { command: 'voice', description: 'Toggle voice replies' },
+    { command: 'unanswered', description: 'Scan for unanswered emails' },
+    { command: 'link', description: 'Link this chat to a session' },
+    { command: 'unlink', description: 'Unlink this chat from a session' },
+    { command: 'restart', description: 'Restart agent or Telegram bot' },
+  ];
+
+  // Add workflow commands dynamically
+  const workflows = loadWorkflowCommands();
+  const workflowCommands = workflows.map(w => ({
+    command: w.name,
+    description: w.description || `Run ${w.name} workflow`,
+  }));
+
+  const allCommands = [...builtIn, ...workflowCommands];
+
+  // Telegram limits to 100 commands
+  await bot.api.setMyCommands(allCommands.slice(0, 100));
+  console.log(`[Telegram] Registered ${allCommands.length} bot commands (${builtIn.length} built-in + ${workflowCommands.length} workflows)`);
 }

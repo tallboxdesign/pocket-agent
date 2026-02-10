@@ -48,6 +48,8 @@ If in doubt, **do nothing** rather than risk data loss.
 19. [Voice / TTS Agent Tools](#19-voice--tts-agent-tools)
 20. [Label Precision — Definition & Negative Guidance](#20-label-precision--definition--negative-guidance)
 21. [Telegram Emoji Reactions Tool](#21-telegram-emoji-reactions-tool--done)
+25. [Windows Build & Distribution](#25-windows-build--distribution)
+26. [Workflow-Routine Integration](#26-workflow-routine-integration)
 
 ---
 
@@ -2476,3 +2478,96 @@ class ResearchOrchestrator extends EventEmitter {
 2. **Kanban Integration** — Auto-create tasks tagged `research`
 3. **Voice Summary** — TTS for research executive summaries
 4. **CLI Worker System** — Spawn Claude CLI for code tasks (Section 3)
+
+---
+
+## 25. Windows Build & Distribution
+
+**Status:** NOT STARTED
+**Priority:** Medium
+**Prerequisites:** v2.2.6 merge ✅ (Windows platform support already in codebase)
+
+### Goal
+
+Produce a Windows `.exe` installer so Pocket Agent can run on Windows machines.
+
+### What's Already Done (from v2.2.6 merge)
+
+- Platform-aware PATH setup (`IS_WINDOWS` constant, PowerShell shell selection)
+- Windows-compatible shell command execution in `shell:runCommand`
+- `icon.ico` added for Windows builds
+- `process.platform` checks in main process
+- `getPlatform()` exposed to renderer
+
+### What's Needed
+
+1. **Build environment** — Set up a Windows machine or VM (or GitHub Actions CI) to run `npm run dist:local` and produce `.exe`/`.msi` installer
+2. **Native module compilation** — `better-sqlite3` must be compiled for Windows/x64 (electron-rebuild on Windows)
+3. **Code signing** — Optional but recommended for Windows SmartScreen (unsigned apps show warnings)
+4. **Testing** — Full smoke test on Windows:
+   - App launches, tray icon works
+   - Telegram bot connects
+   - Shell commands execute via PowerShell
+   - Voice/TTS (Edge TTS should work cross-platform, macOS `say` fallback won't — need Windows alternative)
+   - Browser automation (Chrome CDP)
+   - File paths (backslash handling)
+5. **macOS-specific features** — Audit and skip gracefully on Windows:
+   - `osascript` calls (Apple Notes, Reminders, etc.)
+   - Keychain access (`safeStorage` should work cross-platform via Electron)
+   - `open` command → `start` on Windows (already handled in some places)
+6. **TTS fallback** — Replace macOS `say` with Windows `powershell -c "Add-Type -AssemblyName System.Speech; ..."` or similar
+7. **Auto-updater** — Verify `electron-updater` works with Windows `.exe` builds
+8. **GitHub Actions** — Add Windows to CI matrix for automated builds
+
+### Stretch Goals
+
+- Linux `.AppImage` / `.deb` build
+- Cross-compilation from macOS using electron-builder (may work for simple cases)
+
+---
+
+## 26. Workflow-Routine Integration
+
+**Status:** NOT STARTED
+**Priority:** High
+**Upstream coexistence:** This feature is additive — uses our existing `commands-loader.ts` and the scheduler's `prompt` field. Upstream routines continue to work as before (plain text prompts). No upstream files are modified; this only touches our scheduler code.
+
+### The Problem
+
+Routines and workflows are conceptually the same thing — a set of instructions for the agent. The difference is only the trigger:
+- **Workflows** = manual (UI click or `/command` in Telegram), template lives in `.md` file
+- **Routines** = automatic (cron schedule), prompt is inline text in the database
+
+This means if you improve a workflow's instructions, you have to manually update every routine that does the same thing. They should share the same source of truth.
+
+### The Solution
+
+Allow routines to reference a workflow by name. When the scheduler fires, it loads the workflow's `.md` content and sends it as the prompt.
+
+**Syntax:** In the routine's prompt field, use `@workflow:name` to reference a workflow:
+- `@workflow:standup` → loads `standup.md` from commands directory
+- `@workflow:standup Check the kanban board too` → loads workflow + appends user context
+- `Run my morning email check` → plain text, works as before (backwards compatible)
+
+### Implementation
+
+1. **Scheduler change** (`src/scheduler/index.ts`):
+   - Before sending a prompt, check if it starts with `@workflow:`
+   - If yes, load the workflow via `findWorkflowCommand()` from `commands-loader.ts`
+   - Wrap in `[Workflow: name]\n...\n[/Workflow]` format (same as UI and Telegram)
+   - Append any extra text after the workflow name as user context
+   - If workflow not found, send error message instead of silently failing
+
+2. **Cron UI** (`ui/cron.html`):
+   - Add a workflow dropdown/picker to the "create routine" form
+   - When a workflow is selected, populate the prompt field with `@workflow:name`
+   - Show a badge similar to the chat UI's workflow badge
+
+3. **Telegram** — Already works. `/standup` in a routine prompt doesn't need changes since the scheduler sends to the agent which already has access to tools.
+
+### Upstream Coexistence Notes
+
+- **No upstream files modified** — `commands-loader.ts` is our file, scheduler changes are additive
+- **Backwards compatible** — Routines without `@workflow:` prefix continue working as plain prompts
+- **Merge-safe** — If upstream changes the scheduler, the only conflict point is the prompt expansion logic, which is a small isolated block
+- **Shared vocabulary** — Upstream's "commands" = our "workflows". Both read from `.claude/commands/`. We just add the ability to trigger them on a schedule
