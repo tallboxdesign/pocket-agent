@@ -12,7 +12,7 @@
  * - Reconnection with exponential backoff
  */
 
-import fs from 'fs';
+import * as fs from 'fs';
 import { Bot, Context, InputFile } from 'grammy';
 import type { ReactionTypeEmoji } from '@grammyjs/types';
 import { Notification } from 'electron';
@@ -340,45 +340,9 @@ export class TelegramBot extends BaseChannel {
     return sent;
   }
 
-  /**
-   * Send photos to a Telegram chat from local file paths
-   */
-  async sendPhotos(chatId: number, media: Array<{ type: string; filePath: string; mimeType: string }>): Promise<void> {
-    for (const item of media) {
-      if (item.type === 'image' && fs.existsSync(item.filePath)) {
-        try {
-          await this.bot.api.sendPhoto(chatId, new InputFile(item.filePath));
-        } catch (err) {
-          console.error(`[Telegram] Failed to send photo ${item.filePath}:`, err);
-        }
-      }
-    }
-  }
-
-  /**
-   * Send a response with optional media attachments
-   */
-  async sendResponseWithMedia(ctx: Context, text: string, media?: Array<{ type: string; filePath: string; mimeType: string }>): Promise<void> {
-    await this.sendResponse(ctx, text);
-
-    if (media && media.length > 0 && ctx.chat?.id) {
-      await this.sendPhotos(ctx.chat.id, media);
-    }
-  }
-
-  /**
-   * Sync a desktop conversation to a specific Telegram chat
-   */
-  async syncToChat(userMessage: string, response: string, chatId: number, media?: Array<{ type: string; filePath: string; mimeType: string }>): Promise<boolean> {
+  async syncToChat(userMessage: string, response: string, chatId: number): Promise<boolean> {
     const text = `[Desktop]\n\nYou: ${userMessage}\n\nAssistant: ${response}`;
-    const success = await this.sendMessage(chatId, text);
-
-    // Send media photos if present
-    if (success && media && media.length > 0) {
-      await this.sendPhotos(chatId, media);
-    }
-
-    return success;
+    return this.sendMessage(chatId, text);
   }
 
   /** @deprecated Use syncToChat with explicit chatId instead */

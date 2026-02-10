@@ -175,16 +175,6 @@ export class BrowserManager {
   }
 
   /**
-   * Force CDP reconnection after system wake/unlock.
-   * No-op if CDP tier hasn't been initialized (never used).
-   */
-  async forceReconnectCdp(): Promise<void> {
-    if (this.cdpTier) {
-      await this.cdpTier.forceReconnect();
-    }
-  }
-
-  /**
    * Close all tiers
    */
   close(): void {

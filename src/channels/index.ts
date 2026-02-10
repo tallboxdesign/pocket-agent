@@ -1,3 +1,5 @@
+import { AgentManager, ProcessResult } from '../agent';
+
 export interface Channel {
   name: string;
   isRunning: boolean;
@@ -11,4 +13,8 @@ export abstract class BaseChannel implements Channel {
 
   abstract start(): Promise<void>;
   abstract stop(): Promise<void>;
+
+  protected async processMessage(content: string): Promise<ProcessResult> {
+    return AgentManager.processMessage(content, this.name);
+  }
 }

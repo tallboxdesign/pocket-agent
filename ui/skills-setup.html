@@ -1,0 +1,1977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;">
+  <title>Skills - Pocket Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b;
+      --bg-secondary: #141415;
+      --bg-tertiary: #1c1c1e;
+      --border: #2a2a2d;
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1a6;
+      --text-muted: #636366;
+      --accent: #a855f7;
+      --accent-secondary: #ec4899;
+      --error: #ef4444;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --radius-sm: 10px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Sora', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header {
+      background: var(--bg-secondary);
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    header h1 span {
+      background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .stats {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-left: 12px;
+    }
+
+    .stats span { margin-right: 12px; }
+    .stats .ready { color: var(--success); }
+    .stats .missing { color: var(--warning); }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    button {
+      padding: 6px 14px;
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--border);
+      color: var(--text-primary);
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    button.primary:hover:not(:disabled) {
+      background: var(--accent-secondary);
+      border-color: var(--accent-secondary);
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .filters {
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 6px;
+      background: var(--bg-secondary);
+    }
+
+    .filter {
+      padding: 5px 10px;
+      font-size: 12px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
+    .filter:hover { color: var(--text-secondary); }
+    .filter.active { background: var(--bg-tertiary); color: var(--text-primary); }
+
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      contain: layout style;
+    }
+
+    .content::-webkit-scrollbar { width: 8px; }
+    .content::-webkit-scrollbar-track { background: var(--bg-primary); }
+    .content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--bg-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      position: sticky;
+      top: 0;
+    }
+
+    td { font-size: 13px; }
+
+    tr:hover { background: var(--bg-secondary); }
+
+    .name {
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .name span { font-size: 16px; }
+
+    .deps {
+      color: var(--text-muted);
+      font-family: 'SF Mono', monospace;
+      font-size: 12px;
+    }
+
+    .deps.missing { color: var(--warning); }
+
+    .deps .env-var {
+      color: var(--accent);
+      font-style: italic;
+    }
+
+    .deps .env-missing {
+      color: var(--error);
+    }
+
+    .deps .perm-missing {
+      color: var(--accent-secondary);
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+    }
+
+    .deps .perm-missing:hover {
+      color: var(--accent);
+    }
+
+    .status {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+
+    .status.ready { background: rgba(34, 197, 94, 0.15); color: var(--success); }
+    .status.needs { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+    .status.na { background: rgba(99, 99, 102, 0.1); color: var(--text-muted); }
+
+    .actions { min-width: 100px; text-align: right; }
+
+    .actions button {
+      padding: 4px 10px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .actions .installing {
+      background: transparent;
+      border-color: var(--accent);
+      color: var(--accent);
+      cursor: default;
+    }
+
+    .actions .done {
+      background: transparent;
+      border-color: var(--success);
+      color: var(--success);
+      cursor: default;
+    }
+
+    .actions .failed {
+      background: transparent;
+      border-color: var(--error);
+      color: var(--error);
+      cursor: default;
+    }
+
+    .actions .remove {
+      background: transparent;
+      border-color: var(--text-muted);
+      color: var(--text-muted);
+      padding: 2px 6px;
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .actions .remove:hover:not(:disabled) {
+      border-color: var(--error);
+      color: var(--error);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .actions .removing {
+      background: transparent;
+      border-color: var(--error);
+      color: var(--error);
+      cursor: default;
+      opacity: 0.7;
+      padding: 2px 6px;
+      font-size: 11px;
+    }
+
+    .empty {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--text-muted);
+    }
+
+    /* Toast - Premium glassmorphism design */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      min-width: 200px;
+      max-width: 360px;
+      background: rgba(28, 28, 30, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 14px 18px;
+      border-radius: 14px;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: toastSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      z-index: 1000;
+      overflow: hidden;
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+      color: var(--text-primary);
+    }
+
+    .toast::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      width: 100%;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-secondary) 100%);
+      animation: toastProgress 3s linear forwards;
+      transform-origin: left;
+    }
+
+    .toast.success {
+      box-shadow:
+        0 8px 32px rgba(34, 197, 94, 0.15),
+        0 0 0 1px rgba(34, 197, 94, 0.2) inset,
+        0 0 20px rgba(34, 197, 94, 0.1);
+    }
+
+    .toast.success::before {
+      background: linear-gradient(90deg, #22c55e 0%, #4ade80 100%);
+    }
+
+    .toast.success .toast-icon {
+      background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(74, 222, 128, 0.1) 100%);
+      color: #4ade80;
+    }
+
+    .toast.error {
+      box-shadow:
+        0 8px 32px rgba(239, 68, 68, 0.15),
+        0 0 0 1px rgba(239, 68, 68, 0.2) inset,
+        0 0 20px rgba(239, 68, 68, 0.1);
+    }
+
+    .toast.error::before {
+      background: linear-gradient(90deg, #ef4444 0%, #f87171 100%);
+    }
+
+    .toast.error .toast-icon {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(248, 113, 113, 0.1) 100%);
+      color: #f87171;
+    }
+
+    .toast-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(236, 72, 153, 0.1) 100%);
+    }
+
+    .toast-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .toast-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .toast-message {
+      color: var(--text-primary);
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+
+    .toast.exiting {
+      animation: toastSlideOut 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+    }
+
+    @keyframes toastSlideIn {
+      0% {
+        transform: translateX(100%) scale(0.8);
+        opacity: 0;
+      }
+      100% {
+        transform: translateX(0) scale(1);
+        opacity: 1;
+      }
+    }
+
+    @keyframes toastSlideOut {
+      0% {
+        transform: translateX(0) scale(1);
+        opacity: 1;
+      }
+      100% {
+        transform: translateX(100%) scale(0.8);
+        opacity: 0;
+      }
+    }
+
+    @keyframes toastProgress {
+      from { transform: scaleX(1); }
+      to { transform: scaleX(0); }
+    }
+
+    /* Tooltip */
+    .info-tip {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      margin-left: 6px;
+      color: var(--text-muted);
+      cursor: help;
+    }
+
+    .info-tip svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .info-tip:hover { color: var(--text-secondary); }
+
+    .info-tip .tip-text {
+      visibility: hidden;
+      opacity: 0;
+      position: absolute;
+      left: 0;
+      bottom: calc(100% + 6px);
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 400;
+      padding: 6px 10px;
+      border-radius: 6px;
+      white-space: nowrap;
+      z-index: 1000;
+      transition: opacity 0.15s;
+      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .info-tip .tip-text::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 10px;
+      border: 5px solid transparent;
+      border-top-color: var(--border);
+    }
+
+    .info-tip:hover .tip-text {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    /* Ensure tooltips aren't clipped */
+    table { overflow: visible; }
+    tbody { overflow: visible; }
+    tr { overflow: visible; }
+    td { overflow: visible; }
+    .content { overflow: visible; overflow-y: auto; }
+
+    /* Setup Modal - matching settings.html patterns */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal-overlay.show { display: flex; }
+
+    .modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      width: 90%;
+      max-width: 380px;
+      max-height: 80vh;
+      overflow: hidden;
+      animation: modalIn 0.2s ease;
+    }
+
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .modal-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-secondary);
+    }
+
+    .modal-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .modal-title h2 {
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .modal-title p {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .modal-close {
+      margin-left: auto;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-close:hover { color: var(--text-primary); }
+
+    .modal-body {
+      padding: 14px;
+      overflow-y: auto;
+      max-height: calc(80vh - 60px);
+    }
+
+    /* Steps indicator */
+    .steps-indicator {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .step-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: all 0.15s;
+    }
+
+    .step-dot.active { background: var(--accent); }
+    .step-dot.done { background: var(--success); }
+
+    /* Setup step */
+    .setup-step {
+      display: none;
+      animation: fadeIn 0.2s ease;
+    }
+
+    .setup-step.active { display: block; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .step-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .step-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+
+    /* Form inputs - matching settings.html .key-input */
+    .setup-input {
+      margin-bottom: 10px;
+    }
+
+    .setup-input label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .setup-input input {
+      width: 100%;
+      padding: 6px 10px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .setup-input input:focus {
+      border-color: var(--accent);
+    }
+
+    .setup-input input::placeholder { color: var(--text-muted); }
+
+    /* Info box - matching settings.html .info-box */
+    .setup-info {
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .setup-info svg {
+      width: 14px;
+      height: 14px;
+      color: var(--accent);
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* Status - matching settings.html .status */
+    .setup-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      padding: 5px 8px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 10px;
+    }
+
+    .setup-status svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .setup-status.info {
+      background: rgba(99, 102, 241, 0.1);
+      color: var(--accent);
+    }
+
+    .setup-status.success {
+      background: rgba(34, 197, 94, 0.1);
+      color: var(--success);
+    }
+
+    .setup-status.error {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--error);
+    }
+
+    .setup-status.loading {
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+    }
+
+    /* Terminal output */
+    .terminal-output {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      font-family: 'SF Mono', monospace;
+      font-size: 10px;
+      line-height: 1.4;
+      color: var(--text-muted);
+      max-height: 100px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Buttons - matching settings.html patterns */
+    .setup-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .setup-buttons button {
+      flex: 1;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .setup-buttons .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+
+    .setup-buttons .btn-secondary:hover:not(:disabled) {
+      background: var(--border);
+      color: var(--text-primary);
+    }
+
+    .setup-buttons .btn-primary {
+      background: var(--accent);
+      color: white;
+      border: 1px solid var(--accent);
+    }
+
+    .setup-buttons .btn-primary:hover:not(:disabled) {
+      background: var(--accent-secondary);
+      border-color: var(--accent-secondary);
+    }
+
+    .setup-buttons button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .spinner-sm {
+      width: 12px;
+      height: 12px;
+      border: 2px solid transparent;
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Help link */
+    .help-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+
+    .help-link:hover { color: var(--accent); }
+
+    /* Success view */
+    .setup-success {
+      text-align: center;
+      padding: 16px 0;
+    }
+
+    .setup-success .success-check {
+      width: 40px;
+      height: 40px;
+      background: rgba(34, 197, 94, 0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 12px;
+    }
+
+    .setup-success .success-check svg {
+      width: 20px;
+      height: 20px;
+      color: var(--success);
+    }
+
+    .setup-success h3 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .setup-success p {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* API Key Modal */
+    .api-key-modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      width: 90%;
+      max-width: 360px;
+      animation: modalIn 0.2s ease;
+    }
+
+    .api-key-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .api-key-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .api-key-title h2 {
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .api-key-title p {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .api-key-body {
+      padding: 14px;
+    }
+
+    .api-key-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .api-key-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .api-key-item label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .api-key-item label a {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+
+    .api-key-item label a:hover {
+      color: var(--accent);
+    }
+
+    .api-key-item input {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 12px;
+      font-family: 'SF Mono', monospace;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .api-key-item input:focus {
+      border-color: var(--accent);
+    }
+
+    .api-key-item input::placeholder {
+      color: var(--text-muted);
+      font-family: inherit;
+    }
+
+    .api-key-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .api-key-buttons button {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .api-key-buttons .btn-cancel {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+
+    .api-key-buttons .btn-cancel:hover {
+      background: var(--border);
+      color: var(--text-primary);
+    }
+
+    .api-key-buttons .btn-save {
+      background: var(--accent);
+      color: white;
+      border: 1px solid var(--accent);
+    }
+
+    .api-key-buttons .btn-save:hover:not(:disabled) {
+      background: var(--accent-secondary);
+      border-color: var(--accent-secondary);
+    }
+
+    .api-key-buttons .btn-save:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div style="display: flex; align-items: center;">
+      <h1><span>Skills</span></h1>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="header-actions">
+      <button onclick="playNormalClick(); window.close()">Done</button>
+      <button onclick="playNormalClick(); load()">Refresh</button>
+      <button class="primary" id="install-btn" onclick="playNormalClick(); installAll()" disabled>Power Up All</button>
+    </div>
+  </header>
+
+  <div class="filters">
+    <button class="filter active" data-f="all" onclick="playNormalClick(); filter('all')">All</button>
+    <button class="filter" data-f="ready" onclick="playNormalClick(); filter('ready')">Unlocked</button>
+    <button class="filter" data-f="missing" onclick="playNormalClick(); filter('missing')">Locked</button>
+  </div>
+
+  <div class="content" id="content">
+    <div class="empty">scanning powers...</div>
+  </div>
+
+  <!-- API Key Modal -->
+  <div class="modal-overlay" id="api-key-modal">
+    <div class="api-key-modal">
+      <div class="api-key-header">
+        <div class="api-key-icon" id="api-key-icon">🔑</div>
+        <div class="api-key-title">
+          <h2 id="api-key-modal-title">Add API Key</h2>
+          <p id="api-key-modal-subtitle">Enter your API key to unlock this skill</p>
+        </div>
+        <button class="modal-close" onclick="playNormalClick(); closeApiKeyModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="api-key-body">
+        <div class="api-key-list" id="api-key-list"></div>
+        <div class="api-key-buttons">
+          <button class="btn-cancel" onclick="playNormalClick(); closeApiKeyModal()">Cancel</button>
+          <button class="btn-save" id="api-key-save-btn" onclick="playNormalClick(); saveApiKeys()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Setup Modal -->
+  <div class="modal-overlay" id="setup-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-icon" id="modal-icon">🔧</div>
+        <div class="modal-title">
+          <h2 id="modal-title">Setup</h2>
+          <p id="modal-subtitle">Configure your skill</p>
+        </div>
+        <button class="modal-close" onclick="playNormalClick(); closeSetupModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="steps-indicator" id="steps-indicator"></div>
+        <div id="setup-steps"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Click Sound -->
+  <audio id="normal-click-sound" preload="auto" src="../assets/normal-click.mp3"></audio>
+
+  <script>
+    // Click sound
+    const normalClickSound = document.getElementById('normal-click-sound');
+    function playNormalClick() {
+      if (normalClickSound) {
+        normalClickSound.currentTime = 0;
+        normalClickSound.play().catch(() => {});
+      }
+    }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('button, .toggle, .tab, .skill-card, select, .filter-btn')) {
+        playNormalClick();
+      }
+    });
+
+    let data = [];
+    let view = 'all';
+    let installing = false;
+
+    // Skills with setup configurations
+    const skillsWithSetup = ['1password', 'gemini', 'gog', 'himalaya', 'notion', 'openhue', 'spotify-player', 'trello', 'wacli'];
+
+    // Mapping from environment variable names to settings keys
+    const envVarToSettingKey = {
+      'OPENAI_API_KEY': 'openai.apiKey',
+      'GEMINI_API_KEY': 'gemini.apiKey',
+      'GOOGLE_PLACES_API_KEY': 'google.placesApiKey',
+      'NOTION_API_KEY': 'notion.apiKey',
+      'TRELLO_API_KEY': 'trello.apiKey',
+      'TRELLO_TOKEN': 'trello.token',
+      'ELEVENLABS_API_KEY': 'elevenlabs.apiKey',
+      'ANTHROPIC_API_KEY': 'anthropic.apiKey',
+      'MOONSHOT_API_KEY': 'moonshot.apiKey',
+    };
+
+    // Info about API keys (label, placeholder, help URL)
+    const apiKeyInfo = {
+      'OPENAI_API_KEY': {
+        label: 'OpenAI API Key',
+        placeholder: 'sk-...',
+        url: 'https://platform.openai.com/api-keys'
+      },
+      'GEMINI_API_KEY': {
+        label: 'Gemini API Key',
+        placeholder: 'AI...',
+        url: 'https://aistudio.google.com/apikey'
+      },
+      'GOOGLE_PLACES_API_KEY': {
+        label: 'Google Places API Key',
+        placeholder: 'AIza...',
+        url: 'https://console.cloud.google.com/apis/credentials'
+      },
+      'NOTION_API_KEY': {
+        label: 'Notion API Key',
+        placeholder: 'secret_...',
+        url: 'https://www.notion.so/my-integrations'
+      },
+      'TRELLO_API_KEY': {
+        label: 'Trello API Key',
+        placeholder: '32 hex characters',
+        url: 'https://trello.com/power-ups/admin'
+      },
+      'TRELLO_TOKEN': {
+        label: 'Trello Token',
+        placeholder: '64 hex characters',
+        url: 'https://trello.com/power-ups/admin'
+      },
+      'ELEVENLABS_API_KEY': {
+        label: 'ElevenLabs API Key',
+        placeholder: 'Your API key',
+        url: 'https://elevenlabs.io/app/settings/api-keys'
+      },
+      'ANTHROPIC_API_KEY': {
+        label: 'Anthropic API Key',
+        placeholder: 'sk-ant-...',
+        url: 'https://console.anthropic.com/settings/keys'
+      },
+      'MOONSHOT_API_KEY': {
+        label: 'Moonshot API Key',
+        placeholder: 'Your API key',
+        url: 'https://platform.moonshot.cn'
+      },
+    };
+
+    // Current API key modal state
+    let currentApiKeySkill = null;
+
+    const emojis = {
+      '1password':'🔐','apple-notes':'📝','apple-reminders':'⏰','bear-notes':'🐻','bird':'🐦',
+      'blogwatcher':'📰','camsnap':'📷',
+      'food-order':'🍕','gemini':'♊','gifgrep':'🎬','github':'🐙','gog':'📬','himalaya':'📧','imsg':'💬',
+      'notion':'📔','obsidian':'💎','openhue':'💡','peekaboo':'👀','slack':'💼','sonoscli':'🔊',
+      'spotify-player':'🎧','summarize':'📝','things-mac':'✅','tmux':'🖥️','trello':'📋',
+      'wacli':'📱','weather':'🌤️'
+    };
+
+    const descriptions = {
+      '1password': 'Access your passwords and secrets securely',
+      'apple-notes': 'Create, search, and manage your Apple Notes',
+      'apple-reminders': 'Add and check off reminders on your Mac',
+      'bear-notes': 'Work with your Bear notes and tags',
+      'bird': 'Read and post on X/Twitter',
+      'blogwatcher': 'Monitor blogs and RSS feeds for updates',
+      'camsnap': 'Capture frames from your security cameras',
+      'food-order': 'Check your food delivery order status',
+      'gemini': 'Chat with Google\'s Gemini AI',
+      'gifgrep': 'Search and download GIFs from the web',
+      'github': 'Manage issues, PRs, and repos on GitHub',
+      'gog': 'Read emails, check calendar, and access Google Drive',
+      'himalaya': 'Send and read emails via IMAP/SMTP',
+      'imsg': 'Send and read your iMessages',
+      'notion': 'Create and manage Notion pages and databases',
+      'obsidian': 'Work with your Obsidian vault and notes',
+      'openhue': 'Control your Philips Hue lights and scenes',
+      'peekaboo': 'See and interact with apps on your screen',
+      'slack': 'Send messages and react in Slack channels',
+      'sonoscli': 'Control your Sonos speakers',
+      'spotify-player': 'Play music and control Spotify',
+      'summarize': 'Summarize articles, videos, and podcasts',
+      'things-mac': 'Add and manage tasks in Things 3',
+      'tmux': 'Control terminal sessions remotely',
+      'trello': 'Manage your Trello boards and cards',
+      'wacli': 'Send and read WhatsApp messages',
+      'weather': 'Get current weather and forecasts'
+    };
+
+    async function load() {
+      try {
+        const r = await window.pocketAgent.getSkillsStatus();
+        data = r.skills;
+        document.getElementById('stats').innerHTML =
+          `<span class="ready">${r.summary.available} unlocked</span><span class="missing">${r.summary.unavailable} locked</span>`;
+        document.getElementById('install-btn').disabled = r.summary.unavailable === 0 || installing;
+        render();
+      } catch (e) {
+        document.getElementById('content').innerHTML = '<div class="empty">Failed to load</div>';
+      }
+    }
+
+    function render() {
+      const c = document.getElementById('content');
+      const list = data.filter(s => {
+        if (view === 'all') return true;
+        if (view === 'ready') return s.available;
+        if (view === 'missing') return !s.available && s.osCompatible;
+        return true;
+      });
+
+      if (!list.length) {
+        c.innerHTML = '<div class="empty">no powers here yet!</div>';
+        return;
+      }
+
+      c.innerHTML = `<table>
+        <thead><tr><th>Power</th><th>Requirements</th><th>Status</th><th></th></tr></thead>
+        <tbody>${list.map(s => {
+          const e = emojis[s.name] || '🔧';
+          const st = s.available ? 'ready' : (s.osCompatible ? 'needs' : 'na');
+          const stTxt = s.available ? 'Unlocked' : (s.osCompatible ? 'Locked' : 'N/A');
+
+          // Build requirements display
+          let depsHtml = '';
+          let depsClass = '';
+
+          if (s.missingBins && s.missingBins.length) {
+            depsHtml += s.missingBins.map(b => `<span class="missing">${esc(b)}</span>`).join(', ');
+            depsClass = 'missing';
+          }
+
+          if (s.missingEnvVars && s.missingEnvVars.length) {
+            if (depsHtml) depsHtml += ', ';
+            depsHtml += s.missingEnvVars.map(v => `<span class="env-missing">${esc(v)}</span>`).join(', ');
+            depsClass = 'missing';
+          }
+
+          if (s.missingPermissions && s.missingPermissions.length) {
+            if (depsHtml) depsHtml += ', ';
+            depsHtml += s.missingPermissions.map(p =>
+              `<span class="perm-missing" onclick="playNormalClick(); openPermission('${esc(p)}')" title="Click to grant">${esc(p)}</span>`
+            ).join(', ');
+            depsClass = 'missing';
+          }
+
+          if (!depsHtml) {
+            depsHtml = s.available ? '—' : 'none';
+          }
+
+          // Can only auto-install if only bins are missing (API keys and permissions need manual config)
+          const hasMissingBins = s.missingBins && s.missingBins.length > 0;
+          const hasMissingEnvVars = s.missingEnvVars && s.missingEnvVars.length > 0;
+          const hasMissingPerms = s.missingPermissions && s.missingPermissions.length > 0;
+
+          const canInstall = !s.available && s.osCompatible && s.installOptions.length
+            && hasMissingBins && !hasMissingEnvVars && !hasMissingPerms;
+
+          // Show "Add Key" button if only API keys are missing
+          const needsApiKey = !s.available && s.osCompatible
+            && !hasMissingBins && hasMissingEnvVars && !hasMissingPerms;
+
+          // Show "Grant" button if only permissions are missing
+          const needsPermission = !s.available && s.osCompatible
+            && !hasMissingBins && !hasMissingEnvVars && hasMissingPerms;
+
+          // Check if skill has setup wizard
+          const hasSetupWizard = skillsWithSetup.includes(s.name);
+
+          // Can uninstall if available and has install options
+          const canUninstall = s.available && s.installOptions && s.installOptions.length > 0;
+
+          let btn = '';
+          if (canInstall) {
+            btn = `<button id="btn-${s.name}" onclick="playNormalClick(); install('${s.name}')">Unlock</button>`;
+          } else if (needsApiKey) {
+            const envVarsJson = JSON.stringify(s.missingEnvVars).replace(/"/g, '&quot;');
+            btn = `<button id="btn-${s.name}" onclick="playNormalClick(); openApiKeyModal('${esc(s.name)}', ${envVarsJson})">Add Key</button>`;
+          } else if (needsPermission) {
+            btn = `<button id="btn-${s.name}" onclick="playNormalClick(); openPermission('${s.missingPermissions[0]}')">Grant</button>`;
+          } else if (s.available && hasSetupWizard) {
+            // Show setup for available skills with setup wizards
+            btn = `<button id="btn-${s.name}" onclick="playNormalClick(); openSetup('${s.name}')">Setup</button>`;
+          } else if (!s.available && s.osCompatible && hasSetupWizard && !hasMissingBins) {
+            // Show setup button for skills that need setup (bins installed but not configured)
+            btn = `<button id="btn-${s.name}" class="primary" onclick="playNormalClick(); openSetup('${s.name}')">Setup</button>`;
+          } else if (canUninstall) {
+            // Show × remove button for installed skills
+            btn = `<button id="rm-${s.name}" class="remove" onclick="playNormalClick(); uninstall('${s.name}')" title="Remove">×</button>`;
+          }
+
+          const tip = descriptions[s.name] || '';
+          const tipHtml = tip ? `<span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-text">${esc(tip)}</span></span>` : '';
+
+          return `<tr id="row-${s.name}">
+            <td class="name"><span>${e}</span>${esc(s.name)}${tipHtml}</td>
+            <td class="deps ${depsClass}">${depsHtml}</td>
+            <td id="status-${s.name}"><span class="status ${st}">${stTxt}</span></td>
+            <td class="actions">${btn}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+    }
+
+    function filter(f) {
+      view = f;
+      document.querySelectorAll('.filter').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+      render();
+    }
+
+    function setButtonState(name, state) {
+      const btn = document.getElementById(`btn-${name}`);
+      if (!btn) return;
+
+      btn.className = state;
+      btn.disabled = true;
+      btn.onclick = null;
+
+      switch(state) {
+        case 'installing':
+          btn.textContent = 'Unlocking...';
+          break;
+        case 'done':
+          btn.textContent = '✓ Unlocked';
+          break;
+        case 'failed':
+          btn.textContent = '✗ Failed';
+          break;
+      }
+    }
+
+    function updateRowStatus(name, available) {
+      // Update the local data object
+      const skill = data.find(s => s.name === name);
+      if (skill) {
+        skill.available = available;
+        skill.missingBins = [];
+      }
+
+      // Update the status cell
+      const statusCell = document.getElementById(`status-${name}`);
+      if (statusCell) {
+        statusCell.innerHTML = available
+          ? '<span class="status ready">Unlocked</span>'
+          : '<span class="status needs">Locked</span>';
+      }
+
+      // Update the deps cell to show no missing deps
+      const row = document.getElementById(`row-${name}`);
+      if (row && available) {
+        const depsCell = row.querySelector('.deps');
+        if (depsCell) {
+          depsCell.textContent = '—';
+          depsCell.classList.remove('missing');
+        }
+      }
+    }
+
+    async function install(name) {
+      if (installing) return;
+      installing = true;
+      document.getElementById('install-btn').disabled = true;
+
+      setButtonState(name, 'installing');
+
+      try {
+        const r = await window.pocketAgent.installSkillDeps(name);
+        if (r.success) {
+          setButtonState(name, 'done');
+          updateRowStatus(name, true);
+          // Update stats count manually
+          updateStatsCount();
+          toast('Unlocked ' + name + '! 🎉', 'success');
+        } else {
+          setButtonState(name, 'failed');
+          toast('Oops: ' + r.failed.join(', '), 'error');
+        }
+      } catch (e) {
+        setButtonState(name, 'failed');
+        toast(e.message, 'error');
+      }
+
+      installing = false;
+      document.getElementById('install-btn').disabled = false;
+    }
+
+    async function installAll() {
+      if (installing) return;
+      installing = true;
+      document.getElementById('install-btn').disabled = true;
+
+      const todo = data.filter(s => !s.available && s.osCompatible && s.installOptions.length);
+      if (!todo.length) {
+        installing = false;
+        return;
+      }
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const s of todo) {
+        setButtonState(s.name, 'installing');
+
+        try {
+          const r = await window.pocketAgent.installSkillDeps(s.name);
+          if (r.success) {
+            setButtonState(s.name, 'done');
+            updateRowStatus(s.name, true);
+            successCount++;
+          } else {
+            setButtonState(s.name, 'failed');
+            failCount++;
+          }
+        } catch (e) {
+          setButtonState(s.name, 'failed');
+          failCount++;
+        }
+      }
+
+      installing = false;
+
+      if (failCount === 0) {
+        toast(`Unlocked ${successCount} powers! 🎉`, 'success');
+      } else {
+        toast(`${successCount} unlocked, ${failCount} failed`, 'error');
+      }
+
+      // Update stats from local data
+      updateStatsCount();
+    }
+
+    async function uninstall(name) {
+      if (installing) return;
+      if (!confirm(`Remove ${name}? This will uninstall its dependencies from your system.`)) return;
+
+      installing = true;
+      const rmBtn = document.getElementById(`rm-${name}`);
+      const btn = document.getElementById(`btn-${name}`);
+
+      if (rmBtn) {
+        rmBtn.className = 'removing';
+        rmBtn.disabled = true;
+        rmBtn.textContent = '...';
+      }
+      if (btn) btn.disabled = true;
+
+      try {
+        const r = await window.pocketAgent.uninstallSkillDeps(name);
+        if (r.success) {
+          toast('Bye bye ' + name, 'success');
+          // Refresh the list
+          await load();
+        } else {
+          toast('Failed: ' + r.failed.join(', '), 'error');
+          if (rmBtn) {
+            rmBtn.className = 'remove';
+            rmBtn.disabled = false;
+            rmBtn.textContent = '×';
+          }
+          if (btn) btn.disabled = false;
+        }
+      } catch (e) {
+        toast(e.message, 'error');
+        if (rmBtn) {
+          rmBtn.className = 'remove';
+          rmBtn.disabled = false;
+          rmBtn.textContent = '×';
+        }
+        if (btn) btn.disabled = false;
+      }
+
+      installing = false;
+    }
+
+    // Update stats from local data (doesn't fetch from backend)
+    function updateStatsCount() {
+      const available = data.filter(s => s.available).length;
+      const unavailable = data.filter(s => !s.available && s.osCompatible).length;
+      document.getElementById('stats').innerHTML =
+        `<span class="ready">${available} unlocked</span><span class="missing">${unavailable} locked</span>`;
+      document.getElementById('install-btn').disabled = unavailable === 0 || installing;
+    }
+
+    // Fetch fresh stats from backend
+    async function updateStats() {
+      try {
+        const r = await window.pocketAgent.getSkillsStatus();
+        data = r.skills;
+        document.getElementById('stats').innerHTML =
+          `<span class="ready">${r.summary.available} unlocked</span><span class="missing">${r.summary.unavailable} locked</span>`;
+        document.getElementById('install-btn').disabled = r.summary.unavailable === 0 || installing;
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    function toast(msg, type) {
+      const existing = document.querySelector('.toast');
+      if (existing) {
+        existing.classList.add('exiting');
+        setTimeout(() => existing.remove(), 300);
+      }
+
+      const t = document.createElement('div');
+      t.className = `toast ${type || ''}`;
+      t.innerHTML = `
+        <div class="toast-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            ${type === 'success'
+              ? '<path d="M20 6L9 17l-5-5"/>'
+              : '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>'}
+          </svg>
+        </div>
+        <div class="toast-content">
+          <div class="toast-message">${esc(msg)}</div>
+        </div>
+      `;
+      document.body.appendChild(t);
+
+      setTimeout(() => {
+        t.classList.add('exiting');
+        setTimeout(() => t.remove(), 300);
+      }, 2500);
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    async function openSettings() {
+      try {
+        await window.pocketAgent.openSettings();
+      } catch (e) {
+        toast('Couldn\'t open settings', 'error');
+      }
+    }
+
+    // API Key Modal Functions
+    function openApiKeyModal(skillName, missingEnvVars) {
+      currentApiKeySkill = { name: skillName, envVars: missingEnvVars };
+
+      // Update modal header
+      const emoji = emojis[skillName] || '🔑';
+      document.getElementById('api-key-icon').textContent = emoji;
+      document.getElementById('api-key-modal-title').textContent = `Unlock ${skillName}`;
+      document.getElementById('api-key-modal-subtitle').textContent =
+        missingEnvVars.length > 1 ? 'Enter your API keys' : 'Enter your API key';
+
+      // Build input fields for each missing env var
+      const listContainer = document.getElementById('api-key-list');
+      listContainer.innerHTML = missingEnvVars.map(envVar => {
+        const info = apiKeyInfo[envVar] || {
+          label: envVar,
+          placeholder: 'Your API key',
+          url: null
+        };
+        const urlHtml = info.url
+          ? `<a href="${esc(info.url)}" target="_blank">Get key</a>`
+          : '';
+        return `
+          <div class="api-key-item">
+            <label>
+              ${esc(info.label)}
+              ${urlHtml}
+            </label>
+            <input type="password" id="api-key-input-${esc(envVar)}"
+              placeholder="${esc(info.placeholder)}"
+              data-env-var="${esc(envVar)}">
+          </div>
+        `;
+      }).join('');
+
+      // Show modal
+      document.getElementById('api-key-modal').classList.add('show');
+
+      // Focus first input
+      setTimeout(() => {
+        const firstInput = listContainer.querySelector('input');
+        if (firstInput) firstInput.focus();
+      }, 100);
+    }
+
+    function closeApiKeyModal() {
+      document.getElementById('api-key-modal').classList.remove('show');
+      currentApiKeySkill = null;
+    }
+
+    async function saveApiKeys() {
+      if (!currentApiKeySkill) return;
+
+      const saveBtn = document.getElementById('api-key-save-btn');
+      const envVars = currentApiKeySkill.envVars;
+      const skillName = currentApiKeySkill.name;
+
+      // Collect values from inputs
+      const values = {};
+      let hasEmpty = false;
+      for (const envVar of envVars) {
+        const input = document.getElementById(`api-key-input-${envVar}`);
+        const value = input ? input.value.trim() : '';
+        if (!value) {
+          hasEmpty = true;
+        }
+        values[envVar] = value;
+      }
+
+      if (hasEmpty) {
+        toast('Please fill in all fields', 'error');
+        return;
+      }
+
+      // Disable button and show loading
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner-sm"></span>';
+
+      try {
+        // Save each API key
+        for (const [envVar, value] of Object.entries(values)) {
+          const settingKey = envVarToSettingKey[envVar];
+          if (settingKey) {
+            await window.pocketAgent.setSetting(settingKey, value);
+          }
+        }
+
+        toast('API key saved!', 'success');
+        closeApiKeyModal();
+
+        // Refresh skills status to check if skill is now available
+        await refreshSkillStatus(skillName);
+
+      } catch (e) {
+        console.error('Failed to save API key:', e);
+        toast('Failed to save key', 'error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    }
+
+    async function refreshSkillStatus(skillName) {
+      try {
+        const r = await window.pocketAgent.getSkillsStatus();
+        data = r.skills;
+
+        // Find the skill and check if it's now available
+        const skill = data.find(s => s.name === skillName);
+        if (skill && skill.available) {
+          // Update the row
+          updateRowStatus(skillName, true);
+
+          // Update the button to show it's unlocked
+          const btn = document.getElementById(`btn-${skillName}`);
+          if (btn) {
+            btn.className = 'done';
+            btn.disabled = true;
+            btn.textContent = '✓ Unlocked';
+            btn.onclick = null;
+          }
+        }
+
+        // Update stats
+        document.getElementById('stats').innerHTML =
+          `<span class="ready">${r.summary.available} unlocked</span><span class="missing">${r.summary.unavailable} locked</span>`;
+        document.getElementById('install-btn').disabled = r.summary.unavailable === 0 || installing;
+
+        // Re-render to update everything
+        render();
+      } catch (e) {
+        console.error('Failed to refresh skill status:', e);
+      }
+    }
+
+    async function openPermission(permType) {
+      try {
+        await window.pocketAgent.openPermissionSettings(permType);
+        toast('Opening System Settings', 'success');
+      } catch (e) {
+        toast('Couldn\'t open settings', 'error');
+      }
+    }
+
+    // Setup modal state
+    let currentSetup = null;
+    let currentStepIndex = 0;
+    let setupInputValues = {};
+
+    // File selection for file_upload steps
+    async function selectFile(fileType) {
+      try {
+        // Build filters based on file type
+        let filters = [{ name: 'All Files', extensions: ['*'] }];
+        if (fileType === '.json') {
+          filters = [
+            { name: 'JSON Files', extensions: ['json'] },
+            { name: 'All Files', extensions: ['*'] }
+          ];
+        }
+
+        const result = await window.pocketAgent.selectFile({
+          title: 'Select Credentials File',
+          filters
+        });
+
+        if (result.success && result.filePath) {
+          setupInputValues['file_path'] = result.filePath;
+          const display = document.getElementById('file-path-display');
+          if (display) {
+            display.value = result.filePath;
+          }
+          // Hide the info status since we now have a file
+          const statusDiv = document.getElementById('step-status');
+          if (statusDiv) {
+            statusDiv.style.display = 'none';
+          }
+          toast('File selected', 'success');
+        } else if (result.canceled) {
+          // User canceled, do nothing
+        } else {
+          toast('Failed to select file', 'error');
+        }
+      } catch (e) {
+        console.error('File selection error:', e);
+        toast('Failed to open file dialog', 'error');
+      }
+    }
+
+    async function openSetup(skillName) {
+      try {
+        const result = await window.pocketAgent.getSkillSetupConfig(skillName);
+        if (!result.found || !result.setup) {
+          toast('No setup found', 'error');
+          return;
+        }
+
+        currentSetup = { skillName, ...result.setup };
+        currentStepIndex = 0;
+        setupInputValues = {};
+
+        // Update modal header
+        document.getElementById('modal-icon').textContent = emojis[skillName] || '🔧';
+        document.getElementById('modal-title').textContent = result.setup.title;
+        document.getElementById('modal-subtitle').textContent = `Setup ${skillName}`;
+
+        // Build steps indicator
+        const indicator = document.getElementById('steps-indicator');
+        indicator.innerHTML = result.setup.steps.map((_, i) =>
+          `<div class="step-dot${i === 0 ? ' active' : ''}" id="dot-${i}"></div>`
+        ).join('');
+
+        // Render first step
+        renderSetupStep(0);
+
+        // Show modal
+        document.getElementById('setup-modal').classList.add('show');
+      } catch (e) {
+        console.error('Failed to load setup config:', e);
+        toast('Couldn\'t load setup', 'error');
+      }
+    }
+
+    function closeSetupModal() {
+      document.getElementById('setup-modal').classList.remove('show');
+      currentSetup = null;
+      currentStepIndex = 0;
+      setupInputValues = {};
+      // Refresh the list
+      load();
+    }
+
+    function renderSetupStep(index) {
+      const step = currentSetup.steps[index];
+      const container = document.getElementById('setup-steps');
+      const isLast = index === currentSetup.steps.length - 1;
+
+      let inputsHtml = '';
+      if (step.inputs && step.inputs.length) {
+        inputsHtml = step.inputs.map(input => `
+          <div class="setup-input">
+            <label for="setup-${input.id}">${esc(input.label)}</label>
+            <input type="text" id="setup-${input.id}" placeholder="${esc(input.placeholder || '')}"
+              value="${esc(setupInputValues[input.id] || '')}"
+              oninput="setupInputValues['${input.id}'] = this.value">
+          </div>
+        `).join('');
+      }
+
+      let actionHtml = '';
+      if (step.action === 'info') {
+        actionHtml = `
+          <div class="setup-info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+            <span>${esc(step.description)}</span>
+          </div>
+        `;
+      } else if (step.action === 'file_upload') {
+        const fileType = step.file_type || '*';
+        actionHtml = `
+          <div class="setup-info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <span>${esc(step.description)}</span>
+          </div>
+          ${step.help_url ? `<a href="${esc(step.help_url)}" target="_blank" class="help-link">Setup guide →</a>` : ''}
+          <div class="setup-input" style="margin-top: 10px;">
+            <label>Selected file</label>
+            <div class="key-input">
+              <input type="text" id="file-path-display" readonly placeholder="No file selected"
+                value="${esc(setupInputValues['file_path'] || '')}">
+              <button type="button" onclick="playNormalClick(); selectFile('${esc(fileType)}')">Browse...</button>
+            </div>
+          </div>
+          <div class="setup-status info" id="step-status" style="display: ${setupInputValues['file_path'] ? 'none' : 'flex'};">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+            <span>Select a file to continue</span>
+          </div>
+          <div class="terminal-output" id="terminal-output" style="display: none;"></div>
+        `;
+      } else if (step.action === 'cli_command' || step.action === 'cli_interactive') {
+        actionHtml = `
+          <div class="setup-status info" id="step-status">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+            </svg>
+            <span>Ready to run</span>
+          </div>
+          <div class="terminal-output" id="terminal-output" style="display: none;"></div>
+        `;
+      }
+
+      container.innerHTML = `
+        <div class="setup-step active" id="step-${index}">
+          <div class="step-title">${esc(step.title)}</div>
+          ${step.action !== 'info' && step.action !== 'file_upload' ? `<div class="step-desc">${esc(step.description)}</div>` : ''}
+          ${inputsHtml}
+          ${actionHtml}
+          <div class="setup-buttons">
+            ${index > 0 ? '<button class="btn-secondary" onclick="prevSetupStep()">Back</button>' : '<button class="btn-secondary" onclick="playNormalClick(); closeSetupModal()">Cancel</button>'}
+            <button class="btn-primary" id="next-btn" onclick="playNormalClick(); executeSetupStep()">
+              ${step.action === 'info' ? 'Next' : step.verify ? 'Verify' : 'Run'}
+            </button>
+          </div>
+        </div>
+      `;
+
+      // Update step dots
+      currentSetup.steps.forEach((_, i) => {
+        const dot = document.getElementById(`dot-${i}`);
+        if (dot) {
+          dot.className = 'step-dot';
+          if (i < index) dot.classList.add('done');
+          if (i === index) dot.classList.add('active');
+        }
+      });
+    }
+
+    function prevSetupStep() {
+      if (currentStepIndex > 0) {
+        currentStepIndex--;
+        renderSetupStep(currentStepIndex);
+      }
+    }
+
+    async function executeSetupStep() {
+      const step = currentSetup.steps[currentStepIndex];
+      const nextBtn = document.getElementById('next-btn');
+      const statusDiv = document.getElementById('step-status');
+      const terminalDiv = document.getElementById('terminal-output');
+
+      // For info steps, just proceed
+      if (step.action === 'info') {
+        nextStep();
+        return;
+      }
+
+      // For file upload with command, run the command with the file path
+      if (step.action === 'file_upload') {
+        // If no command specified, just proceed
+        if (!step.command) {
+          nextStep();
+          return;
+        }
+
+        // Must have a file selected
+        if (!setupInputValues['file_path']) {
+          toast('Please select a file first', 'error');
+          return;
+        }
+
+        // Continue below to run the command with the file_path input
+      }
+
+      // Validate inputs
+      if (step.inputs && step.inputs.length) {
+        for (const input of step.inputs) {
+          if (!setupInputValues[input.id]) {
+            toast(`Please enter ${input.label}`, 'error');
+            return;
+          }
+        }
+      }
+
+      // Disable button and show loading
+      nextBtn.disabled = true;
+      nextBtn.innerHTML = '<span class="spinner-sm"></span>';
+
+      if (statusDiv) {
+        statusDiv.className = 'setup-status loading';
+        statusDiv.innerHTML = `<span class="spinner-sm"></span><span>Running...</span>`;
+      }
+
+      // Build display command for terminal (for user visibility only)
+      let displayCommand = step.command;
+      for (const [key, value] of Object.entries(setupInputValues)) {
+        displayCommand = displayCommand.replace(`{{${key}}}`, value);
+      }
+
+      if (terminalDiv) {
+        terminalDiv.style.display = 'block';
+        terminalDiv.textContent = `$ ${displayCommand}\n`;
+      }
+
+      try {
+        // Send structured data to main process (secure - command looked up from manifest)
+        const result = await window.pocketAgent.runSkillSetupCommand({
+          skillName: currentSetup.skillName,
+          stepId: step.id,
+          inputs: setupInputValues
+        });
+
+        if (terminalDiv && result.output) {
+          terminalDiv.textContent += result.output;
+          terminalDiv.scrollTop = terminalDiv.scrollHeight;
+        }
+
+        if (result.success) {
+          if (statusDiv) {
+            statusDiv.className = 'setup-status success';
+            statusDiv.innerHTML = `
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              <span>${step.verify ? 'Verified' : 'Done'}</span>
+            `;
+          }
+
+          // Brief delay then proceed
+          setTimeout(() => nextStep(), 800);
+        } else {
+          if (statusDiv) {
+            statusDiv.className = 'setup-status error';
+            statusDiv.innerHTML = `
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+              </svg>
+              <span>Failed</span>
+            `;
+          }
+          nextBtn.disabled = false;
+          nextBtn.textContent = 'Retry';
+        }
+      } catch (e) {
+        if (statusDiv) {
+          statusDiv.className = 'setup-status error';
+          statusDiv.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>
+            <span>Failed</span>
+          `;
+        }
+        nextBtn.disabled = false;
+        nextBtn.textContent = 'Retry';
+      }
+    }
+
+    function nextStep() {
+      currentStepIndex++;
+      if (currentStepIndex >= currentSetup.steps.length) {
+        // Show success
+        showSetupSuccess();
+      } else {
+        renderSetupStep(currentStepIndex);
+      }
+    }
+
+    function showSetupSuccess() {
+      const container = document.getElementById('setup-steps');
+      container.innerHTML = `
+        <div class="setup-success">
+          <div class="success-check">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </div>
+          <h3>${currentSetup.title} ready!</h3>
+          <p>${currentSetup.skillName} configured</p>
+          <div class="setup-buttons" style="margin-top: 16px;">
+            <button class="btn-primary" onclick="playNormalClick(); closeSetupModal()">Done</button>
+          </div>
+        </div>
+      `;
+
+      // Update all dots to done
+      currentSetup.steps.forEach((_, i) => {
+        const dot = document.getElementById(`dot-${i}`);
+        if (dot) dot.className = 'step-dot done';
+      });
+    }
+
+    load();
+  </script>
+</body>
+</html>

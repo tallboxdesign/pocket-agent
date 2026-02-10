@@ -190,15 +190,6 @@ export async function handleLocationMessage(
       }
     }
 
-    // Send media photos if present
-    if (result.agentResult.media && result.agentResult.media.length > 0 && ctx.chat?.id) {
-      const { getTelegramBot } = await import('../index');
-      const bot = getTelegramBot();
-      if (bot) {
-        await bot.sendPhotos(ctx.chat.id, result.agentResult.media);
-      }
-    }
-
     // Notify callback for cross-channel sync
     if (onMessageCallback) {
       const memory = AgentManager.getMemory();
@@ -215,7 +206,6 @@ export async function handleLocationMessage(
         hasAttachment: true,
         attachmentType: 'location',
         wasCompacted: result.agentResult.wasCompacted,
-        media: result.agentResult.media,
       });
     }
 

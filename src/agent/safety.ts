@@ -5,8 +5,6 @@
  * These patterns represent catastrophic operations with no legitimate use case.
  */
 
-import path from 'path';
-
 export interface ValidationResult {
   allowed: boolean;
   reason?: string;
@@ -400,60 +398,6 @@ const DANGEROUS_WRITE_PATHS: Array<{ pattern: RegExp; reason: string }> = [
     pattern: /\.keychain/i,
     reason: 'Cannot write to keychain file',
   },
-
-  // Windows system directories
-  {
-    pattern: /^[A-Z]:\\Windows\\/i,
-    reason: 'Cannot write to Windows system directory',
-  },
-  {
-    pattern: /^[A-Z]:\\Windows$/i,
-    reason: 'Cannot write to Windows system directory',
-  },
-  {
-    pattern: /^[A-Z]:\\Program Files( \(x86\))?\\/i,
-    reason: 'Cannot write to Program Files directory',
-  },
-  {
-    pattern: /^[A-Z]:\\ProgramData\\/i,
-    reason: 'Cannot write to ProgramData directory',
-  },
-  {
-    pattern: /\\System32\\/i,
-    reason: 'Cannot write to System32 directory',
-  },
-  {
-    pattern: /\\SysWOW64\\/i,
-    reason: 'Cannot write to SysWOW64 directory',
-  },
-
-  // Windows special device paths
-  {
-    pattern: /^\\\\\.\\/,
-    reason: 'Cannot write to device path',
-  },
-  {
-    pattern: /^\\\\\?\\/,
-    reason: 'Cannot write to extended-length path',
-  },
-
-  // Windows credential / sensitive user directories
-  {
-    pattern: /\\\.ssh\\/i,
-    reason: 'Cannot write to SSH directory',
-  },
-  {
-    pattern: /\\\.gnupg\\/i,
-    reason: 'Cannot write to GPG directory',
-  },
-  {
-    pattern: /\\\.aws\\/i,
-    reason: 'Cannot write to AWS credentials directory',
-  },
-  {
-    pattern: /\\Credentials\\/i,
-    reason: 'Cannot write to Windows Credentials directory',
-  },
 ];
 
 // ============================================================================
@@ -504,15 +448,11 @@ export function validateBashCommand(command: string): ValidationResult {
  * Validate a file path for write operations
  */
 export function validateWritePath(filePath: string): ValidationResult {
-  // Expand ~ to home directory for pattern matching (cross-platform)
-  const homeDir = process.env.HOME || process.env.USERPROFILE || (process.platform === 'win32' ? 'C:\\Users\\user' : '/home/user');
-  const expandedPath = filePath.replace(/^~/, homeDir);
-
-  // Normalize to resolve ../ traversal attempts and canonicalize separators
-  const normalizedPath = path.resolve(expandedPath);
+  // Expand ~ to home directory for pattern matching
+  const expandedPath = filePath.replace(/^~/, process.env.HOME || '/home/user');
 
   for (const { pattern, reason } of DANGEROUS_WRITE_PATHS) {
-    if (pattern.test(filePath) || pattern.test(expandedPath) || pattern.test(normalizedPath)) {
+    if (pattern.test(filePath) || pattern.test(expandedPath)) {
       console.warn(`[Safety] BLOCKED write path: ${reason}`);
       console.warn(`[Safety] Path was: ${filePath}`);
       return { allowed: false, reason };

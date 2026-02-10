@@ -129,7 +129,6 @@ vi.mock('../../src/agent', () => ({
     getAllFacts: () => getAllFactsMock(),
     searchFacts: (...args: unknown[]) => searchFactsMock(...args),
     clearConversation: () => clearConversationMock(),
-    clearSdkSessionMapping: vi.fn(),
     getMemory: () => ({
       getSessionForChat: () => 'default',
       getSessions: () => [],
@@ -601,7 +600,6 @@ describe('TelegramBot', () => {
         channel: 'telegram',
         chatId: 1000,
         sessionId: 'default',
-        wasCompacted: false,
       });
     });
   });

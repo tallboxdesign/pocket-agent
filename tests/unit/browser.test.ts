@@ -19,15 +19,18 @@ vi.mock('fs', () => ({
   statSync: vi.fn(() => ({ size: 100 })),
 }));
 
-// Mock path module partially — use actual implementations for cross-platform compat
+// Mock path module partially
 vi.mock('path', async () => {
-  const actual = await vi.importActual<typeof import('path')>('path');
+  const actual = await vi.importActual('path');
   return {
     ...actual,
-    dirname: vi.fn(actual.dirname),
-    basename: vi.fn(actual.basename),
-    extname: vi.fn(actual.extname),
-    join: vi.fn(actual.join),
+    dirname: vi.fn((p: string) => p.replace(/\/[^/]+$/, '')),
+    basename: vi.fn((p: string) => p.split('/').pop() || ''),
+    extname: vi.fn((p: string) => {
+      const match = p.match(/\.[^.]+$/);
+      return match ? match[0] : '';
+    }),
+    join: vi.fn((...parts: string[]) => parts.join('/')),
   };
 });
 

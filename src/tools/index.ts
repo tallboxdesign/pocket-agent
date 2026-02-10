@@ -57,7 +57,7 @@ export { getGmailTools } from './gmail-tools';
 export { getGlmWorkerTools } from './glm-worker';
 export { closeKanbanDb } from '../kanban';
 export { showNotification } from './macos';
-export { setCurrentSessionId, getCurrentSessionId, setTelegramMessageContext, getTelegramMessageContext, runWithSessionId } from './session-context';
+export { setCurrentSessionId, getCurrentSessionId, setTelegramMessageContext, getTelegramMessageContext } from './session-context';
 export { setResearchTelegramBot } from './research-tools';
 
 export interface MCPServerConfig {

@@ -17,7 +17,6 @@ export type MessageCallback = (data: {
   hasAttachment?: boolean;
   attachmentType?: AttachmentType;
   wasCompacted?: boolean;
-  media?: Array<{ type: string; filePath: string; mimeType: string }>;
 }) => void;
 
 /**

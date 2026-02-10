@@ -5,6 +5,9 @@
 export {
   downloadFile,
   downloadFileAsBase64,
+  isTextFile,
+  isCodeFile,
+  isSpreadsheet,
 } from './download';
 
 export {

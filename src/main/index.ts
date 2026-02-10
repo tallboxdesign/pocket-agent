@@ -1,20 +1,16 @@
-import { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, Notification, globalShortcut, shell, dialog, screen, powerMonitor, powerSaveBlocker } from 'electron';
+import { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, Notification, globalShortcut, shell, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn, ChildProcess } from 'child_process';
 import { AgentManager } from '../agent';
 import { MemoryManager } from '../memory';
 import { createScheduler, CronScheduler } from '../scheduler';
 import { createTelegramBot, TelegramBot } from '../channels/telegram';
 import { SettingsManager } from '../settings';
-import { loadIdentity, saveIdentity, getIdentityPath, DEFAULT_IDENTITY } from '../config/identity';
-import { loadInstructions, saveInstructions, getInstructionsPath, DEFAULT_INSTRUCTIONS } from '../config/instructions';
-import { DEFAULT_COMMANDS } from '../config/commands';
-import { loadWorkflowCommands } from '../config/commands-loader';
+import { loadIdentity, saveIdentity, getIdentityPath } from '../config/identity';
+import { loadInstructions, saveInstructions, getInstructionsPath } from '../config/instructions';
 import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
 import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
-import { getBrowserManager } from '../browser';
 import { initializeUpdater, setupUpdaterIPC, setSettingsWindow } from './updater';
 import cityTimezones from 'city-timezones';
 
@@ -51,14 +47,10 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-const IS_WINDOWS = process.platform === 'win32';
-const IS_MACOS = process.platform === 'darwin';
-const HOME_DIR = process.env.HOME || process.env.USERPROFILE || '';
-
-// Detect NVM node versions once at startup (cached for performance) — Unix only
+// Detect NVM node versions once at startup (cached for performance)
 function detectNvmNodePaths(): string[] {
-  if (IS_WINDOWS) return [];
-  const nvmVersionsDir = path.join(HOME_DIR, '.nvm/versions/node');
+  const home = process.env.HOME || '';
+  const nvmVersionsDir = path.join(home, '.nvm/versions/node');
   const paths: string[] = [];
   try {
     if (fs.existsSync(nvmVersionsDir)) {
@@ -79,31 +71,19 @@ function detectNvmNodePaths(): string[] {
 // Cache NVM paths at module load
 const cachedNvmPaths = detectNvmNodePaths();
 
-// Fix PATH for packaged apps — platform-aware
+// Fix PATH for packaged apps - node/npm binaries aren't in PATH when launched from Finder
 if (app.isPackaged) {
-  if (IS_WINDOWS) {
-    // Windows: ensure common tool directories are on PATH
-    const winPaths = [
-      path.join(HOME_DIR, 'AppData', 'Roaming', 'npm'),
-      path.join(HOME_DIR, '.local', 'bin'),
-      'C:\\Program Files\\nodejs',
-      'C:\\Program Files\\Git\\cmd',
-    ].join(';');
-    process.env.PATH = winPaths + ';' + (process.env.PATH || '');
-  } else {
-    // macOS / Linux: node/npm binaries aren't in PATH when launched from Finder
-    const fixedPath = [
-      '/opt/homebrew/bin',        // Apple Silicon Homebrew
-      '/usr/local/bin',           // Intel Homebrew / standard location
-      '/usr/bin',
-      '/bin',
-      '/usr/sbin',
-      '/sbin',
-      ...cachedNvmPaths,          // nvm (dynamically detected)
-      HOME_DIR + '/.local/bin',
-    ].join(':');
-    process.env.PATH = fixedPath + ':' + (process.env.PATH || '');
-  }
+  const fixedPath = [
+    '/opt/homebrew/bin',        // Apple Silicon Homebrew
+    '/usr/local/bin',           // Intel Homebrew / standard location
+    '/usr/bin',
+    '/bin',
+    '/usr/sbin',
+    '/sbin',
+    ...cachedNvmPaths,          // nvm (dynamically detected)
+    process.env.HOME + '/.local/bin',
+  ].join(':');
+  process.env.PATH = fixedPath + ':' + (process.env.PATH || '');
   console.log('[Main] Fixed PATH for packaged app');
 }
 
@@ -227,7 +207,6 @@ let soulWindow: BrowserWindow | null = null;
 let skillsSetupWindow: BrowserWindow | null = null;
 let kanbanWindow: BrowserWindow | null = null;
 let emailWindow: BrowserWindow | null = null;
-let splashWindow: BrowserWindow | null = null;
 
 /**
  * Get the agent's isolated workspace directory.
@@ -242,7 +221,7 @@ function getAgentWorkspace(): string {
 /**
  * Ensure the agent workspace directory exists.
  * Creates it if missing (on first run, after onboarding, or if deleted).
- * Sets up CLAUDE.md and .claude/commands for the SDK to load.
+ * Sets up CLAUDE.md and .claude/skills for the SDK to load.
  */
 function ensureAgentWorkspace(): string {
   const workspace = getAgentWorkspace();
@@ -252,115 +231,31 @@ function ensureAgentWorkspace(): string {
     fs.mkdirSync(workspace, { recursive: true });
   }
 
-  const currentVersion = app.getVersion();
-  const versionFile = path.join(workspace, '.pocket-version');
+  // Ensure .claude folder is symlinked from source (for skills and commands)
+  const workspaceClaudeDir = path.join(workspace, '.claude');
+  const sourceClaudeDir = path.join(__dirname, '../../.claude');
 
-  // Check if app version changed (update occurred)
-  let previousVersion: string | null = null;
-  let isVersionUpdate = false;
-
-  if (fs.existsSync(versionFile)) {
-    previousVersion = fs.readFileSync(versionFile, 'utf-8').trim();
-    if (previousVersion !== currentVersion) {
-      isVersionUpdate = true;
-      console.log(`[Main] App updated from v${previousVersion} to v${currentVersion}`);
-    }
-  } else {
-    // First install or version file missing - treat as update to populate files
-    isVersionUpdate = true;
-    console.log(`[Main] First install or version file missing, will populate config files`);
-  }
-
-  // Repopulate config files on version update
-  if (isVersionUpdate) {
-    const identityPath = path.join(workspace, 'identity.md');
-    const claudeMdPath = path.join(workspace, 'CLAUDE.md');
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const backupDir = path.join(workspace, '.backups');
-
-    // Create backup directory
-    if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
-    }
-
-    // Backup and repopulate identity.md
-    if (fs.existsSync(identityPath)) {
-      const backupPath = path.join(backupDir, `identity-${previousVersion || 'unknown'}-${timestamp}.md`);
-      fs.copyFileSync(identityPath, backupPath);
-      console.log(`[Main] Backed up identity.md to: ${backupPath}`);
-    }
-    fs.writeFileSync(identityPath, DEFAULT_IDENTITY);
-    console.log('[Main] Repopulated identity.md with latest defaults');
-
-    // Backup and repopulate CLAUDE.md
-    if (fs.existsSync(claudeMdPath)) {
-      const backupPath = path.join(backupDir, `CLAUDE-${previousVersion || 'unknown'}-${timestamp}.md`);
-      fs.copyFileSync(claudeMdPath, backupPath);
-      console.log(`[Main] Backed up CLAUDE.md to: ${backupPath}`);
-    }
-    fs.writeFileSync(claudeMdPath, DEFAULT_INSTRUCTIONS);
-    console.log('[Main] Repopulated CLAUDE.md with latest defaults');
-
-    // Populate default workflow commands
-    // If .claude is a symlink from a previous install, replace it with a real directory
-    const workspaceClaudeDirForCmds = path.join(workspace, '.claude');
-    if (fs.existsSync(workspaceClaudeDirForCmds) && fs.lstatSync(workspaceClaudeDirForCmds).isSymbolicLink()) {
-      // Preserve any user-created commands from the symlink target before replacing
-      const symlinkCommandsDir = path.join(workspaceClaudeDirForCmds, 'commands');
-      const preservedCommands: Array<{ name: string; content: string }> = [];
-      if (fs.existsSync(symlinkCommandsDir)) {
-        const defaultFilenames = new Set(DEFAULT_COMMANDS.map(c => c.filename));
-        for (const file of fs.readdirSync(symlinkCommandsDir).filter(f => f.endsWith('.md'))) {
-          if (!defaultFilenames.has(file)) {
-            preservedCommands.push({ name: file, content: fs.readFileSync(path.join(symlinkCommandsDir, file), 'utf-8') });
+  if (fs.existsSync(sourceClaudeDir)) {
+    try {
+      if (!fs.existsSync(workspaceClaudeDir)) {
+        // Create symlink to source .claude folder
+        fs.symlinkSync(sourceClaudeDir, workspaceClaudeDir, 'dir');
+        console.log('[Main] Symlinked .claude folder to workspace');
+      } else {
+        // Check if it's already a symlink
+        const stats = fs.lstatSync(workspaceClaudeDir);
+        if (!stats.isSymbolicLink()) {
+          // Workspace has its own .claude folder - symlink skills subfolder instead
+          const workspaceSkillsDir = path.join(workspaceClaudeDir, 'skills');
+          const sourceSkillsDir = path.join(sourceClaudeDir, 'skills');
+          if (!fs.existsSync(workspaceSkillsDir) && fs.existsSync(sourceSkillsDir)) {
+            fs.symlinkSync(sourceSkillsDir, workspaceSkillsDir, 'dir');
+            console.log('[Main] Symlinked skills folder to workspace');
           }
         }
       }
-      fs.unlinkSync(workspaceClaudeDirForCmds);
-      fs.mkdirSync(workspaceClaudeDirForCmds, { recursive: true });
-      console.log('[Main] Replaced .claude symlink with real directory for commands');
-      // Restore preserved user commands
-      if (preservedCommands.length > 0) {
-        const restoredDir = path.join(workspaceClaudeDirForCmds, 'commands');
-        fs.mkdirSync(restoredDir, { recursive: true });
-        for (const cmd of preservedCommands) {
-          fs.writeFileSync(path.join(restoredDir, cmd.name), cmd.content);
-        }
-        console.log(`[Main] Preserved ${preservedCommands.length} user workflow command(s)`);
-      }
-    }
-    const commandsDir = path.join(workspaceClaudeDirForCmds, 'commands');
-    if (!fs.existsSync(commandsDir)) {
-      fs.mkdirSync(commandsDir, { recursive: true });
-    }
-    // Only write defaults — never delete existing user commands
-    for (const cmd of DEFAULT_COMMANDS) {
-      fs.writeFileSync(path.join(commandsDir, cmd.filename), cmd.content);
-    }
-    console.log(`[Main] Populated ${DEFAULT_COMMANDS.length} default workflow command(s)`);
-
-    // Update version file
-    fs.writeFileSync(versionFile, currentVersion);
-    console.log(`[Main] Updated version file to v${currentVersion}`);
-  }
-
-  // Ensure .claude folder is symlinked from source (for skills and commands)
-  // Clean up legacy .claude/skills folder (no longer used)
-  const workspaceClaudeDir = path.join(workspace, '.claude');
-  if (fs.existsSync(workspaceClaudeDir)) {
-    const workspaceSkillsDir = path.join(workspaceClaudeDir, 'skills');
-    try {
-      if (fs.existsSync(workspaceSkillsDir)) {
-        const stats = fs.lstatSync(workspaceSkillsDir);
-        if (stats.isSymbolicLink()) {
-          fs.unlinkSync(workspaceSkillsDir);
-        } else {
-          fs.rmSync(workspaceSkillsDir, { recursive: true, force: true });
-        }
-        console.log('[Main] Removed legacy .claude/skills folder');
-      }
     } catch (err) {
-      console.warn('[Main] Failed to remove legacy .claude/skills:', err);
+      console.warn('[Main] Failed to setup .claude symlink:', err);
     }
   }
 
@@ -473,14 +368,12 @@ async function createTray(): Promise<void> {
     if (!icon1x.isEmpty() && !icon2x.isEmpty()) {
       // Create a multi-resolution image
       icon = nativeImage.createEmpty();
-      const traySize = IS_WINDOWS ? 16 : 22;
-      const traySize2x = IS_WINDOWS ? 32 : 44;
-      icon.addRepresentation({ scaleFactor: 1, width: traySize, height: traySize, buffer: icon1x.resize({ width: traySize, height: traySize }).toPNG() });
-      icon.addRepresentation({ scaleFactor: 2, width: traySize2x, height: traySize2x, buffer: icon2x.resize({ width: traySize2x, height: traySize2x }).toPNG() });
-      if (IS_MACOS) icon.setTemplateImage(true); // macOS menu bar only
+      icon.addRepresentation({ scaleFactor: 1, width: 22, height: 22, buffer: icon1x.resize({ width: 22, height: 22 }).toPNG() });
+      icon.addRepresentation({ scaleFactor: 2, width: 44, height: 44, buffer: icon2x.resize({ width: 44, height: 44 }).toPNG() });
+      icon.setTemplateImage(true); // For macOS menu bar
     } else if (!icon1x.isEmpty()) {
-      icon = icon1x.resize({ width: IS_WINDOWS ? 16 : 22, height: IS_WINDOWS ? 16 : 22 });
-      if (IS_MACOS) icon.setTemplateImage(true);
+      icon = icon1x.resize({ width: 22, height: 22 });
+      icon.setTemplateImage(true);
     } else {
       icon = createDefaultIcon();
     }
@@ -614,6 +507,10 @@ function updateTrayMenu(): void {
       accelerator: 'CmdOrCtrl+,',
     },
     {
+      label: 'Superpowers...',
+      click: () => createSkillsSetupWindow(),
+    },
+    {
       label: 'Check for Updates...',
       click: () => openSettingsWindow('updates'),
     },
@@ -634,61 +531,6 @@ function updateTrayMenu(): void {
   ]);
 
   tray.setContextMenu(contextMenu);
-}
-
-// ============ Splash Screen ============
-
-function showSplashScreen(): void {
-  console.log('[Main] Showing splash screen...');
-
-  // Get primary display for proper centering
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
-
-  const splashWidth = 650;
-  const splashHeight = 200;
-
-  splashWindow = new BrowserWindow({
-    width: splashWidth,
-    height: splashHeight,
-    x: Math.round((screenWidth - splashWidth) / 2),
-    y: Math.round((screenHeight - splashHeight) / 2),
-    frame: false,
-    transparent: true,
-    resizable: false,
-    movable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'splash-preload.js'),
-    },
-  });
-
-  splashWindow.loadFile(path.join(__dirname, '../../ui/splash.html'));
-
-  splashWindow.on('closed', () => {
-    splashWindow = null;
-  });
-
-  // Safety timeout - force close splash after 5 seconds if IPC fails
-  setTimeout(() => {
-    if (splashWindow && !splashWindow.isDestroyed()) {
-      console.log('[Main] Safety timeout: force-closing splash screen');
-      closeSplashScreen();
-    }
-  }, 5000);
-}
-
-function closeSplashScreen(): void {
-  console.log('[Main] closeSplashScreen called, splashWindow exists:', !!splashWindow);
-  if (splashWindow && !splashWindow.isDestroyed()) {
-    console.log('[Main] Closing splash window...');
-    splashWindow.close();
-    splashWindow = null;
-    console.log('[Main] Splash window closed');
-  }
 }
 
 // ============ Windows ============
@@ -1294,24 +1136,8 @@ function setupIPC(): void {
   // Chat messages with status streaming
   ipcMain.handle('agent:send', async (event, message: string, sessionId?: string) => {
     console.log(`[IPC] agent:send received sessionId: ${sessionId}`);
-
-    // Auto-initialize agent if not yet initialized (handles race conditions and late key setup)
-    if (!AgentManager.isInitialized()) {
-      if (SettingsManager.hasRequiredKeys()) {
-        console.log('[IPC] Agent not initialized, initializing now...');
-        await initializeAgent();
-      }
-      if (!AgentManager.isInitialized()) {
-        return { success: false, error: 'No API keys configured. Please add your key in Settings > LLM.' };
-      }
-    }
-
     // Set up status listener to forward to renderer
-    const effectiveSessionId = sessionId || 'default';
-    const statusHandler = (status: { type: string; sessionId?: string; toolName?: string; toolInput?: string; message?: string }) => {
-      // Only forward status events for this session (or events without sessionId for backward compat)
-      if (status.sessionId && status.sessionId !== effectiveSessionId) return;
-
+    const statusHandler = (status: { type: string; toolName?: string; toolInput?: string; message?: string }) => {
       // Send status update to the chat window that initiated the request
       const webContents = event.sender;
       if (!webContents.isDestroyed()) {
@@ -1326,11 +1152,12 @@ function setupIPC(): void {
       updateTrayMenu();
 
       // Sync to Telegram (Desktop -> Telegram) - only to the linked chat for this session
+      const effectiveSessionId = sessionId || 'default';
       const linkedChatId = memory?.getChatForSession(effectiveSessionId);
       console.log('[Main] Checking telegram sync - bot exists:', !!telegramBot, 'session:', effectiveSessionId, 'linked chat:', linkedChatId);
       if (telegramBot && linkedChatId) {
         console.log('[Main] Syncing desktop message to Telegram chat:', linkedChatId);
-        telegramBot.syncToChat(message, result.response, linkedChatId, result.media).catch((err) => {
+        telegramBot.syncToChat(message, result.response, linkedChatId).catch((err) => {
           console.error('[Main] Failed to sync desktop message to Telegram:', err);
         });
       }
@@ -1340,8 +1167,6 @@ function setupIPC(): void {
         response: result.response,
         tokensUsed: result.tokensUsed,
         suggestedPrompt: result.suggestedPrompt,
-        wasCompacted: result.wasCompacted,
-        media: result.media,
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -1361,9 +1186,6 @@ function setupIPC(): void {
 
   ipcMain.handle('agent:clear', async (_, sessionId?: string) => {
     AgentManager.clearConversation(sessionId);
-    if (sessionId) {
-      AgentManager.clearSdkSessionMapping(sessionId);
-    }
     updateTrayMenu();
     return { success: true };
   });
@@ -1393,9 +1215,6 @@ function setupIPC(): void {
   ipcMain.handle('sessions:delete', async (_, id: string) => {
     // Stop any running query for this session first to prevent orphaned processes
     AgentManager.stopQuery(id);
-    // Close persistent session (kills subprocess + bg tasks) and clear queue
-    AgentManager.clearQueue(id);
-    AgentManager.clearSdkSessionMapping(id);  // Also closes persistent session
     const success = memory?.deleteSession(id) ?? false;
     return { success };
   });
@@ -1476,36 +1295,6 @@ function setupIPC(): void {
 
   ipcMain.handle('app:showInFolder', async (_, filePath: string) => {
     shell.showItemInFolder(filePath);
-  });
-
-  // Open an image in the default viewer — handles both local paths and URLs
-  ipcMain.handle('app:openImage', async (_, src: string) => {
-    try {
-      if (src.startsWith('http://') || src.startsWith('https://')) {
-        // Remote URL — download to media dir first
-        const mediaDir = path.join(app.getPath('documents'), 'Pocket-agent', 'media');
-        if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
-
-        const res = await fetch(src);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const buf = Buffer.from(await res.arrayBuffer());
-
-        const contentType = res.headers.get('content-type') || '';
-        const ext = contentType.includes('jpeg') || contentType.includes('jpg') ? '.jpg'
-          : contentType.includes('gif') ? '.gif'
-          : contentType.includes('webp') ? '.webp'
-          : '.png';
-
-        const filePath = path.join(mediaDir, `img-${Date.now()}${ext}`);
-        fs.writeFileSync(filePath, buf);
-        await shell.openPath(filePath);
-      } else {
-        // Local file path
-        await shell.openPath(src);
-      }
-    } catch (err) {
-      console.error('[Main] Failed to open image:', err);
-    }
   });
 
   // Customize - Identity
@@ -2363,71 +2152,6 @@ Respond with ONLY valid JSON, no markdown, no explanation:
     return ClaudeOAuth.isPending();
   });
 
-  // Browser control
-  ipcMain.handle('browser:detectInstalled', async () => {
-    const { detectInstalledBrowsers } = await import('../browser/launcher');
-    return detectInstalledBrowsers();
-  });
-
-  ipcMain.handle('browser:launch', async (_, browserId: string, port?: number) => {
-    const { launchBrowser } = await import('../browser/launcher');
-    return launchBrowser(browserId, port || 9222);
-  });
-
-  ipcMain.handle('browser:testConnection', async (_, cdpUrl?: string) => {
-    const { testCdpConnection } = await import('../browser/launcher');
-    return testCdpConnection(cdpUrl || 'http://localhost:9222');
-  });
-
-  // Shell commands — platform-aware shell selection
-  ipcMain.handle('shell:runCommand', async (_, command: string) => {
-    const execAsync = promisify(exec);
-    const shellOpts: Record<string, unknown> = IS_WINDOWS
-      ? { shell: 'powershell.exe', env: process.env }
-      : { shell: '/bin/bash', env: { ...process.env, PATH: `${process.env.PATH}:/usr/local/bin:/opt/homebrew/bin:${HOME_DIR}/.local/bin` } };
-    try {
-      const { stdout } = await execAsync(command, shellOpts);
-      return stdout;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[Shell] Command failed:', errorMsg);
-      throw error;
-    }
-  });
-
-  // Commands (Workflows)
-  ipcMain.handle('commands:list', async () => {
-    return loadWorkflowCommands();
-  });
-
-  // Read media file as data URI (for displaying agent-generated images in chat)
-  ipcMain.handle('agent:readMedia', async (_, filePath: string) => {
-    try {
-      // Security: only allow reading from the Pocket-agent media directory
-      const mediaDir = path.join(app.getPath('documents'), 'Pocket-agent', 'media');
-      const resolvedPath = path.resolve(filePath);
-      if (!resolvedPath.startsWith(mediaDir)) {
-        throw new Error('Access denied: path outside media directory');
-      }
-
-      const buffer = fs.readFileSync(resolvedPath);
-      const ext = path.extname(resolvedPath).toLowerCase();
-      const mimeMap: Record<string, string> = {
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.gif': 'image/gif',
-        '.webp': 'image/webp',
-      };
-      const mimeType = mimeMap[ext] || 'image/png';
-      return `data:${mimeType};base64,${buffer.toString('base64')}`;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[Main] Failed to read media file:', errorMsg);
-      return null;
-    }
-  });
-
   // File attachments
   ipcMain.handle('attachment:save', async (_, name: string, dataUrl: string) => {
     try {
@@ -2592,7 +2316,84 @@ Respond with ONLY valid JSON, no markdown, no explanation:
   });
 
   // Skills
-  // Skills status/install/uninstall handlers removed (skills module was deleted)
+  ipcMain.handle('skills:getStatus', async () => {
+    const {
+      loadSkillsManifest,
+      getAllSkillStatuses,
+      getSkillsSummary,
+      checkPrerequisites,
+    } = await import('../skills');
+
+    const projectRoot = app.isPackaged
+      ? path.join(process.resourcesPath, 'app')
+      : path.join(__dirname, '../..');
+    const skillsDir = path.join(projectRoot, '.claude');
+
+    const manifest = loadSkillsManifest(skillsDir);
+    if (!manifest) {
+      return {
+        skills: [],
+        summary: { total: 0, available: 0, unavailable: 0, incompatible: 0 },
+        prerequisites: checkPrerequisites(),
+      };
+    }
+
+    const skills = getAllSkillStatuses(manifest);
+    const summary = getSkillsSummary(manifest);
+    const prerequisites = checkPrerequisites();
+
+    return { skills, summary, prerequisites };
+  });
+
+  ipcMain.handle('skills:install', async (_, skillName: string) => {
+    const {
+      loadSkillsManifest,
+      getSkillStatus,
+      installSkillDependencies,
+    } = await import('../skills');
+
+    const projectRoot = app.isPackaged
+      ? path.join(process.resourcesPath, 'app')
+      : path.join(__dirname, '../..');
+    const skillsDir = path.join(projectRoot, '.claude');
+
+    const manifest = loadSkillsManifest(skillsDir);
+    if (!manifest || !manifest.skills[skillName]) {
+      return { success: false, installed: [], failed: ['Skill not found'] };
+    }
+
+    const status = getSkillStatus(skillName, manifest.skills[skillName]);
+    const result = await installSkillDependencies(status, (msg) => {
+      console.log(`[Skills] ${skillName}: ${msg}`);
+    });
+
+    return result;
+  });
+
+  ipcMain.handle('skills:uninstall', async (_, skillName: string) => {
+    const {
+      loadSkillsManifest,
+      getSkillStatus,
+      uninstallSkillDependencies,
+    } = await import('../skills');
+
+    const projectRoot = app.isPackaged
+      ? path.join(process.resourcesPath, 'app')
+      : path.join(__dirname, '../..');
+    const skillsDir = path.join(projectRoot, '.claude');
+
+    const manifest = loadSkillsManifest(skillsDir);
+    if (!manifest || !manifest.skills[skillName]) {
+      return { success: false, removed: [], failed: ['Skill not found'] };
+    }
+
+    const status = getSkillStatus(skillName, manifest.skills[skillName]);
+    const result = await uninstallSkillDependencies(status, (msg) => {
+      console.log(`[Skills] ${skillName}: ${msg}`);
+    });
+
+    return result;
+  });
 
   ipcMain.handle('skills:openPermissionSettings', async (_, permissionType: string) => {
     const { openPermissionSettings } = await import('../permissions/macos');
@@ -2734,9 +2535,25 @@ Respond with ONLY valid JSON, no markdown, no explanation:
     return { success: true, filePath: result.filePaths[0] };
   });
 
-  // Skill setup config handler (skills module removed)
-  ipcMain.handle('skills:getSetupConfig', async () => {
-    return { found: false };
+  // Skill setup handlers
+  ipcMain.handle('skills:getSetupConfig', async (_, skillName: string) => {
+    const { loadSkillsManifest } = await import('../skills');
+
+    const projectRoot = app.isPackaged
+      ? path.join(process.resourcesPath, 'app')
+      : path.join(__dirname, '../..');
+    const skillsDir = path.join(projectRoot, '.claude');
+
+    const manifest = loadSkillsManifest(skillsDir);
+    if (!manifest || !manifest.skills[skillName]) {
+      return { found: false };
+    }
+
+    const skill = manifest.skills[skillName];
+    return {
+      found: true,
+      setup: skill.setup || undefined,
+    };
   });
 
   // File dialog for skill setup (e.g., uploading credentials files)
@@ -2757,17 +2574,147 @@ Respond with ONLY valid JSON, no markdown, no explanation:
     }
   );
 
-  // Setup command execution (skills module removed)
-  ipcMain.handle('skills:runSetupCommand', async () => {
-    return { success: false, error: 'Skills module removed', output: '' };
-  });
+  // Secure setup command execution - validates against manifest and sanitizes inputs
+  ipcMain.handle(
+    'skills:runSetupCommand',
+    async (
+      _,
+      params: { skillName: string; stepId: string; inputs?: Record<string, string> }
+    ) => {
+      const { loadSkillsManifest } = await import('../skills');
 
-  // Extract text from Office documents (docx, pptx, xlsx, odt, odp, ods, rtf)
-  ipcMain.handle('attachment:extract-text', async (_, filePath: string) => {
-    const { parseOffice } = await import('officeparser');
-    const ast = await parseOffice(filePath);
-    return ast.toText();
-  });
+      // Load manifest and validate skill exists
+      const projectRoot = app.isPackaged
+        ? path.join(process.resourcesPath, 'app')
+        : path.join(__dirname, '../..');
+      const skillsDir = path.join(projectRoot, '.claude');
+      const manifest = loadSkillsManifest(skillsDir);
+
+      if (!manifest || !manifest.skills[params.skillName]) {
+        return { success: false, error: 'Skill not found', output: '' };
+      }
+
+      const skill = manifest.skills[params.skillName];
+      if (!skill.setup || !skill.setup.steps) {
+        return { success: false, error: 'Skill has no setup steps', output: '' };
+      }
+
+      // Find the step
+      const step = skill.setup.steps.find(
+        (s: { id: string }) => s.id === params.stepId
+      );
+      if (!step || !step.command) {
+        return { success: false, error: 'Step not found or has no command', output: '' };
+      }
+
+      // Build command with sanitized input substitutions
+      let commandTemplate = step.command as string;
+      const inputs = params.inputs || {};
+
+      // Validate inputs don't contain shell metacharacters
+      const shellMetaChars = /[;&|`$(){}[\]<>\\!#*?"'\n\r]/;
+      for (const [key, value] of Object.entries(inputs)) {
+        if (shellMetaChars.test(value)) {
+          return {
+            success: false,
+            error: `Invalid characters in input "${key}"`,
+            output: '',
+          };
+        }
+        // Only substitute if the placeholder exists in template
+        if (commandTemplate.includes(`{{${key}}}`)) {
+          commandTemplate = commandTemplate.replace(
+            new RegExp(`\\{\\{${key}\\}\\}`, 'g'),
+            value
+          );
+        }
+      }
+
+      // Check for any remaining unsubstituted placeholders
+      if (/\{\{[^}]+\}\}/.test(commandTemplate)) {
+        return {
+          success: false,
+          error: 'Missing required inputs',
+          output: '',
+        };
+      }
+
+      // Parse command into binary and args (simple shell-like parsing)
+      const parts = commandTemplate.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+      if (parts.length === 0) {
+        return { success: false, error: 'Empty command', output: '' };
+      }
+
+      const binary = parts[0] as string;
+      const args = parts.slice(1).map((arg) => {
+        // Remove surrounding quotes if present
+        if ((arg.startsWith('"') && arg.endsWith('"')) || (arg.startsWith("'") && arg.endsWith("'"))) {
+          return arg.slice(1, -1);
+        }
+        return arg;
+      });
+
+      // Add common paths for homebrew, go, npm binaries, and node version managers
+      const home = process.env.HOME || '';
+      const extraPaths = [
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        `${home}/go/bin`,
+        `${home}/.npm-global/bin`,
+        `${home}/.local/bin`,
+        // Node version managers (NVM paths cached at startup)
+        ...cachedNvmPaths,
+        `${home}/.nodenv/shims`,                     // nodenv
+        `${home}/.asdf/shims`,                       // asdf
+        `${home}/.volta/bin`,                        // Volta
+        `${home}/.fnm/current/bin`,                  // fnm
+      ].join(':');
+
+      // Get API keys from settings to pass as environment variables
+      const { SettingsManager } = await import('../settings');
+      const apiKeysEnv = SettingsManager.getApiKeysAsEnv();
+
+      return new Promise<{ success: boolean; output: string; error?: string }>((resolve) => {
+        let stdout = '';
+        let stderr = '';
+
+        const child: ChildProcess = spawn(binary, args, {
+          env: {
+            ...process.env,
+            ...apiKeysEnv, // Include API keys from settings
+            PATH: `${extraPaths}:${process.env.PATH}`,
+          },
+          timeout: 60000,
+          shell: false, // Explicitly disable shell to prevent injection
+        });
+
+        child.stdout?.on('data', (data: Buffer) => {
+          stdout += data.toString();
+        });
+
+        child.stderr?.on('data', (data: Buffer) => {
+          stderr += data.toString();
+        });
+
+        child.on('error', (error: Error) => {
+          resolve({
+            success: false,
+            error: error.message,
+            output: [stdout, stderr].filter(Boolean).join('\n'),
+          });
+        });
+
+        child.on('close', (code: number | null) => {
+          const output = [stdout, stderr].filter(Boolean).join('\n');
+          resolve({
+            success: code === 0,
+            output,
+            ...(code !== 0 && { error: `Command exited with code ${code}` }),
+          });
+        });
+      });
+    }
+  );
 }
 
 // ============ Agent Lifecycle ============
@@ -2823,7 +2770,6 @@ async function initializeAgent(): Promise<void> {
     memory,
     projectRoot,
     workspace,  // Isolated working directory for agent file operations
-    dataDir: app.getPath('userData'),
     model: SettingsManager.get('agent.model'),
     tools: toolsConfig,
   });
@@ -2935,8 +2881,6 @@ async function initializeAgent(): Promise<void> {
               sessionId: data.sessionId,
               hasAttachment: data.hasAttachment,
               attachmentType: data.attachmentType,
-              wasCompacted: data.wasCompacted,
-              media: data.media,
             });
           }
           // Messages are already saved to SQLite, so they'll appear when user opens chat
@@ -2990,68 +2934,6 @@ app.whenReady().then(async () => {
   console.log('[Main] App ready, starting initialization...');
 
   try {
-    // Show splash screen immediately
-    showSplashScreen();
-
-    // === Power Management ===
-    // Prevent App Nap from throttling our timers (scheduler, reminders)
-    // This keeps the app responsive even when display is off
-    let powerBlockerId: number | null = null;
-
-    const startPowerBlocker = () => {
-      if (powerBlockerId === null) {
-        // 'prevent-app-suspension' keeps timers running accurately
-        powerBlockerId = powerSaveBlocker.start('prevent-app-suspension');
-        console.log('[Power] App suspension blocker started');
-      }
-    };
-
-    const stopPowerBlocker = () => {
-      if (powerBlockerId !== null && powerSaveBlocker.isStarted(powerBlockerId)) {
-        powerSaveBlocker.stop(powerBlockerId);
-        powerBlockerId = null;
-        console.log('[Power] App suspension blocker stopped');
-      }
-    };
-
-    // Start blocker immediately
-    startPowerBlocker();
-
-    // Handle system suspend/resume (actual sleep)
-    powerMonitor.on('suspend', () => {
-      console.log('[Power] System suspending (sleep)');
-      // Timers will be paused, nothing we can do
-    });
-
-    powerMonitor.on('resume', () => {
-      console.log('[Power] System resumed from sleep');
-      // Restart power blocker in case it was affected
-      startPowerBlocker();
-      // Force CDP reconnection — WebSocket is dead after sleep
-      getBrowserManager().forceReconnectCdp().catch((err) => {
-        console.warn('[Power] CDP reconnect after resume failed:', err);
-      });
-    });
-
-    // Handle lock screen (display off but CPU running)
-    powerMonitor.on('lock-screen', () => {
-      console.log('[Power] Screen locked');
-      // Keep blocker running - this is when App Nap would kick in
-    });
-
-    powerMonitor.on('unlock-screen', () => {
-      console.log('[Power] Screen unlocked');
-      // Force CDP reconnection — connection may have gone stale during lock
-      getBrowserManager().forceReconnectCdp().catch((err) => {
-        console.warn('[Power] CDP reconnect after unlock failed:', err);
-      });
-    });
-
-    // Clean up on app quit
-    app.on('will-quit', () => {
-      stopPowerBlocker();
-    });
-
     // Set Dock icon on macOS
     if (process.platform === 'darwin') {
       const dockIconPath = path.join(__dirname, '../../assets/icon.png');
@@ -3126,8 +3008,8 @@ app.whenReady().then(async () => {
       console.log('[Main] Auto-updater initialized');
     }
 
-    // Register global shortcut (Alt+Z on all platforms — maps to Option+Z on macOS)
-    const shortcut = 'Alt+Z';
+    // Register global shortcut (Option+Z on macOS, Alt+Z on Windows/Linux)
+    const shortcut = process.platform === 'darwin' ? 'Alt+Z' : 'Alt+Z';
     const registered = globalShortcut.register(shortcut, () => {
       openChatWindow();
     });

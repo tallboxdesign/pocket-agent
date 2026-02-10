@@ -1,13 +1,12 @@
 /**
  * Telegram command handlers
- * /start, /help, /status, /model, /new, /facts, /workflow, /link, /unlink, /mychatid
+ * /start, /help, /status, /model, /new, /facts, /link, /unlink, /mychatid
  */
 
 import { Context, Bot } from 'grammy';
 import { AgentManager } from '../../../agent';
 import { SettingsManager } from '../../../settings';
 import { SessionLinkCallback } from '../types';
-import { loadWorkflowCommands } from '../../../config/commands-loader';
 
 export interface CommandHandlerDeps {
   bot: Bot;
@@ -38,8 +37,7 @@ export function registerCommandHandlers(deps: CommandHandlerDeps): void {
       `/model - List or switch AI models\n` +
       `/status - Show agent status\n` +
       `/restart - Stop stuck query\n` +
-      `/facts [query] - Search stored facts\n` +
-      `/workflow - List available workflows` +
+      `/facts [query] - Search stored facts` +
       (isGroup ? `\n/link <session> - Link this group to a session\n/unlink - Unlink this group` : '')
     );
   });
@@ -57,10 +55,6 @@ Your AI assistant with persistent memory. I remember our conversations and learn
 /status - See stats and memory usage
 /restart - Stop stuck query
 /facts - Browse what I remember about you
-/workflow - List available workflows
-
-<b>Workflows</b>
-Workflows are reusable command templates. Use /workflow to see what's available, then run them directly (e.g. /create-workflow).
 
 <b>Tips</b>
 * Send text, photos, or voice messages
@@ -111,7 +105,6 @@ Workflows are reusable command templates. Use /workflow to see what's available,
     const sessionId = chatId && memory ? memory.getSessionForChat(chatId) || 'default' : 'default';
 
     AgentManager.clearConversation(sessionId);
-    AgentManager.clearSdkSessionMapping(sessionId);
     await ctx.reply('Fresh start! Conversation cleared.\nDon\'t worry - I still remember everything about you.');
   });
 
@@ -159,26 +152,6 @@ Workflows are reusable command templates. Use /workflow to see what's available,
       .join('\n');
 
     await ctx.reply(`Found ${facts.length} fact(s):\n\n${response}`);
-  });
-
-  // /workflow command - list available workflows
-  bot.command('workflow', async (ctx) => {
-    const commands = loadWorkflowCommands();
-
-    if (commands.length === 0) {
-      await ctx.reply('No workflows available.\n\nWorkflows are command files in .claude/commands/');
-      return;
-    }
-
-    const list = commands
-      .map(c => `/${c.name} - ${c.description || 'No description'}`)
-      .join('\n');
-
-    await ctx.reply(
-      `<b>Available Workflows</b>\n\n${list}\n\n` +
-      `Run a workflow by typing its command, e.g. /${commands[0].name}`,
-      { parse_mode: 'HTML' }
-    );
   });
 
   // /model command
