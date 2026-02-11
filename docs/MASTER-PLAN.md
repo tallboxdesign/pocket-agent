@@ -2577,38 +2577,59 @@ Allow routines to reference a workflow by name. When the scheduler fires, it loa
 
 ## 27. Telegram Bot Command Registration
 
-**Status:** IN PROGRESS
+**Status:** DONE ✅
 **Added:** 2026-02-10
+**Completed:** 2026-02-11
 
 ### Problem
-Telegram caches the slash command menu (`/help`, `/start`, etc.) from whatever bot previously used the same token. If the bot was previously used by another project (e.g. ClawdBot/OpenClaw), stale commands persist in the Telegram UI until `setMyCommands` is called.
+Telegram caches the slash command menu (`/help`, `/start`, etc.) from whatever bot previously used the same token. If the bot was previously used by another project (e.g. ClawdBot/OpenClaw), stale commands persist in the Telegram UI until `setMyCommands` is called with the correct scopes.
 
 ### Implementation
 
 #### 27.1 `registerBotCommands()` — `src/channels/telegram/handlers/commands.ts`
-- Exported function that calls `bot.api.setMyCommands()` with our command list
-- Merges built-in commands (help, status, new, model, workflow, facts, voice, unanswered, link, unlink, restart) with workflow commands loaded from `.claude/commands/`
+- Exported function that manages Telegram's command menu via Bot API
+- **Step 1: Delete all stale commands** across every scope:
+  - Default, `all_private_chats`, `all_group_chats`
+  - Per-chat scope for each allowed user ID (removes ClawdBot per-chat overrides)
+  - Per-chat-member scope for each allowed user ID
+- **Step 2: Set new commands** across every scope:
+  - Default, `all_private_chats`, and per-chat for each allowed user
+- Merges built-in commands (help, status, new, model, workflow, facts, voice, unanswered, link, unlink, restart) with workflow commands from `.claude/commands/`
 - Sanitizes workflow names to Telegram's `[a-z0-9_]` format, max 32 chars
 - Limits total commands to Telegram's 100-command cap
 
-#### 27.2 Called from `onStart` callback — `src/channels/telegram/index.ts`
-- `registerBotCommands(this.bot)` is called inside the Grammy `onStart` callback
-- This fires reliably when the bot connects to Telegram's polling API
-- **Key lesson:** Grammy's `bot.start()` returns a promise that resolves when the bot STOPS, not starts. Code after `await bot.start()` never executes during normal operation. Always use the `onStart` callback.
+#### 27.2 Called from `main/index.ts` via setTimeout + dynamic import
+- 3-second delay after `telegramBot.start()` to ensure bot is connected
+- Creates a **fresh `Bot` instance** with the token to bypass Electron's V8 code cache
+- Uses `await import()` for both Grammy and the commands handler
 
-#### 27.3 `registerCommands()` public method
-- `TelegramBot.registerCommands()` delegates to `registerBotCommands(this.bot)` without exposing the private `bot` property
+#### 27.3 `registerCommands()` public method + `registerTelegramCommands()` export
 - Available for manual re-registration (e.g., after adding new workflows)
+- `bot` property remains **private** — no external access to the Grammy Bot instance
 
-#### 27.4 `registerTelegramCommands()` module export
-- Calls `telegramBotInstance.registerCommands()` on the singleton
-- Can be called from main process or other modules without accessing bot internals
+### Critical Lessons Learned
+
+#### Electron V8 Code Cache
+- **Electron caches compiled bytecode** in `~/Library/Application Support/pocket-agent/Code Cache/`
+- Editing `.js` files in the installed app has **NO EFFECT** — the cached bytecode takes precedence
+- `Function.prototype.toString()` confirmed: the loaded function body differed from the file on disk
+- Clearing Code Cache doesn't reliably help — Electron may regenerate from stale sources
+- **Workaround:** Dynamic imports (`await import()`) and fresh object construction in `main/index.ts` bypass the cache
+- **Never put critical one-time initialization logic inside module-level class methods** in Electron packaged apps — put it in `main/index.ts` instead
+
+#### Telegram Command Scope Precedence
+- Telegram resolves commands in order: `chat` > `chat_member` > `all_private_chats` > `all_group_chats` > `default`
+- ClawdBot set commands with `chat` scope per-user, which **overrode** our default-scope commands
+- Must delete AND set commands across ALL scopes to ensure they appear correctly
+- `deleteMyCommands` without scope only clears the default — stale per-chat commands persist
+
+#### Grammy `bot.start()` Behavior
+- `bot.start()` returns a promise that resolves when the bot **STOPS**, not starts
+- Code after `await bot.start()` inside the TelegramBot class **never executes** during normal operation
+- Use the `onStart` callback for post-connection logic, or call from main with a setTimeout
 
 ### Security
 - `bot` property remains **private** — no external access to the Grammy Bot instance
-- Auth middleware checks allowlist on every message (not cached)
+- Auth middleware checks allowlist on every message (not cached, real-time)
 - Constructor throws if allowlist is empty
-
-### Known Issue
-- If the bot token was previously used by another bot project, Telegram may cache the old commands aggressively. The `setMyCommands` call should replace them, but the user may need to close and reopen the chat to see updates.
-- Telegram Desktop/Mobile clients sometimes cache command menus for hours — this is a Telegram client-side caching issue, not a bot-side issue.
+- Fresh Bot instance used for command registration is discarded after use
