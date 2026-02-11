@@ -43,7 +43,9 @@ export async function handleTextMessage(
     const commandName = (spaceIdx !== -1 ? message.substring(1, spaceIdx) : message.substring(1))
       .replace(/@\w+$/, ''); // Strip @botname suffix
     const userText = spaceIdx !== -1 ? message.substring(spaceIdx + 1).trim() : '';
-    const workflow = findWorkflowCommand(commandName);
+    // Try exact match first, then try with hyphens instead of underscores (Telegram normalizes to underscores)
+    const workflow = findWorkflowCommand(commandName)
+      || findWorkflowCommand(commandName.replace(/_/g, '-'));
 
     if (workflow) {
       fullMessage = `[Workflow: ${workflow.name}]\n${workflow.content}\n[/Workflow]`;
