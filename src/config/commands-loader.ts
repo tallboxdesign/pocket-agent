@@ -62,5 +62,11 @@ export function loadWorkflowCommands(): WorkflowCommand[] {
  */
 export function findWorkflowCommand(commandName: string): WorkflowCommand | undefined {
   const commands = loadWorkflowCommands();
-  return commands.find(c => c.name === commandName);
+  // Exact match first
+  const exact = commands.find(c => c.name === commandName);
+  if (exact) return exact;
+  // Fuzzy match: normalize both sides to [a-z0-9_] for Telegram command compatibility
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  const normalized = normalize(commandName);
+  return commands.find(c => normalize(c.name) === normalized);
 }
