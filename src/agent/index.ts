@@ -474,7 +474,7 @@ class AgentManagerClass extends EventEmitter {
    * use streamInput() to keep the subprocess alive (preserving background tasks).
    */
   private isQuotaError(msg: string): boolean {
-    const patterns = ['429', 'quota', 'insufficient balance', 'rate limit', 'exceeded', 'suspended'];
+    const patterns = ['429', 'quota', 'insufficient balance', 'rate limit', 'exceeded', 'suspended', 'invalid api key', 'invalid x-api-key'];
     const lower = msg.toLowerCase();
     return patterns.some(p => lower.includes(p));
   }
