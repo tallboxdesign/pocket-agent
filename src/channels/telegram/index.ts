@@ -433,12 +433,6 @@ export class TelegramBot extends BaseChannel {
           } catch {
             // Ignore EPIPE errors on stdout
           }
-          // Register bot commands with Telegram API after bot is confirmed running
-          registerBotCommands(this.bot).then(() => {
-            console.log('[Telegram] Bot commands registered');
-          }).catch(err => {
-            console.error('[Telegram] Failed to register bot commands:', err);
-          });
         },
       }).then(() => {
         this.isRunning = false;

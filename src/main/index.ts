@@ -2928,6 +2928,15 @@ async function initializeAgent(): Promise<void> {
 
         await telegramBot.start();
 
+        // Register bot commands after a short delay to ensure bot is connected
+        setTimeout(() => {
+          telegramBot?.registerCommands().then(() => {
+            console.log('[Main] Telegram commands registered');
+          }).catch(err => {
+            console.error('[Main] Failed to register Telegram commands:', err);
+          });
+        }, 3000);
+
         if (scheduler) {
           scheduler.setTelegramBot(telegramBot);
         }
