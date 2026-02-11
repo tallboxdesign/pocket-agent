@@ -6,12 +6,15 @@
 import { Context, Bot } from 'grammy';
 import { AgentManager } from '../../../agent';
 import { SettingsManager } from '../../../settings';
-import { SessionLinkCallback } from '../types';
+import { SessionLinkCallback, MessageCallback } from '../types';
 import { loadWorkflowCommands } from '../../../config/commands-loader';
 import { getAllowedUsers } from '../middleware/auth';
+import { withTyping } from '../utils/typing';
+import { setTelegramMessageContext } from '../../../tools/session-context';
 
 export interface CommandHandlerDeps {
   bot: Bot;
+  onMessageCallback?: MessageCallback | null;
   onSessionLinkCallback: SessionLinkCallback | null;
   sendResponse: (ctx: Context, text: string) => Promise<void>;
 }
@@ -372,6 +375,71 @@ Workflows are reusable command templates. Use /workflow to see what's available,
       await ctx.reply('Failed to reject task.');
     }
   });
+
+  // Register dynamic handlers for workflow commands
+  // grammY's bot.command() intercepts /commands before message:text fires,
+  // so workflows need explicit command handlers to work from the Telegram menu
+  registerWorkflowCommandHandlers(deps);
+}
+
+/**
+ * Register bot.command() handlers for each workflow command file.
+ * Without these, clicking a workflow command in Telegram's menu
+ * gets swallowed by grammY and never reaches the message:text handler.
+ */
+function registerWorkflowCommandHandlers(deps: CommandHandlerDeps): void {
+  const { bot, onMessageCallback, sendResponse } = deps;
+  const workflows = loadWorkflowCommands();
+  console.log(`[Telegram] Registering ${workflows.length} workflow command handlers: ${workflows.map(w => w.name).join(', ')}`);
+
+  for (const workflow of workflows) {
+    // Telegram normalizes command names to [a-z0-9_]
+    const telegramName = workflow.name.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 32);
+
+    bot.command(telegramName, async (ctx) => {
+      const chatId = ctx.chat?.id;
+      const messageId = ctx.message?.message_id;
+      if (!chatId) return;
+
+      if (messageId) setTelegramMessageContext({ chatId, messageId });
+
+      const userText = ctx.message?.text?.replace(/^\/\S+\s*/, '').trim() || '';
+      let fullMessage = `[Workflow: ${workflow.name}]\n${workflow.content}\n[/Workflow]`;
+      if (userText) fullMessage += `\n\n${userText}`;
+
+      console.log(`[Telegram:Cmd] Executing workflow: ${workflow.name} (/${telegramName})`);
+
+      try {
+        const result = await withTyping(ctx, async () => {
+          const memory = AgentManager.getMemory();
+          const sessionId = memory?.getSessionForChat(chatId) || 'default';
+          return AgentManager.processMessage(fullMessage, 'telegram', sessionId);
+        });
+
+        if (result?.response) {
+          await sendResponse(ctx, result.response);
+        }
+        if (onMessageCallback) {
+          const memory = AgentManager.getMemory();
+          const sessionId = memory?.getSessionForChat(chatId) || 'default';
+          onMessageCallback({
+            userMessage: fullMessage,
+            response: result?.response || '',
+            channel: 'telegram',
+            chatId,
+            sessionId,
+          });
+        }
+      } catch (err) {
+        console.error(`[Telegram:Cmd] Workflow ${workflow.name} error:`, err);
+        await ctx.reply('Sorry, something went wrong running this workflow.');
+      }
+    });
+  }
+
+  if (workflows.length > 0) {
+    console.log(`[Telegram] Registered ${workflows.length} workflow command handlers`);
+  }
 }
 
 /**

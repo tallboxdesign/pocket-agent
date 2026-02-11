@@ -123,6 +123,7 @@ export class TelegramBot extends BaseChannel {
   private setupHandlers(): void {
     const commandDeps: CommandHandlerDeps = {
       bot: this.bot,
+      onMessageCallback: this.onMessageCallback,
       onSessionLinkCallback: this.onSessionLinkCallback,
       sendResponse: this.sendResponse.bind(this),
     };

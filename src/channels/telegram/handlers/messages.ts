@@ -47,9 +47,12 @@ export async function handleTextMessage(
     const workflow = findWorkflowCommand(commandName)
       || findWorkflowCommand(commandName.replace(/_/g, '-'));
 
+    console.log(`[Telegram:Text] Slash command: /${commandName}, workflow found: ${!!workflow}`);
+
     if (workflow) {
       fullMessage = `[Workflow: ${workflow.name}]\n${workflow.content}\n[/Workflow]`;
       if (userText) fullMessage += `\n\n${userText}`;
+      console.log(`[Telegram:Text] Executing workflow: ${workflow.name}`);
     }
   }
 
