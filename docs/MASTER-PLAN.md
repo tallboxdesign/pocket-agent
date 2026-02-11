@@ -2633,3 +2633,15 @@ Telegram caches the slash command menu (`/help`, `/start`, etc.) from whatever b
 - Auth middleware checks allowlist on every message (not cached, real-time)
 - Constructor throws if allowlist is empty
 - Fresh Bot instance used for command registration is discarded after use
+
+#### 27.4 Dynamic Workflow Command Handlers — `registerWorkflowCommandHandlers()`
+- **Problem:** `registerBotCommands()` registers workflows with Telegram's `setMyCommands` API (so they appear in the menu), but grammY's `bot.command()` middleware intercepts `/commands` before the `message:text` handler fires. Unmatched commands were silently dropped — the AI agent would see raw `/guest_post_replies` text and respond "Unknown skill"
+- **Solution:** `registerWorkflowCommandHandlers()` creates a `bot.command()` handler for each workflow file at startup
+- Each handler: loads workflow content, wraps it in `[Workflow: name]...[/Workflow]` tags, sends to `AgentManager.processMessage()` via `withTyping()`
+- Telegram command names are normalized: `guest-post-replies` → `guest_post_replies` (matching `registerBotCommands()` logic)
+- Callback notifies desktop UI for cross-channel sync
+
+#### Critical Lesson: grammY Command Routing
+- In grammY, `bot.command('x')` handles `/x` — but messages with `/` prefix that don't match any registered `bot.command()` do NOT reliably fall through to `bot.on('message:text')`
+- The `message:text` handler was registered last as a fallback but **never received unmatched slash commands**
+- **Rule:** If a command appears in Telegram's menu (`setMyCommands`), it MUST also have a corresponding `bot.command()` handler
