@@ -2929,12 +2929,20 @@ async function initializeAgent(): Promise<void> {
         await telegramBot.start();
 
         // Register bot commands after a short delay to ensure bot is connected
-        setTimeout(() => {
-          telegramBot?.registerCommands().then(() => {
-            console.log('[Main] Telegram commands registered');
-          }).catch(err => {
+        // Uses dynamic import + fresh Bot instance to bypass Electron V8 code cache
+        setTimeout(async () => {
+          try {
+            const { Bot } = await import('grammy');
+            const { registerBotCommands } = await import('../channels/telegram/handlers/commands');
+            const token = SettingsManager.get('telegram.botToken');
+            if (token) {
+              const tempBot = new Bot(token);
+              await registerBotCommands(tempBot);
+              console.log('[Main] Telegram commands registered');
+            }
+          } catch (err) {
             console.error('[Main] Failed to register Telegram commands:', err);
-          });
+          }
         }, 3000);
 
         if (scheduler) {

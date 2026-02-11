@@ -8,6 +8,7 @@ import { AgentManager } from '../../../agent';
 import { SettingsManager } from '../../../settings';
 import { SessionLinkCallback } from '../types';
 import { loadWorkflowCommands } from '../../../config/commands-loader';
+import { getAllowedUsers } from '../middleware/auth';
 
 export interface CommandHandlerDeps {
   bot: Bot;
@@ -542,12 +543,35 @@ export async function registerBotCommands(bot: Bot): Promise<void> {
 
   const allCommands = [...builtIn, ...workflowCommands];
 
-  // Clear all existing command scopes first (removes stale commands from previous bot projects)
+  // Clear all existing command scopes (removes stale commands from previous bot projects like ClawdBot)
   await bot.api.deleteMyCommands();
   await bot.api.deleteMyCommands({ scope: { type: 'all_private_chats' } });
   await bot.api.deleteMyCommands({ scope: { type: 'all_group_chats' } });
 
-  // Telegram limits to 100 commands
-  await bot.api.setMyCommands(allCommands.slice(0, 100));
+  // Clear per-user chat scopes (ClawdBot set commands per-chat which override defaults)
+  const allowedUsers = getAllowedUsers();
+  for (const userId of allowedUsers) {
+    try {
+      await bot.api.deleteMyCommands({ scope: { type: 'chat', chat_id: userId } });
+      await bot.api.deleteMyCommands({ scope: { type: 'chat_member', chat_id: userId, user_id: userId } });
+    } catch {
+      // Chat scope may not exist, ignore
+    }
+  }
+
+  // Set commands for all scopes to ensure they appear everywhere
+  const cmds = allCommands.slice(0, 100);
+  await bot.api.setMyCommands(cmds);
+  await bot.api.setMyCommands(cmds, { scope: { type: 'all_private_chats' } });
+
+  // Also set per-chat so they override any remaining cached scopes
+  for (const userId of allowedUsers) {
+    try {
+      await bot.api.setMyCommands(cmds, { scope: { type: 'chat', chat_id: userId } });
+    } catch {
+      // ignore
+    }
+  }
+
   console.log(`[Telegram] Registered ${allCommands.length} bot commands (${builtIn.length} built-in + ${workflowCommands.length} workflows)`);
 }
