@@ -43,7 +43,6 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   'kimi-k2.5': 'moonshot',
   // Z.AI GLM models
   'glm-5': 'glm',
-  'glm-4.7': 'glm',
   // MiniMax models
   'MiniMax-M2.5': 'minimax',
   'MiniMax-M2.5-Lightning': 'minimax',
@@ -1247,7 +1246,6 @@ class AgentManagerClass extends EventEmitter {
       const modelNames: Record<string, string> = {
         'kimi-k2.5': 'Kimi K2.5 by Moonshot AI',
         'glm-5': 'GLM 5 by Zhipu AI',
-        'glm-4.7': 'GLM 4.7 by Zhipu AI',
         'MiniMax-M2.5': 'MiniMax M2.5',
         'MiniMax-M2.5-Lightning': 'MiniMax M2.5 Lightning',
       };
