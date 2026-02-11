@@ -473,12 +473,19 @@ class AgentManagerClass extends EventEmitter {
    * Uses persistent sessions: first message creates a Query, subsequent messages
    * use streamInput() to keep the subprocess alive (preserving background tasks).
    */
+  private isQuotaError(msg: string): boolean {
+    const patterns = ['429', 'quota', 'insufficient balance', 'rate limit', 'exceeded', 'suspended'];
+    const lower = msg.toLowerCase();
+    return patterns.some(p => lower.includes(p));
+  }
+
   private async executeMessage(
     userMessage: string,
     channel: string,
     sessionId: string,
     images?: ImageContent[],
-    attachmentInfo?: AttachmentInfo
+    attachmentInfo?: AttachmentInfo,
+    retryWithFallback = false
   ): Promise<ProcessResult> {
     // Memory should already be checked by processMessage, but guard anyway
     if (!this.memory) {
@@ -698,6 +705,20 @@ class AgentManagerClass extends EventEmitter {
         );
       }
 
+      // === Check for quota/billing errors and retry with fallback model ===
+      if (!retryWithFallback && turnResult.errors?.some(e => this.isQuotaError(e))) {
+        const fallbackModel = SettingsManager.get('agent.fallbackModel') as string | undefined;
+        if (fallbackModel && fallbackModel !== this.model) {
+          const originalModel = this.model;
+          console.log(`[AgentManager] Quota error in turnResult, falling back to ${fallbackModel}`);
+          this.closePersistentSession(sessionId);
+          this.setModel(fallbackModel);
+          const result = await this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo, true);
+          result.response = `[Switched to ${fallbackModel} — ${originalModel} quota exceeded]\n\n${result.response}`;
+          return result;
+        }
+      }
+
       // === Process turn result (same for both paths) ===
       let response = turnResult.response;
       const wasCompacted = turnResult.wasCompacted;
@@ -793,13 +814,27 @@ class AgentManagerClass extends EventEmitter {
         media: this.pendingMedia.length > 0 ? this.pendingMedia : undefined,
       };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[AgentManager] Query failed:', errorMsg);
       if (error instanceof Error && error.stack) {
         console.error('[AgentManager] Stack trace:', error.stack);
       }
       // Log full error object for debugging
       console.error('[AgentManager] Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
+      // Check if this is a quota/billing error and we have a fallback
+      if (this.isQuotaError(errorMsg) && !retryWithFallback) {
+        const fallbackModel = SettingsManager.get('agent.fallbackModel') as string | undefined;
+        if (fallbackModel && fallbackModel !== this.model) {
+          const originalModel = this.model;
+          console.log(`[AgentManager] Primary model quota exceeded, falling back to ${fallbackModel}`);
+          this.closePersistentSession(sessionId);
+          this.setModel(fallbackModel);
+          const result = await this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo, true);
+          result.response = `[Switched to ${fallbackModel} — ${originalModel} quota exceeded]\n\n${result.response}`;
+          return result;
+        }
+      }
 
       // Only save user message if error is not user-initiated
       memory.saveMessage('user', userMessage, sessionId);
