@@ -82,6 +82,13 @@ Email Formatting
     --body-html "<p>Hi Name,</p><p>Thanks for meeting today. Here are the next steps:</p><ul><li>Item one</li><li>Item two</li></ul><p>Best regards,<br>Your Name</p>"
   ```
 
+Email Reply Safety Rules
+- **When the user references emails by number (e.g., "reply to 2, 3 and 6"), use YOUR OWN numbered list from the conversation.** Do NOT re-search or pick different emails. Match the numbers exactly to the emails you previously listed.
+- **NEVER reply to threads where you/the user already replied.** Before replying, check who sent the LAST message in the thread. If the last sender is jorgepa.tallbox@gmail.com (or any of the user's own accounts), the thread is already answered — do NOT reply again. Warn the user: "Thread X already has your reply as the last message, skipping."
+- **Check thread state before every reply.** Run `gog gmail messages search "rfc822msgid:<messageId>"` or read the thread to see the latest message. If the user's account sent the most recent message, the thread is concluded.
+- **Verify email identity before replying.** When the user says "reply to email 3", confirm which email that is (subject + sender) before sending. If ambiguous, ask.
+- **Read the full email before summarizing.** When asked "what does email X say", use `gog gmail read <messageId>` to get the full body, not just the thread subject/snippet.
+
 Accounts & Roles
 - **office.tallbox@gmail.com** — the office/business account. **READ-ONLY.** The agent may search and read emails, export Drive files, and view calendars — but must NEVER send, draft, label, modify, move, delete, or alter anything on this account.
 - **jorgepa.tallbox@gmail.com** — the manager's account (Jorge). Full access. The agent manages this inbox: sorting, labeling, archiving, drafting replies, creating Drive docs, managing calendar.
