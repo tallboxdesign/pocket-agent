@@ -2743,7 +2743,7 @@ When many workflow buttons existed, they extended beyond the visible viewport wi
 
 ## 32. Upstream Port Phase 5 — v2.3.2 Cherry-Picks
 
-**Status:** 🚧 IN PROGRESS (2026-02-12)
+**Status:** ✅ DONE (2026-02-12)
 **Upstream:** KenKaiii/pocket-agent commits from 2026-02-10 to 2026-02-12
 
 ### Strategy
