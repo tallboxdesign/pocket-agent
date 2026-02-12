@@ -21,7 +21,7 @@ export async function handleTextMessage(
   ctx: Context,
   deps: MessageHandlerDeps
 ): Promise<void> {
-  const message = ctx.message?.text;
+  let message = ctx.message?.text;
   const chatId = ctx.chat?.id;
   const messageId = ctx.message?.message_id;
 
@@ -30,6 +30,18 @@ export async function handleTextMessage(
   if (!message || !chatId) {
     console.log('[Telegram:Text] No message or chatId, returning early');
     return;
+  }
+
+  // Include quoted reply context so agent sees what the user is responding to
+  const replyTo = ctx.message?.reply_to_message;
+  if (replyTo) {
+    const quotedText = ('text' in replyTo ? replyTo.text : null)
+      || ('caption' in replyTo ? replyTo.caption : null);
+    if (quotedText) {
+      const sender = replyTo.from?.first_name || 'Someone';
+      message = `[Replying to ${sender}: "${quotedText.slice(0, 300)}"]\n${message}`;
+      console.log(`[Telegram:Text] Reply context added from ${sender}`);
+    }
   }
 
   const { onMessageCallback, sendResponse } = deps;
