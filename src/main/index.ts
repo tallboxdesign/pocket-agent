@@ -1641,6 +1641,11 @@ function setupIPC(): void {
     return { success };
   });
 
+  ipcMain.handle('cron:update', async (_, name: string, prompt: string, sessionId?: string) => {
+    const success = scheduler?.updateJob(name, prompt, sessionId);
+    return { success };
+  });
+
   ipcMain.handle('cron:delete', async (_, name: string) => {
     const success = scheduler?.deleteJob(name);
     updateTrayMenu();

@@ -870,6 +870,22 @@ export class CronScheduler {
   }
 
   /**
+   * Update a job's prompt and optionally session
+   */
+  updateJob(name: string, prompt: string, sessionId?: string): boolean {
+    if (!this.memory) return false;
+    const updated = this.memory.updateCronJobPrompt(name, prompt, sessionId);
+    if (updated) {
+      const job = this.jobs.get(name);
+      if (job) {
+        job.prompt = prompt;
+        if (sessionId) job.sessionId = sessionId;
+      }
+    }
+    return updated;
+  }
+
+  /**
    * Delete a job
    */
   deleteJob(name: string): boolean {

@@ -83,6 +83,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   getCronJobs: () => ipcRenderer.invoke('cron:list'),
   createCronJob: (name: string, schedule: string, prompt: string, channel: string, sessionId: string) =>
     ipcRenderer.invoke('cron:create', name, schedule, prompt, channel, sessionId),
+  updateCronJob: (name: string, prompt: string, sessionId?: string) =>
+    ipcRenderer.invoke('cron:update', name, prompt, sessionId),
   deleteCronJob: (name: string) => ipcRenderer.invoke('cron:delete', name),
   toggleCronJob: (name: string, enabled: boolean) => ipcRenderer.invoke('cron:toggle', name, enabled),
   runCronJob: (name: string) => ipcRenderer.invoke('cron:run', name),
@@ -327,6 +329,7 @@ declare global {
       getTimezones: () => Promise<string[]>;
       getCronJobs: () => Promise<Array<{ id: number; name: string; schedule_type?: string; schedule: string | null; run_at?: string | null; interval_ms?: number | null; prompt: string; channel: string; enabled: boolean; session_id?: string | null; job_type?: 'routine' | 'reminder' }>>;
       createCronJob: (name: string, schedule: string, prompt: string, channel: string, sessionId: string) => Promise<{ success: boolean }>;
+      updateCronJob: (name: string, prompt: string, sessionId?: string) => Promise<{ success: boolean }>;
       deleteCronJob: (name: string) => Promise<{ success: boolean }>;
       toggleCronJob: (name: string, enabled: boolean) => Promise<{ success: boolean }>;
       runCronJob: (name: string) => Promise<{ jobName: string; response: string; success: boolean; error?: string } | null>;

@@ -665,6 +665,111 @@
       width: 100%;
       margin-bottom: -4px;
     }
+
+    /* Edit modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+      z-index: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn 0.2s ease;
+    }
+
+    .modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      width: 90%;
+      max-width: 440px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .modal h3 {
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 15px;
+      margin-bottom: 16px;
+    }
+
+    .modal .field {
+      margin-bottom: 12px;
+    }
+
+    .modal .field label {
+      display: block;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    .modal .field input,
+    .modal .field textarea,
+    .modal .field select {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .modal .field input:focus,
+    .modal .field textarea:focus,
+    .modal .field select:focus {
+      border-color: var(--accent);
+    }
+
+    .modal .field textarea {
+      min-height: 80px;
+      resize: vertical;
+      line-height: 1.4;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 16px;
+    }
+
+    .modal-actions button {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      transition: all 0.15s;
+    }
+
+    .modal-actions .cancel-btn {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+    }
+
+    .modal-actions .cancel-btn:hover {
+      background: var(--border);
+      color: var(--text-primary);
+    }
+
+    .modal-actions .save-btn {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-secondary) 100%);
+      color: white;
+      border: none;
+    }
+
+    .modal-actions .save-btn:hover {
+      transform: translateY(-1px);
+    }
   </style>
 </head>
 <body>
@@ -1136,6 +1241,11 @@
               : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
             }
           </button>
+          <button class="icon-btn" onclick="playNormalClick(); editJob('${escapeAttr(job.name)}')" title="Edit">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+            </svg>
+          </button>
           <button class="icon-btn" onclick="playNormalClick(); runJob('${escapeAttr(job.name)}')" title="Test run">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 3h6v5l3 9H6l3-9V3z"/><path d="M9 3h6"/><path d="M10 12h4"/>
@@ -1177,6 +1287,7 @@
     async function loadJobs() {
       try {
         const allJobs = await window.pocketAgent.getCronJobs();
+        allJobsCache = allJobs;
 
         const active = [];
         const reminders = [];
@@ -1338,6 +1449,67 @@
 
     function escapeAttr(text) {
       return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    // Store loaded jobs for editing
+    let allJobsCache = [];
+
+    function editJob(name) {
+      const job = allJobsCache.find(j => j.name === name);
+      if (!job) return;
+
+      const sessionOptions = Object.entries(sessionsMap).map(([id, n]) =>
+        `<option value="${escapeAttr(id)}"${id === (job.session_id || 'default') ? ' selected' : ''}>${escapeHtml(n)}</option>`
+      ).join('');
+
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+      overlay.innerHTML = `
+        <div class="modal">
+          <h3>Edit: ${escapeHtml(job.name)}</h3>
+          <div class="field">
+            <label>Prompt</label>
+            <textarea id="edit-prompt">${escapeHtml(job.prompt)}</textarea>
+          </div>
+          <div class="field">
+            <label>Session</label>
+            <select id="edit-session">${sessionOptions}</select>
+          </div>
+          <div class="modal-actions">
+            <button class="cancel-btn" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+            <button class="save-btn" onclick="saveEdit('${escapeAttr(job.name)}')">Save</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      overlay.querySelector('#edit-prompt').focus();
+    }
+
+    async function saveEdit(name) {
+      const job = allJobsCache.find(j => j.name === name);
+      if (!job) return;
+
+      const prompt = document.getElementById('edit-prompt').value.trim();
+      const sessionId = document.getElementById('edit-session').value;
+
+      if (!prompt) {
+        showToast('Prompt cannot be empty', 'error');
+        return;
+      }
+
+      try {
+        const result = await window.pocketAgent.updateCronJob(name, prompt, sessionId);
+        if (result.success) {
+          document.querySelector('.modal-overlay').remove();
+          showToast('Updated!', 'success');
+          loadJobs();
+        } else {
+          showToast('Update failed', 'error');
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     }
   </script>
 </body>

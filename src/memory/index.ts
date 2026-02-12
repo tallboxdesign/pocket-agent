@@ -1789,6 +1789,18 @@ export class MemoryManager {
     return result.lastInsertRowid as number;
   }
 
+  updateCronJobPrompt(name: string, prompt: string, sessionId?: string): boolean {
+    const stmt = this.db.prepare(
+      sessionId
+        ? `UPDATE cron_jobs SET prompt = ?, session_id = ? WHERE name = ?`
+        : `UPDATE cron_jobs SET prompt = ? WHERE name = ?`
+    );
+    const result = sessionId
+      ? stmt.run(prompt, sessionId, name)
+      : stmt.run(prompt, name);
+    return result.changes > 0;
+  }
+
   getCronJobs(enabledOnly: boolean = true): CronJob[] {
     const query = enabledOnly
       ? 'SELECT * FROM cron_jobs WHERE enabled = 1'
