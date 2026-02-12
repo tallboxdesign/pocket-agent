@@ -2664,6 +2664,10 @@ Respond with ONLY valid JSON, no markdown, no explanation:
     openKanbanWindow();
   });
 
+  ipcMain.handle('app:openCron', async () => {
+    openCronWindow();
+  });
+
   ipcMain.handle('app:openEmailProcessing', async () => {
     openEmailProcessingWindow();
   });

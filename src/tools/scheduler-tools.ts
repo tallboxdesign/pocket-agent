@@ -349,6 +349,12 @@ export async function handleScheduleTaskTool(input: unknown): Promise<string> {
     try {
       db.exec(`ALTER TABLE cron_jobs ADD COLUMN job_type TEXT DEFAULT 'routine'`);
     } catch { /* column exists */ }
+    try {
+      db.exec(`ALTER TABLE cron_jobs ADD COLUMN status TEXT DEFAULT 'pending'`);
+    } catch { /* column exists */ }
+    try {
+      db.exec(`ALTER TABLE cron_jobs ADD COLUMN fired_at TEXT`);
+    } catch { /* column exists */ }
 
     const sessionId = getCurrentSessionId();
 
@@ -395,6 +401,7 @@ export async function handleScheduleTaskTool(input: unknown): Promise<string> {
           schedule_type = ?, schedule = ?, run_at = ?, interval_ms = ?,
           prompt = ?, channel = ?, enabled = 1,
           delete_after_run = ?, next_run_at = ?, session_id = ?,
+          status = 'pending', fired_at = NULL,
           updated_at = datetime('now')
         WHERE name = ?
       `).run(
@@ -405,8 +412,8 @@ export async function handleScheduleTaskTool(input: unknown): Promise<string> {
       db.prepare(`
         INSERT INTO cron_jobs (
           name, schedule_type, schedule, run_at, interval_ms,
-          prompt, channel, enabled, delete_after_run, next_run_at, session_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+          prompt, channel, enabled, delete_after_run, next_run_at, session_id, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'pending')
       `).run(
         name, parsed.type, parsed.schedule || null, parsed.runAt || null, parsed.intervalMs || null,
         prompt, targetChannel, deleteAfterRun, nextRunAt, sessionId
@@ -426,13 +433,16 @@ export async function handleScheduleTaskTool(input: unknown): Promise<string> {
     }
 
     console.log(`[SchedulerTool] Task created: ${name} (${parsed.type})`);
+    const nextRunFormatted = formatDateTime(nextRunAt);
     return JSON.stringify({
       success: true,
       message: `Scheduled task "${name}" created`,
+      VERIFY_DATE: parsed.type === 'at' ? `⚠️ This task will fire at: ${nextRunFormatted}. Double-check this is the correct date and time!` : undefined,
       name,
       type: parsed.type,
       schedule: scheduleDesc,
-      next_run: formatDateTime(nextRunAt),
+      next_run: nextRunFormatted,
+      next_run_iso: nextRunAt,
       one_time: deleteAfterRun === 1,
       channel: targetChannel,
       session_id: sessionId,
@@ -549,6 +559,12 @@ export async function handleCreateReminderTool(input: unknown): Promise<string> 
     try {
       db.exec(`ALTER TABLE cron_jobs ADD COLUMN job_type TEXT DEFAULT 'routine'`);
     } catch { /* column exists */ }
+    try {
+      db.exec(`ALTER TABLE cron_jobs ADD COLUMN status TEXT DEFAULT 'pending'`);
+    } catch { /* column exists */ }
+    try {
+      db.exec(`ALTER TABLE cron_jobs ADD COLUMN fired_at TEXT`);
+    } catch { /* column exists */ }
 
     const sessionId = getCurrentSessionId();
 
@@ -594,6 +610,7 @@ export async function handleCreateReminderTool(input: unknown): Promise<string> 
           schedule_type = ?, schedule = ?, run_at = ?, interval_ms = ?,
           prompt = ?, channel = ?, enabled = 1,
           delete_after_run = ?, next_run_at = ?, session_id = ?, job_type = ?,
+          status = 'pending', fired_at = NULL,
           updated_at = datetime('now')
         WHERE name = ?
       `).run(
@@ -604,8 +621,8 @@ export async function handleCreateReminderTool(input: unknown): Promise<string> 
       db.prepare(`
         INSERT INTO cron_jobs (
           name, schedule_type, schedule, run_at, interval_ms,
-          prompt, channel, enabled, delete_after_run, next_run_at, session_id, job_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+          prompt, channel, enabled, delete_after_run, next_run_at, session_id, job_type, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 'pending')
       `).run(
         name, parsed.type, parsed.schedule || null, parsed.runAt || null, parsed.intervalMs || null,
         reminder, targetChannel, deleteAfterRun, nextRunAt, sessionId, 'reminder'
@@ -625,13 +642,16 @@ export async function handleCreateReminderTool(input: unknown): Promise<string> 
     }
 
     console.log(`[SchedulerTool] Reminder created: ${name} (${parsed.type})`);
+    const nextRunFormatted = formatDateTime(nextRunAt);
     return JSON.stringify({
       success: true,
       message: `Reminder "${name}" created`,
+      VERIFY_DATE: `⚠️ This reminder will fire at: ${nextRunFormatted}. Double-check this is the correct date and time! If the user asked for a specific day, confirm it matches.`,
       name,
       type: 'reminder',
       schedule: scheduleDesc,
-      next_run: formatDateTime(nextRunAt),
+      next_run: nextRunFormatted,
+      next_run_iso: nextRunAt,
       one_time: deleteAfterRun === 1,
       channel: targetChannel,
       session_id: sessionId,
@@ -678,32 +698,45 @@ export async function handleListScheduledTasksTool(): Promise<string> {
     });
   }
 
+  const formatJob = (job: typeof jobs[0]) => {
+    let scheduleDescription: string;
+    if (job.schedule_type === 'at' || (!job.schedule && job.next_run_at)) {
+      scheduleDescription = `one-time reminder, fires at ${formatDateTime(job.next_run_at ?? null) || job.next_run_at}`;
+    } else if (job.schedule_type === 'every' && job.interval_ms) {
+      scheduleDescription = `recurring every ${formatDuration(job.interval_ms)}`;
+    } else if (job.schedule) {
+      scheduleDescription = `cron: ${job.schedule}`;
+    } else {
+      scheduleDescription = 'unknown schedule';
+    }
+    return {
+      name: job.name,
+      type: job.job_type || 'routine',
+      schedule: scheduleDescription,
+      next_run: formatDateTime(job.next_run_at ?? null) || job.next_run_at || null,
+      prompt: job.prompt,
+      channel: job.channel,
+      enabled: job.enabled,
+      status: job.status || 'pending',
+    };
+  };
+
+  const activeRoutines = jobs.filter(j => (j.job_type || 'routine') === 'routine' && j.enabled).map(formatJob);
+  const upcomingReminders = jobs.filter(j => j.job_type === 'reminder' && j.enabled && (!j.status || j.status === 'pending')).map(formatJob);
+  const firedReminders = jobs.filter(j => j.job_type === 'reminder' && j.status === 'fired').map(formatJob);
+  const staleReminders = jobs.filter(j => j.status === 'stale').map(formatJob);
+  const acknowledged = jobs.filter(j => j.status === 'acknowledged').map(formatJob);
+  const disabledRoutines = jobs.filter(j => (j.job_type || 'routine') === 'routine' && !j.enabled).map(formatJob);
+
   return JSON.stringify({
     success: true,
     count: jobs.length,
-    tasks: jobs.map(job => {
-      // Build a human-readable schedule description so the agent doesn't get confused
-      let scheduleDescription: string;
-      if (job.schedule_type === 'at' || (!job.schedule && job.next_run_at)) {
-        scheduleDescription = `one-time reminder, fires at ${formatDateTime(job.next_run_at ?? null) || job.next_run_at}`;
-      } else if (job.schedule_type === 'every' && job.interval_ms) {
-        scheduleDescription = `recurring every ${formatDuration(job.interval_ms)}`;
-      } else if (job.schedule) {
-        scheduleDescription = `cron: ${job.schedule}`;
-      } else {
-        scheduleDescription = 'unknown schedule';
-      }
-
-      return {
-        name: job.name,
-        type: job.job_type || 'routine',
-        schedule: scheduleDescription,
-        next_run: formatDateTime(job.next_run_at ?? null) || job.next_run_at || null,
-        prompt: job.prompt,
-        channel: job.channel,
-        enabled: job.enabled,
-      };
-    }),
+    active_routines: activeRoutines,
+    upcoming_reminders: upcomingReminders,
+    fired_reminders: firedReminders,
+    stale_reminders: staleReminders,
+    acknowledged,
+    disabled_routines: disabledRoutines,
   });
 }
 
@@ -803,9 +836,14 @@ export async function handleAcknowledgeReminderTool(input: unknown): Promise<str
       return JSON.stringify({ success: false, error: `Reminder "${name}" not found` });
     }
 
-    // Archive: disable and clear next_run_at
+    // Ensure status column exists
+    try {
+      db.exec(`ALTER TABLE cron_jobs ADD COLUMN status TEXT DEFAULT 'pending'`);
+    } catch { /* column exists */ }
+
+    // Archive: disable, clear next_run_at, set status to acknowledged
     db.prepare(`
-      UPDATE cron_jobs SET enabled = 0, next_run_at = NULL, updated_at = datetime('now')
+      UPDATE cron_jobs SET enabled = 0, next_run_at = NULL, status = 'acknowledged', updated_at = datetime('now')
       WHERE name = ?
     `).run(name);
 

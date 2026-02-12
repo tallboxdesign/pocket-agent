@@ -166,6 +166,9 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   // Commands (Workflows)
   getCommands: () => ipcRenderer.invoke('commands:list'),
 
+  // Routines
+  openCron: () => ipcRenderer.invoke('app:openCron'),
+
   // Calendar
   openCalendar: () => ipcRenderer.invoke('app:openCalendar'),
   calendarList: (startDate?: string, endDate?: string) => ipcRenderer.invoke('calendar:list', startDate, endDate),
@@ -388,6 +391,8 @@ declare global {
       completeOAuth: (code: string) => Promise<{ success: boolean; error?: string }>;
       cancelOAuth: () => Promise<{ success: boolean }>;
       isOAuthPending: () => Promise<boolean>;
+      // Routines
+      openCron: () => Promise<void>;
       // Calendar
       openCalendar: () => Promise<void>;
       calendarList: (startDate?: string, endDate?: string) => Promise<Array<Record<string, unknown>>>;

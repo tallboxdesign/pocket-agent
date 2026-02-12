@@ -479,6 +479,20 @@
       color: var(--error);
     }
 
+    .icon-btn.success:hover {
+      background: rgba(34, 197, 94, 0.2);
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    .archived-content {
+      display: none;
+    }
+
+    .archived-content.expanded {
+      display: block;
+    }
+
     .icon-btn svg {
       width: 12px;
       height: 12px;
@@ -781,19 +795,38 @@
       </div>
     </section>
 
-    <section class="section">
-      <h2 class="section-title">Running on Autopilot</h2>
-      <p class="section-desc">Your scheduled routines.</p>
-
+    <section class="section" id="section-active" style="display:none;">
+      <h2 class="section-title">Active Routines</h2>
+      <p class="section-desc">Your recurring scheduled routines.</p>
       <div class="settings-grid">
-        <div id="jobs-list" class="jobs-list">
-          <div class="empty-state">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
-            </svg>
-            <p>Loading...</p>
-          </div>
+        <div id="jobs-active" class="jobs-list"></div>
+      </div>
+    </section>
+
+    <section class="section" id="section-reminders" style="display:none;">
+      <h2 class="section-title">Upcoming Reminders</h2>
+      <p class="section-desc">One-time reminders waiting to fire.</p>
+      <div class="settings-grid">
+        <div id="jobs-reminders" class="jobs-list"></div>
+      </div>
+    </section>
+
+    <section class="section" id="section-fired" style="display:none;">
+      <h2 class="section-title">Fired / Needs Attention</h2>
+      <p class="section-desc">Reminders that fired and need acknowledgement.</p>
+      <div class="settings-grid">
+        <div id="jobs-fired" class="jobs-list"></div>
+      </div>
+    </section>
+
+    <section class="section" id="section-archived" style="display:none;">
+      <div class="section-header" onclick="toggleArchived()" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+        <h2 class="section-title">Archived</h2>
+        <span id="archived-toggle" style="font-size: 12px; color: var(--text-muted);">&#9656;</span>
+      </div>
+      <div class="archived-content" id="archived-content">
+        <div class="settings-grid">
+          <div id="jobs-archived" class="jobs-list"></div>
         </div>
       </div>
     </section>
@@ -1024,7 +1057,6 @@
       return `${timeStr} daily`;
     }
 
-    const jobsList = document.getElementById('jobs-list');
     let sessionsMap = {}; // Map session_id to session name
 
     let workflowCommands = [];
@@ -1085,57 +1117,121 @@
       }
     }
 
+    function renderJobItem(job, i, extraActions) {
+      const sessionName = sessionsMap[job.session_id] || job.session_id || 'Default';
+      const actions = extraActions || '';
+      return `
+      <div class="job-item ${job.enabled ? '' : 'disabled'}" style="animation-delay: ${i * 50}ms">
+        <div class="job-status"></div>
+        <div class="job-info">
+          <div class="job-name">${escapeHtml(job.name)}<span class="job-session-badge">${escapeHtml(sessionName)}</span></div>
+          <div class="job-schedule">${scheduleToHuman(job)}</div>
+          <div class="job-prompt">${job.prompt.startsWith('[Workflow: ') ? '&#9889; ' + escapeHtml(job.prompt.substring(11, job.prompt.indexOf(']'))) : escapeHtml(job.prompt)}</div>
+        </div>
+        <div class="job-actions">
+          ${actions}
+          <button class="icon-btn" onclick="playNormalClick(); toggleJob('${escapeAttr(job.name)}', ${!job.enabled})" title="${job.enabled ? 'Pause' : 'Resume'}">
+            ${job.enabled
+              ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
+              : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
+            }
+          </button>
+          <button class="icon-btn" onclick="playNormalClick(); runJob('${escapeAttr(job.name)}')" title="Test run">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 3h6v5l3 9H6l3-9V3z"/><path d="M9 3h6"/><path d="M10 12h4"/>
+            </svg>
+          </button>
+          <button class="icon-btn danger" onclick="playNormalClick(); archiveJob('${escapeAttr(job.name)}')" title="Archive">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>
+            </svg>
+          </button>
+        </div>
+      </div>`;
+    }
+
+    const acknowledgeBtn = (name) => `
+      <button class="icon-btn success" onclick="playNormalClick(); acknowledgeJob('${escapeAttr(name)}')" title="Acknowledge">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6L9 17l-5-5"/>
+        </svg>
+      </button>`;
+
+    async function acknowledgeJob(name) {
+      try {
+        await window.pocketAgent.toggleCronJob(name, false);
+        showToast('Acknowledged!', 'success');
+        loadJobs();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    function toggleArchived() {
+      const content = document.getElementById('archived-content');
+      const toggle = document.getElementById('archived-toggle');
+      const expanded = content.classList.toggle('expanded');
+      toggle.innerHTML = expanded ? '&#9662;' : '&#9656;';
+    }
+
     async function loadJobs() {
       try {
         const allJobs = await window.pocketAgent.getCronJobs();
-        // Show all jobs including one-time reminders, but hide archived (disabled with no next_run)
-        const jobs = allJobs.filter(job => job.enabled);
 
-        if (jobs.length === 0) {
-          jobsList.innerHTML = `
-            <div class="empty-state">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="12 6 12 12 16 14"/>
-              </svg>
-              <p>nothing scheduled yet!</p>
-            </div>
-          `;
-          return;
+        const active = [];
+        const reminders = [];
+        const fired = [];
+        const archived = [];
+
+        for (const job of allJobs) {
+          const status = job.status || '';
+          const isReminder = job.job_type === 'reminder' || job.delete_after_run;
+          const isAtOnce = job.schedule_type === 'at';
+
+          // Fired / Needs Attention: status is fired or stale
+          if (status === 'fired' || status === 'stale') {
+            fired.push(job);
+          }
+          // Archived: acknowledged, or disabled without a fired/stale status
+          else if (status === 'acknowledged' || (!job.enabled && !status)) {
+            archived.push(job);
+          }
+          // Upcoming Reminders: one-time or delete_after_run, pending/no-status, enabled
+          else if (isReminder && job.enabled) {
+            reminders.push(job);
+          }
+          // Active Routines: enabled recurring jobs
+          else if (job.enabled && (!isAtOnce || !job.delete_after_run) && !isReminder) {
+            active.push(job);
+          }
+          // Fallback: anything else disabled goes to archived
+          else if (!job.enabled) {
+            archived.push(job);
+          }
+          // Fallback: enabled but unclassified goes to active
+          else {
+            active.push(job);
+          }
         }
 
-        jobsList.innerHTML = jobs.map((job, i) => {
-          const sessionName = sessionsMap[job.session_id] || job.session_id || 'Default';
-          return `
-          <div class="job-item ${job.enabled ? '' : 'disabled'}" style="animation-delay: ${i * 50}ms">
-            <div class="job-status"></div>
-            <div class="job-info">
-              <div class="job-name">${escapeHtml(job.name)}<span class="job-session-badge">${escapeHtml(sessionName)}</span></div>
-              <div class="job-schedule">${scheduleToHuman(job)}</div>
-              <div class="job-prompt">${job.prompt.startsWith('[Workflow: ') ? '⚡ ' + escapeHtml(job.prompt.substring(11, job.prompt.indexOf(']'))) : escapeHtml(job.prompt)}</div>
-            </div>
-            <div class="job-actions">
-              <button class="icon-btn" onclick="playNormalClick(); toggleJob('${escapeAttr(job.name)}', ${!job.enabled})" title="${job.enabled ? 'Pause' : 'Resume'}">
-                ${job.enabled
-                  ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
-                  : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
-                }
-              </button>
-              <button class="icon-btn" onclick="playNormalClick(); runJob('${escapeAttr(job.name)}')" title="Test run">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M9 3h6v5l3 9H6l3-9V3z"/><path d="M9 3h6"/><path d="M10 12h4"/>
-                </svg>
-              </button>
-              <button class="icon-btn danger" onclick="playNormalClick(); archiveJob('${escapeAttr(job.name)}')" title="Archive">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        `}).join('');
+        function showSection(id, jobs, extra) {
+          const section = document.getElementById('section-' + id);
+          const list = document.getElementById('jobs-' + id);
+          if (jobs.length === 0) {
+            section.style.display = 'none';
+            return;
+          }
+          section.style.display = '';
+          list.innerHTML = jobs.map((job, i) => renderJobItem(job, i, extra ? extra(job) : '')).join('');
+        }
+
+        showSection('active', active);
+        showSection('reminders', reminders);
+        showSection('fired', fired, (job) => acknowledgeBtn(job.name));
+        showSection('archived', archived);
       } catch (err) {
-        jobsList.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
+        document.getElementById('jobs-active').innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
+        document.getElementById('section-active').style.display = '';
       }
     }
 

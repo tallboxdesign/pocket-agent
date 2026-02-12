@@ -52,6 +52,8 @@ export interface CronJob {
   next_run_at?: string | null;
   session_id?: string | null;
   job_type?: 'routine' | 'reminder';
+  status?: 'pending' | 'fired' | 'acknowledged' | 'stale';
+  fired_at?: string | null;
 }
 
 export interface ConversationContext {
@@ -229,6 +231,8 @@ export class MemoryManager {
         last_status TEXT CHECK(last_status IN ('ok', 'error', 'skipped')),
         last_error TEXT,
         last_duration_ms INTEGER,
+        status TEXT DEFAULT 'pending',
+        fired_at TEXT,
         created_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ'))),
         updated_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ')))
       );
@@ -519,6 +523,26 @@ export class MemoryManager {
         console.log(`[Memory] Migrated ${count} cron jobs to default session`);
       }
       console.log('[Memory] Migrated cron_jobs table: added session_id column');
+    }
+
+    // Migrate cron_jobs: add status and fired_at columns
+    if (!hasColumn('cron_jobs', 'status')) {
+      this.db.exec(`ALTER TABLE cron_jobs ADD COLUMN status TEXT DEFAULT 'pending'`);
+      // Existing one-time jobs that already ran get status='fired'
+      this.db.prepare(`
+        UPDATE cron_jobs SET status = 'fired'
+        WHERE delete_after_run = 1 AND enabled = 0 AND last_run_at IS NOT NULL AND status = 'pending'
+      `).run();
+      console.log('[Memory] Migrated cron_jobs table: added status column');
+    }
+    if (!hasColumn('cron_jobs', 'fired_at')) {
+      this.db.exec(`ALTER TABLE cron_jobs ADD COLUMN fired_at TEXT`);
+      // Backfill fired_at from last_run_at for already-fired reminders
+      this.db.prepare(`
+        UPDATE cron_jobs SET fired_at = last_run_at
+        WHERE status = 'fired' AND fired_at IS NULL AND last_run_at IS NOT NULL
+      `).run();
+      console.log('[Memory] Migrated cron_jobs table: added fired_at column');
     }
 
     // Create indexes for session filtering

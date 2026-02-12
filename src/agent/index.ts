@@ -2126,9 +2126,20 @@ notify(title="Reminder", body="Meeting in 5 minutes", urgency="critical")
       year: 'numeric',
     });
 
+    // Build upcoming weekday reference so agent knows exact dates
+    const weekRef: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() + i);
+      const dn = dayNames[d.getDay()];
+      const ds = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      weekRef.push(i === 0 ? `${dn} ${ds} (TODAY)` : `${dn} ${ds}`);
+    }
+
     const lines = [
       '## Current Time',
       `It is ${dayName}, ${dateStr} at ${timeStr}.`,
+      `Upcoming days: ${weekRef.join(', ')}.`,
     ];
 
     // Add time since last message if available

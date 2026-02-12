@@ -83,6 +83,19 @@ Use \`pocket\` CLI for external data before falling back to web search. Returns 
 - Both reminders and tasks appear in \`list_scheduled_tasks()\`. They are the same system.
 - If unsure which tool, ask the user.
 
+## Calendar vs Reminders vs Routines
+
+- **Calendar events** = things with a time slot you attend (meetings, appointments, flights). Use \`calendar_add\`.
+- **Reminders** = nudges to not forget something (call mom, take meds, check something). Use \`create_reminder\`.
+- **Routines** = recurring agent actions (check weather, summarize news). Use \`schedule_task\`.
+
+Never use calendar for reminders. Never use schedule_task for simple notifications.
+
+**Reminder lifecycle:** One-time reminders go through: pending → fired → acknowledged.
+- When a reminder fires, it moves to "fired" status
+- If the user says "got it", "done", "thanks" after a reminder, use \`acknowledge_reminder\` to close it
+- Unacknowledged reminders become "stale" after 2 days and the user gets nagged
+
 ## Proactive Behavior
 
 - Save to memory as you learn things - don't batch it

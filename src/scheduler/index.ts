@@ -217,6 +217,9 @@ export class CronScheduler {
 
       // Check for due cron jobs
       await this.checkDueJobs(db, now);
+
+      // Check for stale reminders (fired but not acknowledged after 2 days)
+      await this.checkStaleReminders(db);
     } catch (error) {
       console.error('[Scheduler] Reminder check failed:', error);
     } finally {
@@ -298,19 +301,21 @@ export class CronScheduler {
         const nextRunAt = this.calculateNextRun(job.schedule_type, job.schedule, job.interval_ms);
 
         if (job.delete_after_run === 1) {
-          // One-time reminder: reschedule follow-up ping in 3 days instead of deleting
-          const followUpDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+          // One-time reminder: mark as fired, disable, no follow-up
           db.prepare(`
             UPDATE cron_jobs SET
               last_run_at = datetime(?),
               last_status = 'ok',
               last_error = NULL,
               last_duration_ms = ?,
-              next_run_at = ?,
+              next_run_at = NULL,
+              enabled = 0,
+              status = 'fired',
+              fired_at = datetime(?),
               updated_at = datetime('now')
             WHERE id = ?
-          `).run(now.toISOString(), duration, followUpDate.toISOString(), job.id);
-          console.log(`[Scheduler] One-time job "${job.name}" fired, follow-up ping scheduled for ${followUpDate.toISOString()}`);
+          `).run(now.toISOString(), duration, now.toISOString(), job.id);
+          console.log(`[Scheduler] One-time job "${job.name}" fired, status set to 'fired'`);
         } else {
           // Update state
           db.prepare(`
@@ -375,6 +380,43 @@ export class CronScheduler {
         }
       }
     }
+  }
+
+  /**
+   * Check for reminders that fired but were never acknowledged (older than 2 days)
+   */
+  private async checkStaleReminders(db: Database.Database): Promise<void> {
+    interface StaleJob {
+      id: number;
+      name: string;
+      prompt: string;
+      channel: string;
+      session_id: string | null;
+      fired_at: string;
+    }
+
+    const staleJobs = db.prepare(`
+      SELECT id, name, prompt, channel, session_id, fired_at
+      FROM cron_jobs
+      WHERE status = 'fired' AND fired_at IS NOT NULL AND datetime(fired_at) < datetime('now', '-2 days')
+    `).all() as StaleJob[];
+
+    if (staleJobs.length === 0) return;
+
+    // Mark all as stale
+    const ids = staleJobs.map(j => j.id);
+    db.prepare(`UPDATE cron_jobs SET status = 'stale', updated_at = datetime('now') WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+
+    // Send a single notification listing stale reminders
+    const lines = staleJobs.map(j => `- ${j.name}: ${j.prompt.slice(0, 80)}`);
+    const message = `The following reminders fired over 2 days ago but were never acknowledged:\n${lines.join('\n')}\n\nUse acknowledge_reminder to dismiss them.`;
+
+    // Route to the first stale job's channel/session as representative
+    const representative = staleJobs[0];
+    const sessionId = representative.session_id || 'default';
+    await this.routeJobResponse('stale_reminders', '', message, representative.channel, sessionId);
+
+    console.log(`[Scheduler] Marked ${staleJobs.length} reminders as stale`);
   }
 
   /**

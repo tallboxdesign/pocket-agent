@@ -2822,3 +2822,12 @@ After each wave:
 - [ ] Verify: Telegram bot connects, custom commands work (/voice, /unanswered)
 - [ ] Verify: model switching works (Claude, GLM-5, GLM-4.7)
 - [ ] Verify: email processing runs without errors
+
+## 33. Routines/Reminders Separation (v2.2.7)
+
+**Status:** ✅ DONE
+
+- Added `status` field to cron_jobs (pending/fired/acknowledged/stale) with `fired_at` timestamp
+- Stale reminder nagger: auto-detects unacknowledged reminders after 2 days
+- UI split into 4 sections: Active Routines, Upcoming Reminders, Fired/Needs Attention, Archived
+- Clear agent instructions distinguishing calendar vs reminders vs routines
