@@ -143,7 +143,7 @@ JSON array:`;
   const result = queryFn({
     prompt,
     options: {
-      model: 'glm-4.7',
+      model: 'glm-5',
       maxTurns: 1,
       tools: { type: 'preset', preset: 'claude_code' },
       allowedTools: [],  // No tools needed for this
@@ -217,7 +217,7 @@ Format your response as:
   const result = queryFn({
     prompt,
     options: {
-      model: 'glm-4.7',
+      model: 'glm-5',
       maxTurns: 1,
       tools: { type: 'preset', preset: 'claude_code' },
       allowedTools: [],

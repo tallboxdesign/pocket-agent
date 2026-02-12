@@ -151,6 +151,11 @@ function estimateTokens(text: string): number {
 export class MemoryManager {
   private db: Database.Database;
   private summarizer?: SummarizerFn;
+
+  /** Expose raw db for direct queries (e.g. calendar IPC handlers) */
+  getDatabase(): Database.Database {
+    return this.db;
+  }
   private embeddingsReady: boolean = false;
 
   // Cache for facts context (invalidated on fact changes)
@@ -1798,7 +1803,11 @@ export class MemoryManager {
   }
 
   deleteCronJob(name: string): boolean {
-    const stmt = this.db.prepare('DELETE FROM cron_jobs WHERE name = ?');
+    // Archive instead of delete - disable and mark with archived timestamp
+    const stmt = this.db.prepare(`
+      UPDATE cron_jobs SET enabled = 0, next_run_at = NULL, updated_at = datetime('now')
+      WHERE name = ?
+    `);
     const result = stmt.run(name);
     return result.changes > 0;
   }

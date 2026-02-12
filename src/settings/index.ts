@@ -106,7 +106,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     key: 'zhipu.model',
-    defaultValue: 'glm-4.7',
+    defaultValue: 'glm-5',
     encrypted: false,
     category: 'llm',
     label: 'GLM Worker Model',
@@ -1160,7 +1160,7 @@ class SettingsManagerClass {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'glm-4.7',
+          model: 'glm-5',
           max_tokens: 10,
           messages: [{ role: 'user', content: 'Hi' }],
         }),

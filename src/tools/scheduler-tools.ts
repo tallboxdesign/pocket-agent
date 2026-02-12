@@ -681,14 +681,29 @@ export async function handleListScheduledTasksTool(): Promise<string> {
   return JSON.stringify({
     success: true,
     count: jobs.length,
-    tasks: jobs.map(job => ({
-      name: job.name,
-      type: job.job_type || 'routine',
-      schedule: job.schedule,
-      prompt: job.prompt,
-      channel: job.channel,
-      enabled: job.enabled,
-    })),
+    tasks: jobs.map(job => {
+      // Build a human-readable schedule description so the agent doesn't get confused
+      let scheduleDescription: string;
+      if (job.schedule_type === 'at' || (!job.schedule && job.next_run_at)) {
+        scheduleDescription = `one-time reminder, fires at ${formatDateTime(job.next_run_at ?? null) || job.next_run_at}`;
+      } else if (job.schedule_type === 'every' && job.interval_ms) {
+        scheduleDescription = `recurring every ${formatDuration(job.interval_ms)}`;
+      } else if (job.schedule) {
+        scheduleDescription = `cron: ${job.schedule}`;
+      } else {
+        scheduleDescription = 'unknown schedule';
+      }
+
+      return {
+        name: job.name,
+        type: job.job_type || 'routine',
+        schedule: scheduleDescription,
+        next_run: formatDateTime(job.next_run_at ?? null) || job.next_run_at || null,
+        prompt: job.prompt,
+        channel: job.channel,
+        enabled: job.enabled,
+      };
+    }),
   });
 }
 
@@ -698,7 +713,7 @@ export async function handleListScheduledTasksTool(): Promise<string> {
 export function getDeleteScheduledTaskToolDefinition() {
   return {
     name: 'delete_scheduled_task',
-    description: 'Delete a scheduled task or reminder by name.',
+    description: 'Archive a scheduled task or reminder by name. The task is disabled and preserved for future reference, never permanently deleted.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -731,16 +746,79 @@ export async function handleDeleteScheduledTaskTool(input: unknown): Promise<str
   const success = scheduler.deleteJob(name);
 
   if (success) {
-    console.log(`[SchedulerTool] Deleted task: ${name}`);
+    console.log(`[SchedulerTool] Archived task: ${name}`);
     return JSON.stringify({
       success: true,
-      message: `Task "${name}" deleted`,
+      message: `Task "${name}" archived`,
     });
   } else {
     return JSON.stringify({
       success: false,
       error: `Task "${name}" not found`,
     });
+  }
+}
+
+/**
+ * Acknowledge reminder tool definition
+ */
+export function getAcknowledgeReminderToolDefinition() {
+  return {
+    name: 'acknowledge_reminder',
+    description: `Mark a one-time reminder as acknowledged/done. This stops the follow-up pings.
+
+Use this when the user confirms they've seen/handled a reminder (e.g., "got it", "done", "thanks for reminding me").
+The reminder is archived (not deleted) so it can be reviewed later.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Name of the reminder to acknowledge',
+        },
+      },
+      required: ['name'],
+    },
+  };
+}
+
+/**
+ * Acknowledge reminder handler - archives the reminder
+ */
+export async function handleAcknowledgeReminderTool(input: unknown): Promise<string> {
+  const { name } = input as { name: string };
+
+  if (!name) {
+    return JSON.stringify({ error: 'Reminder name is required' });
+  }
+
+  try {
+    const dbPath = getDbPath();
+    const db = new Database(dbPath);
+
+    const job = db.prepare('SELECT id, name, job_type FROM cron_jobs WHERE name = ?').get(name) as { id: number; name: string; job_type: string } | undefined;
+
+    if (!job) {
+      db.close();
+      return JSON.stringify({ success: false, error: `Reminder "${name}" not found` });
+    }
+
+    // Archive: disable and clear next_run_at
+    db.prepare(`
+      UPDATE cron_jobs SET enabled = 0, next_run_at = NULL, updated_at = datetime('now')
+      WHERE name = ?
+    `).run(name);
+
+    db.close();
+
+    console.log(`[SchedulerTool] Acknowledged reminder: ${name}`);
+    return JSON.stringify({
+      success: true,
+      message: `Reminder "${name}" acknowledged and archived. No more follow-up pings.`,
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    return JSON.stringify({ error: errorMsg });
   }
 }
 
@@ -756,6 +834,10 @@ export function getSchedulerTools() {
     {
       ...getCreateReminderToolDefinition(),
       handler: handleCreateReminderTool,
+    },
+    {
+      ...getAcknowledgeReminderToolDefinition(),
+      handler: handleAcknowledgeReminderTool,
     },
     {
       ...getListScheduledTasksToolDefinition(),

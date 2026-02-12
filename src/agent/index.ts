@@ -41,6 +41,7 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   'kimi-k2.5': 'moonshot',
   // Z.AI GLM models
   'glm-4.7': 'glm',
+  'glm-5': 'glm',
 };
 
 /**

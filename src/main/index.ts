@@ -226,6 +226,7 @@ let factsWindow: BrowserWindow | null = null;
 let soulWindow: BrowserWindow | null = null;
 let skillsSetupWindow: BrowserWindow | null = null;
 let kanbanWindow: BrowserWindow | null = null;
+let calendarWindow: BrowserWindow | null = null;
 let emailWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
 
@@ -597,6 +598,10 @@ function updateTrayMenu(): void {
     {
       label: 'Projects',
       click: () => openKanbanWindow(),
+    },
+    {
+      label: 'Calendar',
+      click: () => openCalendarWindow(),
     },
     { type: 'separator' },
     {
@@ -1226,6 +1231,59 @@ function openKanbanWindow(): void {
 
   kanbanWindow.on('closed', () => {
     kanbanWindow = null;
+  });
+}
+
+function openCalendarWindow(): void {
+  if (calendarWindow && !calendarWindow.isDestroyed()) {
+    calendarWindow.show();
+    calendarWindow.focus();
+    return;
+  }
+
+  const savedBoundsJson = SettingsManager.get('window.calendarBounds');
+  let windowOptions: Electron.BrowserWindowConstructorOptions = {
+    width: 900,
+    height: 700,
+    title: 'Calendar - Pocket Agent',
+    backgroundColor: '#0a0a0b',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  };
+
+  if (savedBoundsJson) {
+    try {
+      const savedBounds = JSON.parse(savedBoundsJson);
+      if (savedBounds.x !== undefined) windowOptions.x = savedBounds.x;
+      if (savedBounds.y !== undefined) windowOptions.y = savedBounds.y;
+      if (savedBounds.width) windowOptions.width = savedBounds.width;
+      if (savedBounds.height) windowOptions.height = savedBounds.height;
+    } catch { /* ignore */ }
+  }
+
+  calendarWindow = new BrowserWindow(windowOptions);
+
+  calendarWindow.loadFile(path.join(__dirname, '../../ui/calendar.html'));
+
+  calendarWindow.once('ready-to-show', () => {
+    calendarWindow?.show();
+  });
+
+  const saveBounds = () => {
+    if (calendarWindow && !calendarWindow.isDestroyed()) {
+      SettingsManager.set('window.calendarBounds', JSON.stringify(calendarWindow.getBounds()));
+    }
+  };
+  calendarWindow.on('moved', saveBounds);
+  calendarWindow.on('resized', saveBounds);
+  calendarWindow.on('close', saveBounds);
+
+  calendarWindow.on('closed', () => {
+    calendarWindow = null;
   });
 }
 
@@ -2599,6 +2657,77 @@ Respond with ONLY valid JSON, no markdown, no explanation:
 
   ipcMain.handle('app:openEmailProcessing', async () => {
     openEmailProcessingWindow();
+  });
+
+  // Calendar
+  ipcMain.handle('app:openCalendar', async () => {
+    openCalendarWindow();
+  });
+
+  ipcMain.handle('calendar:list', async (_, startDate?: string, endDate?: string) => {
+    try {
+      if (!memory) return [];
+      const db = memory.getDatabase();
+      let sql = 'SELECT * FROM calendar_events';
+      const params: string[] = [];
+      if (startDate && endDate) {
+        sql += ' WHERE start_time >= ? AND start_time <= ?';
+        params.push(startDate, endDate);
+      } else if (startDate) {
+        sql += ' WHERE start_time >= ?';
+        params.push(startDate);
+      } else if (endDate) {
+        sql += ' WHERE start_time <= ?';
+        params.push(endDate);
+      }
+      sql += ' ORDER BY start_time ASC';
+      return db.prepare(sql).all(...params);
+    } catch { return []; }
+  });
+
+  ipcMain.handle('calendar:add', async (_, event: Record<string, unknown>) => {
+    try {
+      if (!memory) return { success: false, error: 'Memory not initialized' };
+      const db = memory.getDatabase();
+      const stmt = db.prepare(
+        `INSERT INTO calendar_events (title, description, start_time, end_time, all_day, location, reminder_minutes, channel)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      const result = stmt.run(
+        event.title, event.description || null, event.start_time, event.end_time || null,
+        event.all_day ? 1 : 0, event.location || null, event.reminder_minutes ?? 15, event.channel || 'desktop'
+      );
+      return { success: true, id: result.lastInsertRowid };
+    } catch (err) { return { success: false, error: String(err) }; }
+  });
+
+  ipcMain.handle('calendar:delete', async (_, id: number) => {
+    try {
+      if (!memory) return { success: false, error: 'Memory not initialized' };
+      const db = memory.getDatabase();
+      db.prepare('DELETE FROM calendar_events WHERE id = ?').run(id);
+      return { success: true };
+    } catch (err) { return { success: false, error: String(err) }; }
+  });
+
+  ipcMain.handle('calendar:update', async (_, id: number, updates: Record<string, unknown>) => {
+    try {
+      if (!memory) return { success: false, error: 'Memory not initialized' };
+      const db = memory.getDatabase();
+      const fields: string[] = [];
+      const values: unknown[] = [];
+      for (const [key, val] of Object.entries(updates)) {
+        if (['title', 'description', 'start_time', 'end_time', 'all_day', 'location', 'reminder_minutes', 'channel'].includes(key)) {
+          fields.push(`${key} = ?`);
+          values.push(key === 'all_day' ? (val ? 1 : 0) : val);
+        }
+      }
+      if (fields.length === 0) return { success: false, error: 'No valid fields to update' };
+      fields.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ')");
+      values.push(id);
+      db.prepare(`UPDATE calendar_events SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+      return { success: true };
+    } catch (err) { return { success: false, error: String(err) }; }
   });
 
   // Kanban

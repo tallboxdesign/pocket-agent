@@ -166,6 +166,13 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   // Commands (Workflows)
   getCommands: () => ipcRenderer.invoke('commands:list'),
 
+  // Calendar
+  openCalendar: () => ipcRenderer.invoke('app:openCalendar'),
+  calendarList: (startDate?: string, endDate?: string) => ipcRenderer.invoke('calendar:list', startDate, endDate),
+  calendarAdd: (event: Record<string, unknown>) => ipcRenderer.invoke('calendar:add', event),
+  calendarDelete: (id: number) => ipcRenderer.invoke('calendar:delete', id),
+  calendarUpdate: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('calendar:update', id, updates),
+
   // Kanban
   openKanban: () => ipcRenderer.invoke('app:openKanban'),
   openEmailProcessing: () => ipcRenderer.invoke('app:openEmailProcessing'),
@@ -381,6 +388,12 @@ declare global {
       completeOAuth: (code: string) => Promise<{ success: boolean; error?: string }>;
       cancelOAuth: () => Promise<{ success: boolean }>;
       isOAuthPending: () => Promise<boolean>;
+      // Calendar
+      openCalendar: () => Promise<void>;
+      calendarList: (startDate?: string, endDate?: string) => Promise<Array<Record<string, unknown>>>;
+      calendarAdd: (event: Record<string, unknown>) => Promise<{ success: boolean; id?: number | bigint; error?: string }>;
+      calendarDelete: (id: number) => Promise<{ success: boolean; error?: string }>;
+      calendarUpdate: (id: number, updates: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
       // Kanban
       openKanban: () => Promise<void>;
       openEmailProcessing: () => Promise<void>;

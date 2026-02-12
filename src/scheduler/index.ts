@@ -298,9 +298,19 @@ export class CronScheduler {
         const nextRunAt = this.calculateNextRun(job.schedule_type, job.schedule, job.interval_ms);
 
         if (job.delete_after_run === 1) {
-          // Delete one-time job
-          db.prepare('DELETE FROM cron_jobs WHERE id = ?').run(job.id);
-          console.log(`[Scheduler] Deleted one-time job: ${job.name}`);
+          // One-time reminder: reschedule follow-up ping in 3 days instead of deleting
+          const followUpDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+          db.prepare(`
+            UPDATE cron_jobs SET
+              last_run_at = datetime(?),
+              last_status = 'ok',
+              last_error = NULL,
+              last_duration_ms = ?,
+              next_run_at = ?,
+              updated_at = datetime('now')
+            WHERE id = ?
+          `).run(now.toISOString(), duration, followUpDate.toISOString(), job.id);
+          console.log(`[Scheduler] One-time job "${job.name}" fired, follow-up ping scheduled for ${followUpDate.toISOString()}`);
         } else {
           // Update state
           db.prepare(`
