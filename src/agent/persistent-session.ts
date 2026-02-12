@@ -308,8 +308,20 @@ export class PersistentSDKSession extends EventEmitter {
           // Extract text response
           this.turnResponse = this.extractText(message, this.turnResponse);
 
+          // Capture SDK assistant-level errors (auth_failed, billing, rate_limit, etc.)
+          const msg = message as { type?: string; subtype?: string; session_id?: string; error?: string };
+          if (msg.type === 'assistant') {
+            const assistantMsg = message as { error?: string };
+            if (assistantMsg.error) {
+              if (!this.turnErrors) {
+                this.turnErrors = [];
+              }
+              this.turnErrors.push(assistantMsg.error);
+              console.warn(`[PersistentSession:${this.sessionId}] Assistant error: ${assistantMsg.error}`);
+            }
+          }
+
           // Capture SDK session ID from first message that has one
-          const msg = message as { type?: string; subtype?: string; session_id?: string };
           if (msg.session_id && !this.sdkSessionId) {
             this.sdkSessionId = msg.session_id;
             this.emit('sdkSessionId', this.sdkSessionId);
@@ -356,8 +368,13 @@ export class PersistentSDKSession extends EventEmitter {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error(`[PersistentSession:${this.sessionId}] Output loop error:`, errMsg);
+      // Surface the crash error so the caller can report it
+      if (!this.turnErrors) {
+        this.turnErrors = [];
+      }
+      this.turnErrors.push(`Session error: ${errMsg}`);
     } finally {
-      console.log(`[PersistentSession:${this.sessionId}] Output loop ended`);
+      console.log(`[PersistentSession:${this.sessionId}] Output loop ended (had response: ${this.turnResponse.length > 0}, errors: ${this.turnErrors?.length ?? 0})`);
       this.alive = false;
 
       if (this.turnTimeout) {
@@ -396,6 +413,10 @@ export class PersistentSDKSession extends EventEmitter {
       // Safety net: max timeout for the turn
       this.turnTimeout = setTimeout(() => {
         console.error(`[PersistentSession:${this.sessionId}] Turn timed out after ${TURN_MAX_TIMEOUT}ms`);
+        if (!this.turnErrors) {
+          this.turnErrors = [];
+        }
+        this.turnErrors.push(`Turn timed out after ${TURN_MAX_TIMEOUT / 1000}s`);
         this.completeTurn();
       }, TURN_MAX_TIMEOUT);
     });

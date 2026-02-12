@@ -252,11 +252,11 @@ export class CronScheduler {
 
     for (const job of dueJobs) {
       const startTime = Date.now();
+      const sessionId = job.session_id || 'default';
 
       try {
         console.log(`[Scheduler] Executing job: ${job.name}`);
 
-        const sessionId = job.session_id || 'default';
         let response: string;
 
         if (job.job_type === 'reminder') {
@@ -365,6 +365,14 @@ export class CronScheduler {
           error: errorMsg,
           timestamp: now,
         });
+
+        // Surface error to user through the same channels as success
+        const errorResponse = `Job "${job.name}" failed: ${errorMsg}`;
+        try {
+          await this.routeJobResponse(job.name, '', errorResponse, job.channel, sessionId);
+        } catch (routeErr) {
+          console.error(`[Scheduler] Failed to route job error:`, routeErr);
+        }
       }
     }
   }

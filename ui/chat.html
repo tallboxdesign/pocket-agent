@@ -267,11 +267,30 @@
       font-weight: 600;
       color: #22c55e;
       background: rgba(34, 197, 94, 0.15);
-      padding: 2px 8px;
+      padding: 2px 20px 2px 8px;
       border-radius: 4px;
       margin-left: 8px;
       letter-spacing: 0;
       -webkit-text-fill-color: #22c55e;
+      border: none;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%2322c55e' d='M0 0l4 5 4-5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+      transition: opacity 0.15s ease;
+    }
+
+    .model-badge:hover {
+      opacity: 0.85;
+    }
+
+    .model-badge option {
+      background: var(--bg-tertiary, #1a1a2e);
+      color: var(--text-secondary, #ffffff);
+      font-size: 12px;
     }
 
     .header-right {
@@ -508,9 +527,41 @@
     }
 
     .message.error {
-      background: rgba(239, 68, 68, 0.1);
-      border: 1px solid rgba(239, 68, 68, 0.3);
+      background: rgba(239, 68, 68, 0.06);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: var(--text-primary);
+    }
+
+    .message.error .error-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
       color: var(--error);
+      margin-bottom: 4px;
+    }
+
+    .message.error .error-body {
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .message.error .error-code {
+      display: inline;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+
+    .message.error .error-report {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-style: italic;
     }
 
     /* Queued message state - greyed out until processing */
@@ -2198,7 +2249,7 @@
   <header>
     <div class="header-left">
       <div class="status-dot"></div>
-      <h1>Pocket Agent<span id="version-badge" class="version-badge"></span><span id="model-badge" class="model-badge"></span></h1>
+      <h1>Pocket Agent<span id="version-badge" class="version-badge"></span><select id="model-badge" class="model-badge"></select></h1>
     </div>
     <div class="header-right">
       <button class="tts-toggle" id="tts-toggle" onclick="toggleAutoTTS()" title="Auto-read: OFF (click to enable)">
@@ -3167,6 +3218,15 @@
       input.focus();
     }
 
+    function getNextSessionName() {
+      const names = new Set(sessions.map(s => s.name));
+      if (!names.has('New')) return 'New';
+      for (let i = 2; i <= 99; i++) {
+        if (!names.has(`New${i}`)) return `New${i}`;
+      }
+      return `New${Date.now() % 10000}`;
+    }
+
     async function createNewSession() {
       // Check tab limit
       if (sessions.length >= MAX_TABS) {
@@ -3174,7 +3234,7 @@
       }
 
       try {
-        const result = await window.pocketAgent.createSession('New');
+        const result = await window.pocketAgent.createSession(getNextSessionName());
         if (!result.success || !result.session) {
           addMessage('system', result.error || 'Failed to create session');
           return;
@@ -3443,7 +3503,9 @@
               }
             }
 
-            const msgEl = addMessage(msg.role, displayContent, false, [], msg.timestamp);
+            // Render error messages with error style instead of assistant style
+            const renderRole = (msg.role === 'assistant' && msg.metadata?.isError) ? 'error' : msg.role;
+            const msgEl = addMessage(renderRole, displayContent, false, [], msg.timestamp);
             // Add workflow badge
             if (isWorkflowMsg) {
               msgEl.classList.add('from-workflow');
@@ -3492,19 +3554,62 @@
 
     async function updateModelBadge() {
       try {
+        const badge = document.getElementById('model-badge');
         const modelId = await window.pocketAgent.getSetting('agent.model');
-        const modelNames = {
+        const fallbackNames = {
           'claude-opus-4-5-20251101': 'Opus 4.5',
           'claude-sonnet-4-5-20250929': 'Sonnet 4.5',
           'claude-haiku-4-5-20251001': 'Haiku 4.5',
           'kimi-k2.5': 'Kimi K2.5',
+          'glm-5': 'GLM-5',
+          'glm-4.7': 'GLM-4.7',
         };
-        const displayName = modelNames[modelId] || modelId;
-        document.getElementById('model-badge').textContent = displayName;
+
+        let models = [];
+        try {
+          models = await window.pocketAgent.getAvailableModels();
+        } catch (_) {
+          // IPC failed — fall back to single option
+        }
+
+        badge.innerHTML = '';
+
+        if (models.length > 0) {
+          for (const model of models) {
+            const opt = document.createElement('option');
+            opt.value = model.id;
+            opt.textContent = model.name;
+            if (model.id === modelId) opt.selected = true;
+            badge.appendChild(opt);
+          }
+        } else {
+          const opt = document.createElement('option');
+          opt.value = modelId;
+          opt.textContent = fallbackNames[modelId] || modelId.toUpperCase();
+          opt.selected = true;
+          badge.appendChild(opt);
+        }
       } catch (err) {
         console.error('Failed to load model:', err);
       }
     }
+
+    // Model badge change handler — switch model and auto-reboot
+    document.getElementById('model-badge').addEventListener('change', async (e) => {
+      const newModel = e.target.value;
+      const badge = e.target;
+      try {
+        await window.pocketAgent.setSetting('agent.model', newModel);
+        badge.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+        await window.pocketAgent.restartAgent();
+        badge.style.background = '';
+        await updateModelBadge();
+      } catch (err) {
+        console.error('Failed to switch model:', err);
+        badge.style.background = '';
+        await updateModelBadge();
+      }
+    });
 
     function handleSendClick() {
       if (isLoadingBySession.get(currentSessionId)) {
@@ -3898,7 +4003,12 @@
       // Add text content
       if (content) {
         const contentDiv = document.createElement('div');
-        contentDiv.innerHTML = formatContent(content);
+        // Format error messages with structured layout
+        if (role === 'error') {
+          contentDiv.innerHTML = formatErrorContent(content);
+        } else {
+          contentDiv.innerHTML = formatContent(content);
+        }
         // Append children directly to avoid nesting issues
         while (contentDiv.firstChild) {
           div.appendChild(contentDiv.firstChild);
@@ -4043,6 +4153,29 @@
       });
 
       return `${dateStr}, ${timeStr}`;
+    }
+
+    function formatErrorContent(text) {
+      const escaped = escapeHtml(text);
+      // Separate report hint if present
+      const reportHint = 'If this keeps happening, send this error to the developer.';
+      const hasReportHint = escaped.includes(reportHint);
+      const mainText = hasReportHint ? escaped.split(reportHint)[0].trim() : escaped;
+
+      // Extract error code if present: [error_code]
+      const codeMatch = mainText.match(/\[([a-z_]+)\]/);
+      const errorCode = codeMatch ? codeMatch[1] : null;
+      const body = codeMatch ? mainText.replace(/\s*\[[a-z_]+\]/, '').trim() : mainText;
+
+      let html = '<div class="error-label">error</div>';
+      html += `<div class="error-body">${body}</div>`;
+      if (errorCode) {
+        html += `<div class="error-code">${errorCode}</div>`;
+      }
+      if (hasReportHint) {
+        html += `<div class="error-report">${reportHint}</div>`;
+      }
+      return html;
     }
 
     function formatContent(text) {

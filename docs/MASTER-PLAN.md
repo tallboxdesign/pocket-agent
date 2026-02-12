@@ -1,9 +1,9 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
-**Last Updated:** 2026-02-10
+**Last Updated:** 2026-02-12
 **Status:** IN PROGRESS — v4.1 Email Intelligence
-**Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-4.7 (utility model)
+**Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-5 (utility model, GLM-4.7 flash variants for bulk)
 
 ---
 
@@ -51,6 +51,11 @@ If in doubt, **do nothing** rather than risk data loss.
 25. [Windows Build & Distribution](#25-windows-build--distribution)
 26. [Workflow-Routine Integration](#26-workflow-routine-integration)
 27. [Telegram Bot Command Registration](#27-telegram-bot-command-registration)
+28. [GLM-5 Model Upgrade](#28-glm-5-model-upgrade)
+29. [Reminder Archival & Re-ping System](#29-reminder-archival--re-ping-system)
+30. [Calendar Integration](#30-calendar-integration)
+31. [Workflow UI Overflow Fix](#31-workflow-ui-overflow-fix)
+32. [Upstream Port Phase 5 — v2.3.2 Cherry-Picks](#32-upstream-port-phase-5--v232-cherry-picks)
 
 ---
 
@@ -58,7 +63,7 @@ If in doubt, **do nothing** rather than risk data loss.
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| Zhipu API key setting | Config only | `settings/index.ts` line 99 — field exists, never used |
+| Zhipu GLM integration | Full | GLM-5 (worker/research), GLM-4.7-flash (classification), GLM-4.7-flashx (bulk) — `src/tools/glm-client.ts` |
 | Kanban activity log | Full tracking | `kanban_activity_log` table — logs all task mutations with actor, old/new values |
 | Daily logs | Exists | `daily_logs` table — appends `[HH:MM] entry` per day |
 | Message history | Full | `messages` table — all conversations persisted per session |
@@ -2645,3 +2650,175 @@ Telegram caches the slash command menu (`/help`, `/start`, etc.) from whatever b
 - In grammY, `bot.command('x')` handles `/x` — but messages with `/` prefix that don't match any registered `bot.command()` do NOT reliably fall through to `bot.on('message:text')`
 - The `message:text` handler was registered last as a fallback but **never received unmatched slash commands**
 - **Rule:** If a command appears in Telegram's menu (`setMyCommands`), it MUST also have a corresponding `bot.command()` handler
+
+## 28. GLM-5 Model Upgrade
+
+**Status:** ✅ DONE (2026-02-12)
+
+### What
+Zhipu released GLM-5 (745B MoE, 44B active params) on 2026-02-11. Added as selectable model and new default for quality tasks.
+
+### Model Tier Strategy
+| Tier | Model | Use Case |
+|------|-------|----------|
+| Worker/Quality | `glm-5` | Research compilation, summaries, extraction |
+| Flash | `glm-4.7-flash` | Classification, fast tasks (GLM-5 flash not yet available) |
+| Bulk | `glm-4.7-flashx` | Batch email classification (GLM-5 flashx not yet available) |
+
+### Changes
+- `src/tools/glm-client.ts` — DEFAULT_MODEL → `glm-5`
+- `src/settings/index.ts` — default for `zhipu.model` → `glm-5`
+- `src/agent/index.ts` — added `glm-5` to MODEL_PROVIDERS map
+- `src/agent/research.ts` — research agent uses `glm-5`
+- `src/channels/telegram/handlers/commands.ts` — GLM 5 added to `/model` selector (GLM 4.7 kept as option)
+
+### Migration Note
+Flash/bulk model defaults remain GLM-4.7 variants until Zhipu releases GLM-5-flash/flashx. Users who previously set `zhipu.model` explicitly in settings will keep their setting; only new installs get `glm-5` default.
+
+## 29. Reminder Archival & Re-ping System
+
+**Status:** ✅ DONE (2026-02-12)
+
+### Problem
+1. One-time reminders were deleted after firing — no audit trail
+2. If user missed a reminder, it was gone forever
+3. `list_scheduled_tasks` returned `schedule: null` for one-time reminders, confusing the agent
+
+### Solution — Three Changes
+
+#### 29.1 Re-ping Behavior
+One-time reminders now re-ping every 3 days after firing, instead of being deleted. After execution, `next_run_at` is set to `now + 3 days`. The reminder keeps re-pinging until the user explicitly acknowledges it.
+
+- `src/scheduler/index.ts` — changed post-fire logic for `delete_after_run` jobs: UPDATE instead of DELETE, sets `next_run_at` to +3 days
+
+#### 29.2 Archive Instead of Delete
+All "delete" operations now archive (set `enabled=0, next_run_at=NULL`) instead of actual DELETE.
+
+- `src/memory/index.ts` — `deleteCronJob()` now runs UPDATE instead of DELETE
+- `ui/cron.html` — delete button → archive button with archive icon, function renamed to `archiveJob()`
+- `src/tools/scheduler-tools.ts` — `delete_scheduled_task` description updated to say "archive"
+
+#### 29.3 Acknowledge Reminder Tool
+New tool `acknowledge_reminder` lets the agent stop re-pinging when user confirms they've seen/handled a reminder. Archives the job.
+
+- `src/tools/scheduler-tools.ts` — new tool definition + handler
+
+#### 29.4 Human-Readable Schedule Descriptions
+`list_scheduled_tasks` now returns descriptive schedule strings instead of raw DB columns:
+- One-time: `"one-time reminder, fires at Feb 15, 2026 9:00 AM"`
+- Recurring interval: `"recurring every 3 hours"`
+- Cron: `"cron: 0 9 * * *"`
+
+## 30. Calendar Integration
+
+**Status:** 🚧 IN PROGRESS (2026-02-11)
+
+### What
+Google Calendar integration via `gog` CLI + calendar view UI page.
+
+### Implementation
+- `ui/calendar.html` — new calendar view page
+- `src/main/index.ts` — IPC handlers for calendar data
+- `src/main/preload.ts` — calendar API exposed to renderer
+
+### Pending
+- Full event CRUD via gog CLI
+- Recurring event support
+- Calendar sync with scheduler/reminders
+
+## 31. Workflow UI Overflow Fix
+
+**Status:** ✅ DONE (2026-02-12)
+
+### Problem
+When many workflow buttons existed, they extended beyond the visible viewport with no way to scroll or see them all.
+
+### Root Cause
+`#workflows-grid` had `flex-wrap: wrap` but the parent `#toolbar-row` was a single-line flex container that didn't allow vertical growth. `#workflows-area` had `align-items: center` which constrained height.
+
+### Fix
+- `#toolbar-row` — added `flex-wrap: wrap` so workflows area can take full width
+- `#workflows-area` — changed to `flex: 1 1 100%` and `align-items: flex-start`
+- `#workflows-grid` — added `max-height: 150px` and `overflow-y: auto` for scrollable grid
+
+## 32. Upstream Port Phase 5 — v2.3.2 Cherry-Picks
+
+**Status:** 🚧 IN PROGRESS (2026-02-12)
+**Upstream:** KenKaiii/pocket-agent commits from 2026-02-10 to 2026-02-12
+
+### Strategy
+Selective cherry-pick of 8 upstream commits. Manual port (read upstream diff, adapt to our codebase) — NOT git cherry-pick, since our branch has diverged significantly.
+
+### Merge Order & Assignments
+
+#### Wave 1 — Security & Trivial (no dependencies)
+
+**32.1 SQL Injection Fix + Dead Code Cleanup** (`9af3d6a`) — CRITICAL
+- **What:** Parameterized SQL in `memory/index.ts` semantic search; remove dead Telegram keyboard/util exports; delete unused CLI files
+- **Port strategy:** Apply SQL fix to our `memory/index.ts`. Skip CLI file deletions (we don't have those files). Skip Telegram dead code removal (our modular structure differs). Only take the SQL injection fix.
+- **Files:** `src/memory/index.ts`
+- **Risk:** LOW — isolated SQL change
+- **Custom conflicts:** None — our memory code has same vulnerable pattern
+
+**32.2 Auto-Increment Session Names** (`dca12a9`) — TRIVIAL
+- **What:** `getNextSessionName()` generates "New", "New2", etc. in UI
+- **Port strategy:** Add the function to our `ui/chat.html`
+- **Files:** `ui/chat.html`
+- **Risk:** NONE
+- **Custom conflicts:** None
+
+#### Wave 2 — Agent Stability (sequential dependencies)
+
+**32.3 Fix Stale SDK Sessions & Non-Anthropic Auth** (`e6de318`)
+- **What:** Set ANTHROPIC_API_KEY for subprocess when using non-Anthropic providers; stale session detection + auto-retry
+- **Port strategy:** Adapt to our `agent/index.ts` which has custom MODEL_PROVIDERS map and fallback system. Keep our fallback logic, add their stale session detection alongside it.
+- **Files:** `src/agent/index.ts`, `src/agent/persistent-session.ts`
+- **Risk:** MEDIUM — must coexist with our model fallback system
+- **Custom conflicts:** Our `getProviderForModel()` and fallback error detection. Must preserve both.
+
+**32.4 Human-Readable Error Messages** (`bcc06dc`)
+- **What:** `formatAgentError()` maps SDK errors to user-friendly messages; route errors through IPC error path; error states in UI
+- **Port strategy:** Add `formatAgentError()` to our agent. Integrate with our existing fallback — fallback triggers first, if fallback exhausted THEN show human-readable error. Add UI error persistence.
+- **Files:** `src/agent/index.ts`, `src/agent/persistent-session.ts`, `src/scheduler/index.ts`, `ui/chat.html`
+- **Risk:** HIGH — touches agent core, scheduler, and UI
+- **Custom conflicts:** Our model fallback system catches same errors. Must ensure fallback runs first, error display only on final failure.
+- **Depends on:** 32.3
+
+**32.5 Session Crash Auto-Retry** (`2e6e171`)
+- **What:** Extract actual crash reason from session errors; trigger auto-retry on crashes
+- **Port strategy:** Small addition to error handling from 32.4
+- **Files:** `src/agent/index.ts`
+- **Risk:** LOW
+- **Depends on:** 32.4
+
+#### Wave 3 — Features (independent)
+
+**32.6 Model Picker Dropdown in Chat Header** (`733d071`)
+- **What:** Replace model badge with `<select>` dropdown for quick model switching
+- **Port strategy:** Add to our UI. Must include our custom models (GLM-5, GLM-4.7, Kimi). Needs `getAvailableModels()` IPC — check if we have it, add if not.
+- **Files:** `ui/chat.html`, possibly `src/main/preload.ts`, `src/main/index.ts`
+- **Risk:** MEDIUM — UI header has our custom actions (email, routines, calendar)
+- **Custom conflicts:** Header layout. Must preserve our action buttons.
+
+**32.7 Office Document Text Extraction** (`faf72fa`)
+- **What:** Extract text from .docx/.pptx/.xlsx via `officeparser` package; inline in Telegram and drag-and-drop
+- **Port strategy:** Add `officeparser` dependency. Port Telegram document handler changes. Port drag-and-drop extraction. Port UI attachment rendering.
+- **Files:** `package.json`, `src/channels/telegram/handlers/documents.ts`, `src/main/index.ts`, `src/main/preload.ts`, `ui/chat.html`
+- **Risk:** MEDIUM — Telegram handler and UI changes
+- **Custom conflicts:** Our Telegram handlers have custom context wrapping
+
+**32.8 Cross-Channel Image Display** (`3f7b412`)
+- **What:** Extract images from SDK responses; save to media dir; send via Telegram; render thumbnails in desktop UI
+- **Port strategy:** Add MediaAttachment type. Port image extraction from agent responses. Port Telegram photo sending (we already have custom `sendPhoto` — merge). Port UI thumbnail rendering.
+- **Files:** `src/agent/index.ts`, `src/channels/telegram/handlers/*.ts`, `src/channels/telegram/index.ts`, `src/channels/telegram/types.ts`, `src/main/index.ts`, `src/main/preload.ts`, `ui/chat.html`
+- **Risk:** HIGH — touches many files, our custom Telegram has sendPhoto already
+- **Custom conflicts:** Our `sendPhoto` in features, our custom handler signatures, our UI customizations
+
+### Testing Checklist
+After each wave:
+- [ ] `npm run typecheck && npm run lint` — zero errors
+- [ ] Build and install fresh DMG
+- [ ] Verify: chat history intact, routines working, workflows visible
+- [ ] Verify: Telegram bot connects, custom commands work (/voice, /unanswered)
+- [ ] Verify: model switching works (Claude, GLM-5, GLM-4.7)
+- [ ] Verify: email processing runs without errors

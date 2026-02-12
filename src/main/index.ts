@@ -1768,6 +1768,15 @@ function setupIPC(): void {
       );
     }
 
+    // Check for GLM/Zhipu key
+    const hasGlmKey = SettingsManager.get('glm.apiKey');
+    if (hasGlmKey) {
+      models.push(
+        { id: 'glm-5', name: 'GLM-5', provider: 'zhipu' },
+        { id: 'glm-4.7', name: 'GLM-4.7', provider: 'zhipu' }
+      );
+    }
+
     return models;
   });
 
