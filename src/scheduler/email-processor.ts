@@ -204,9 +204,11 @@ function adaptFullEmail(msgRes: { success: boolean; message?: string }): FullEma
 
   const from = String(headers.from || raw.from || '');
   const subject = String(headers.subject || raw.subject || '');
-  // Prefer snippet for classification (clean text), fall back to full body
+  // Use full body for classification (has flight numbers, booking refs, etc.)
+  // Fall back to snippet only if body is empty
+  const fullBody = String(raw.body || '').slice(0, 2000);
   const snippet = String(msg.snippet || '');
-  const body = snippet || String(raw.body || '').slice(0, 2000);
+  const body = fullBody || snippet;
 
   return { id, threadId, internalDateMs, from, subject, body };
 }
