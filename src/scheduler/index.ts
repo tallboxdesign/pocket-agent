@@ -247,10 +247,11 @@ export class CronScheduler {
       job_type: string | null;
     }
 
+    // Only check 'at' and 'every' jobs here - 'cron' type jobs are handled by node-cron
     const dueJobs = db.prepare(`
       SELECT id, name, schedule_type, schedule, run_at, interval_ms, prompt, channel, delete_after_run, context_messages, session_id, job_type
       FROM cron_jobs
-      WHERE enabled = 1 AND next_run_at IS NOT NULL AND datetime(next_run_at) <= datetime(?)
+      WHERE enabled = 1 AND schedule_type != 'cron' AND next_run_at IS NOT NULL AND datetime(next_run_at) <= datetime(?)
     `).all(now.toISOString()) as DueJob[];
 
     for (const job of dueJobs) {
@@ -281,7 +282,7 @@ export class CronScheduler {
             }
           }
 
-          const fullPrompt = job.prompt + contextText + '\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.';
+          const fullPrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately:\n\n${job.prompt}${contextText}\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.`;
 
           if (!AgentManager.isInitialized()) {
             throw new Error('AgentManager not initialized');
@@ -690,10 +691,13 @@ export class CronScheduler {
         }
       }
 
+      // Wrap prompt so the LLM knows it's executing a scheduled routine, not being asked to create one
+      const routinePrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately:\n\n${cleanPrompt}\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.`;
+
       // Process through agent (use job's session)
       const sessionId = job.sessionId || 'default';
       const agentResult = await AgentManager.processMessage(
-        cleanPrompt,
+        routinePrompt,
         `cron:${job.name}`,
         sessionId
       );
