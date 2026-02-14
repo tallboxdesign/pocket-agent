@@ -247,14 +247,25 @@ export class CronScheduler {
       job_type: string | null;
     }
 
-    // Only check 'at' and 'every' jobs here - 'cron' type jobs are handled by node-cron
+    // Check all job types - including 'cron' as catch-up for missed ticks during macOS sleep
     const dueJobs = db.prepare(`
-      SELECT id, name, schedule_type, schedule, run_at, interval_ms, prompt, channel, delete_after_run, context_messages, session_id, job_type
+      SELECT id, name, schedule_type, schedule, run_at, interval_ms, prompt, channel, delete_after_run, context_messages, session_id, job_type, last_run_at
       FROM cron_jobs
-      WHERE enabled = 1 AND schedule_type != 'cron' AND next_run_at IS NOT NULL AND datetime(next_run_at) <= datetime(?)
-    `).all(now.toISOString()) as DueJob[];
+      WHERE enabled = 1 AND next_run_at IS NOT NULL AND datetime(next_run_at) <= datetime(?)
+    `).all(now.toISOString()) as (DueJob & { last_run_at: string | null })[];
 
     for (const job of dueJobs) {
+      // Guard against double-execution for cron-type jobs:
+      // If node-cron already ran this job recently (within 5 minutes), skip the catch-up
+      if (job.schedule_type === 'cron' && job.last_run_at) {
+        const lastRun = new Date(job.last_run_at).getTime();
+        const fiveMinutesAgo = now.getTime() - 5 * 60 * 1000;
+        if (lastRun > fiveMinutesAgo) {
+          console.log(`[Scheduler] Skipping cron catch-up for "${job.name}" - already ran at ${job.last_run_at}`);
+          continue;
+        }
+      }
+
       const startTime = Date.now();
       const sessionId = job.session_id || 'default';
 
@@ -705,12 +716,32 @@ export class CronScheduler {
       result.response = agentResult.response;
       result.success = true;
 
+      // Sync DB timestamps so checkDueJobs knows this job already ran
+      if (this.db) {
+        const runTime = new Date();
+        const nextRunAt = this.calculateNextRun('cron', job.schedule || null, null);
+        this.db.prepare(`
+          UPDATE cron_jobs SET last_run_at = datetime(?), last_status = 'ok',
+          next_run_at = ?, updated_at = datetime('now') WHERE name = ?
+        `).run(runTime.toISOString(), nextRunAt, job.name);
+      }
+
       // Route response to channel
       await this.routeResponse(job, result.response);
 
     } catch (error) {
       result.error = error instanceof Error ? error.message : 'Unknown error';
       console.error(`[Scheduler] Job ${job.name} failed:`, result.error);
+
+      // Sync DB error state
+      if (this.db) {
+        const runTime = new Date();
+        const nextRunAt = this.calculateNextRun('cron', job.schedule || null, null);
+        this.db.prepare(`
+          UPDATE cron_jobs SET last_run_at = datetime(?), last_status = 'error',
+          last_error = ?, next_run_at = ?, updated_at = datetime('now') WHERE name = ?
+        `).run(runTime.toISOString(), result.error, nextRunAt, job.name);
+      }
     }
 
     this.addToHistory(result);
@@ -996,6 +1027,14 @@ export class CronScheduler {
 
     await this.executeJob(job);
     return this.jobHistory[0] || null;
+  }
+
+  /**
+   * Catch up any jobs missed during macOS sleep/wake
+   */
+  async catchUpMissedJobs(): Promise<void> {
+    console.log('[Scheduler] Catching up missed jobs after wake');
+    await this.checkReminders();
   }
 
   /**

@@ -3179,6 +3179,10 @@ app.whenReady().then(async () => {
       getBrowserManager().forceReconnectCdp().catch((err) => {
         console.warn('[Power] CDP reconnect after resume failed:', err);
       });
+      // Catch up any cron jobs missed during sleep
+      scheduler?.catchUpMissedJobs().catch((err) => {
+        console.error('[Power] Failed to catch up missed jobs:', err);
+      });
     });
 
     // Handle lock screen (display off but CPU running)
