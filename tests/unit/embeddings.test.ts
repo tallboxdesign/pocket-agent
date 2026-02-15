@@ -22,11 +22,9 @@ import {
   initEmbeddings,
   hasEmbeddings,
   embed,
-  embedBatch,
   cosineSimilarity,
   serializeEmbedding,
   deserializeEmbedding,
-  EMBEDDING_DIMENSIONS,
 } from '../../src/memory/embeddings';
 
 describe('Embeddings Module', () => {
@@ -54,7 +52,7 @@ describe('Embeddings Module', () => {
   });
 
   describe('embed', () => {
-    const mockEmbedding = Array(EMBEDDING_DIMENSIONS).fill(0.1);
+    const mockEmbedding = Array(1536).fill(0.1);
 
     beforeEach(() => {
       initEmbeddings('test-api-key');
@@ -69,7 +67,7 @@ describe('Embeddings Module', () => {
       expect(mockCreate).toHaveBeenCalledWith({
         model: 'text-embedding-3-small',
         input: 'test text',
-        dimensions: EMBEDDING_DIMENSIONS,
+        dimensions: 1536,
       });
     });
 
@@ -79,7 +77,7 @@ describe('Embeddings Module', () => {
       expect(mockCreate).toHaveBeenCalledWith({
         model: 'text-embedding-3-small',
         input: '',
-        dimensions: EMBEDDING_DIMENSIONS,
+        dimensions: 1536,
       });
     });
 
@@ -96,66 +94,8 @@ describe('Embeddings Module', () => {
       expect(mockCreate).toHaveBeenCalledWith({
         model: 'text-embedding-3-small',
         input: longText,
-        dimensions: EMBEDDING_DIMENSIONS,
+        dimensions: 1536,
       });
-    });
-  });
-
-  describe('embedBatch', () => {
-    const mockEmbedding1 = Array(EMBEDDING_DIMENSIONS).fill(0.1);
-    const mockEmbedding2 = Array(EMBEDDING_DIMENSIONS).fill(0.2);
-
-    beforeEach(() => {
-      initEmbeddings('test-api-key');
-    });
-
-    it('should generate embeddings for multiple texts', async () => {
-      mockCreate.mockResolvedValue({
-        data: [{ embedding: mockEmbedding1 }, { embedding: mockEmbedding2 }],
-      });
-
-      const result = await embedBatch(['text 1', 'text 2']);
-      expect(result).toEqual([mockEmbedding1, mockEmbedding2]);
-      expect(mockCreate).toHaveBeenCalledWith({
-        model: 'text-embedding-3-small',
-        input: ['text 1', 'text 2'],
-        dimensions: EMBEDDING_DIMENSIONS,
-      });
-    });
-
-    it('should return empty array for empty input', async () => {
-      const result = await embedBatch([]);
-      expect(result).toEqual([]);
-      expect(mockCreate).not.toHaveBeenCalled();
-    });
-
-    it('should handle single text in batch', async () => {
-      mockCreate.mockResolvedValue({
-        data: [{ embedding: mockEmbedding1 }],
-      });
-
-      const result = await embedBatch(['single text']);
-      expect(result).toEqual([mockEmbedding1]);
-    });
-
-    it('should propagate API errors', async () => {
-      mockCreate.mockRejectedValue(new Error('API error'));
-
-      await expect(embedBatch(['text'])).rejects.toThrow('API error');
-    });
-
-    it('should handle many texts in batch', async () => {
-      const manyTexts = Array(100)
-        .fill(0)
-        .map((_, i) => `text ${i}`);
-      const manyEmbeddings = manyTexts.map(() => mockEmbedding1);
-
-      mockCreate.mockResolvedValue({
-        data: manyEmbeddings.map(embedding => ({ embedding })),
-      });
-
-      const result = await embedBatch(manyTexts);
-      expect(result.length).toBe(100);
     });
   });
 
@@ -209,8 +149,8 @@ describe('Embeddings Module', () => {
     });
 
     it('should handle high-dimensional vectors', () => {
-      const a = Array(EMBEDDING_DIMENSIONS).fill(0.1);
-      const b = Array(EMBEDDING_DIMENSIONS).fill(0.1);
+      const a = Array(1536).fill(0.1);
+      const b = Array(1536).fill(0.1);
       const similarity = cosineSimilarity(a, b);
       expect(similarity).toBeCloseTo(1, 10);
     });
@@ -274,12 +214,12 @@ describe('Embeddings Module', () => {
     });
 
     it('should handle large embeddings', () => {
-      const embedding = Array(EMBEDDING_DIMENSIONS)
+      const embedding = Array(1536)
         .fill(0)
         .map((_, i) => i * 0.001);
       const buffer = serializeEmbedding(embedding);
 
-      expect(buffer.length).toBe(EMBEDDING_DIMENSIONS * 4);
+      expect(buffer.length).toBe(1536 * 4);
     });
 
     it('should handle negative values', () => {
@@ -321,7 +261,7 @@ describe('Embeddings Module', () => {
     });
 
     it('should correctly roundtrip embeddings', () => {
-      const original = Array(EMBEDDING_DIMENSIONS)
+      const original = Array(1536)
         .fill(0)
         .map(() => Math.random() * 2 - 1);
       const buffer = serializeEmbedding(original);
@@ -361,7 +301,7 @@ describe('Embeddings Module', () => {
     });
 
     it('should preserve values for full-dimension embeddings', () => {
-      const original = Array(EMBEDDING_DIMENSIONS)
+      const original = Array(1536)
         .fill(0)
         .map((_, i) => Math.sin(i / 100));
 
@@ -375,9 +315,4 @@ describe('Embeddings Module', () => {
     });
   });
 
-  describe('EMBEDDING_DIMENSIONS', () => {
-    it('should be 1536 for text-embedding-3-small', () => {
-      expect(EMBEDDING_DIMENSIONS).toBe(1536);
-    });
-  });
 });

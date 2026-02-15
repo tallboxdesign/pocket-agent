@@ -53,7 +53,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<GeocodingResult
 /**
  * Get context-aware quick actions for a location
  */
-function getLocationQuickActions(geocoding: GeocodingResult | null): LocationQuickAction[] {
+export function getLocationQuickActions(geocoding: GeocodingResult | null): LocationQuickAction[] {
   const actions: LocationQuickAction[] = [
     {
       label: 'Nearby restaurants',

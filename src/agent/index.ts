@@ -1,4 +1,4 @@
-import { MemoryManager, Message } from '../memory';
+import { MemoryManager, Message, DailyLog } from '../memory';
 import { buildMCPServers, buildSdkMcpServers, setMemoryManager, setSoulMemoryManager, ToolsConfig, validateToolsConfig, getCurrentSessionId } from '../tools';
 import { closeBrowserManager } from '../browser';
 import { loadIdentity } from '../config/identity';
@@ -40,8 +40,8 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   // Moonshot/Kimi models
   'kimi-k2.5': 'moonshot',
   // Z.AI GLM models
-  'glm-4.7': 'glm',
   'glm-5': 'glm',
+  'glm-4.7': 'glm',
 };
 
 /**
@@ -62,6 +62,7 @@ async function configureProviderEnvironment(model: string): Promise<void> {
   // Clear all provider-related env vars first
   delete process.env.ANTHROPIC_BASE_URL;
   delete process.env.ANTHROPIC_AUTH_TOKEN;
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   if (provider === 'moonshot') {
     // Moonshot requires base URL and uses Bearer token auth
     const moonshotKey = SettingsManager.get('moonshot.apiKey');
@@ -105,10 +106,17 @@ async function configureProviderEnvironment(model: string): Promise<void> {
       // No API key — check for OAuth token
       const authMethod = SettingsManager.get('auth.method');
       if (authMethod === 'oauth') {
+        // Refresh token if needed before using it
         const { ClaudeOAuth } = await import('../auth/oauth');
         const freshToken = await ClaudeOAuth.getAccessToken();
         if (freshToken) {
-          process.env.ANTHROPIC_API_KEY = freshToken;
+          // OAuth tokens require Bearer auth, not x-api-key.
+          // CLAUDE_CODE_OAUTH_TOKEN tells the SDK to use OAuth mode:
+          // apiKey=null (no x-api-key header), authToken=token (Authorization: Bearer).
+          // ANTHROPIC_API_KEY must NOT be set — it would be sent as x-api-key and rejected.
+          process.env.CLAUDE_CODE_OAUTH_TOKEN = freshToken;
+          delete process.env.ANTHROPIC_API_KEY;
+          delete process.env.ANTHROPIC_AUTH_TOKEN;
           console.log('[AgentManager] Using OAuth token for Anthropic auth');
         } else {
           throw new Error('OAuth session expired. Please re-authenticate in Settings.');
@@ -126,6 +134,10 @@ async function configureProviderEnvironment(model: string): Promise<void> {
  * Map SDK/API error strings to human-readable messages.
  * No "Error:" prefix — display layers add their own (red bubble in UI, warning in Telegram).
  * Covers Anthropic, Moonshot (Kimi), GLM (Z.AI), and common SDK errors.
+ *
+ * Errors that indicate potential app bugs (server, session, timeout, unknown)
+ * get a developer-report hint appended. User-side errors (auth, billing, rate limit,
+ * network, model config) do not.
  */
 const REPORT_HINT = '\n\nIf this keeps happening, send this error to the developer.';
 
@@ -150,7 +162,7 @@ function formatAgentError(error: string): string {
     return 'Billing issue — your account may have run out of credits. Check your provider dashboard. [billing_error]';
   }
 
-  // Rate limiting (all providers)
+  // Rate limiting (all providers — Anthropic 429, Moonshot/GLM rate limits)
   if (e.includes('rate_limit') || e.includes('too many requests') || e.includes('overloaded')
     || e.includes('throttl') || e.includes('concurrency') || e.includes('capacity')) {
     return 'Rate limited — too many requests. Wait a moment and try again. [rate_limit]';
@@ -176,21 +188,21 @@ function formatAgentError(error: string): string {
     return reportable('API server error. The provider may be experiencing issues — try again shortly. [server_error]');
   }
 
-  // Network errors
+  // Network errors — user-side, no report needed
   if (e.includes('econnrefused') || e.includes('enotfound') || e.includes('etimedout')
     || e.includes('econnreset') || e.includes('epipe') || e.includes('fetch failed')
     || e.includes('network') || e.includes('dns') || e.includes('socket hang up')) {
     return 'Network error — cannot reach the API. Check your internet connection. [network_error]';
   }
 
-  // Session errors — include the underlying reason
+  // Session errors — include the underlying reason so the developer can debug
   if (e.includes('session error') || e.includes('session closed') || e.includes('session not alive')) {
     const reasonMatch = error.match(/Session error:\s*(.+)/i);
     const reason = reasonMatch ? reasonMatch[1] : error;
     return reportable(`Agent session crashed: ${reason} [session_error]`);
   }
 
-  // Timeout
+  // Timeout — could indicate app issue
   if (e.includes('timed out') || e.includes('timeout')) {
     return reportable('Request timed out. Try again or use a simpler prompt. [timeout]');
   }
@@ -200,7 +212,7 @@ function formatAgentError(error: string): string {
     return `Permission denied — ${error} [permission_denied]`;
   }
 
-  // Fallback — unknown error
+  // Fallback — unknown error, developer should know
   return reportable(error);
 }
 
@@ -266,11 +278,16 @@ type UserPromptSubmitHookCallback = (input: any, toolUseID: string | undefined, 
   };
 }>;
 
+// Thinking config type (replaces deprecated maxThinkingTokens)
+type ThinkingConfig = { type: 'adaptive' } | { type: 'enabled'; budgetTokens: number } | { type: 'disabled' };
+
 type SDKOptions = {
   model?: string;
   cwd?: string;
   maxTurns?: number;
-  maxThinkingTokens?: number;
+  maxThinkingTokens?: number;  // deprecated — kept for non-Anthropic providers
+  thinking?: ThinkingConfig;
+  effort?: 'low' | 'medium' | 'high' | 'max';
   abortController?: AbortController;
   tools?: string[] | { type: 'preset'; preset: 'claude_code' };
   allowedTools?: string[];
@@ -289,12 +306,15 @@ type SDKOptions = {
   };
 };
 
-// Thinking level to token budget mapping
-const THINKING_BUDGETS: Record<string, number | undefined> = {
-  'none': 0,
-  'minimal': 2048,
-  'normal': 10000,
-  'extended': 32000,
+// Thinking level to config mapping.
+// For Opus 4.6: the CLI always forces adaptive thinking regardless of budget tokens,
+// so the `effort` parameter is the proper way to control thinking depth.
+// For other models: budget tokens are enforced via the `thinking` option.
+const THINKING_CONFIGS: Record<string, { thinking: ThinkingConfig; effort?: 'low' | 'medium' | 'high' }> = {
+  'none':     { thinking: { type: 'disabled' } },
+  'minimal':  { thinking: { type: 'enabled', budgetTokens: 2048 },  effort: 'low' },
+  'normal':   { thinking: { type: 'enabled', budgetTokens: 10000 }, effort: 'medium' },
+  'extended':  { thinking: { type: 'adaptive' },                    effort: 'high' },
 };
 
 // Image content for multimodal messages
@@ -645,7 +665,7 @@ class AgentManagerClass extends EventEmitter {
         // Build options with dynamic context
         const options = await this.buildPersistentOptions(memory, sessionId, sdkSessionId);
 
-        console.log('[AgentManager] Calling query() with model:', options.model, 'thinking:', options.maxThinkingTokens || 'default');
+        console.log('[AgentManager] Calling query() with model:', options.model, 'thinking:', JSON.stringify(options.thinking) || 'default', 'effort:', options.effort || 'default');
         this.emitStatus({ type: 'thinking', sessionId, message: '*stretches paws* thinking...' });
 
         // Create persistent session
@@ -741,30 +761,50 @@ class AgentManagerClass extends EventEmitter {
       }
 
       // === Check for stale/crashed session errors and retry without resume ===
+      const wasResuming = this.sdkSessionIdBySession.has(sessionId);
+      if (turnResult.errors && turnResult.errors.length > 0) {
+        console.log(`[AgentManager] Turn errors: ${JSON.stringify(turnResult.errors)}, response length: ${turnResult.response.length}, wasResuming: ${wasResuming}`);
+      }
       const isStaleSession = turnResult.errors?.some(e => e.includes('No conversation found with session ID'));
+      const isInvalidThinking = turnResult.errors?.some(e => e.includes('Invalid signature in thinking block'));
+      // "unknown" errors during resume are typically invalid thinking signatures or corrupted sessions.
+      // The SDK may still return error text as "response", so don't require empty response.
+      const isUnknownResumeError = wasResuming && turnResult.errors?.some(e => e === 'unknown');
       const isSessionCrash = !turnResult.response && turnResult.errors?.some(e =>
         e.includes('Session error') || e.includes('session closed'));
-      if (isStaleSession || isSessionCrash) {
+      // OAuth token expired mid-session — the subprocess can't refresh it, so we must
+      // kill the session, refresh the token, and retry with a new subprocess.
+      const isAuthFailed = turnResult.errors?.some(e => e.includes('authentication_failed'));
+      if (isStaleSession || isInvalidThinking || isUnknownResumeError || isSessionCrash || isAuthFailed) {
         const staleId = this.sdkSessionIdBySession.get(sessionId);
-        const reason = isStaleSession ? 'stale SDK session' : 'session crash';
-        console.warn(`[AgentManager] ${reason} detected (${staleId}), retrying without resume...`);
+        const reason = isStaleSession ? 'stale SDK session'
+          : isInvalidThinking ? 'invalid thinking signature'
+          : isUnknownResumeError ? 'unknown resume error'
+          : isAuthFailed ? 'OAuth token expired'
+          : 'session crash';
+        console.warn(`[AgentManager] ${reason} detected (${staleId}), retrying...`);
 
-        // Clear the stale session reference
-        this.sdkSessionIdBySession.delete(sessionId);
-        memory.clearSdkSessionId(sessionId);
+        // For auth failures, keep the SDK session ID so we can resume with a fresh token.
+        // For other errors, clear the session to start fresh.
+        if (!isAuthFailed) {
+          this.sdkSessionIdBySession.delete(sessionId);
+          memory.clearSdkSessionId(sessionId);
+        }
 
-        // Close the dead session
+        // Close the dead session (subprocess has stale token or corrupted state)
         const deadSession = this.persistentSessions.get(sessionId);
         if (deadSession) {
           deadSession.close();
           this.persistentSessions.delete(sessionId);
         }
 
-        // Retry with a fresh session (no resume)
+        // Retry: buildPersistentOptions will refresh the OAuth token via configureProviderEnvironment.
+        // For auth failures, resume the same SDK session (context is valid, just token expired).
         const queryFn = await loadSDK();
         if (!queryFn) throw new Error('Failed to load SDK');
 
-        const freshOptions = await this.buildPersistentOptions(memory, sessionId, undefined);
+        const resumeId = isAuthFailed ? staleId : undefined;
+        const freshOptions = await this.buildPersistentOptions(memory, sessionId, resumeId);
         const freshSession = new PersistentSDKSession(
           sessionId,
           (msg) => this.processStatusFromMessage(msg),
@@ -1197,9 +1237,13 @@ class AgentManagerClass extends EventEmitter {
       staticParts.push(capabilities);
     }
 
-    // Get thinking level and convert to token budget
+    // Get thinking level config — only Anthropic models support thinking/effort.
+    // Non-Anthropic providers (Kimi, GLM) use Anthropic-compatible APIs but may not
+    // handle thinking parameters correctly, causing all output to go to thinking blocks.
+    const provider = getProviderForModel(this.model);
     const thinkingLevel = SettingsManager.get('agent.thinkingLevel') || 'normal';
-    const thinkingBudget = THINKING_BUDGETS[thinkingLevel];
+    const thinkingEntry = THINKING_CONFIGS[thinkingLevel] || THINKING_CONFIGS['normal'];
+    const isAnthropicModel = provider === 'anthropic';
 
     // Configure provider environment and capture env vars
     await configureProviderEnvironment(this.model);
@@ -1213,7 +1257,8 @@ class AgentManagerClass extends EventEmitter {
       model: this.model,
       cwd: this.workspace,
       maxTurns: 100,
-      ...(thinkingBudget !== undefined && thinkingBudget > 0 && { maxThinkingTokens: thinkingBudget }),
+      ...(isAnthropicModel && { thinking: thinkingEntry.thinking }),
+      ...(isAnthropicModel && thinkingEntry.effort && { effort: thinkingEntry.effort }),
       tools: { type: 'preset', preset: 'claude_code' },
       settingSources: ['project'],
       canUseTool: buildCanUseToolCallback(),
@@ -1518,6 +1563,7 @@ notify(title="Reminder", body="Meeting in 5 minutes", urgency="critical")
         }
         return cleanedText;
       } else if (content !== undefined) {
+        // content exists but isn't an array — unexpected format
         console.warn(`[AgentManager] Assistant message content is not an array (type: ${typeof content})`);
       }
     }
@@ -2221,6 +2267,18 @@ notify(title="Reminder", body="Meeting in 5 minutes", urgency="critical")
 
   getAllFacts(): Array<{ id: number; category: string; subject: string; content: string }> {
     return this.memory?.getAllFacts() || [];
+  }
+
+  getAllDailyLogs(): DailyLog[] {
+    return this.memory?.getAllDailyLogs() || [];
+  }
+
+  getRecentDailyLogs(days: number = 3): DailyLog[] {
+    return this.memory?.getRecentDailyLogs(days) || [];
+  }
+
+  getDailyLogsSince(days: number = 3): DailyLog[] {
+    return this.memory?.getDailyLogsSince(days) || [];
   }
 
   getRecentMessages(limit: number = 10, sessionId: string = 'default'): Message[] {

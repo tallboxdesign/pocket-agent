@@ -115,7 +115,7 @@ export async function handleTextMessage(
   } catch (error) {
     console.error('[Telegram] Error:', error);
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    await ctx.reply(`\u26a0\ufe0f ${errorMsg}`);
+    await ctx.reply(`⚠️ ${errorMsg}`);
   } finally {
     setTelegramMessageContext(null);
   }

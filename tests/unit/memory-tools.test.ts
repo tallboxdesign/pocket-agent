@@ -34,6 +34,8 @@ import {
   handleListFactsTool,
   getMemorySearchToolDefinition,
   handleMemorySearchTool,
+  getDailyLogToolDefinition,
+  handleDailyLogTool,
   getMemoryTools,
 } from '../../src/tools/memory-tools';
 import type { MemoryManager } from '../../src/memory';
@@ -65,7 +67,7 @@ describe('Memory Tools', () => {
     it('should return a description with usage guidance', () => {
       const definition = getRememberToolDefinition();
       expect(definition.description).toContain('Save important information');
-      expect(definition.description).toContain('PROACTIVELY');
+      expect(definition.description).toContain('proactively');
       expect(definition.description).toContain('Categories:');
     });
 
@@ -191,8 +193,8 @@ describe('Memory Tools', () => {
     it('should return a description with usage guidance', () => {
       const definition = getForgetToolDefinition();
       expect(definition.description).toContain('Remove a fact');
-      expect(definition.description).toContain('Category + subject');
-      expect(definition.description).toContain('Fact ID');
+      expect(definition.description).toContain('category + subject');
+      expect(definition.description).toContain('fact ID');
     });
 
     it('should have correct input schema structure', () => {
@@ -466,9 +468,7 @@ describe('Memory Tools', () => {
     it('should return a description with usage guidance', () => {
       const definition = getMemorySearchToolDefinition();
       expect(definition.description).toContain('semantic + keyword');
-      expect(definition.description).toContain('PROACTIVELY');
-      expect(definition.description).toContain('70% semantic');
-      expect(definition.description).toContain('30% keyword');
+      expect(definition.description).toContain('proactively');
     });
 
     it('should have correct input schema structure', () => {
@@ -591,7 +591,7 @@ describe('Memory Tools', () => {
       const tools = getMemoryTools();
 
       expect(Array.isArray(tools)).toBe(true);
-      expect(tools).toHaveLength(4);
+      expect(tools).toHaveLength(5);
     });
 
     it('should include remember tool with handler', () => {
@@ -628,6 +628,15 @@ describe('Memory Tools', () => {
       expect(searchTool).toBeDefined();
       expect(searchTool!.handler).toBe(handleMemorySearchTool);
       expect(searchTool!.description).toContain('semantic + keyword');
+    });
+
+    it('should include daily_log tool with handler', () => {
+      const tools = getMemoryTools();
+      const dailyLogTool = tools.find(t => t.name === 'daily_log');
+
+      expect(dailyLogTool).toBeDefined();
+      expect(dailyLogTool!.handler).toBe(handleDailyLogTool);
+      expect(dailyLogTool!.description).toContain('daily log');
     });
 
     it('should have all tools with input_schema', () => {

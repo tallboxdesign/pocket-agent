@@ -56,9 +56,13 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   getSoulAspect: (aspect: string) => ipcRenderer.invoke('soul:get', aspect),
   deleteSoulAspect: (id: number) => ipcRenderer.invoke('soul:delete', id),
 
+  // Daily Logs
+  listDailyLogs: () => ipcRenderer.invoke('dailyLogs:list'),
+
   // App windows
   openFactsGraph: () => ipcRenderer.invoke('app:openFactsGraph'),
   openFacts: () => ipcRenderer.invoke('app:openFacts'),
+  openDailyLogs: () => ipcRenderer.invoke('app:openDailyLogs'),
   openSoul: () => ipcRenderer.invoke('app:openSoul'),
   openCustomize: () => ipcRenderer.invoke('app:openCustomize'),
   openRoutines: () => ipcRenderer.invoke('app:openRoutines'),
@@ -164,6 +168,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   completeOAuth: (code: string) => ipcRenderer.invoke('auth:completeOAuth', code),
   cancelOAuth: () => ipcRenderer.invoke('auth:cancelOAuth'),
   isOAuthPending: () => ipcRenderer.invoke('auth:isOAuthPending'),
+  validateOAuth: () => ipcRenderer.invoke('auth:validateOAuth'),
 
   // Commands (Workflows)
   getCommands: () => ipcRenderer.invoke('commands:list'),
@@ -307,9 +312,12 @@ declare global {
       listSoulAspects: () => Promise<Array<{ id: number; aspect: string; content: string; created_at: string; updated_at: string }>>;
       getSoulAspect: (aspect: string) => Promise<{ id: number; aspect: string; content: string; created_at: string; updated_at: string } | null>;
       deleteSoulAspect: (id: number) => Promise<{ success: boolean }>;
+      // Daily Logs
+      listDailyLogs: () => Promise<Array<{ id: number; date: string; content: string; updated_at: string }>>;
       // App windows
       openFactsGraph: () => Promise<void>;
       openFacts: () => Promise<void>;
+      openDailyLogs: () => Promise<void>;
       openSoul: () => Promise<void>;
       openCustomize: () => Promise<void>;
       openRoutines: () => Promise<void>;

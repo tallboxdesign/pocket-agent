@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;">
+  <title>Daily Logs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b;
+      --bg-secondary: #141415;
+      --bg-tertiary: #1c1c1e;
+      --border: #2a2a2d;
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1a6;
+      --text-muted: #636366;
+      --accent: #a855f7;
+      --accent-secondary: #ec4899;
+      --accent-hover: #c084fc;
+      --error: #ef4444;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --radius: 16px;
+      --radius-sm: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header {
+      background: var(--bg-secondary);
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    header h1 span {
+      background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .log-count {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-left: 10px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .header-actions button {
+      padding: 6px 14px;
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .header-actions button:hover {
+      background: var(--border);
+      color: var(--text-primary);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .header-actions button:active {
+      transform: translateY(0);
+    }
+
+    .content {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .content::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .content::-webkit-scrollbar-track {
+      background: var(--bg-primary);
+    }
+
+    .content::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    .content::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    .logs-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .logs-table th,
+    .logs-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logs-table th {
+      background: var(--bg-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .logs-table td {
+      font-size: 13px;
+      vertical-align: top;
+    }
+
+    .logs-table tbody tr {
+      transition: background 0.1s ease;
+    }
+
+    .logs-table tbody tr:hover {
+      background: var(--bg-secondary);
+    }
+
+    .logs-table .date-cell {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-secondary) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-weight: 500;
+      white-space: nowrap;
+      width: 120px;
+    }
+
+    .logs-table .content-cell {
+      color: var(--text-secondary);
+      line-height: 1.6;
+      white-space: pre-line;
+    }
+
+    .today-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(168, 85, 247, 0.15);
+      color: var(--accent);
+      margin-left: 8px;
+      -webkit-text-fill-color: var(--accent);
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 40px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .empty-state svg {
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+
+    .empty-state p {
+      font-size: 14px;
+    }
+
+    .empty-state .hint {
+      font-size: 12px;
+      margin-top: 8px;
+      opacity: 0.7;
+    }
+
+    /* Toast - Premium glassmorphism design */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      min-width: 200px;
+      max-width: 360px;
+      background: rgba(28, 28, 30, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 14px 18px;
+      border-radius: 14px;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: toastSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      z-index: 1000;
+      overflow: hidden;
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+      color: var(--text-primary);
+    }
+
+    .toast::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      width: 100%;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-secondary) 100%);
+      animation: toastProgress 2.5s linear forwards;
+      transform-origin: left;
+    }
+
+    .toast.error {
+      box-shadow:
+        0 8px 32px rgba(239, 68, 68, 0.15),
+        0 0 0 1px rgba(239, 68, 68, 0.2) inset,
+        0 0 20px rgba(239, 68, 68, 0.1);
+    }
+
+    .toast.error::before {
+      background: linear-gradient(90deg, #ef4444 0%, #f87171 100%);
+    }
+
+    .toast.error .toast-icon {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(248, 113, 113, 0.1) 100%);
+      color: #f87171;
+    }
+
+    .toast-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(236, 72, 153, 0.1) 100%);
+    }
+
+    .toast-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .toast-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .toast-message {
+      color: var(--text-primary);
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+
+    .toast.exiting {
+      animation: toastSlideOut 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+    }
+
+    @keyframes toastSlideIn {
+      0% {
+        transform: translateX(100%) scale(0.8);
+        opacity: 0;
+      }
+      100% {
+        transform: translateX(0) scale(1);
+        opacity: 1;
+      }
+    }
+
+    @keyframes toastSlideOut {
+      0% {
+        transform: translateX(0) scale(1);
+        opacity: 1;
+      }
+      100% {
+        transform: translateX(100%) scale(0.8);
+        opacity: 0;
+      }
+    }
+
+    @keyframes toastProgress {
+      from { transform: scaleX(1); }
+      to { transform: scaleX(0); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div style="display: flex; align-items: center;">
+      <h1><span>Daily Logs</span></h1>
+      <span class="log-count" id="log-count"></span>
+    </div>
+    <div class="header-actions">
+      <button onclick="playNormalClick(); window.close()">Done</button>
+      <button onclick="playNormalClick(); loadLogs()">Refresh</button>
+    </div>
+  </header>
+
+  <div class="content" id="content">
+    <!-- Table will be inserted here -->
+  </div>
+
+  <!-- Click Sound -->
+  <audio id="normal-click-sound" preload="auto" src="../assets/normal-click.mp3"></audio>
+
+  <script>
+    // Click sound
+    const normalClickSound = document.getElementById('normal-click-sound');
+    function playNormalClick() {
+      if (normalClickSound) {
+        normalClickSound.currentTime = 0;
+        normalClickSound.play().catch(() => {});
+      }
+    }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('button, .toggle, .tab, select')) {
+        playNormalClick();
+      }
+    });
+
+    function getTodayDate() {
+      return new Date().toISOString().split('T')[0];
+    }
+
+    function formatDate(dateStr) {
+      const today = getTodayDate();
+      if (dateStr === today) return 'Today';
+
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      if (dateStr === yesterday.toISOString().split('T')[0]) return 'Yesterday';
+
+      const date = new Date(dateStr + 'T00:00:00');
+      return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    async function loadLogs() {
+      try {
+        const logs = await window.pocketAgent.listDailyLogs();
+        const content = document.getElementById('content');
+        const countEl = document.getElementById('log-count');
+
+        countEl.textContent = `(${logs.length})`;
+
+        if (logs.length === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              <p>no daily logs yet!</p>
+              <p class="hint">i'll start journaling as we chat</p>
+            </div>
+          `;
+          return;
+        }
+
+        const today = getTodayDate();
+
+        content.innerHTML = `
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Entries</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${logs.map(log => `
+                <tr>
+                  <td class="date-cell">
+                    ${escapeHtml(formatDate(log.date))}${log.date === today ? '<span class="today-badge">now</span>' : ''}
+                  </td>
+                  <td class="content-cell">${escapeHtml(log.content)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (error) {
+        console.error('Error loading daily logs:', error);
+        showToast('Couldn\'t load daily logs', 'error');
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function showToast(message, type = 'error') {
+      const existing = document.querySelector('.toast');
+      if (existing) {
+        existing.classList.add('exiting');
+        setTimeout(() => existing.remove(), 300);
+      }
+
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `
+        <div class="toast-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>
+          </svg>
+        </div>
+        <div class="toast-content">
+          <div class="toast-message">${escapeHtml(message)}</div>
+        </div>
+      `;
+      document.body.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.add('exiting');
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+
+    // Initialize
+    loadLogs();
+  </script>
+</body>
+</html>

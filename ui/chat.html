@@ -251,6 +251,7 @@
     }
 
     .version-badge {
+      font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
       font-size: 9px;
       font-weight: 500;
       color: var(--text-muted);
@@ -263,6 +264,7 @@
     }
 
     .model-badge {
+      font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
       font-size: 9px;
       font-weight: 600;
       color: #22c55e;
@@ -291,6 +293,19 @@
       background: var(--bg-tertiary, #1a1a2e);
       color: var(--text-secondary, #ffffff);
       font-size: 12px;
+    }
+
+    .update-badge {
+      font-size: 9px;
+      font-weight: 600;
+      color: #ffffff;
+      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-left: 8px;
+      letter-spacing: 0;
+      -webkit-text-fill-color: #ffffff;
+      cursor: pointer;
     }
 
     .header-right {
@@ -2249,7 +2264,7 @@
   <header>
     <div class="header-left">
       <div class="status-dot"></div>
-      <h1>Pocket Agent<span id="version-badge" class="version-badge"></span><select id="model-badge" class="model-badge"></select></h1>
+      <h1>Pocket Agent<span id="version-badge" class="version-badge"></span><select id="model-badge" class="model-badge"></select><span id="update-badge" class="update-badge" onclick="openSettings('updates')">Update</span></h1>
     </div>
     <div class="header-right">
       <button class="tts-toggle" id="tts-toggle" onclick="toggleAutoTTS()" title="Auto-read: OFF (click to enable)">
@@ -2314,7 +2329,16 @@
             </svg>
             My Brain
           </button>
-          <button class="menu-item" onclick="showSoul(); closeMenu();">
+          <button class="menu-item" onclick="playNormalClick(); showDailyLogs(); closeMenu();">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            Daily Logs
+          </button>
+          <button class="menu-item" onclick="showSoul(); closeMenu();
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
             </svg>
@@ -3575,6 +3599,7 @@
         const badge = document.getElementById('model-badge');
         const modelId = await window.pocketAgent.getSetting('agent.model');
         const fallbackNames = {
+          'claude-opus-4-6': 'Opus 4.6',
           'claude-opus-4-5-20251101': 'Opus 4.5',
           'claude-sonnet-4-5-20250929': 'Sonnet 4.5',
           'claude-haiku-4-5-20251001': 'Haiku 4.5',
@@ -3978,6 +4003,14 @@
         await window.pocketAgent.openFacts();
       } catch (err) {
         console.error('Failed to open facts:', err);
+      }
+    }
+
+    async function showDailyLogs() {
+      try {
+        await window.pocketAgent.openDailyLogs();
+      } catch (err) {
+        console.error('Failed to open daily logs:', err);
       }
     }
 

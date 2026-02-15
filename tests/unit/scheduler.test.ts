@@ -153,7 +153,8 @@ describe('CronScheduler', () => {
         'daily-report',
         '0 9 * * *',
         'Generate daily report',
-        'desktop'
+        'desktop',
+        'default'
       );
 
       const jobs = scheduler.getJobs();
@@ -182,7 +183,8 @@ describe('CronScheduler', () => {
         'persistent-job',
         '30 8 * * *',
         'Morning reminder',
-        'telegram'
+        'telegram',
+        'default'
       );
 
       // Verify in mock

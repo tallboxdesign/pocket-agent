@@ -12,3 +12,4 @@ dist/
 config.json
 release/
 *.cer
+.claude/

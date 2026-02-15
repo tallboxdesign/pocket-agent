@@ -16,7 +16,7 @@ export interface CallbackHandlerDeps {
 /**
  * Parse callback data string into structured format
  */
-function parseCallbackData(data: string): CallbackQueryData {
+export function parseCallbackData(data: string): CallbackQueryData {
   const parts = data.split(':');
 
   // Format: action:payload or action:subaction:payload or pagination:page

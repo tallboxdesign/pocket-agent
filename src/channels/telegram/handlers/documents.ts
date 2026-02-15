@@ -34,7 +34,7 @@ function getFilesDirectory(): string {
 /**
  * Generate a unique filename with timestamp
  */
-function generateUniqueFilename(originalName: string): string {
+export function generateUniqueFilename(originalName: string): string {
   const timestamp = Date.now();
   const ext = path.extname(originalName);
   const base = path.basename(originalName, ext);
@@ -46,7 +46,7 @@ function generateUniqueFilename(originalName: string): string {
 /**
  * Get a human-readable file type description
  */
-function getFileTypeDescription(mimeType: string, fileName: string): string {
+export function getFileTypeDescription(mimeType: string, fileName: string): string {
   if (mimeType === 'application/pdf') return 'PDF document';
 
   const ext = fileName.split('.').pop()?.toLowerCase();
@@ -85,7 +85,7 @@ function getFileTypeDescription(mimeType: string, fileName: string): string {
 /**
  * Check if file type is supported
  */
-function isSupportedFileType(mimeType: string, fileName: string): boolean {
+export function isSupportedFileType(mimeType: string, fileName: string): boolean {
   // PDF
   if (mimeType === 'application/pdf') return true;
 

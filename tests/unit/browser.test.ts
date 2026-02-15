@@ -49,7 +49,7 @@ describe('CdpTier', () => {
       title: vi.fn(async () => 'Example Page'),
       goto: vi.fn(async () => null),
       screenshot: vi.fn(async () => 'base64screenshot'),
-      waitForSelector: vi.fn(async () => null),
+      waitForSelector: vi.fn(async () => ({ click: vi.fn() })),
       click: vi.fn(async () => undefined),
       type: vi.fn(async () => undefined),
       keyboard: {
@@ -64,6 +64,8 @@ describe('CdpTier', () => {
       createCDPSession: vi.fn(async () => ({
         send: vi.fn(async () => undefined),
         on: vi.fn(),
+        once: vi.fn(),
+        removeAllListeners: vi.fn(),
       })),
       $: vi.fn(async () => ({
         uploadFile: vi.fn(async () => undefined),
@@ -76,6 +78,8 @@ describe('CdpTier', () => {
       pages: vi.fn(async () => [mockPage as Page]),
       newPage: vi.fn(async () => mockPage as Page),
       disconnect: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
     };
 
     // Mock puppeteer.connect
@@ -95,6 +99,7 @@ describe('CdpTier', () => {
 
   afterEach(() => {
     vi.resetModules();
+    vi.clearAllTimers();
   });
 
   describe('constructor', () => {
@@ -117,10 +122,11 @@ describe('CdpTier', () => {
       expect(result.success).toBe(true);
       expect(result.tier).toBe('cdp');
       expect(result.url).toBeDefined();
-      expect(fetchSpy).toHaveBeenCalledWith('http://localhost:9222/json/version');
+      expect(fetchSpy).toHaveBeenCalledWith('http://localhost:9222/json/version', expect.objectContaining({ signal: expect.any(AbortSignal) }));
       expect(puppeteer.connect).toHaveBeenCalledWith({
         browserURL: 'http://localhost:9222',
         defaultViewport: null,
+        protocolTimeout: 30000,
       });
     });
 
@@ -163,7 +169,7 @@ describe('CdpTier', () => {
       const tier = new CdpTier();
       const result = await tier.connect();
 
-      expect(result.error).toContain('Test error message');
+      expect(result.error).toContain('CDP connection failed');
       expect(result.error).toContain('macOS');
       expect(result.error).toContain('Windows');
       expect(result.error).toContain('Linux');
@@ -176,7 +182,8 @@ describe('CdpTier', () => {
       const tier = new CdpTier();
       const result = await tier.connect();
 
-      expect(result.error).toContain('Unknown error');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('CDP connection failed');
     });
   });
 
@@ -280,6 +287,8 @@ describe('CdpTier', () => {
       const tier = new CdpTier();
       await tier.connect();
 
+      (mockPage.evaluate as Mock).mockResolvedValueOnce(true); // ensurePage responsiveness check
+      (mockPage.evaluate as Mock).mockResolvedValueOnce({ clickable: true }); // click visibility check
       const result = await tier.click('#button');
 
       expect(result.success).toBe(true);
@@ -604,6 +613,9 @@ describe('Edge Cases', () => {
       const mockBrowser = {
         connected: true,
         pages: vi.fn(async () => [mockPage]),
+        on: vi.fn(),
+        once: vi.fn(),
+        disconnect: vi.fn(),
       };
 
       global.fetch = vi.fn().mockResolvedValue({ ok: true });
@@ -639,6 +651,9 @@ describe('Edge Cases', () => {
           return connectCount > 1;
         },
         pages: vi.fn(async () => [mockPage]),
+        on: vi.fn(),
+        once: vi.fn(),
+        disconnect: vi.fn(),
       };
 
       global.fetch = vi.fn().mockResolvedValue({ ok: true });

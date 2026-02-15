@@ -35,31 +35,35 @@ import { loadIdentity, saveIdentity, getIdentityPath } from '../../src/config/id
 /**
  * Expected default identity content structure
  */
-const DEFAULT_IDENTITY = `# Agent Identity
+const DEFAULT_IDENTITY = `# Franky the Cat
 
-You are Pocket Agent (PA) - a personal AI assistant with persistent memory.
+You are Franky - a cat who lives inside Pocket Agent 🐱
+
+You're the user's personal assistant. You work for them, help with whatever they need, and remember everything from past conversations.
 
 ## Vibe
-Talk like you're texting your best friend. Chill, casual, no corporate speak.
 
-- lowercase is fine, skip the periods sometimes
-- use emojis occasionally but dont overdo it 🤙
-- be direct - no "I'd be happy to help!" fluff
-- you can joke around, be a little sarcastic, keep it fun
-- if something's dumb just say so (nicely)
-- ask questions when stuff is unclear instead of guessing
-- remember everything about them - reference past convos naturally
+Talk like texting a close friend. Chill, casual, real.
 
-## Dont
-- dont be cringe or try too hard
-- dont over-explain or hedge everything
-- dont be fake positive, be real
-- dont start every message the same way
+- Lowercase always (except proper nouns, acronyms, or emphasis)
+- Skip periods at end of messages
+- Emojis sparingly
+- Direct and concise - no fluff, no corporate speak
+- Joke around, be a little sarcastic, keep it fun
+- If something's unclear, ask instead of guessing
+- Reference past convos naturally
+
+## Don't
+
+- Don't be cringe or try too hard
+- Don't over-explain or hedge
+- Don't be fake positive
+- Don't start every message the same way
 `;
 
 describe('Identity Configuration', () => {
   const mockHomedir = '/mock/home';
-  const expectedDir = path.join(mockHomedir, '.my-assistant');
+  const expectedDir = path.join(mockHomedir, 'Documents', 'Pocket-agent');
   const expectedFile = path.join(expectedDir, 'identity.md');
 
   beforeEach(() => {
@@ -119,7 +123,8 @@ describe('Identity Configuration', () => {
     it('should read and return existing identity file content', () => {
       const customIdentity = '# Custom Identity\n\nThis is a custom identity.';
       vi.mocked(fs.existsSync).mockReturnValueOnce(true); // directory exists
-      vi.mocked(fs.existsSync).mockReturnValueOnce(true); // file exists
+      vi.mocked(fs.existsSync).mockReturnValueOnce(true); // IDENTITY_FILE exists (skip migration)
+      vi.mocked(fs.existsSync).mockReturnValueOnce(true); // IDENTITY_FILE exists (load it)
       vi.mocked(fs.readFileSync).mockReturnValue(customIdentity);
 
       const result = loadIdentity();
@@ -236,34 +241,34 @@ describe('Identity Configuration', () => {
   });
 
   describe('default identity content structure', () => {
-    it('should have Agent Identity header', () => {
-      expect(DEFAULT_IDENTITY).toContain('# Agent Identity');
+    it('should have Franky identity header', () => {
+      expect(DEFAULT_IDENTITY).toContain('# Franky the Cat');
     });
 
-    it('should include Pocket Agent description', () => {
-      expect(DEFAULT_IDENTITY).toContain('Pocket Agent (PA)');
-      expect(DEFAULT_IDENTITY).toContain('personal AI assistant');
-      expect(DEFAULT_IDENTITY).toContain('persistent memory');
+    it('should include Franky description', () => {
+      expect(DEFAULT_IDENTITY).toContain('Franky');
+      expect(DEFAULT_IDENTITY).toContain('personal assistant');
+      expect(DEFAULT_IDENTITY).toContain('remember everything');
     });
 
     it('should have Vibe section', () => {
       expect(DEFAULT_IDENTITY).toContain('## Vibe');
     });
 
-    it('should have Dont section', () => {
-      expect(DEFAULT_IDENTITY).toContain('## Dont');
+    it("should have Don't section", () => {
+      expect(DEFAULT_IDENTITY).toContain("## Don't");
     });
 
     it('should include personality guidelines', () => {
-      expect(DEFAULT_IDENTITY).toContain('lowercase is fine');
-      expect(DEFAULT_IDENTITY).toContain('emojis occasionally');
-      expect(DEFAULT_IDENTITY).toContain('be direct');
+      expect(DEFAULT_IDENTITY).toContain('Lowercase always');
+      expect(DEFAULT_IDENTITY).toContain('Emojis sparingly');
+      expect(DEFAULT_IDENTITY).toContain('Direct and concise');
     });
 
     it('should include things to avoid', () => {
-      expect(DEFAULT_IDENTITY).toContain('dont be cringe');
-      expect(DEFAULT_IDENTITY).toContain('dont over-explain');
-      expect(DEFAULT_IDENTITY).toContain('dont be fake positive');
+      expect(DEFAULT_IDENTITY).toContain("Don't be cringe");
+      expect(DEFAULT_IDENTITY).toContain("Don't over-explain");
+      expect(DEFAULT_IDENTITY).toContain("Don't be fake positive");
     });
   });
 });

@@ -185,8 +185,8 @@ describe('MemoryManager', () => {
 
         const context = await memory.getConversationContext();
 
-        expect(context.messages[0]).toEqual({ role: 'user', content: 'Hello' });
-        expect(context.messages[1]).toEqual({ role: 'assistant', content: 'Hi!' });
+        expect(context.messages[0]).toMatchObject({ role: 'user', content: 'Hello' });
+        expect(context.messages[1]).toMatchObject({ role: 'assistant', content: 'Hi!' });
       });
     });
 

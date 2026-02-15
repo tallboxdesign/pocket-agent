@@ -52,6 +52,7 @@ export class ElectronTier {
   private currentUrl: string = '';
   private downloadPath: string = app.getPath('downloads');
   private lastDownload: { path: string; size: number } | null = null;
+  private downloadHandler: ((_event: Electron.Event, item: Electron.DownloadItem) => void) | null = null;
 
   /**
    * Initialize hidden browser window
@@ -89,8 +90,8 @@ export class ElectronTier {
       this.window?.hide();
     });
 
-    // Set up download handling
-    this.window.webContents.session.on('will-download', (_event, item) => {
+    // Set up download handling (single handler, cleaned up on destroy)
+    this.downloadHandler = (_event, item) => {
       const savePath = path.join(this.downloadPath, item.getFilename());
       item.setSavePath(savePath);
 
@@ -102,6 +103,12 @@ export class ElectronTier {
           };
         }
       });
+    };
+    this.window.webContents.session.on('will-download', this.downloadHandler);
+
+    // Clean up handler when window is destroyed to prevent accumulation
+    this.window.on('closed', () => {
+      this.downloadHandler = null;
     });
 
     return this.window;

@@ -86,14 +86,22 @@ export function initializeUpdater(): void {
 
   autoUpdater.on('error', (error: Error) => {
     console.error('[Updater] Error:', error.message);
-    let errorMsg = error.message;
+    const msg = error.message;
 
-    // Provide user-friendly message for read-only volume error
-    if (error.message.includes('read-only volume')) {
-      errorMsg = 'Move Pocket Agent to Applications folder to enable updates.';
+    // Classify errors: some are transient/expected, others are real failures
+    if (msg.includes('latest-mac.yml') || msg.includes('latest.yml') || (msg.includes('404') && msg.includes('releases/download'))) {
+      // Release exists but build artifacts aren't uploaded yet — not a real error
+      currentStatus = { status: 'not-available', error: 'Latest release is still being built. Check back in a few minutes.' };
+    } else if (msg.includes('read-only volume')) {
+      currentStatus = { status: 'error', error: 'Move Pocket Agent to Applications folder to enable updates.' };
+    } else if (msg.includes('net::ERR_') || msg.includes('ENOTFOUND') || msg.includes('ETIMEDOUT') || msg.includes('ECONNREFUSED')) {
+      currentStatus = { status: 'error', error: 'Could not reach update server. Check your internet connection.' };
+    } else if (msg.includes('HttpError') || msg.includes('status code')) {
+      currentStatus = { status: 'error', error: 'Update server returned an error. Try again later.' };
+    } else {
+      currentStatus = { status: 'error', error: msg };
     }
 
-    currentStatus = { status: 'error', error: errorMsg };
     sendStatusToRenderer();
   });
 

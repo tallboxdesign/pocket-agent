@@ -215,6 +215,7 @@ class ClaudeOAuthManager {
       body: JSON.stringify({
         refresh_token: refreshToken,
         grant_type: 'refresh_token',
+        client_id: OAUTH_CONFIG.clientId,
       }),
     });
 

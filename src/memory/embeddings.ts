@@ -38,25 +38,6 @@ export async function embed(text: string): Promise<number[]> {
 }
 
 /**
- * Generate embeddings for multiple texts (batch)
- */
-export async function embedBatch(texts: string[]): Promise<number[][]> {
-  if (!openaiClient) {
-    throw new Error('OpenAI client not initialized - call initEmbeddings first');
-  }
-
-  if (texts.length === 0) return [];
-
-  const response = await openaiClient.embeddings.create({
-    model: EMBEDDING_MODEL,
-    input: texts,
-    dimensions: EMBEDDING_DIMENSIONS,
-  });
-
-  return response.data.map(d => d.embedding);
-}
-
-/**
  * Compute cosine similarity between two vectors
  */
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -101,5 +82,3 @@ export function deserializeEmbedding(buffer: Buffer): number[] {
   }
   return embedding;
 }
-
-export { EMBEDDING_DIMENSIONS };

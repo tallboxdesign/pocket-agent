@@ -509,6 +509,59 @@
       cursor: not-allowed;
     }
 
+    .risk-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--error);
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      white-space: nowrap;
+      cursor: help;
+      position: relative;
+    }
+
+    .risk-badge .risk-info {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 1px solid var(--error);
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .risk-badge .risk-tooltip {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 8px);
+      right: 0;
+      width: 260px;
+      padding: 10px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 400;
+      text-transform: none;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      z-index: 10;
+      white-space: normal;
+    }
+
+    .risk-badge:hover .risk-tooltip {
+      display: block;
+    }
+
     .logout-btn {
       padding: 5px 10px;
       background: var(--bg-tertiary);
@@ -1571,6 +1624,11 @@
             <div class="auth-option-header">
               <span class="auth-option-title">Login with Claude</span>
               <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="risk-badge">
+                  Use at own risk
+                  <span class="risk-info">i</span>
+                  <span class="risk-tooltip">Anthropic may restrict accounts using unofficial OAuth integrations. This is not an officially supported auth method. Use at your own risk.</span>
+                </span>
                 <span id="auth-status" class="auth-badge loading">checking...</span>
                 <button id="oauth-btn" class="oauth-btn" onclick="handleAuthAction()">Sign in</button>
               </div>
@@ -5976,8 +6034,9 @@ Never mention internal labels, automation, or filtering.`;
       const isConnected = (authMethod === 'oauth' && hasOAuth) || hasApiKey || hasMoonshotKey;
 
       if (authMethod === 'oauth' && hasOAuth) {
-        statusBadge.className = 'auth-badge oauth';
-        statusBadge.textContent = 'Connected';
+        // Show checking state while validating token
+        statusBadge.className = 'auth-badge loading';
+        statusBadge.textContent = 'checking...';
         authBtn.textContent = 'Sign Out';
         authBtn.className = 'logout-btn';
         // Hide Anthropic API key row when OAuth is active
@@ -5989,6 +6048,20 @@ Never mention internal labels, automation, or filtering.`;
           authApiKeySection.style.opacity = '0.4';
           authApiKeySection.style.pointerEvents = 'none';
         }
+
+        // Validate token in background (attempts refresh if expired)
+        window.pocketAgent.validateOAuth().then(result => {
+          if (result.valid) {
+            statusBadge.className = 'auth-badge oauth';
+            statusBadge.textContent = 'Connected';
+          } else {
+            statusBadge.className = 'auth-badge none';
+            statusBadge.textContent = 'Session expired';
+          }
+        }).catch(() => {
+          statusBadge.className = 'auth-badge none';
+          statusBadge.textContent = 'Session expired';
+        });
       } else {
         statusBadge.className = 'auth-badge none';
         statusBadge.textContent = '';
@@ -6532,6 +6605,11 @@ Never mention internal labels, automation, or filtering.`;
         case 'not-available':
           statusEl.className = 'status success';
           statusEl.textContent = 'Up to date';
+          if (status.error) {
+            // Transient note (e.g. release still building)
+            infoBox.style.display = 'flex';
+            infoText.textContent = status.error;
+          }
           break;
 
         case 'downloading':

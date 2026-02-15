@@ -277,7 +277,6 @@ export class CronScheduler {
 
       try {
         console.log(`[Scheduler] Executing job: ${job.name}`);
-
         let response: string;
 
         if (job.job_type === 'reminder') {

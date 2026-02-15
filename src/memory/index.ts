@@ -946,10 +946,33 @@ export class MemoryManager {
   }
 
   /**
+   * Get all daily logs (for display in UI)
+   */
+  getAllDailyLogs(): DailyLog[] {
+    return this.db.prepare(`
+      SELECT id, date, content, updated_at
+      FROM daily_logs
+      ORDER BY date DESC
+    `).all() as DailyLog[];
+  }
+
+  /**
+   * Get daily logs from the last N calendar days
+   */
+  getDailyLogsSince(days: number = 3): DailyLog[] {
+    return this.db.prepare(`
+      SELECT id, date, content, updated_at
+      FROM daily_logs
+      WHERE date >= date('now', ?)
+      ORDER BY date DESC
+    `).all(`-${days} days`) as DailyLog[];
+  }
+
+  /**
    * Get daily logs as formatted context string for the agent
    */
   getDailyLogsContext(days: number = 3): string {
-    const logs = this.getRecentDailyLogs(days);
+    const logs = this.getDailyLogsSince(days);
     if (logs.length === 0) {
       return '';
     }

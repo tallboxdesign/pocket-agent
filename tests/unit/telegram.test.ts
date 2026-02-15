@@ -535,7 +535,7 @@ describe('TelegramBot', () => {
 
       expect(ctx.reply).toHaveBeenCalled();
       const lastReply = ctx.reply.mock.calls[ctx.reply.mock.calls.length - 1][0] as string;
-      expect(lastReply).toContain('Error');
+      expect(lastReply).toContain('⚠️');
       expect(lastReply).toContain('Test error');
     });
 

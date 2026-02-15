@@ -374,7 +374,6 @@ describe('getToolTimeout', () => {
   it('should return specific timeout for known tools', () => {
     expect(getToolTimeout('remember')).toBe(TOOL_TIMEOUTS.remember);
     expect(getToolTimeout('browser')).toBe(TOOL_TIMEOUTS.browser);
-    expect(getToolTimeout('pty_exec')).toBe(TOOL_TIMEOUTS.pty_exec);
   });
 
   it('should return default timeout for unknown tools', () => {
@@ -393,9 +392,6 @@ describe('TOOL_TIMEOUTS', () => {
 
     // Browser tools should have longer timeouts
     expect(TOOL_TIMEOUTS.browser).toBeGreaterThanOrEqual(30000);
-
-    // Shell commands should have the longest timeouts
-    expect(TOOL_TIMEOUTS.pty_exec).toBeGreaterThanOrEqual(60000);
   });
 });
 

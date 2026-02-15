@@ -78,6 +78,7 @@ export class CdpTier {
    */
   private handleDisconnect(): void {
     console.log('[CDP] Browser disconnected');
+    this.stopHealthCheck();
     // Properly close the old Puppeteer WebSocket before nulling
     if (this.browser) {
       try {
@@ -134,13 +135,18 @@ export class CdpTier {
         defaultViewport: null,
         protocolTimeout: 30000, // Fail fast on stale protocol messages
       });
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('puppeteer.connect() timed out after 10s')), 10000)
-      );
-      this.browser = await Promise.race([connectPromise, timeoutPromise]);
+      let connectTimeoutId: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        connectTimeoutId = setTimeout(() => reject(new Error('puppeteer.connect() timed out after 10s')), 10000);
+      });
+      try {
+        this.browser = await Promise.race([connectPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(connectTimeoutId!);
+      }
 
-      // Listen for disconnection
-      this.browser.on('disconnected', () => {
+      // Listen for disconnection (once to prevent accumulation on reconnect)
+      this.browser.once('disconnected', () => {
         console.log('[CDP] Browser disconnected event received');
         this.handleDisconnect();
       });
@@ -638,24 +644,27 @@ export class CdpTier {
         downloadPath: downloadDir,
       });
 
-      // Set up download listener
+      // Set up download listener (use once to prevent listener accumulation)
       const downloadPromise = new Promise<{ path: string; size: number }>((resolve, reject) => {
         const timeoutId = setTimeout(() => {
+          client.removeAllListeners('Page.downloadWillBegin');
+          client.removeAllListeners('Page.downloadProgress');
           reject(new Error('Download timed out'));
         }, timeout);
 
-        // Use CDP to track download
-        client.on('Page.downloadWillBegin', (event) => {
+        client.once('Page.downloadWillBegin', (event) => {
           console.log('[CDP] Download starting:', event.suggestedFilename);
         });
 
         client.on('Page.downloadProgress', (event) => {
           if (event.state === 'completed') {
             clearTimeout(timeoutId);
+            client.removeAllListeners('Page.downloadProgress');
             const filePath = path.join(downloadDir, event.guid || 'download');
             resolve({ path: filePath, size: event.totalBytes || 0 });
           } else if (event.state === 'canceled') {
             clearTimeout(timeoutId);
+            client.removeAllListeners('Page.downloadProgress');
             reject(new Error('Download was canceled'));
           }
         });

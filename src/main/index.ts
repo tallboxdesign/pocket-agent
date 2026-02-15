@@ -55,29 +55,115 @@ const IS_WINDOWS = process.platform === 'win32';
 const IS_MACOS = process.platform === 'darwin';
 const HOME_DIR = process.env.HOME || process.env.USERPROFILE || '';
 
-// Detect NVM node versions once at startup (cached for performance) — Unix only
-function detectNvmNodePaths(): string[] {
-  if (IS_WINDOWS) return [];
-  const nvmVersionsDir = path.join(HOME_DIR, '.nvm/versions/node');
+/**
+ * Scan a directory for version subdirectories containing a bin/ folder.
+ * Used by nvm, n, and nvm-windows to find installed Node versions.
+ */
+function scanVersionBins(versionsDir: string, binSubdir = 'bin'): string[] {
   const paths: string[] = [];
   try {
-    if (fs.existsSync(nvmVersionsDir)) {
-      const versions = fs.readdirSync(nvmVersionsDir);
-      for (const version of versions) {
-        const binPath = path.join(nvmVersionsDir, version, 'bin');
+    if (fs.existsSync(versionsDir)) {
+      for (const entry of fs.readdirSync(versionsDir)) {
+        const binPath = path.join(versionsDir, entry, binSubdir);
         if (fs.existsSync(binPath)) {
           paths.push(binPath);
         }
       }
     }
   } catch {
-    // Ignore errors reading NVM directory
+    // Ignore errors reading directory
   }
   return paths;
 }
 
-// Cache NVM paths at module load
-const cachedNvmPaths = detectNvmNodePaths();
+/**
+ * Detect Node.js paths from all common Unix version managers.
+ * Covers: nvm, fnm, volta, asdf, nodenv, n, mise
+ */
+function detectNodeManagerPaths(): string[] {
+  const paths: string[] = [];
+
+  // nvm: ~/.nvm/versions/node/*/bin
+  paths.push(...scanVersionBins(path.join(HOME_DIR, '.nvm/versions/node')));
+
+  // fnm: ~/.fnm/aliases/default/bin or ~/.local/share/fnm/aliases/default/bin
+  const fnmPaths = [
+    path.join(HOME_DIR, '.fnm/aliases/default/bin'),
+    path.join(HOME_DIR, '.local/share/fnm/aliases/default/bin'),
+  ];
+  for (const p of fnmPaths) {
+    if (fs.existsSync(p)) paths.push(p);
+  }
+
+  // volta: ~/.volta/bin
+  const voltaBin = path.join(HOME_DIR, '.volta/bin');
+  if (fs.existsSync(voltaBin)) paths.push(voltaBin);
+
+  // asdf: ~/.asdf/shims
+  const asdfShims = path.join(HOME_DIR, '.asdf/shims');
+  if (fs.existsSync(asdfShims)) paths.push(asdfShims);
+
+  // nodenv: ~/.nodenv/shims
+  const nodenvShims = path.join(HOME_DIR, '.nodenv/shims');
+  if (fs.existsSync(nodenvShims)) paths.push(nodenvShims);
+
+  // n: /usr/local/n/versions/node/*/bin, also $N_PREFIX/bin
+  paths.push(...scanVersionBins('/usr/local/n/versions/node'));
+  const nPrefix = process.env.N_PREFIX;
+  if (nPrefix) {
+    const nPrefixBin = path.join(nPrefix, 'bin');
+    if (fs.existsSync(nPrefixBin)) paths.push(nPrefixBin);
+  }
+
+  // mise: ~/.local/share/mise/shims
+  const miseShims = path.join(HOME_DIR, '.local/share/mise/shims');
+  if (fs.existsSync(miseShims)) paths.push(miseShims);
+
+  return paths;
+}
+
+/**
+ * Detect Node.js paths from common Windows version managers.
+ * Covers: nvm-windows, fnm, volta, scoop, chocolatey, nodist
+ */
+function detectWindowsNodePaths(): string[] {
+  const paths: string[] = [];
+  const appData = process.env.APPDATA || path.join(HOME_DIR, 'AppData', 'Roaming');
+  const localAppData = process.env.LOCALAPPDATA || path.join(HOME_DIR, 'AppData', 'Local');
+
+  // nvm-windows: %APPDATA%\nvm\* (version directories contain node.exe directly)
+  paths.push(...scanVersionBins(path.join(appData, 'nvm'), '.'));
+
+  // fnm: %APPDATA%\fnm\aliases\default
+  const fnmDefault = path.join(appData, 'fnm', 'aliases', 'default');
+  if (fs.existsSync(fnmDefault)) paths.push(fnmDefault);
+
+  // volta: %APPDATA%\Volta\bin or %LOCALAPPDATA%\Volta\bin
+  const voltaPaths = [
+    path.join(appData, 'Volta', 'bin'),
+    path.join(localAppData, 'Volta', 'bin'),
+  ];
+  for (const p of voltaPaths) {
+    if (fs.existsSync(p)) paths.push(p);
+  }
+
+  // scoop: ~/scoop/shims
+  const scoopShims = path.join(HOME_DIR, 'scoop', 'shims');
+  if (fs.existsSync(scoopShims)) paths.push(scoopShims);
+
+  // chocolatey: C:\ProgramData\chocolatey\bin
+  const chocoBin = 'C:\\ProgramData\\chocolatey\\bin';
+  if (fs.existsSync(chocoBin)) paths.push(chocoBin);
+
+  // nodist: %APPDATA%\nodist\bin
+  const nodistBin = path.join(appData, 'nodist', 'bin');
+  if (fs.existsSync(nodistBin)) paths.push(nodistBin);
+
+  return paths;
+}
+
+// Cache detected paths at module load
+const cachedNodeManagerPaths = IS_WINDOWS ? detectWindowsNodePaths() : detectNodeManagerPaths();
 
 // Fix PATH for packaged apps — platform-aware
 if (app.isPackaged) {
@@ -88,6 +174,7 @@ if (app.isPackaged) {
       path.join(HOME_DIR, '.local', 'bin'),
       'C:\\Program Files\\nodejs',
       'C:\\Program Files\\Git\\cmd',
+      ...cachedNodeManagerPaths,
     ].join(';');
     process.env.PATH = winPaths + ';' + (process.env.PATH || '');
   } else {
@@ -99,10 +186,13 @@ if (app.isPackaged) {
       '/bin',
       '/usr/sbin',
       '/sbin',
-      ...cachedNvmPaths,          // nvm (dynamically detected)
+      ...cachedNodeManagerPaths,  // All version managers (nvm, fnm, volta, asdf, etc.)
       HOME_DIR + '/.local/bin',
     ].join(':');
     process.env.PATH = fixedPath + ':' + (process.env.PATH || '');
+  }
+  if (cachedNodeManagerPaths.length > 0) {
+    console.log('[Main] Detected Node paths:', cachedNodeManagerPaths.join(', '));
   }
   console.log('[Main] Fixed PATH for packaged app');
 }
@@ -228,6 +318,7 @@ let skillsSetupWindow: BrowserWindow | null = null;
 let kanbanWindow: BrowserWindow | null = null;
 let calendarWindow: BrowserWindow | null = null;
 let emailWindow: BrowserWindow | null = null;
+let dailyLogsWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
 
 /**
@@ -1075,6 +1166,58 @@ function openFactsWindow(): void {
   });
 }
 
+function openDailyLogsWindow(): void {
+  if (dailyLogsWindow && !dailyLogsWindow.isDestroyed()) {
+    dailyLogsWindow.focus();
+    return;
+  }
+
+  const savedBoundsJson = SettingsManager.get('window.dailyLogsBounds');
+  let windowOptions: Electron.BrowserWindowConstructorOptions = {
+    width: 700,
+    height: 550,
+    title: 'Daily Logs - Pocket Agent',
+    backgroundColor: '#0a0a0b',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  };
+
+  if (savedBoundsJson) {
+    try {
+      const savedBounds = JSON.parse(savedBoundsJson);
+      if (savedBounds.x !== undefined) windowOptions.x = savedBounds.x;
+      if (savedBounds.y !== undefined) windowOptions.y = savedBounds.y;
+      if (savedBounds.width) windowOptions.width = savedBounds.width;
+      if (savedBounds.height) windowOptions.height = savedBounds.height;
+    } catch { /* ignore */ }
+  }
+
+  dailyLogsWindow = new BrowserWindow(windowOptions);
+
+  dailyLogsWindow.loadFile(path.join(__dirname, '../../ui/daily-logs.html'));
+
+  dailyLogsWindow.once('ready-to-show', () => {
+    dailyLogsWindow?.show();
+  });
+
+  const saveBounds = () => {
+    if (dailyLogsWindow && !dailyLogsWindow.isDestroyed()) {
+      SettingsManager.set('window.dailyLogsBounds', JSON.stringify(dailyLogsWindow.getBounds()));
+    }
+  };
+  dailyLogsWindow.on('moved', saveBounds);
+  dailyLogsWindow.on('resized', saveBounds);
+  dailyLogsWindow.on('close', saveBounds);
+
+  dailyLogsWindow.on('closed', () => {
+    dailyLogsWindow = null;
+  });
+}
+
 function openSoulWindow(): void {
   if (soulWindow && !soulWindow.isDestroyed()) {
     soulWindow.show();
@@ -1512,6 +1655,14 @@ function setupIPC(): void {
     openFactsWindow();
   });
 
+  ipcMain.handle('app:openDailyLogs', async () => {
+    openDailyLogsWindow();
+  });
+
+  ipcMain.handle('dailyLogs:list', async () => {
+    return AgentManager.getDailyLogsSince(3);
+  });
+
   ipcMain.handle('app:openSoul', async () => {
     openSoulWindow();
   });
@@ -1777,8 +1928,8 @@ function setupIPC(): void {
     const hasGlmKey = SettingsManager.get('glm.apiKey');
     if (hasGlmKey) {
       models.push(
-        { id: 'glm-5', name: 'GLM-5', provider: 'zhipu' },
-        { id: 'glm-4.7', name: 'GLM-4.7', provider: 'zhipu' }
+        { id: 'glm-5', name: 'GLM 5', provider: 'glm' },
+        { id: 'glm-4.7', name: 'GLM 4.7', provider: 'glm' }
       );
     }
 
@@ -2433,6 +2584,40 @@ Respond with ONLY valid JSON, no markdown, no explanation:
   ipcMain.handle('auth:isOAuthPending', async () => {
     const { ClaudeOAuth } = await import('../auth/oauth');
     return ClaudeOAuth.isPending();
+  });
+
+  ipcMain.handle('auth:validateOAuth', async () => {
+    try {
+      const { ClaudeOAuth } = await import('../auth/oauth');
+      // Timeout after 5 seconds to avoid hanging the UI
+      const result = await Promise.race([
+        ClaudeOAuth.getAccessToken().then(token => ({ valid: token !== null })),
+        new Promise<{ valid: boolean }>(resolve =>
+          setTimeout(() => resolve({ valid: false }), 5000)
+        ),
+      ]);
+      console.log('[OAuth] Validation result:', result.valid ? 'valid' : 'expired/failed');
+      return result;
+    } catch (error) {
+      console.error('[OAuth] Validation error:', error);
+      return { valid: false };
+    }
+  });
+
+  // Browser control
+  ipcMain.handle('browser:detectInstalled', async () => {
+    const { detectInstalledBrowsers } = await import('../browser/launcher');
+    return detectInstalledBrowsers();
+  });
+
+  ipcMain.handle('browser:launch', async (_, browserId: string, port?: number) => {
+    const { launchBrowser } = await import('../browser/launcher');
+    return launchBrowser(browserId, port || 9222);
+  });
+
+  ipcMain.handle('browser:testConnection', async (_, cdpUrl?: string) => {
+    const { testCdpConnection } = await import('../browser/launcher');
+    return testCdpConnection(cdpUrl || 'http://localhost:9222');
   });
 
   // Shell commands — platform-aware shell selection
