@@ -81,6 +81,7 @@ export class CronScheduler {
   private dbPath: string | null = null;
   private db: Database.Database | null = null; // Persistent DB connection for reminders
   private isCheckingReminders: boolean = false; // Mutex to prevent overlapping checks
+  private checkStartedAt: number = 0; // Timestamp when check started (for stale mutex detection)
 
   constructor() {}
 
@@ -139,13 +140,18 @@ export class CronScheduler {
   private async checkReminders(): Promise<void> {
     if (!this.db) return;
 
-    // Mutex: prevent overlapping executions
+    // Mutex: prevent overlapping executions (with 10-minute stale guard)
     if (this.isCheckingReminders) {
-      console.log('[Scheduler] Skipping reminder check - previous check still running');
-      return;
+      const elapsed = Date.now() - this.checkStartedAt;
+      if (elapsed < 10 * 60 * 1000) {
+        console.log('[Scheduler] Skipping reminder check - previous check still running');
+        return;
+      }
+      console.warn(`[Scheduler] Releasing stale mutex (stuck for ${Math.round(elapsed / 1000)}s)`);
     }
 
     this.isCheckingReminders = true;
+    this.checkStartedAt = Date.now();
 
     try {
       const db = this.db;
@@ -299,11 +305,17 @@ export class CronScheduler {
             throw new Error('AgentManager not initialized');
           }
 
-          const result = await AgentManager.processMessage(
-            fullPrompt,
-            `cron:${job.name}`,
-            sessionId
-          );
+          const JOB_TIMEOUT_MS = 5 * 60 * 1000; // 5 minute timeout for LLM calls
+          const result = await Promise.race([
+            AgentManager.processMessage(
+              fullPrompt,
+              `cron:${job.name}`,
+              sessionId
+            ),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`Job "${job.name}" timed out after ${JOB_TIMEOUT_MS / 1000}s`)), JOB_TIMEOUT_MS)
+            ),
+          ]);
           response = result.response;
         }
 
@@ -1034,6 +1046,14 @@ export class CronScheduler {
    */
   async catchUpMissedJobs(): Promise<void> {
     console.log('[Scheduler] Catching up missed jobs after wake');
+
+    // Reset mutex in case a previous check was stuck mid-flight when sleep happened
+    this.isCheckingReminders = false;
+
+    // Reload node-cron tasks (they die during macOS sleep)
+    await this.loadJobsFromDatabase();
+
+    // Run check immediately to catch up missed jobs
     await this.checkReminders();
   }
 
