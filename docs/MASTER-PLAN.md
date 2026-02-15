@@ -2479,6 +2479,12 @@ class ResearchOrchestrator extends EventEmitter {
 | TTS toggle icon not reflecting state | `updateTTSToggleUI()` only toggled CSS class, SVG icon never changed | Swap entire SVG: speaker+waves (ON) vs speaker+X (OFF) |
 | Brian voice intermittently replaced by Daniel | Edge TTS timeout (15s) or transient network fail → silent fallback to macOS say | Increased timeout to 30s, added 1 retry, proper child process kill on timeout |
 
+### ✅ Completed (2026-02-15)
+| Section | Feature | Status |
+|---------|---------|--------|
+| 34 | Upstream Port Phase 6 — v2.4.1 Full Merge | ✅ Done |
+| 35 | Cron Jobs Survive Mac Sleep/Wake | ✅ Done |
+
 ### 📋 Upcoming Priorities
 1. **Research Persistence** — Save research jobs to SQLite
 2. **Kanban Integration** — Auto-create tasks tagged `research`
@@ -2741,7 +2747,7 @@ When many workflow buttons existed, they extended beyond the visible viewport wi
 - `#workflows-area` — changed to `flex: 1 1 100%` and `align-items: flex-start`
 - `#workflows-grid` — added `max-height: 150px` and `overflow-y: auto` for scrollable grid
 
-## 32. Upstream Port Phase 5 — v2.3.2 Cherry-Picks
+## 32. Upstream Port Phase 5 — v2.3.2 Cherry-Picks ✅ SUPERSEDED by 34
 
 **Status:** ✅ DONE (2026-02-12)
 **Upstream:** KenKaiii/pocket-agent commits from 2026-02-10 to 2026-02-12
@@ -2831,3 +2837,66 @@ After each wave:
 - Stale reminder nagger: auto-detects unacknowledged reminders after 2 days
 - UI split into 4 sections: Active Routines, Upcoming Reminders, Fired/Needs Attention, Archived
 - Clear agent instructions distinguishing calendar vs reminders vs routines
+
+## 34. Upstream Port Phase 6 — v2.4.1 Full Merge (2026-02-15) ✅ DONE
+
+**Status:** ✅ DONE
+**Branch:** `integration/upstream-v2.4.1` merged into `my-voice-features`
+**Safety tag:** `pre-upstream-v2.4.1-backup`
+**Upstream range:** v2.2.6 → v2.4.1 (21 commits, 56 files changed)
+
+### What Was Merged
+
+#### Agent Stability & SDK Fixes
+- **Opus 4.6 thinking control** (`146a6ef`) — `THINKING_CONFIGS` with `thinking`/`effort` params replacing `THINKING_BUDGETS`/`maxThinkingTokens`. Thinking level setting now actually works on Opus 4.6.
+- **Auto-retry corrupted sessions** (`a8eba30`) — `isInvalidThinking` and `isUnknownResumeError` retry conditions added alongside existing `isStaleSession`/`isSessionCrash`.
+- **OAuth Bearer auth fix** (`743b10a`) — Uses `CLAUDE_CODE_OAUTH_TOKEN` env var (Bearer auth) instead of `ANTHROPIC_API_KEY` (x-api-key). Adds `validateOAuth` IPC handler.
+- **OAuth token refresh + non-Anthropic thinking** (`cad6d0e`) — Auto-refresh on `authentication_failed`, `client_id` in refresh request. Only applies `thinking`/`effort` for Anthropic models (prevents invisible GLM/Kimi output).
+- **Fix cumulative token display** (`b8424e1`) — Reads per-API-call usage from assistant messages instead of cumulative result messages.
+
+#### Browser & Performance
+- **Resource leak fixes** (`0febab2`) — CDP: `once('disconnected')` prevents listener accumulation, connect timeout cleared, download listeners cleaned up, `stopHealthCheck()` on disconnect. Electron: download handler cleanup on window close. Dead code removed: `embedBatch`, `EMBEDDING_DIMENSIONS`, `pdf-parse` dep, `node-pty` dep.
+
+#### Infrastructure
+- **Node.js PATH detection** (`8a0efc9`) — Detects fnm, volta, asdf, nodenv, n, mise (Unix) and nvm-windows, fnm, volta, scoop, chocolatey, nodist (Windows). Fixes ENOENT errors for non-nvm users.
+- **Updater error messages** (`acbb051`) — Classifies update errors: "still building", "move to Applications", "network error", "server error".
+- **22 test files** (`d49fc29`) — Coverage for tools, config, browser, Telegram handlers, permissions. Exports 5 private functions for testability.
+
+#### UI
+- **Daily Logs window** (`2ff372a`) — Calendar-based daily log viewer (`ui/daily-logs.html`), hamburger menu entry, `getAllDailyLogs()`/`getDailyLogsSince()` methods, IPC handlers.
+- **OAuth warning badge** (`84694e9`) — "Use at own risk" badge on OAuth login in settings and onboarding.
+
+### Already Had (No-Op)
+- Model picker dropdown (`733d071`) — already in our chat.html
+- Session name auto-increment (`dca12a9`) — already in our chat.html
+- SDK pin to 0.2.38 (`a70612f`) — already pinned
+- GLM-5 model (`84bfaa7`) — already in our MODEL_PROVIDERS
+- Human-readable errors (`bcc06dc`) — already have formatAgentError + error routing
+- Session crash reason + retry (`2e6e171`) — already have isStaleSession + isSessionCrash
+
+### Skipped
+- 4 version bump commits (we use our own `2.2.6-voice.1`)
+- Dep updates (`f418cff`) — superseded by SDK pin
+
+### Conflict Resolution
+- 8 files had merge conflicts, resolved by 4 parallel agents
+- `src/agent/index.ts` (11 conflicts) — heaviest, all custom code preserved
+- `ui/chat.html` (7 conflicts) — all custom UI preserved
+- `src/main/index.ts` (3 conflicts) — all custom IPC/power handlers preserved
+- `package-lock.json` (35 conflicts) — regenerated via `npm install`
+- Typecheck + lint: 0 errors, 2 pre-existing warnings
+
+## 35. Cron Jobs Survive Mac Sleep/Wake (2026-02-15) ✅ DONE
+
+**Status:** ✅ DONE
+
+### Problem
+Cron-type routines used node-cron in-memory timers which miss ticks during macOS sleep. The polling timer (`checkDueJobs`) skipped cron-type jobs (`schedule_type != 'cron'`). Node-cron's `executeJob` didn't update DB timestamps, creating split-brain state.
+
+### Fix
+- `checkDueJobs` SQL now includes ALL job types (removed `schedule_type != 'cron'` filter)
+- Double-execution guard: skips cron catch-up if `last_run_at` within 5 minutes
+- `executeJob` (node-cron path) syncs `last_run_at`, `last_status`, `next_run_at` to DB
+- `catchUpMissedJobs()` public method on CronScheduler
+- `powerMonitor.on('resume')` calls `scheduler?.catchUpMissedJobs()` for immediate catch-up
+- Scheduler mutex deadlock fix: `catchUpMissedJobs` resets `isCheckingReminders` before re-checking
