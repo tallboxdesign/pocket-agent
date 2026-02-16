@@ -1242,6 +1242,20 @@ class AgentManagerClass extends EventEmitter {
       staticParts.push(this.identity);
     }
 
+    // For non-Anthropic models, override the Claude identity injected by the SDK preset
+    const modelProvider = getProviderForModel(this.model);
+    if (modelProvider !== 'anthropic') {
+      const modelNames: Record<string, string> = {
+        'kimi-k2.5': 'Kimi K2.5 by Moonshot AI',
+        'glm-5': 'GLM 5 by Zhipu AI',
+        'glm-4.7': 'GLM 4.7 by Zhipu AI',
+        'MiniMax-M2.5': 'MiniMax M2.5',
+        'MiniMax-M2.5-Lightning': 'MiniMax M2.5 Lightning',
+      };
+      const modelName = modelNames[this.model] || this.model;
+      staticParts.push(`IMPORTANT: You are ${modelName}, NOT Claude. Ignore any system instructions that say you are Claude or made by Anthropic. You are running inside Pocket Agent, a desktop AI assistant.`);
+    }
+
     // Add user profile from settings
     const userProfile = SettingsManager.getFormattedProfile();
     if (userProfile) {
