@@ -2911,6 +2911,35 @@ If step 1 or 2 returns ANY output, you have duplicate handlers that will crash a
 
 ---
 
+### CRITICAL: SDK Upgrade Guide
+
+**Current version:** `@anthropic-ai/claude-agent-sdk` 0.2.42 (bundles Claude Code CLI 2.1.42)
+
+**The `CLAUDECODE` env var trap (discovered 2026-02-16):**
+
+SDK 0.2.42+ bundles Claude Code CLI 2.1.42 which added a **nested session detection** check. The CLI checks for a `CLAUDECODE` environment variable on startup — if it exists, it refuses to start with "cannot be launched inside another Claude Code session" and exits with code 1.
+
+Our app passes `...process.env` to the SDK's `env` option. If the user (or a dev) launches the app from within a Claude Code terminal session, `CLAUDECODE=1` is in the environment and propagates to the subprocess, causing an instant crash. Even when launched normally, the first SDK call may set this var in `process.env`, causing subsequent calls to fail.
+
+**Fix (already applied in `src/agent/index.ts`):**
+```typescript
+const env = { ...process.env };
+delete env.CLAUDECODE;        // Prevent nested session detection
+delete env.CLAUDE_CONFIG_DIR; // Prevent config dir conflicts
+```
+
+**When upgrading the SDK in the future:**
+1. Check the bundled Claude Code CLI version in `package.json` → `claudeCodeVersion`
+2. Read the Claude Code changelog for new env var checks or startup validations
+3. Test with ALL providers (Anthropic, Kimi/Moonshot, GLM, MiniMax) — non-Anthropic providers hit different code paths
+4. Test in BOTH dev mode (`npm start`) AND packaged app (DMG install) — they have different env contexts
+5. If the CLI exits with code 1 immediately, run it manually to see the real error:
+   ```bash
+   ANTHROPIC_BASE_URL="..." ANTHROPIC_API_KEY="..." node node_modules/@anthropic-ai/claude-agent-sdk/cli.js --version
+   ```
+
+---
+
 ## 35. Cron Jobs Survive Mac Sleep/Wake (2026-02-15) ✅ DONE
 
 **Status:** ✅ DONE
