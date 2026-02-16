@@ -1949,21 +1949,7 @@ function setupIPC(): void {
     return models;
   });
 
-  // Browser launcher IPC handlers
-  ipcMain.handle('browser:detectInstalled', async () => {
-    const { detectInstalledBrowsers } = await import('../browser/launcher');
-    return detectInstalledBrowsers();
-  });
-
-  ipcMain.handle('browser:launch', async (_, browserId: string, port?: number) => {
-    const { launchBrowser } = await import('../browser/launcher');
-    return launchBrowser(browserId, port);
-  });
-
-  ipcMain.handle('browser:testConnection', async (_, cdpUrl?: string) => {
-    const { testCdpConnection } = await import('../browser/launcher');
-    return testCdpConnection(cdpUrl);
-  });
+  // Browser launcher IPC handlers are registered later in setupIPC (upstream block)
 
   ipcMain.handle('glm:healthCheck', async () => {
     const { glmHealthCheck, isGlmConfigured } = await import('../tools/glm-client');
@@ -3464,7 +3450,11 @@ app.whenReady().then(async () => {
       console.warn('[Main] Task consolidation failed (non-fatal):', e);
     }
 
-    setupIPC();
+    try {
+      setupIPC();
+    } catch (e) {
+      console.error('[Main] FATAL: setupIPC failed:', e);
+    }
     setupUpdaterIPC();
     console.log('[Main] Creating tray...');
     await createTray();
