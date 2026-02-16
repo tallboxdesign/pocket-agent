@@ -1283,6 +1283,8 @@ class AgentManagerClass extends EventEmitter {
       CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
     };
     delete env.CLAUDE_CONFIG_DIR;
+    // Prevent "nested session" detection in Claude Code 2.1.42+
+    delete env.CLAUDECODE;
 
     const options: SDKOptions = {
       model: this.model,
