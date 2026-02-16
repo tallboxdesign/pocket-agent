@@ -2886,6 +2886,31 @@ After each wave:
 - `package-lock.json` (35 conflicts) — regenerated via `npm install`
 - Typecheck + lint: 0 errors, 2 pre-existing warnings
 
+---
+
+### CRITICAL: Post-Merge Checklist for Future Upstream Merges
+
+**Root cause of recurring merge bugs:** Duplicate `ipcMain.handle()` registrations. Electron throws if the same channel is registered twice, which silently kills `setupIPC()` mid-execution — all handlers registered after the duplicate never get registered. The app appears to work (chat loads fine) but buttons for features registered later (kanban, calendar, email) break.
+
+**After every upstream merge, run this:**
+
+```bash
+# 1. Check for duplicate IPC handler registrations (MUST return empty)
+grep -o "ipcMain.handle('[^']*'" src/main/index.ts | sort | uniq -d
+
+# 2. Check for duplicate ipcMain.on registrations
+grep -o "ipcMain.on('[^']*'" src/main/index.ts | sort | uniq -d
+
+# 3. Typecheck + lint (already in CLAUDE.md but repeating for emphasis)
+npm run typecheck && npm run lint
+```
+
+If step 1 or 2 returns ANY output, you have duplicate handlers that will crash at runtime. Remove the duplicate (keep whichever version is more complete).
+
+**Why this keeps happening:** Our custom features (browser launcher, email, kanban, voice) register IPC handlers in the same `setupIPC()` function as upstream code. When upstream adds or moves handlers, merge conflicts can leave both the old and new registration in place. Git merge won't catch this because the duplicates are far apart in the file (1000+ lines).
+
+---
+
 ## 35. Cron Jobs Survive Mac Sleep/Wake (2026-02-15) ✅ DONE
 
 **Status:** ✅ DONE

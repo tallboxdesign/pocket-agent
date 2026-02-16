@@ -833,6 +833,9 @@ function openChatWindow(): void {
 
   chatWindow.once('ready-to-show', () => {
     chatWindow?.show();
+    if (SettingsManager.getBoolean('debug.devTools')) {
+      chatWindow?.webContents.openDevTools({ mode: 'detach' });
+    }
   });
 
   // Save window bounds when moved, resized, or closed
