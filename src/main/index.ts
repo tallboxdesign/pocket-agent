@@ -1899,6 +1899,10 @@ function setupIPC(): void {
     return SettingsManager.validateMoonshotKey(key);
   });
 
+  ipcMain.handle('settings:validateMinimax', async (_, key: string) => {
+    return SettingsManager.validateMinimaxKey(key);
+  });
+
   // Get available models based on configured API keys
   ipcMain.handle('settings:getAvailableModels', async () => {
     const models: Array<{ id: string; name: string; provider: string }> = [];
@@ -1930,6 +1934,15 @@ function setupIPC(): void {
       models.push(
         { id: 'glm-5', name: 'GLM 5', provider: 'glm' },
         { id: 'glm-4.7', name: 'GLM 4.7', provider: 'glm' }
+      );
+    }
+
+    // Check for MiniMax key
+    const hasMinimaxKey = SettingsManager.get('minimax.apiKey');
+    if (hasMinimaxKey) {
+      models.push(
+        { id: 'MiniMax-M2.5', name: 'MiniMax M2.5', provider: 'minimax' },
+        { id: 'MiniMax-M2.5-Lightning', name: 'M2.5 Lightning', provider: 'minimax' }
       );
     }
 

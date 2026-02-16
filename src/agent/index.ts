@@ -12,7 +12,7 @@ import { buildCanUseToolCallback, buildPreToolUseHook, setStatusEmitter } from '
 import { PersistentSDKSession, TurnResult } from './persistent-session';
 
 // Provider configuration for different LLM backends
-type ProviderType = 'anthropic' | 'moonshot' | 'glm';
+type ProviderType = 'anthropic' | 'moonshot' | 'glm' | 'minimax';
 
 interface ProviderConfig {
   baseUrl?: string;
@@ -28,6 +28,9 @@ const PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
   'glm': {
     baseUrl: 'https://api.z.ai/api/anthropic/',
   },
+  'minimax': {
+    baseUrl: 'https://api.minimax.io/anthropic/',
+  },
 };
 
 // Model to provider mapping
@@ -42,6 +45,9 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   // Z.AI GLM models
   'glm-5': 'glm',
   'glm-4.7': 'glm',
+  // MiniMax models
+  'MiniMax-M2.5': 'minimax',
+  'MiniMax-M2.5-Lightning': 'minimax',
 };
 
 /**
@@ -93,6 +99,17 @@ async function configureProviderEnvironment(model: string): Promise<void> {
     process.env.ANTHROPIC_API_KEY = glmKey;
 
     console.log('[AgentManager] Provider configured: Z.AI GLM');
+  } else if (provider === 'minimax') {
+    const minimaxKey = SettingsManager.get('minimax.apiKey');
+    if (!minimaxKey) {
+      throw new Error('MiniMax API key not configured. Please add your key in Settings > LLM.');
+    }
+
+    process.env.ANTHROPIC_BASE_URL = config.baseUrl;
+    process.env.ANTHROPIC_AUTH_TOKEN = minimaxKey;
+    process.env.ANTHROPIC_API_KEY = minimaxKey;
+
+    console.log('[AgentManager] Provider configured: MiniMax');
   } else {
     // Anthropic provider - restore correct API key and clear non-Anthropic vars
     delete process.env.ANTHROPIC_BASE_URL;

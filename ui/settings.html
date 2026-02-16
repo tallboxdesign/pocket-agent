@@ -1671,6 +1671,21 @@
           </div>
         </div>
 
+        <h3 class="subsection-title" style="margin-top: 24px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">MiniMax</h3>
+        <div class="keys-table" id="minimax-api-key-section">
+          <div class="key-row">
+            <div class="key-info">
+              <span class="key-name">API Key</span>
+              <a href="https://platform.minimax.io/" target="_blank" class="key-link">platform.minimax.io</a>
+            </div>
+            <div class="key-input">
+              <input type="password" id="minimax.apiKey" placeholder="eyJ...">
+              <button class="delete-btn" id="minimax.apiKey-delete" onclick="deleteKey('minimax.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+              <button onclick="validateKey('minimax')">Test</button>
+            </div>
+          </div>
+        </div>
+
         <h3 class="subsection-title" style="margin-top: 24px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">Worker Models</h3>
         <p style="font-size:11px;color:var(--text-secondary);margin:0 0 8px;">Used for background tasks: email classification, summaries, extraction. OpenAI models require an OpenAI key in the Keys section.</p>
         <div class="settings-grid" id="glm-worker-section">
@@ -2769,31 +2784,26 @@
         }
 
         // Add available models grouped by provider
-        const anthropicModels = models.filter(m => m.provider === 'anthropic');
-        const moonshotModels = models.filter(m => m.provider === 'moonshot');
+        const providerGroups = [
+          { key: 'anthropic', label: 'Anthropic' },
+          { key: 'moonshot', label: 'Kimi (Moonshot)' },
+          { key: 'glm', label: 'GLM (Z.AI)' },
+          { key: 'minimax', label: 'MiniMax' },
+        ];
 
-        if (anthropicModels.length > 0) {
-          const group = document.createElement('optgroup');
-          group.label = 'Anthropic';
-          for (const model of anthropicModels) {
-            const option = document.createElement('option');
-            option.value = model.id;
-            option.textContent = model.name;
-            group.appendChild(option);
+        for (const pg of providerGroups) {
+          const providerModels = models.filter(m => m.provider === pg.key);
+          if (providerModels.length > 0) {
+            const group = document.createElement('optgroup');
+            group.label = pg.label;
+            for (const model of providerModels) {
+              const option = document.createElement('option');
+              option.value = model.id;
+              option.textContent = model.name;
+              group.appendChild(option);
+            }
+            dropdown.appendChild(group);
           }
-          dropdown.appendChild(group);
-        }
-
-        if (moonshotModels.length > 0) {
-          const group = document.createElement('optgroup');
-          group.label = 'Kimi (Moonshot)';
-          for (const model of moonshotModels) {
-            const option = document.createElement('option');
-            option.value = model.id;
-            option.textContent = model.name;
-            group.appendChild(option);
-          }
-          dropdown.appendChild(group);
         }
 
         // Restore saved selection if still valid for current API keys
@@ -2947,7 +2957,7 @@
       // Exclude API key inputs, auth inputs, and fields with manual save buttons from auto-save
       const excludedIds = [
         'anthropic.apiKey', 'openai.apiKey', 'gemini.apiKey', 'zhipu.apiKey',
-        'google.placesApiKey', 'notion.apiKey', 'trello.apiKey',
+        'google.placesApiKey', 'notion.apiKey', 'trello.apiKey', 'minimax.apiKey',
         'trello.token', 'elevenlabs.apiKey', 'auth-api-key', 'oauth-code',
         'telegram.allowedUserIds', 'telegram.defaultChatId',
         'gmail-user-email', 'gmail-default-recipient',
@@ -3020,6 +3030,10 @@
         pattern: /^sk-[A-Za-z0-9_-]{40,}$/,
         hint: 'Moonshot keys start with "sk-"'
       },
+      'minimax.apiKey': {
+        pattern: /^eyJ[A-Za-z0-9_-]{20,}/,
+        hint: 'MiniMax keys start with "eyJ"'
+      },
       'telegram.botToken': {
         pattern: /^\d{6,}:[A-Za-z0-9_-]{30,}$/,
         hint: 'Telegram tokens are in format "123456789:ABC..."'
@@ -3073,7 +3087,7 @@
       const keyIds = [
         'anthropic.apiKey', 'openai.apiKey', 'gemini.apiKey',
         'google.placesApiKey', 'notion.apiKey', 'elevenlabs.apiKey',
-        'moonshot.apiKey', 'telegram.botToken'
+        'moonshot.apiKey', 'minimax.apiKey', 'telegram.botToken'
       ];
 
       for (const keyId of keyIds) {
@@ -5920,6 +5934,8 @@ Never mention internal labels, automation, or filtering.`;
           result = await window.pocketAgent.validateOpenAIKey(key);
         } else if (provider === 'moonshot') {
           result = await window.pocketAgent.validateMoonshotKey(key);
+        } else if (provider === 'minimax') {
+          result = await window.pocketAgent.validateMinimaxKey(key);
         } else if (provider === 'telegram') {
           result = await window.pocketAgent.validateTelegramToken(key);
         }
@@ -6021,6 +6037,7 @@ Never mention internal labels, automation, or filtering.`;
       const hasOAuth = settings['auth.oauthToken'];
       const hasApiKey = settings['anthropic.apiKey'];
       const hasMoonshotKey = settings['moonshot.apiKey'];
+      const hasMinimaxKey = settings['minimax.apiKey'];
       const anthropicKeyRow = document.getElementById('anthropic-key-row');
       const authApiKeySection = document.getElementById('auth-api-key-section');
       const brainPowerSection = document.getElementById('brain-power-section');
@@ -6031,7 +6048,7 @@ Never mention internal labels, automation, or filtering.`;
       }
 
       // Connected if any LLM provider is configured
-      const isConnected = (authMethod === 'oauth' && hasOAuth) || hasApiKey || hasMoonshotKey;
+      const isConnected = (authMethod === 'oauth' && hasOAuth) || hasApiKey || hasMoonshotKey || hasMinimaxKey;
 
       if (authMethod === 'oauth' && hasOAuth) {
         // Show checking state while validating token

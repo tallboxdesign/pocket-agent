@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   validateOpenAIKey: (key: string) => ipcRenderer.invoke('settings:validateOpenAI', key),
   validateMoonshotKey: (key: string) => ipcRenderer.invoke('settings:validateMoonshot', key),
   validateGlmKey: (key: string) => ipcRenderer.invoke('settings:validateGlm', key),
+  validateMinimaxKey: (key: string) => ipcRenderer.invoke('settings:validateMinimax', key),
   validateTelegramToken: (token: string) => ipcRenderer.invoke('settings:validateTelegram', token),
   getAvailableModels: () => ipcRenderer.invoke('settings:getAvailableModels'),
   restartAgent: () => ipcRenderer.invoke('agent:restart'),
@@ -356,6 +357,7 @@ declare global {
       validateOpenAIKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       validateMoonshotKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       validateGlmKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
+      validateMinimaxKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       validateTelegramToken: (token: string) => Promise<{ valid: boolean; error?: string; botInfo?: unknown }>;
       getAvailableModels: () => Promise<Array<{ id: string; name: string; provider: string }>>;
       restartAgent: () => Promise<{ success: boolean }>;

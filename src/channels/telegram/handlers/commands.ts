@@ -214,6 +214,11 @@ Workflows are reusable command templates. Use /workflow to see what's available,
       availableModels.push({ id: 'glm-4.7', name: 'GLM 4.7', provider: 'Z.AI' });
     }
 
+    if (SettingsManager.get('minimax.apiKey')) {
+      availableModels.push({ id: 'MiniMax-M2.5', name: 'MiniMax M2.5', provider: 'MiniMax' });
+      availableModels.push({ id: 'MiniMax-M2.5-Lightning', name: 'M2.5 Lightning', provider: 'MiniMax' });
+    }
+
     const currentModel = AgentManager.getModel();
 
     // /model or /model list - show available models
