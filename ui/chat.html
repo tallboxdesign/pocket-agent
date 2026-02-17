@@ -1099,6 +1099,19 @@
       font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
     }
 
+    .status-count {
+      margin-left: auto;
+      font-size: 11px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2px 8px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
     /* Simple typing dots fallback */
     .typing {
       align-self: flex-start;
@@ -2572,6 +2585,7 @@
     let pendingAttachmentsBySession = new Map(); // Track attachments per session
     let statusCleanupBySession = new Map(); // Track status listeners per session
     let statusElBySession = new Map(); // Track status elements per session
+    let toolCountBySession = new Map(); // Track tool call count per session
     let suggestionBySession = new Map(); // Track ghost suggestions per session
     let inputTextBySession = new Map(); // Track input text per session
     let queuedMessageIdsBySession = new Map(); // Track queued message IDs per session
@@ -3381,6 +3395,7 @@
           statusEl.remove();
           statusElBySession.delete(sessionId);
         }
+        toolCountBySession.delete(sessionId);
 
         // Clean up loading state
         isLoadingBySession.delete(sessionId);
@@ -3701,6 +3716,7 @@
           statusEl.remove();
           statusElBySession.delete(sessionId);
         }
+        toolCountBySession.delete(sessionId);
 
         // Remove 'queued' class from any queued messages and clear tracking
         const queuedMsgs = messagesDiv.querySelectorAll('.message.queued');
@@ -3843,6 +3859,7 @@
             currentStatusEl.remove();
             statusElBySession.delete(sessionId);
           }
+          toolCountBySession.delete(sessionId);
 
           isLoadingBySession.set(sessionId, false);
           renderTabs();
@@ -3926,6 +3943,7 @@
             currentStatusEl.remove();
             statusElBySession.delete(sessionId);
           }
+          toolCountBySession.delete(sessionId);
 
           isLoadingBySession.set(sessionId, false);
           renderTabs();
@@ -4355,6 +4373,7 @@
           <div class="status-action">${escapeHtml(initialMessage)}</div>
           <div class="status-detail"></div>
         </div>
+        <div class="status-count" style="display:none"></div>
       `;
       messagesDiv.appendChild(div);
       return div;
@@ -4398,6 +4417,7 @@
 
       const actionEl = statusEl.querySelector('.status-action');
       const detailEl = statusEl.querySelector('.status-detail');
+      const countEl = statusEl.querySelector('.status-count');
 
       if (status.type === 'thinking') {
         // Don't overwrite blocked state
@@ -4410,6 +4430,14 @@
           statusEl.classList.remove('team-active');
         }
       } else if (status.type === 'tool_start') {
+        // Increment tool call counter
+        const count = (toolCountBySession.get(targetSession) || 0) + 1;
+        toolCountBySession.set(targetSession, count);
+        if (countEl) {
+          countEl.textContent = count === 1 ? '1 tool' : `${count} tools`;
+          countEl.style.display = '';
+        }
+
         actionEl.textContent = status.toolName || 'doing something cool ✨';
         if (status.toolInput) {
           detailEl.textContent = status.toolInput;
