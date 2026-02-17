@@ -179,6 +179,47 @@ function stripMarkdownAndMeta(text: string): string {
   return filtered.join('\n').trim();
 }
 
+/**
+ * Split text into chunks suitable for voice synthesis.
+ * Splits on sentence boundaries, keeping each chunk under maxChars.
+ */
+export function splitForVoice(text: string, maxChars: number = 1200): string[] {
+  if (text.length <= maxChars) return [text];
+
+  const sentences = text.match(/[^.!?]*[.!?]+[\s]*/g);
+  if (!sentences) {
+    // No sentence boundaries — split on word boundaries
+    const chunks: string[] = [];
+    let remaining = text;
+    while (remaining.length > maxChars) {
+      const slice = remaining.slice(0, maxChars);
+      const lastSpace = slice.lastIndexOf(' ');
+      const splitAt = lastSpace > maxChars / 2 ? lastSpace : maxChars;
+      chunks.push(remaining.slice(0, splitAt).trim());
+      remaining = remaining.slice(splitAt).trim();
+    }
+    if (remaining.trim()) chunks.push(remaining.trim());
+    return chunks;
+  }
+
+  const chunks: string[] = [];
+  let current = '';
+  for (const sentence of sentences) {
+    if (current.length + sentence.length > maxChars && current.length > 0) {
+      chunks.push(current.trim());
+      current = '';
+    }
+    // Single sentence exceeds maxChars — push as its own chunk
+    if (sentence.length > maxChars && current.length === 0) {
+      chunks.push(sentence.trim());
+      continue;
+    }
+    current += sentence;
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
 export function stripMarkdown(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, '') // code blocks
