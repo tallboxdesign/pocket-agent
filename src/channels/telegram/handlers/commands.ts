@@ -201,7 +201,7 @@ Workflows are reusable command templates. Use /workflow to see what's available,
     if (hasOAuth || hasAnthropicKey) {
       availableModels.push(
         { id: 'claude-opus-4-6', name: 'Opus 4.6', provider: 'Anthropic' },
-        { id: 'claude-sonnet-4-5-20250929', name: 'Sonnet 4.5', provider: 'Anthropic' },
+        { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', provider: 'Anthropic' },
         { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', provider: 'Anthropic' }
       );
     }

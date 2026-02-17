@@ -282,7 +282,7 @@ When done, provide a clear summary of your findings.`;
   const result = queryFn({
     prompt: `Research this topic thoroughly: "${topic}"`,
     options: {
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       maxTurns,
       abortController,
       tools: { type: 'preset', preset: 'claude_code' },

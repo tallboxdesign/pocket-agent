@@ -694,7 +694,7 @@ describe('AgentManager', () => {
         memory: memory,
         projectRoot: '/project',
         workspace: '/workspace',
-        model: 'claude-sonnet-4-5-20251101',
+        model: 'claude-sonnet-4-6',
         tools: {
           mcpServers: {},
           computerUse: { enabled: false, dockerized: true },

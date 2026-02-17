@@ -37,8 +37,7 @@ const PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
 const MODEL_PROVIDERS: Record<string, ProviderType> = {
   // Anthropic models
   'claude-opus-4-6': 'anthropic',
-  'claude-opus-4-5-20251101': 'anthropic',
-  'claude-sonnet-4-5-20250929': 'anthropic',
+  'claude-sonnet-4-6': 'anthropic',
   'claude-haiku-4-5-20251001': 'anthropic',
   // Moonshot/Kimi models
   'kimi-k2.5': 'moonshot',
