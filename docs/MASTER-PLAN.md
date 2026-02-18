@@ -1,7 +1,7 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
-**Last Updated:** 2026-02-12
+**Last Updated:** 2026-02-18
 **Status:** IN PROGRESS — v4.1 Email Intelligence
 **Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-5 (utility model, GLM-4.7 flash variants for bulk)
 
@@ -56,6 +56,7 @@ If in doubt, **do nothing** rather than risk data loss.
 30. [Calendar Integration](#30-calendar-integration)
 31. [Workflow UI Overflow Fix](#31-workflow-ui-overflow-fix)
 32. [Upstream Port Phase 5 — v2.3.2 Cherry-Picks](#32-upstream-port-phase-5--v232-cherry-picks)
+36. [Gmail OAuth Production Cutover (2026-02-18)](#36-gmail-oauth-production-cutover-2026-02-18)
 
 ---
 
@@ -2955,3 +2956,34 @@ Cron-type routines used node-cron in-memory timers which miss ticks during macOS
 - `catchUpMissedJobs()` public method on CronScheduler
 - `powerMonitor.on('resume')` calls `scheduler?.catchUpMissedJobs()` for immediate catch-up
 - Scheduler mutex deadlock fix: `catchUpMissedJobs` resets `isCheckingReminders` before re-checking
+
+---
+
+## 36. Gmail OAuth Production Cutover (2026-02-18) ✅ DONE
+
+**Status:** ✅ DONE
+
+### Problem
+Gmail auth inside Pocket Agent was expiring roughly every 7 days.
+
+### Root Cause
+OAuth tokens were minted under a Google OAuth app that was still in Testing (or otherwise treated as short-lived testing auth), causing frequent re-auth cycles.
+
+### Action Completed
+- OAuth app publishing status moved to Production in Google Cloud Console.
+- Re-authenticated both accounts via `gog auth add` browser flow.
+- Re-issued full service scopes used by this project:
+  - `gmail,calendar,chat,classroom,drive,docs,contacts,tasks,sheets,people`
+
+### Accounts Re-Authenticated
+- `jorgepa.tallbox@gmail.com` (`created_at`: `2026-02-18T16:34:24Z`)
+- `office.tallbox@gmail.com` (`created_at`: `2026-02-18T16:34:56Z`)
+
+### Verification
+- `gog auth list --json` confirms fresh OAuth entries for both accounts.
+- Live Gmail API verification from this Codex sandbox is network-limited, so final verification must be done from the desktop app runtime (normal user environment).
+
+### Next Validation (Manual)
+- Restart Pocket Agent.
+- In Settings -> Gmail, verify gog status/account detection.
+- Run "any emails" check in chat and confirm Gmail reads succeed without re-auth prompts.
