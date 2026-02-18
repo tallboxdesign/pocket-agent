@@ -2824,7 +2824,8 @@ Selective cherry-pick of 8 upstream commits. Manual port (read upstream diff, ad
 After each wave:
 - [ ] `npm run typecheck && npm run lint` — zero errors
 - [ ] Build and install fresh DMG
-- [ ] Verify: chat history intact, routines working, workflows visible
+- [ ] **CRITICAL: Verify chat history intact** — stale builds cause UI to show empty chats/routines even though DB is fine. If missing, rebuild+reinstall fixes it. Always check this first after every install.
+- [ ] Verify: routines working, workflows visible
 - [ ] Verify: Telegram bot connects, custom commands work (/voice, /unanswered)
 - [ ] Verify: model switching works (Claude, GLM-5, GLM-4.7)
 - [ ] Verify: email processing runs without errors

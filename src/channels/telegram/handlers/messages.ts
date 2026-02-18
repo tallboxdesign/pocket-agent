@@ -7,6 +7,7 @@ import { AgentManager } from '../../../agent';
 import { MessageCallback } from '../types';
 import { withTyping } from '../utils/typing';
 import { setTelegramMessageContext } from '../../../tools/session-context';
+import { setActiveChannel } from '../../../tools/voice-tools';
 import { findWorkflowCommand } from '../../../config/commands-loader';
 
 export interface MessageHandlerDeps {
@@ -47,6 +48,7 @@ export async function handleTextMessage(
   const { onMessageCallback, sendResponse } = deps;
 
   if (messageId) setTelegramMessageContext({ chatId, messageId });
+  setActiveChannel('telegram');
 
   // Check if this is a workflow slash command (e.g., /create-workflow some context)
   let fullMessage = message;
@@ -118,5 +120,6 @@ export async function handleTextMessage(
     await ctx.reply(`⚠️ ${errorMsg}`);
   } finally {
     setTelegramMessageContext(null);
+    setActiveChannel('desktop');
   }
 }

@@ -14,6 +14,7 @@ import { transcribeAudio, isTranscriptionAvailable } from '../../../utils/transc
 import { MessageCallback } from '../types';
 import { withTyping } from '../utils/typing';
 import { setTelegramMessageContext } from '../../../tools/session-context';
+import { setActiveChannel } from '../../../tools/voice-tools';
 
 export interface MediaHandlerDeps {
   onMessageCallback: MessageCallback | null;
@@ -62,6 +63,7 @@ export async function handlePhotoMessage(
   const { onMessageCallback, sendResponse } = deps;
 
   if (messageId) setTelegramMessageContext({ chatId, messageId });
+  setActiveChannel('telegram');
   try {
     const result = await withTyping(ctx, async () => {
       // Get the largest photo (last in array)
@@ -153,6 +155,7 @@ export async function handlePhotoMessage(
     await ctx.reply(`Error processing photo: ${errorMsg}`);
   } finally {
     setTelegramMessageContext(null);
+    setActiveChannel('desktop');
   }
 }
 
@@ -182,6 +185,7 @@ export async function handleVoiceMessage(
   const { onMessageCallback, sendResponse } = deps;
 
   if (messageId) setTelegramMessageContext({ chatId, messageId });
+  setActiveChannel('telegram');
   try {
     const result = await withTyping(ctx, async () => {
       // Get file info from Telegram
@@ -283,6 +287,7 @@ export async function handleVoiceMessage(
     await ctx.reply(`Error processing voice message: ${errorMsg}`);
   } finally {
     setTelegramMessageContext(null);
+    setActiveChannel('desktop');
   }
 }
 
@@ -318,6 +323,7 @@ export async function handleAudioMessage(
   const { onMessageCallback, sendResponse } = deps;
 
   if (messageId) setTelegramMessageContext({ chatId, messageId });
+  setActiveChannel('telegram');
   try {
     const result = await withTyping(ctx, async () => {
       // Get file info from Telegram
@@ -423,5 +429,6 @@ export async function handleAudioMessage(
     await ctx.reply(`Error processing audio: ${errorMsg}`);
   } finally {
     setTelegramMessageContext(null);
+    setActiveChannel('desktop');
   }
 }

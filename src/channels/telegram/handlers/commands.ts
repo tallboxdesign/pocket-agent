@@ -11,6 +11,7 @@ import { loadWorkflowCommands } from '../../../config/commands-loader';
 import { getAllowedUsers } from '../middleware/auth';
 import { withTyping } from '../utils/typing';
 import { setTelegramMessageContext } from '../../../tools/session-context';
+import { setActiveChannel } from '../../../tools/voice-tools';
 
 export interface CommandHandlerDeps {
   bot: Bot;
@@ -408,6 +409,7 @@ function registerWorkflowCommandHandlers(deps: CommandHandlerDeps): void {
       if (!chatId) return;
 
       if (messageId) setTelegramMessageContext({ chatId, messageId });
+      setActiveChannel('telegram');
 
       const userText = ctx.message?.text?.replace(/^\/\S+\s*/, '').trim() || '';
       let fullMessage = `[Workflow: ${workflow.name}]\n${workflow.content}\n[/Workflow]`;
@@ -439,6 +441,9 @@ function registerWorkflowCommandHandlers(deps: CommandHandlerDeps): void {
       } catch (err) {
         console.error(`[Telegram:Cmd] Workflow ${workflow.name} error:`, err);
         await ctx.reply('Sorry, something went wrong running this workflow.');
+      } finally {
+        setTelegramMessageContext(null);
+        setActiveChannel('desktop');
       }
     });
   }

@@ -1563,6 +1563,12 @@ notify(title="Task Complete", body="Your download has finished")
 notify(title="Reminder", body="Meeting in 5 minutes", urgency="critical")
 \`\`\`
 
+### Voice Messages (Telegram)
+When voice mode is enabled (user sends /voice in Telegram), you automatically send a TTS voice
+summary alongside every text reply. You do NOT need to do anything special — the system handles
+text-to-speech conversion and sending the audio. The user toggles this with the /voice command.
+You CAN send voice messages. Do not tell the user you cannot.
+
 ### Limitations
 - Cannot send SMS or make calls
 - For full desktop automation, user needs to enable Computer Use (Docker-based)`;
