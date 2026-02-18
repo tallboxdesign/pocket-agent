@@ -1866,6 +1866,50 @@ function setupIPC(): void {
         }
       }
 
+      // Instant Telegram toggle — no restart required
+      if (key === 'telegram.enabled') {
+        const enabled = value === 'true' || value === '1';
+        if (enabled) {
+          const token = SettingsManager.get('telegram.botToken');
+          if (!telegramBot && token) {
+            telegramBot = createTelegramBot();
+            if (telegramBot) {
+              telegramBot.setOnMessageCallback((data) => {
+                if (chatWindow && !chatWindow.isDestroyed()) {
+                  chatWindow.webContents.send('telegram:message', {
+                    userMessage: data.userMessage,
+                    response: data.response,
+                    chatId: data.chatId,
+                    sessionId: data.sessionId,
+                    hasAttachment: data.hasAttachment,
+                    attachmentType: data.attachmentType,
+                    wasCompacted: data.wasCompacted,
+                    media: data.media,
+                  });
+                }
+              });
+              telegramBot.setOnSessionLinkCallback(() => {
+                if (chatWindow && !chatWindow.isDestroyed()) {
+                  chatWindow.webContents.send('sessions:changed');
+                }
+              });
+              await telegramBot.start();
+              if (scheduler) scheduler.setTelegramBot(telegramBot);
+              setResearchTelegramBot(telegramBot);
+              console.log('[Main] Telegram started (live toggle)');
+            }
+          }
+        } else {
+          if (telegramBot) {
+            await telegramBot.stop();
+            telegramBot = null;
+            if (scheduler) scheduler.setTelegramBot(null);
+            setResearchTelegramBot(null as unknown as TelegramBot);
+            console.log('[Main] Telegram stopped (live toggle)');
+          }
+        }
+      }
+
       return { success: true };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };

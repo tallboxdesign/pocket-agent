@@ -3005,7 +3005,7 @@
             await window.pocketAgent.setSetting(key, value);
             showToast('Got it!', 'success');
             // Activate reboot for settings that require restart
-            const rebootSettings = ['agent.model', 'agent.fallbackModel', 'telegram.allowedUserIds', 'telegram.botToken', 'telegram.enabled'];
+            const rebootSettings = ['agent.model', 'agent.fallbackModel', 'telegram.allowedUserIds', 'telegram.botToken'];
             if (rebootSettings.includes(key)) {
               activateReboot();
             }

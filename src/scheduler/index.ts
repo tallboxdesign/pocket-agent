@@ -588,9 +588,9 @@ export class CronScheduler {
   /**
    * Set Telegram bot for routing messages
    */
-  setTelegramBot(bot: TelegramBot): void {
+  setTelegramBot(bot: TelegramBot | null): void {
     this.telegramBot = bot;
-    console.log('[Scheduler] Telegram bot connected');
+    console.log(`[Scheduler] Telegram bot ${bot ? 'connected' : 'disconnected'}`);
   }
 
   /**
