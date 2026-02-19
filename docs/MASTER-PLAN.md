@@ -2993,7 +2993,7 @@ OAuth tokens were minted under a Google OAuth app that was still in Testing (or 
 
 ## 37. Write-Ahead Queue (WAQ) — Outbound Message Durability
 
-**Status:** PLANNED
+**Status:** IMPLEMENTED
 **Created:** 2026-02-19
 **Priority:** P0 (data integrity — silent message loss)
 
