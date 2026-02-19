@@ -4,7 +4,7 @@
 
 import {
   sendEmail, readEmails, listLabels, createLabel,
-  modifyLabels, createDraft, listDrafts, getMessage,
+  modifyLabels, createDraft, listDrafts, getMessage, getThread,
 } from './gog-wrapper';
 import { SettingsManager } from '../settings';
 
@@ -84,16 +84,27 @@ Uses Gmail search syntax for queries.
 Gmail categories: category:primary, category:updates, category:social, category:promotions, category:forums
 Combine with OR: "category:primary OR category:updates"
 
+IMPORTANT — Old threads with recent replies:
+When checking for emails needing attention, remember that threads can start months ago but have NEW replies today. Gmail "newer_than:Xd" matches individual messages, so a reply from today on an October thread WILL appear. But keyword-based searches may miss them if the recent reply doesn't contain the keywords. To be thorough:
+1. Search broadly first (e.g. "is:unread newer_than:5d" or "newer_than:5d") to catch ALL recent activity
+2. THEN filter by topic/keywords in your analysis, not in the Gmail query
+3. Use get_thread to inspect full conversation context when a thread has many messages
+4. Cross-reference with /unanswered results — the unanswered engine tracks threads needing response across all labels
+
+When user asks to "check emails" or find emails on a topic:
+- Always include "is:unread" as an additional search to catch replies on old threads
+- Search category:primary and category:updates by default
+- Don't over-filter with keywords in the Gmail query — search broadly, filter in your analysis
+
 Examples:
 - read_emails() — emails from last 24 hours (all folders)
 - read_emails(query="category:primary newer_than:1d") — primary inbox only
+- read_emails(query="is:unread newer_than:7d", max=50) — all unread recent messages (catches old thread replies)
 - read_emails(query="category:primary OR category:updates newer_than:1d") — primary + updates
 - read_emails(query="from:alice@example.com")
 - read_emails(query="is:unread", max=5)
 - read_emails(query="subject:invoice newer_than:7d")
-- read_emails(account="jorgepa.tallbox@gmail.com") — read from secondary account
-
-When user asks to "check emails", search category:primary and category:updates by default.`,
+- read_emails(account="jorgepa.tallbox@gmail.com") — read from secondary account`,
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -157,6 +168,53 @@ async function handleGetEmailTool(input: unknown): Promise<string> {
     const result = await getMessage({ messageId: p.message_id, account: resolveAccount(p.account) });
     return result.success
       ? JSON.stringify({ success: true, message: result.message })
+      : JSON.stringify({ success: false, error: result.error });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return JSON.stringify({ error: msg });
+  }
+}
+
+// ============================================================================
+// Get Thread Tool
+// ============================================================================
+
+function getGetThreadToolDefinition() {
+  return {
+    name: 'get_thread',
+    description: `Get all messages in a Gmail thread by thread ID.
+
+Returns the full thread with all messages, headers, and content. Use this to:
+- See the complete conversation history of a thread
+- Check if an old thread has recent replies that need attention
+- Understand context before replying to a thread with many messages
+
+Use read_emails first to find thread IDs, then get_thread for full context.
+
+Examples:
+- get_thread(thread_id="19c13e623b4d5e39")
+- get_thread(thread_id="19c13e623b4d5e39", account="other@gmail.com")`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        thread_id: { type: 'string', description: 'Gmail thread ID' },
+        account: { type: 'string', description: 'Gmail account (default: settings gmail.userEmail)' },
+      },
+      required: ['thread_id'],
+    },
+  };
+}
+
+async function handleGetThreadTool(input: unknown): Promise<string> {
+  const p = input as { thread_id: string; account?: string };
+  const err = checkEnabled();
+  if (err) return err;
+  if (!p.thread_id) return JSON.stringify({ error: 'thread_id is required' });
+
+  try {
+    const result = await getThread({ threadId: p.thread_id, account: resolveAccount(p.account) });
+    return result.success
+      ? JSON.stringify({ success: true, thread: result.thread })
       : JSON.stringify({ success: false, error: result.error });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -397,6 +455,7 @@ export function getGmailTools() {
     { ...getSendEmailToolDefinition(), handler: handleSendEmailTool },
     { ...getReadEmailsToolDefinition(), handler: handleReadEmailsTool },
     { ...getGetEmailToolDefinition(), handler: handleGetEmailTool },
+    { ...getGetThreadToolDefinition(), handler: handleGetThreadTool },
     { ...getListLabelsToolDefinition(), handler: handleListLabelsTool },
     { ...getCreateLabelToolDefinition(), handler: handleCreateLabelTool },
     { ...getModifyLabelsToolDefinition(), handler: handleModifyLabelsTool },

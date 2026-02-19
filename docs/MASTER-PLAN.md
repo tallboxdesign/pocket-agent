@@ -1931,6 +1931,12 @@ Surfaces threads needing response and provides dismiss/resolve workflows. Design
 6. **Concurrency guard on reclassify** — `reclassifyEmails()` checks `this.running` flag to prevent racing with scheduled auto-runs. try/finally ensures flag is always released.
 7. **"Retry Failed (N)" button** — one-click reclassify all invalid emails across all pages in History tab, with live progress counter.
 
+### v4.7: Email Tool Intelligence — Old Thread Detection + get_thread Tool
+
+1. **Improved `read_emails` tool description** — Agent now instructed to search broadly first (`is:unread newer_than:Xd`) then filter by topic in analysis, rather than narrowing with keywords in the Gmail query. This prevents missing old threads (e.g. started months ago) that have recent replies. Explicit guidance to cross-reference with `/unanswered` results for completeness.
+2. **New `get_thread` agent tool** — Exposes `getThread()` from gog-wrapper so the agent can fetch full thread conversation history by thread ID. Enables inspecting old threads with many messages to understand context before replying. Located in `src/tools/gmail-tools.ts`.
+3. **Unanswered cross-reference hint** — `read_emails` description now directs the agent to check `/unanswered` engine results when looking for emails needing attention, ensuring threads tracked by the unanswered engine aren't missed by ad-hoc searches.
+
 ---
 
 ## Key Decisions Still Needed
