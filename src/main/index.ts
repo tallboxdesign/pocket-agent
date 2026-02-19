@@ -3288,11 +3288,17 @@ async function initializeAgent(): Promise<void> {
         setResearchTelegramBot(telegramBot);
 
         // Initialize WAQ for reliable Telegram delivery
-        const dispatcher = createTelegramDispatcher(telegramBot.getBot());
-        waqManager = new WAQManager(dbPath, dispatcher);
-        telegramBot.setWAQ(waqManager.queue);
-        waqManager.start();
-        console.log('[Main] WAQ processor started');
+        // Access bot via bracket notation — class methods not on prototype at runtime (Electron/ES2022 issue)
+        const botApi = (telegramBot as unknown as Record<string, unknown>)['bot'] as import('grammy').Bot | undefined;
+        if (!botApi) {
+          console.error('[Main] WAQ: Could not get Telegram Bot API instance');
+        } else {
+          const dispatcher = createTelegramDispatcher(botApi);
+          waqManager = new WAQManager(dbPath, dispatcher);
+          (telegramBot as unknown as Record<string, unknown>)['waq'] = waqManager.queue;
+          waqManager.start();
+          console.log('[Main] WAQ processor started');
+        }
 
         console.log('[Main] Telegram started');
       }

@@ -594,6 +594,7 @@ export function getTelegramBot(): TelegramBot | null {
   return telegramBotInstance;
 }
 
+
 export function createTelegramBot(): TelegramBot | null {
   if (!telegramBotInstance) {
     try {
