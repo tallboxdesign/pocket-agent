@@ -326,6 +326,8 @@ export async function handleScheduleTaskTool(input: unknown): Promise<string> {
     }
 
     const db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('busy_timeout = 5000');
 
     // Ensure table has the new columns
     try {
@@ -536,6 +538,8 @@ export async function handleCreateReminderTool(input: unknown): Promise<string> 
     }
 
     const db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('busy_timeout = 5000');
 
     // Ensure table has the new columns (including job_type)
     try {
@@ -828,6 +832,8 @@ export async function handleAcknowledgeReminderTool(input: unknown): Promise<str
   try {
     const dbPath = getDbPath();
     const db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('busy_timeout = 5000');
 
     const job = db.prepare('SELECT id, name, job_type FROM cron_jobs WHERE name = ?').get(name) as { id: number; name: string; job_type: string } | undefined;
 

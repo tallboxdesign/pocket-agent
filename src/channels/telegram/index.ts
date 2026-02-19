@@ -18,6 +18,8 @@ import type { ReactionTypeEmoji } from '@grammyjs/types';
 import { Notification } from 'electron';
 import { BaseChannel } from '../index';
 import { SettingsManager } from '../../settings';
+import { WriteAheadQueue } from '../../queue/write-ahead-queue';
+import { enqueueText, enqueueTextWithVoice, enqueuePhoto } from './waq-adapter';
 
 // Types
 import { MessageCallback, SessionLinkCallback, AttachmentType } from './types';
@@ -67,6 +69,9 @@ export class TelegramBot extends BaseChannel {
   private onMessageCallback: MessageCallback | null = null;
   private onSessionLinkCallback: SessionLinkCallback | null = null;
 
+  // Write-ahead queue for reliable delivery
+  private waq: WriteAheadQueue | null = null;
+
   // Reconnection state
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
@@ -113,6 +118,14 @@ export class TelegramBot extends BaseChannel {
 
   setOnSessionLinkCallback(callback: SessionLinkCallback): void {
     this.onSessionLinkCallback = callback;
+  }
+
+  getBot(): Bot {
+    return this.bot;
+  }
+
+  setWAQ(waq: WriteAheadQueue): void {
+    this.waq = waq;
   }
 
   private setupMiddleware(): void {
@@ -222,6 +235,12 @@ export class TelegramBot extends BaseChannel {
    * Converts markdown to Telegram HTML format, then sends TTS voice if enabled
    */
   private async sendResponse(ctx: Context, text: string): Promise<void> {
+    if (this.waq && ctx.chat?.id) {
+      const voiceEnabled = SettingsManager.getBoolean('telegram.voiceReplies');
+      enqueueTextWithVoice(this.waq, ctx.chat.id, text, voiceEnabled);
+      return;
+    }
+
     const MAX_LENGTH = 4000;
 
     if (text.length <= MAX_LENGTH) {
@@ -256,6 +275,12 @@ export class TelegramBot extends BaseChannel {
     if (!this.isRunning) {
       console.error('[Telegram] Bot not running, cannot send message');
       return false;
+    }
+
+    if (this.waq) {
+      enqueueText(this.waq, chatId, text);
+      console.log(`[Telegram] Enqueued message for chat ${chatId}`);
+      return true;
     }
 
     try {
@@ -301,6 +326,12 @@ export class TelegramBot extends BaseChannel {
       return false;
     }
 
+    if (this.waq) {
+      enqueuePhoto(this.waq, chatId, photoPath, caption);
+      console.log(`[Telegram] Enqueued photo for chat ${chatId}`);
+      return true;
+    }
+
     try {
       if (!fs.existsSync(photoPath)) {
         console.error(`[Telegram] Photo not found: ${photoPath}`);
@@ -339,6 +370,15 @@ export class TelegramBot extends BaseChannel {
   }
 
   async broadcast(text: string): Promise<number> {
+    if (this.waq) {
+      const chatIds = this.chatTracker.getAll();
+      for (const chatId of chatIds) {
+        enqueueText(this.waq, chatId, text);
+      }
+      console.log(`[Telegram] Enqueued broadcast to ${chatIds.length} chats`);
+      return chatIds.length;
+    }
+
     let sent = 0;
     for (const chatId of this.chatTracker.getAll()) {
       const success = await this.sendMessage(chatId, text);
@@ -351,6 +391,15 @@ export class TelegramBot extends BaseChannel {
    * Send photos to a Telegram chat from local file paths
    */
   async sendPhotos(chatId: number, media: Array<{ type: string; filePath: string; mimeType: string }>): Promise<void> {
+    if (this.waq) {
+      for (const item of media) {
+        if (item.type === 'image' && fs.existsSync(item.filePath)) {
+          enqueuePhoto(this.waq, chatId, item.filePath);
+        }
+      }
+      return;
+    }
+
     for (const item of media) {
       if (item.type === 'image' && fs.existsSync(item.filePath)) {
         try {

@@ -15,6 +15,8 @@ import { loadWorkflowCommands } from '../config/commands-loader';
 import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
 import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
 import { getBrowserManager } from '../browser';
+import { WAQManager } from '../queue/processor';
+import { createTelegramDispatcher } from '../channels/telegram/waq-adapter';
 import { initializeUpdater, setupUpdaterIPC, setSettingsWindow } from './updater';
 import cityTimezones from 'city-timezones';
 
@@ -303,6 +305,7 @@ let tray: Tray | null = null;
 let memory: MemoryManager | null = null;
 let scheduler: CronScheduler | null = null;
 let telegramBot: TelegramBot | null = null;
+let waqManager: WAQManager | null = null;
 let emailProcessor: import('../scheduler/email-processor').EmailProcessor | null = null;
 let rulesEngine: import('../scheduler/rules-engine').RulesEngine | null = null;
 let unansweredEngine: import('../scheduler/unanswered-engine').UnansweredEngine | null = null;
@@ -3284,6 +3287,13 @@ async function initializeAgent(): Promise<void> {
         }
         setResearchTelegramBot(telegramBot);
 
+        // Initialize WAQ for reliable Telegram delivery
+        const dispatcher = createTelegramDispatcher(telegramBot.getBot());
+        waqManager = new WAQManager(dbPath, dispatcher);
+        telegramBot.setWAQ(waqManager.queue);
+        waqManager.start();
+        console.log('[Main] WAQ processor started');
+
         console.log('[Main] Telegram started');
       }
     } catch (error) {
@@ -3512,6 +3522,10 @@ app.on('before-quit', async () => {
     globalShortcut.unregisterAll(); // Clean up global shortcuts
   }
   await stopAgent();
+  if (waqManager) {
+    await waqManager.stop();
+    waqManager = null;
+  }
   if (memory) {
     memory.close();
   }

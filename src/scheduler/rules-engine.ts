@@ -618,19 +618,27 @@ export class RulesEngine {
       throw new Error('skipped_not_relevant');
     }
 
-    await createDraft({
-      to: email.sender,
-      subject: 'Re: ' + email.subject,
-      body: glmRes.content,
-      replyToMessageId: email.messageId,
-      account: email.account,
-    });
-
-    // Track this draft to prevent duplicates
-    // Key: thread_id + message_id — allows new draft if new inbound message arrives
+    // Insert idempotency tracker BEFORE creating draft — prevents duplicate drafts on crash/retry
+    const threadKey = email.threadId || email.messageId;
     this.db.prepare(
       'INSERT OR IGNORE INTO draft_reply_tracker (thread_id, account, replied_to_message_id) VALUES (?, ?, ?)',
-    ).run(email.threadId || email.messageId, email.account, email.messageId);
+    ).run(threadKey, email.account, email.messageId);
+
+    try {
+      await createDraft({
+        to: email.sender,
+        subject: 'Re: ' + email.subject,
+        body: glmRes.content,
+        replyToMessageId: email.messageId,
+        account: email.account,
+      });
+    } catch (err) {
+      // Draft failed — remove tracker so it can be retried
+      this.db.prepare(
+        'DELETE FROM draft_reply_tracker WHERE thread_id = ? AND account = ? AND replied_to_message_id = ?',
+      ).run(threadKey, email.account, email.messageId);
+      throw err;
+    }
 
     // Apply AI/Draft label so user can track AI-drafted emails
     if (email.threadId) {
@@ -762,18 +770,18 @@ export class RulesEngine {
       return { success: false, error: 'GLM returned empty summary' };
     }
 
-    const runId = new Date().toISOString();
-    this.db.prepare(
-      'UPDATE daily_summary_queue SET summary_run_id = ? WHERE summary_run_id IS NULL',
-    ).run(runId);
-
-    // Send via telegram and/or notification
+    // Deliver BEFORE marking DB as done — prevents silent message loss on crash
     if (this.telegramSender) {
       this.telegramSender(glmRes.content);
     }
     if (this.notifyHandler) {
       this.notifyHandler('Daily Email Digest', glmRes.content.slice(0, 200));
     }
+
+    const runId = new Date().toISOString();
+    this.db.prepare(
+      'UPDATE daily_summary_queue SET summary_run_id = ? WHERE summary_run_id IS NULL',
+    ).run(runId);
 
     return { success: true, summary: glmRes.content };
   }

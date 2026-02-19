@@ -1,8 +1,8 @@
 # Pocket Agent: Master Plan — Multi-Agent Orchestration System
 
 **Created:** 2026-01-30
-**Last Updated:** 2026-02-18
-**Status:** IN PROGRESS — v4.1 Email Intelligence
+**Last Updated:** 2026-02-19
+**Status:** IN PROGRESS — v4.1 Email Intelligence + WAQ Planning
 **Architecture:** CEO (User) → Manager (Pocket Agent/Claude) → Workers (Claude CLI instances) + GLM-5 (utility model, GLM-4.7 flash variants for bulk)
 
 ---
@@ -57,6 +57,7 @@ If in doubt, **do nothing** rather than risk data loss.
 31. [Workflow UI Overflow Fix](#31-workflow-ui-overflow-fix)
 32. [Upstream Port Phase 5 — v2.3.2 Cherry-Picks](#32-upstream-port-phase-5--v232-cherry-picks)
 36. [Gmail OAuth Production Cutover (2026-02-18)](#36-gmail-oauth-production-cutover-2026-02-18)
+37. [Write-Ahead Queue (WAQ) — Outbound Message Durability](#37-write-ahead-queue-waq--outbound-message-durability)
 
 ---
 
@@ -2987,3 +2988,209 @@ OAuth tokens were minted under a Google OAuth app that was still in Testing (or 
 - Restart Pocket Agent.
 - In Settings -> Gmail, verify gog status/account detection.
 - Run "any emails" check in chat and confirm Gmail reads succeed without re-auth prompts.
+
+---
+
+## 37. Write-Ahead Queue (WAQ) — Outbound Message Durability
+
+**Status:** PLANNED
+**Created:** 2026-02-19
+**Priority:** P0 (data integrity — silent message loss)
+
+### Problem
+
+All outbound operations (Telegram messages, voice replies, scheduled job results, email digests) are fire-and-forget. Worse, the scheduler uses a **"mark-done-then-deliver" antipattern** where the database is updated to reflect success (`reminded=1`, `last_status='ok'`, `summary_run_id`) **before** the outbound send completes. A crash between the DB update and the Telegram send results in **permanent silent message loss** — the system thinks it delivered but the user never received anything.
+
+### Root Cause Analysis
+
+#### Mark-Done-Then-Deliver Antipattern (P0)
+
+| Function | File:Lines | Current Order | Failure Mode |
+|---|---|---|---|
+| `checkDueJobs()` one-time | scheduler/index.ts:329→359 | DB first (`enabled=0, status='fired'`) → send | Job marked fired, message never sent. **Permanent loss.** |
+| `checkDueJobs()` recurring | scheduler/index.ts:344→359 | DB first (`next_run_at` advanced) → send | Schedule advances, message dropped. **Silent gap.** |
+| `executeJob()` cron path | scheduler/index.ts:734→741 | DB first (`last_status='ok'`) → send | Same as above for node-cron jobs. |
+| `checkStaleReminders()` | scheduler/index.ts:431→440 | DB first (`status='stale'`) → send | Stale digest never delivered. |
+| `runDailySummary()` | rules-engine.ts:766→771 | DB first (`summary_run_id` stamped) → send | Daily email digest silently dropped. |
+
+**Already correct** (send-first): `checkReminders()` calendar (line 184→187) and tasks (line 218→221).
+
+#### Fire-and-Forget Sends (P1–P3)
+
+| Operation | File | Issue |
+|---|---|---|
+| `sendMessage` (proactive) | telegram/index.ts:255 | No retry on network failure |
+| `sendResponse` chunk loop | telegram/index.ts:224 | Partial multi-part delivery, no tracking |
+| `sendVoiceReply` multi-chunk | telegram/features/voice.ts | Crash mid-voice = partial audio |
+| `actionSendTelegram` | rules-engine.ts:520 | Idempotency prevents re-fire after failure |
+| `sendPhoto` / `sendPhotos` | telegram/index.ts:298,353 | No retry |
+| `broadcast` | telegram/index.ts:341 | Partial delivery across chats |
+
+### Pre-existing SQLite Concurrency Issues
+
+Discovered during WAQ analysis — **9 separate DB connections** to the same file with inconsistent configuration:
+
+| Connection | File | WAL | busy_timeout | Issue |
+|---|---|---|---|---|
+| MemoryManager | memory/index.ts:172 | **NO** | **NO** | Busiest connection, zero concurrency protection |
+| CronScheduler | scheduler/index.ts:97 | **NO** | **NO** | Reads every 30s, races with MemoryManager |
+| CalendarTools | tools/calendar-tools.ts:48 | **NO** | **NO** | Writes events while scheduler reads them |
+| SettingsManager | settings/index.ts:739 | **NO** | **NO** | |
+| ProjectTools | tools/project-tools.ts:41 | **NO** | **NO** | **Per-call leak** (never closed) |
+| SchedulerTools (x3) | tools/scheduler-tools.ts | **NO** | **NO** | **Per-call leak** (never closed) |
+| EventLog | memory/event-log.ts:130 | YES | 5s | Good |
+| KanbanDb | kanban/index.ts:162 | YES | 5s | Good |
+| EmailProcessor | email-processor.ts:454 | YES | 5s | Good |
+
+**Fix required**: Add `PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;` to MemoryManager constructor. Fix per-call connection leaks.
+
+### Architecture
+
+#### New Files (zero upstream merge conflict)
+
+```
+src/queue/
+  write-ahead-queue.ts    # WAQ class + outbound_queue table
+  processor.ts            # QueueProcessor (event-driven + 30s sweep)
+  types.ts                # Payload type definitions
+
+src/channels/telegram/
+  waq-adapter.ts          # Telegram-specific enqueue + dispatch
+
+tests/unit/
+  write-ahead-queue.test.ts
+  queue-processor.test.ts
+  telegram-waq-integration.test.ts
+```
+
+#### Database Table
+
+```sql
+CREATE TABLE IF NOT EXISTS waq_queue (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id       INTEGER NOT NULL,
+  operation     TEXT NOT NULL CHECK(operation IN ('text', 'voice', 'photo')),
+  payload       TEXT NOT NULL,           -- JSON payload (see schemas below)
+  status        TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'processing', 'completed', 'failed', 'dead')),
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  max_attempts  INTEGER NOT NULL DEFAULT 5,
+  scheduled_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ')),
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ')),
+  updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ')),
+  last_error    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_waq_status_scheduled ON waq_queue(status, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_waq_chat_status      ON waq_queue(chat_id, status, id);
+```
+
+Table is self-created by `WriteAheadQueue` constructor — no changes to `memory/index.ts`.
+
+#### Queue Processor Design
+
+- **Event-driven**: `setImmediate(() => sweep())` after every `insert()` — zero-delay processing
+- **Fallback sweep**: `setInterval(sweep, 30_000)` catches items that become eligible after backoff expires
+- **Per-chat FIFO**: SQL query groups by `chat_id`, picks oldest pending, skips chats blocked by a failed item in backoff
+- **groupId + chunkIndex**: Multi-chunk messages (text + voice) share a groupId and are processed sequentially by chunkIndex
+- **Parallel across chats**: Different chat_ids processed concurrently; serial within a chat/group
+- **Retry**: Exponential backoff (5s → 10s → 20s → 40s → 80s → 300s cap) with ±20% jitter
+- **Dead letter**: After 5 attempts → status='dead', Electron notification, event_log entry
+- **Voice chunk tracking**: `completedChunks[]` array in payload, persisted to DB after each successful chunk send
+- **Startup recovery**: `recoverStuckProcessing()` resets any `processing` items back to `pending`
+- **Cleanup**: Purge completed items >7 days, dead items >30 days, on startup + daily
+- **Graceful shutdown**: Drain in-flight sends with 10s timeout on `before-quit`
+
+#### FIFO Enforcement SQL
+
+```sql
+SELECT q.*
+FROM waq_queue q
+WHERE q.status = 'pending'
+  AND datetime(q.scheduled_at) <= datetime('now')
+  AND NOT EXISTS (
+    SELECT 1 FROM waq_queue blocker
+    WHERE blocker.chat_id = q.chat_id
+      AND blocker.status = 'failed'
+      AND datetime(blocker.scheduled_at) > datetime('now')
+  )
+GROUP BY q.chat_id
+HAVING q.id = MIN(q.id)
+ORDER BY q.scheduled_at ASC;
+```
+
+#### Telegram Integration
+
+- **ctx-based sends**: Extract `chatId` from grammy Context, convert to `bot.api.sendMessage(chatId, ...)` calls. ctx is ephemeral/non-serializable.
+- **One queue item per chunk**: Each text chunk and voice chunk is a separate queue item with shared `groupId` and sequential `chunkIndex`. Partial retry without re-sending successful chunks.
+- **Voice after text**: Same groupId, chunkIndex continues after text chunks (e.g., text 0,1 then voice 2,3,4).
+- **Voice synthesis at dispatch time**: Store `audioText` in payload, synthesize on send (cache may be evicted by retry time).
+- **Broadcast**: Independent items per chatId, no cross-chat grouping.
+
+#### Payload Schemas
+
+```typescript
+// Text message chunk
+{ op: 'telegram_text', chatId: number, text: string, chunkIndex: number, totalChunks: number, groupId: string }
+
+// Voice chunk
+{ op: 'telegram_voice', chatId: number, audioText: string, chunkIndex: number, totalChunks: number, groupId: string }
+
+// Photo
+{ op: 'telegram_photo', chatId: number, filePath: string, caption?: string }
+```
+
+### Scheduler Fixes (Invert Mark-Done-Then-Deliver)
+
+For each P0 function, move the send call **before** the DB update:
+
+**`checkDueJobs()`** — Move `routeJobResponse()` (line 359) above the if/else DB branches (line 326). Double-send on crash-after-send is acceptable (visible); silent drop is not.
+
+**`executeJob()`** — Move `routeResponse()` (line 741) above the DB sync (lines 734-737). Existing 5-minute guard in `checkDueJobs` prevents accidental re-execution.
+
+**`checkStaleReminders()`** — Move `routeJobResponse()` (line 440) above the status update (line 431).
+
+**`runDailySummary()`** — Move `telegramSender()`/`notifyHandler()` (lines 771-775) above the queue stamp (lines 766-768).
+
+**`actionDraftReply()`** — Insert idempotency record BEFORE `createDraft()` call. If `createDraft` fails, delete the tracker entry for retry.
+
+### Design Tradeoffs
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Double-send vs silent drop | Accept double-send | Visible and correctable; silent drop is invisible and permanent |
+| WAQ table location | Self-created by WriteAheadQueue | Zero changes to upstream `memory/index.ts`; survives merges |
+| Voice synthesis timing | At dispatch, not enqueue | TTS cache may be evicted between attempts |
+| Chunk granularity | One item per chunk | Partial retry; chunks 1-2 stay `completed` while 3-5 retry |
+| Processing model | Event-driven + sweep | Immediate delivery for fresh items; sweep catches backoff-eligible retries |
+| Concurrency | Parallel across chats, serial within | Respects Telegram rate limits; maximizes throughput |
+
+### Implementation Order
+
+1. **SQLite hygiene**: Add WAL + busy_timeout to MemoryManager constructor
+2. **Core WAQ module**: `src/queue/write-ahead-queue.ts` — table, enqueue, dequeue, complete, fail, recoverStale
+3. **Queue processor**: `src/queue/processor.ts` — event-driven loop, FIFO, retry, dead letter, cleanup
+4. **P0 scheduler inversion**: Fix `checkDueJobs`, `executeJob`, `checkStaleReminders`, `runDailySummary` order
+5. **Telegram adapter**: `src/channels/telegram/waq-adapter.ts` — chatId extraction, enqueue, dispatch
+6. **Wire into sends**: Replace direct `sendMessage`/`sendPhoto` calls with WAQ adapter
+7. **Tests**: Unit tests for WAQ + processor, integration tests with mocked grammy
+8. **P2 rules engine**: Fix `actionDraftReply` idempotency, wire `actionSendTelegram`
+
+### Merge Safety
+
+| File | Change | Upstream Conflict Risk |
+|---|---|---|
+| `src/queue/` (new dir) | All WAQ logic | **None** — doesn't exist upstream |
+| `src/channels/telegram/waq-adapter.ts` (new) | Telegram integration | **None** — custom file |
+| `src/memory/index.ts` | 1 line: WAL pragma | **Low** — additive, top of constructor |
+| `src/main/index.ts` | 2 lines: init + shutdown hook | **Low** — additive |
+| `src/channels/telegram/index.ts` | ~10 lines: swap send calls to adapter | **Medium** — upstream changes handlers |
+| `src/scheduler/index.ts` | ~20 lines: reorder send vs DB update | **Medium** — upstream changes scheduler |
+| `src/scheduler/rules-engine.ts` | ~10 lines: reorder + idempotency | **None** — custom file |
+
+### Not In Scope (Intentionally)
+
+- No queue UI — infrastructure only, not user-facing
+- No priority system — FIFO is sufficient for current scale
+- No distributed queue — single SQLite DB, single Electron app instance
+- No inbound message queueing — already persisted via `saveMessage()`
+- No desktop channel queueing — Electron notifications are local/instant

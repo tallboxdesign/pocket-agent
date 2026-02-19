@@ -737,6 +737,8 @@ class SettingsManagerClass {
    */
   initialize(dbPath: string): void {
     this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('busy_timeout = 5000');
     this.createTable();
     this.loadDefaults();
     this.loadToCache();

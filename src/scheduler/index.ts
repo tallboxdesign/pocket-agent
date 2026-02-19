@@ -95,6 +95,8 @@ export class CronScheduler {
     // Open persistent DB connection for reminder checks (avoids creating new connection every 30s)
     if (this.dbPath) {
       this.db = new Database(this.dbPath);
+      this.db.pragma('journal_mode = WAL');
+      this.db.pragma('busy_timeout = 5000');
     }
 
     await this.loadJobsFromDatabase();
@@ -320,6 +322,10 @@ export class CronScheduler {
 
         const duration = Date.now() - startTime;
 
+        // Deliver BEFORE marking DB as done — prevents silent message loss on crash
+        const displayPrompt = job.job_type === 'reminder' ? '' : job.prompt;
+        await this.routeJobResponse(job.name, displayPrompt, response, job.channel, sessionId);
+
         // Update job state
         const nextRunAt = this.calculateNextRun(job.schedule_type, job.schedule, job.interval_ms);
 
@@ -352,11 +358,6 @@ export class CronScheduler {
             WHERE id = ?
           `).run(now.toISOString(), duration, nextRunAt, job.id);
         }
-
-        // Route response to the job's session
-        // For reminders, don't show prompt (the response IS the message)
-        const displayPrompt = job.job_type === 'reminder' ? '' : job.prompt;
-        await this.routeJobResponse(job.name, displayPrompt, response, job.channel, sessionId);
 
         this.addToHistory({
           jobName: job.name,
@@ -426,11 +427,7 @@ export class CronScheduler {
 
     if (staleJobs.length === 0) return;
 
-    // Mark all as stale
-    const ids = staleJobs.map(j => j.id);
-    db.prepare(`UPDATE cron_jobs SET status = 'stale', updated_at = datetime('now') WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
-
-    // Send a single notification listing stale reminders
+    // Send notification BEFORE marking DB as stale — prevents silent message loss on crash
     const lines = staleJobs.map(j => `- ${j.name}: ${j.prompt.slice(0, 80)}`);
     const message = `The following reminders fired over 2 days ago but were never acknowledged:\n${lines.join('\n')}\n\nUse acknowledge_reminder to dismiss them.`;
 
@@ -438,6 +435,10 @@ export class CronScheduler {
     const representative = staleJobs[0];
     const sessionId = representative.session_id || 'default';
     await this.routeJobResponse('stale_reminders', '', message, representative.channel, sessionId);
+
+    // Mark all as stale
+    const ids = staleJobs.map(j => j.id);
+    db.prepare(`UPDATE cron_jobs SET status = 'stale', updated_at = datetime('now') WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
 
     console.log(`[Scheduler] Marked ${staleJobs.length} reminders as stale`);
   }
@@ -727,6 +728,9 @@ export class CronScheduler {
       result.response = agentResult.response;
       result.success = true;
 
+      // Deliver BEFORE marking DB as done — prevents silent message loss on crash
+      await this.routeResponse(job, result.response);
+
       // Sync DB timestamps so checkDueJobs knows this job already ran
       if (this.db) {
         const runTime = new Date();
@@ -736,9 +740,6 @@ export class CronScheduler {
           next_run_at = ?, updated_at = datetime('now') WHERE name = ?
         `).run(runTime.toISOString(), nextRunAt, job.name);
       }
-
-      // Route response to channel
-      await this.routeResponse(job, result.response);
 
     } catch (error) {
       result.error = error instanceof Error ? error.message : 'Unknown error';
