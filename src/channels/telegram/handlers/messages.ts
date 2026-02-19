@@ -84,6 +84,10 @@ export async function handleTextMessage(
       fullMessage = `[Workflow: ${workflow.name}]\n${workflow.content}\n[/Workflow]`;
       if (userText) fullMessage += `\n\n${userText}`;
       console.log(`[Telegram:Text] Executing workflow: ${workflow.name}`);
+    } else {
+      // Not a workflow — strip leading / so the SDK doesn't intercept it as a slash command
+      fullMessage = fullMessage.substring(1);
+      console.log(`[Telegram:Text] Unknown command /${commandName}, stripping slash and sending to agent`);
     }
   }
 

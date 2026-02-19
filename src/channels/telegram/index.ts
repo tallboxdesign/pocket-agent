@@ -552,6 +552,7 @@ export class TelegramBot extends BaseChannel {
           return;
         }
         this.bot = new Bot(botToken);
+        this.setupMiddleware();
         this.setupHandlers();
         await this.start();
       } catch (error) {
