@@ -50,6 +50,23 @@ export async function handleTextMessage(
   if (messageId) setTelegramMessageContext({ chatId, messageId });
   setActiveChannel('telegram');
 
+  // Skip built-in commands — grammy's bot.command() should handle these, but
+  // if they fall through (Electron/grammy timing issue), don't send to agent
+  if (message.startsWith('/')) {
+    const spaceIdx = message.indexOf(' ');
+    const cmdName = (spaceIdx !== -1 ? message.substring(1, spaceIdx) : message.substring(1))
+      .replace(/@\w+$/, '').toLowerCase();
+    const builtInCommands = new Set([
+      'start', 'help', 'status', 'mychatid', 'new', 'facts', 'workflow',
+      'model', 'voice', 'restart', 'unanswered', 'approve', 'reject',
+      'link', 'unlink',
+    ]);
+    if (builtInCommands.has(cmdName)) {
+      console.log(`[Telegram:Text] Built-in command /${cmdName} fell through to text handler, ignoring`);
+      return;
+    }
+  }
+
   // Check if this is a workflow slash command (e.g., /create-workflow some context)
   let fullMessage = message;
   if (message.startsWith('/')) {
