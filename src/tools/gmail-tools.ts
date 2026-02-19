@@ -84,17 +84,21 @@ Uses Gmail search syntax for queries.
 Gmail categories: category:primary, category:updates, category:social, category:promotions, category:forums
 Combine with OR: "category:primary OR category:updates"
 
+IMPORTANT — Finding emails that need a response:
+Threads can start months ago but have NEW replies today. To find ALL threads needing the user's attention:
+1. Search broadly: "is:unread newer_than:7d" (catches replies on old threads too)
+2. For each thread with multiple messages, use get_thread to check who sent the last message
+3. If the last message is NOT from the user → that thread needs the user's response
+4. Don't over-filter with keywords in the Gmail query — search broadly, filter in your analysis
+
 IMPORTANT — Old threads with recent replies:
-When checking for emails needing attention, remember that threads can start months ago but have NEW replies today. Gmail "newer_than:Xd" matches individual messages, so a reply from today on an October thread WILL appear. But keyword-based searches may miss them if the recent reply doesn't contain the keywords. To be thorough:
-1. Search broadly first (e.g. "is:unread newer_than:5d" or "newer_than:5d") to catch ALL recent activity
-2. THEN filter by topic/keywords in your analysis, not in the Gmail query
-3. Use get_thread to inspect full conversation context when a thread has many messages
-4. Cross-reference with /unanswered results — the unanswered engine tracks threads needing response across all labels
+Gmail "newer_than:Xd" matches individual messages, so a reply from today on an October thread WILL appear. But keyword-based searches may miss them if the recent reply doesn't contain the keywords. Always search broadly first, then filter by topic in your analysis.
 
 When user asks to "check emails" or find emails on a topic:
 - Always include "is:unread" as an additional search to catch replies on old threads
+- Use get_thread on threads with multiple messages to determine who needs to respond
 - Search category:primary and category:updates by default
-- Don't over-filter with keywords in the Gmail query — search broadly, filter in your analysis
+- Cross-reference with /unanswered results for completeness
 
 Examples:
 - read_emails() — emails from last 24 hours (all folders)
@@ -184,12 +188,23 @@ function getGetThreadToolDefinition() {
     name: 'get_thread',
     description: `Get all messages in a Gmail thread by thread ID.
 
-Returns the full thread with all messages, headers, and content. Use this to:
-- See the complete conversation history of a thread
-- Check if an old thread has recent replies that need attention
-- Understand context before replying to a thread with many messages
+Returns the full thread with all messages including From headers, dates, and content.
 
-Use read_emails first to find thread IDs, then get_thread for full context.
+KEY USE CASE — Determining who needs to respond:
+Each message in the thread has a "From" header. Look at the LAST message's From field:
+- If the last message is FROM the user → user is waiting for a reply (awaiting_reply)
+- If the last message is NOT from the user → user needs to respond (unanswered)
+This is how you determine which threads need the user's attention.
+
+Workflow for finding threads needing response:
+1. read_emails(query="is:unread newer_than:7d", max=50) — find threads with recent activity
+2. get_thread(thread_id=...) on each — check who sent the last message
+3. Report threads where the last message is NOT from the user
+
+Also use this to:
+- See complete conversation history before replying
+- Check if an old thread (started months ago) has new recent replies
+- Understand full context of a multi-message thread
 
 Examples:
 - get_thread(thread_id="19c13e623b4d5e39")
