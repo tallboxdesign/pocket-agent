@@ -957,6 +957,18 @@
       min-width: 0;
     }
 
+    .status-preview {
+      font-size: 11px;
+      font-style: italic;
+      color: var(--text-secondary, #888);
+      max-height: 32px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: none;
+      opacity: 0.7;
+    }
+
     .status-action {
       font-size: 13px;
       font-weight: 500;
@@ -2585,6 +2597,7 @@
     let pendingAttachmentsBySession = new Map(); // Track attachments per session
     let statusCleanupBySession = new Map(); // Track status listeners per session
     let statusElBySession = new Map(); // Track status elements per session
+    let streamingBubbleBySession = new Map(); // Track live-updating assistant bubble per session
     let toolCountBySession = new Map(); // Track tool call count per session
     let suggestionBySession = new Map(); // Track ghost suggestions per session
     let inputTextBySession = new Map(); // Track input text per session
@@ -3878,8 +3891,19 @@
         // Only update visible UI if still on same session
         if (currentSessionId === sessionId) {
           if (result.stopped) {
-            // Query was stopped — nothing to display
+            // Query was stopped with no partial text — remove streaming preview
+            const stoppedBubble = streamingBubbleBySession.get(sessionId);
+            if (stoppedBubble) {
+              stoppedBubble.remove();
+              streamingBubbleBySession.delete(sessionId);
+            }
           } else if (result.success) {
+            // Remove streaming preview bubble — final response replaces it
+            const streamBubble = streamingBubbleBySession.get(sessionId);
+            if (streamBubble) {
+              streamBubble.remove();
+              streamingBubbleBySession.delete(sessionId);
+            }
             addMessage('assistant', result.response, true, [], null, true, result.media);
 
             // Voice: always pre-cache, auto-play only if toggle is ON
@@ -4372,6 +4396,7 @@
         <div class="status-content">
           <div class="status-action">${escapeHtml(initialMessage)}</div>
           <div class="status-detail"></div>
+          <div class="status-preview"></div>
         </div>
         <div class="status-count" style="display:none"></div>
       `;
@@ -4417,7 +4442,14 @@
 
       const actionEl = statusEl.querySelector('.status-action');
       const detailEl = statusEl.querySelector('.status-detail');
+      const previewEl = statusEl.querySelector('.status-preview');
       const countEl = statusEl.querySelector('.status-count');
+
+      // Clear preview when switching to a non-preview status
+      if (status.type !== 'partial_text' && previewEl) {
+        previewEl.textContent = '';
+        previewEl.style.display = 'none';
+      }
 
       if (status.type === 'thinking') {
         // Don't overwrite blocked state
@@ -4580,6 +4612,34 @@
         if (status.backgroundTaskId) {
           removeBackgroundTask(status.sessionId || currentSessionId, status.backgroundTaskId);
         }
+      } else if (status.type === 'partial_text') {
+        // Show live-updating assistant bubble with composed text
+        if (status.partialText && status.sessionId) {
+          let bubble = streamingBubbleBySession.get(status.sessionId);
+          if (!bubble) {
+            bubble = document.createElement('div');
+            bubble.className = 'message assistant streaming-bubble';
+            // Insert before the status indicator
+            if (statusEl && statusEl.parentNode) {
+              statusEl.parentNode.insertBefore(bubble, statusEl);
+            } else {
+              messagesDiv.appendChild(bubble);
+            }
+            streamingBubbleBySession.set(status.sessionId, bubble);
+          }
+          // Accumulate partial text (each event has one message's text)
+          const prev = bubble.dataset.accumulatedText || '';
+          const accumulated = prev ? prev + '\n\n' + status.partialText : status.partialText;
+          bubble.dataset.accumulatedText = accumulated;
+          // Re-render all accumulated text
+          const contentDiv = document.createElement('div');
+          contentDiv.innerHTML = formatContent(accumulated);
+          bubble.innerHTML = '';
+          while (contentDiv.firstChild) {
+            bubble.appendChild(contentDiv.firstChild);
+          }
+          scrollToBottom();
+        }
       } else if (status.type === 'responding') {
         actionEl.textContent = 'cooking up a response... 👨‍🍳';
         detailEl.textContent = '';
@@ -4621,6 +4681,7 @@
           queuedMsgs[0].classList.remove('queued');
         }
       } else if (status.type === 'done') {
+        // Don't touch streaming bubble here — response handler finalizes it
         // Response complete - play notification sound
         playNotificationSound();
       }
@@ -5103,6 +5164,11 @@
         clearSuggestion();
         return;
       }
+    }
+
+    function autoResizeTextarea() {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 150) + 'px';
     }
 
     function handleInput(e) {
