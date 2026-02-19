@@ -1268,6 +1268,18 @@ class AgentManagerClass extends EventEmitter {
       staticParts.push(capabilities);
     }
 
+    // Acknowledgment-first behavior: respond quickly, then execute
+    staticParts.push(
+      `## Response Style — Acknowledge First\n` +
+      `When the user sends a task or request (via Telegram or desktop), ALWAYS respond in two parts:\n` +
+      `1. **Immediate acknowledgment** (1-2 sentences): Confirm you received the task and briefly state what you will do. Send this FIRST.\n` +
+      `2. **Execution**: Then proceed to use tools and complete the task. Send the full result when done.\n\n` +
+      `Example: User says "check my emails for anything urgent"\n` +
+      `→ First respond: "On it — checking your recent unread emails across both accounts for anything urgent."\n` +
+      `→ Then use read_emails, analyze, and send the full report.\n\n` +
+      `This ensures the user knows you heard them and what you're about to do, especially for tasks that take time.`
+    );
+
     // Get thinking level config — only Anthropic models support thinking/effort.
     // Non-Anthropic providers (Kimi, GLM) use Anthropic-compatible APIs but may not
     // handle thinking parameters correctly, causing all output to go to thinking blocks.
