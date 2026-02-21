@@ -317,17 +317,10 @@ export class PersistentSDKSession extends EventEmitter {
             console.log(`[PersistentSession:${this.sessionId}] Captured SDK session ID: ${this.sdkSessionId}`);
           }
 
-          // Capture SDK assistant-level errors and per-call context usage
+          // Capture SDK assistant-level errors
           if (msg.type === 'assistant') {
             const assistantMsg = message as {
               error?: string;
-              message?: {
-                usage?: {
-                  input_tokens?: number;
-                  cache_read_input_tokens?: number;
-                  cache_creation_input_tokens?: number;
-                };
-              };
             };
             if (assistantMsg.error) {
               if (!this.turnErrors) {
@@ -335,14 +328,6 @@ export class PersistentSDKSession extends EventEmitter {
               }
               this.turnErrors.push(assistantMsg.error);
               console.warn(`[PersistentSession:${this.sessionId}] Assistant error: ${assistantMsg.error}`);
-            }
-            // Track per-API-call usage (not cumulative) for accurate context window display
-            const callUsage = assistantMsg.message?.usage;
-            if (callUsage?.input_tokens !== undefined) {
-              this.contextTokens =
-                (callUsage.input_tokens ?? 0) +
-                (callUsage.cache_read_input_tokens ?? 0) +
-                (callUsage.cache_creation_input_tokens ?? 0);
             }
           }
 
@@ -360,8 +345,15 @@ export class PersistentSDKSession extends EventEmitter {
               console.warn(`[PersistentSession:${this.sessionId}] Result errors:`, errResult.errors);
             }
 
-            // Extract context window max from SDK result (modelUsage has the max window size)
+            // Extract context window max from modelUsage (cumulative per-model stats)
             const resultMsg = message as {
+              // Per-turn usage (not cumulative) — represents the last API call's context size
+              usage?: {
+                input_tokens?: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+              };
+              // Cumulative per-model stats — only used for contextWindow constant
               modelUsage?: Record<string, { contextWindow?: number }>;
             };
 
@@ -369,6 +361,19 @@ export class PersistentSDKSession extends EventEmitter {
               const firstModel = Object.values(resultMsg.modelUsage)[0];
               if (firstModel?.contextWindow) {
                 this.contextWindow = firstModel.contextWindow;
+              }
+            }
+
+            // Extract per-turn token usage from result.usage (not cumulative)
+            // This reflects the current context window utilization
+            const turnUsage = resultMsg.usage;
+            if (turnUsage) {
+              const turnTokens =
+                (turnUsage.input_tokens ?? 0) +
+                (turnUsage.cache_read_input_tokens ?? 0) +
+                (turnUsage.cache_creation_input_tokens ?? 0);
+              if (turnTokens > 0) {
+                this.contextTokens = turnTokens;
               }
             }
 
