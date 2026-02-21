@@ -193,6 +193,10 @@ export class PersistentSDKSession extends EventEmitter {
 
     this.wasCompacted = false;
 
+    // Update global fallback so MCP tool handlers (which run outside AsyncLocalStorage)
+    // see the correct session ID for this turn
+    setCurrentSessionId(this.sessionId);
+
     this.messageQueue.push({
       type: 'user',
       message: {

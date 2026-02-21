@@ -3195,6 +3195,9 @@
       localStorage.setItem('currentSessionId', currentSessionId);
       renderTabs();
       messagesDiv.innerHTML = '';
+      // Clear stale streaming bubble reference — the DOM element was just destroyed.
+      // A fresh bubble will be created when partial_text events arrive for this session.
+      streamingBubbleBySession.delete(sessionId);
       updateBackgroundTasksUI();
       await loadHistory();
 
@@ -3848,9 +3851,18 @@
           }
         }
 
+        // Always clean up streaming bubble reference (may be stale if user switched sessions)
+        const streamBubble = streamingBubbleBySession.get(sessionId);
+        if (streamBubble) {
+          streamBubble.remove();
+          streamingBubbleBySession.delete(sessionId);
+        }
+
         // Only update visible UI if still on same session
         if (currentSessionId === sessionId) {
-          if (result.success) {
+          if (result.stopped) {
+            // Query was stopped — nothing to display
+          } else if (result.success) {
             addMessage('assistant', result.response, true, [], null, true, result.media);
 
             // Voice: always pre-cache, auto-play only if toggle is ON
@@ -4351,6 +4363,36 @@
     function updateStatusIndicator(status, sessionId) {
       // Use sessionId if provided, otherwise fall back to current session
       const targetSession = sessionId || currentSessionId;
+
+      // Allow notification sound for any session completing (even non-active)
+      if (status.type === 'done' && targetSession !== currentSessionId) {
+        playNotificationSound();
+        return;
+      }
+
+      // GUARD: Never render status/streaming UI for a session that isn't currently displayed.
+      if (targetSession !== currentSessionId) return;
+
+      // Handle background tasks before status element check — they use a separate UI area
+      if (status.type === 'background_task_start') {
+        if (status.backgroundTaskId) {
+          addBackgroundTask(
+            status.sessionId || targetSession,
+            status.backgroundTaskId,
+            status.toolName || 'task',
+            status.backgroundTaskDescription || 'background task'
+          );
+        }
+        return;
+      } else if (status.type === 'background_task_output') {
+        return;
+      } else if (status.type === 'background_task_end') {
+        if (status.backgroundTaskId) {
+          removeBackgroundTask(status.sessionId || targetSession, status.backgroundTaskId);
+        }
+        return;
+      }
+
       const statusEl = statusElBySession.get(targetSession);
       if (!statusEl) return;
 

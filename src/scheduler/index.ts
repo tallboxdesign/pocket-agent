@@ -300,7 +300,10 @@ export class CronScheduler {
             }
           }
 
-          const fullPrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately:\n\n${job.prompt}${contextText}\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.`;
+          // Only add HEARTBEAT_OK escape for recurring jobs (cron/interval).
+          // One-time "at" jobs are intentionally scheduled — always produce output.
+          const heartbeatSuffix = job.schedule_type === 'at' ? '' : '\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.';
+          const fullPrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately:\n\n${job.prompt}${contextText}${heartbeatSuffix}`;
 
           if (!AgentManager.isInitialized()) {
             throw new Error('AgentManager not initialized');
@@ -715,7 +718,9 @@ export class CronScheduler {
       }
 
       // Wrap prompt so the LLM knows it's executing a scheduled routine, not being asked to create one
-      const routinePrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately:\n\n${cleanPrompt}\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.`;
+      // Only add HEARTBEAT_OK escape for recurring jobs (cron/interval).
+      const executeHeartbeatSuffix = job.schedule_type === 'at' ? '' : '\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.';
+      const routinePrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately:\n\n${cleanPrompt}${executeHeartbeatSuffix}`;
 
       // Process through agent (use job's session)
       const sessionId = job.sessionId || 'default';
