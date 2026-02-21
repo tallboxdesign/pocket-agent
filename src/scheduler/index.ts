@@ -734,7 +734,7 @@ export class CronScheduler {
       result.success = true;
 
       // Deliver BEFORE marking DB as done — prevents silent message loss on crash
-      await this.routeResponse(job, result.response);
+      await this.routeJobResponse(job.name, job.prompt, result.response, job.channel || 'desktop', job.sessionId || 'default');
 
       // Sync DB timestamps so checkDueJobs knows this job already ran
       if (this.db) {
@@ -762,64 +762,6 @@ export class CronScheduler {
     }
 
     this.addToHistory(result);
-  }
-
-  /**
-   * Route response to appropriate channel(s).
-   * Always sends to desktop, and also to Telegram if configured and session has a linked chat.
-   */
-  private async routeResponse(job: ScheduledJob, response: string): Promise<void> {
-    const sessionId = job.sessionId || 'default';
-
-    // Always send to desktop (chat window + notification)
-    this.emitChatMessage(job.name, job.prompt, response, sessionId);
-    const plainResponse = this.stripMarkdown(response);
-    this.emitDesktopNotification('Pocket Agent', plainResponse.slice(0, 200));
-
-    // Also send to Telegram if configured and session has a linked chat
-    if (this.telegramBot && this.memory) {
-      if (job.recipient) {
-        // Send to specific chat (explicitly specified)
-        const chatId = parseInt(job.recipient, 10);
-        if (!isNaN(chatId)) {
-          await this.telegramBot.sendMessage(chatId, `📅 ${job.name}\n\n${response}`);
-        }
-      } else {
-        // Send to session's linked chat if it exists
-        const linkedChatId = this.memory.getChatForSession(sessionId);
-        if (linkedChatId) {
-          await this.telegramBot.sendMessage(linkedChatId, `📅 ${job.name}\n\n${response}`);
-        }
-      }
-    }
-
-    // Also send to email if channel includes 'email'
-    if (job.channel?.includes('email')) {
-      const gmailEnabled = SettingsManager.getBoolean('gmail.enabled');
-      const recipient = SettingsManager.get('gmail.defaultRecipient');
-      if (gmailEnabled && recipient) {
-        gogSendEmail({ to: recipient, subject: `Pocket Agent: ${job.name}`, body: plainResponse })
-          .catch(err => console.error('[Scheduler] Email send failed:', err));
-      }
-    }
-  }
-
-  /**
-   * Emit desktop notification (handled by main process)
-   */
-  private emitDesktopNotification(title: string, body: string): void {
-    if (this.onNotification) {
-      this.onNotification(title, body);
-    }
-  }
-
-  /**
-   * Emit chat message (sends to chat window)
-   */
-  private emitChatMessage(jobName: string, prompt: string, response: string, sessionId: string = 'default'): void {
-    if (this.onChatMessage) {
-      this.onChatMessage(jobName, prompt, response, sessionId);
-    }
   }
 
   /**
