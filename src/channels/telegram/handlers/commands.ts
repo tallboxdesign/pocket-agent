@@ -280,24 +280,29 @@ Workflows are reusable command templates. Use /workflow to see what's available,
 
   // /restart command - abort any stuck processing
   bot.command('restart', async (ctx) => {
-    const chatId = ctx.chat?.id;
-    const memory = AgentManager.getMemory();
-    const sessionId = chatId && memory ? memory.getSessionForChat(chatId) || 'default' : 'default';
+    console.log('[Telegram:Cmd] /restart command received');
+    try {
+      const chatId = ctx.chat?.id;
+      const memory = AgentManager.getMemory();
+      const sessionId = chatId && memory ? memory.getSessionForChat(chatId) || 'default' : 'default';
 
-    const wasProcessing = AgentManager.isQueryProcessing(sessionId);
+      const wasProcessing = AgentManager.isQueryProcessing(sessionId);
 
-    if (wasProcessing) {
-      AgentManager.stopQuery(sessionId, true);
-      await ctx.reply('⚡ Stopped running query and cleared queue.\nReady for new messages.');
-    } else {
-      // Check if any session is stuck
-      const anyProcessing = AgentManager.isQueryProcessing();
-      if (anyProcessing) {
-        AgentManager.stopQuery(undefined, true);
-        await ctx.reply('⚡ Stopped stuck query (different session).\nReady for new messages.');
+      if (wasProcessing) {
+        AgentManager.stopQuery(sessionId, true);
+        await ctx.reply('Stopped running query and cleared queue.\nReady for new messages.');
       } else {
-        await ctx.reply('No active query to stop. Agent is ready.');
+        const anyProcessing = AgentManager.isQueryProcessing();
+        if (anyProcessing) {
+          AgentManager.stopQuery(undefined, true);
+          await ctx.reply('Stopped stuck query (different session).\nReady for new messages.');
+        } else {
+          await ctx.reply('No active query to stop. Agent is ready.');
+        }
       }
+      console.log('[Telegram:Cmd] /restart handled successfully');
+    } catch (err) {
+      console.error('[Telegram:Cmd] /restart error:', err);
     }
   });
 
