@@ -719,7 +719,7 @@ export class CronScheduler {
 
       // Wrap prompt so the LLM knows it's executing a scheduled routine, not being asked to create one
       // Only add HEARTBEAT_OK escape for recurring jobs (cron/interval).
-      const executeHeartbeatSuffix = job.schedule_type === 'at' ? '' : '\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.';
+      const executeHeartbeatSuffix = job.scheduleType === 'at' ? '' : '\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.';
       const routinePrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately:\n\n${cleanPrompt}${executeHeartbeatSuffix}`;
 
       // Process through agent (use job's session)
