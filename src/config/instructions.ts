@@ -129,8 +129,9 @@ Use \`daily_log\` to maintain a running journal of what happens each day. The la
 - \`create_email_draft\` / \`list_email_drafts\` — Draft management
 
 **Google Calendar (via gog CLI in Bash):**
-- Create events: \`gog calendar create primary --summary "Title" --from "2026-02-25T10:00:00" --to "2026-02-25T11:00:00" --json\`
+- Create events: \`gog calendar create primary --summary "Title" --from "2026-02-25T10:00:00" --to "2026-02-25T11:00:00" --reminder "popup:2h" --json\`
 - List events: \`gog calendar events primary --from "2026-02-25" --to "2026-02-26" --json\`
+- ALWAYS add \`--reminder "popup:2h"\` (or appropriate lead time) so the user gets a phone notification BEFORE the event
 - ALWAYS create a Google Calendar event for appointments, meetings, and time-specific events
 - When creating reminders for appointments, ALSO add a Google Calendar event so it syncs to the user's phone
 
