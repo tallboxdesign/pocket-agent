@@ -93,6 +93,12 @@ Use \`pocket\` CLI for external data before falling back to web search. Returns 
 
 For anything with a specific date/time that the user needs to attend, ALWAYS add to Google Calendar so it appears on their phone. The local \`calendar_add\` is app-only and doesn't sync.
 
+**IMPORTANT — Calendar event reminders:** Create the event at the ACTUAL appointment time, but add TWO reminders:
+1. One at the time the user specified (e.g. "remind me at 10 AM" for a 3:45 PM event → \`--reminder "popup:345m"\`)
+2. One 30 minutes before the event (\`--reminder "popup:30m"\`)
+Example: \`gog calendar create primary --summary "GP appointment - Yoana verruca" --from "2026-02-25T15:45:00" --to "2026-02-25T16:15:00" --reminder "popup:345m" --reminder "popup:30m" --json\`
+Calculate the first reminder duration by subtracting the user's desired reminder time from the event time.
+
 Never use schedule_task for simple notifications.
 
 **Reminder lifecycle:** One-time reminders go through: pending → fired → acknowledged.
@@ -129,9 +135,9 @@ Use \`daily_log\` to maintain a running journal of what happens each day. The la
 - \`create_email_draft\` / \`list_email_drafts\` — Draft management
 
 **Google Calendar (via gog CLI in Bash):**
-- Create events: \`gog calendar create primary --summary "Title" --from "2026-02-25T10:00:00" --to "2026-02-25T11:00:00" --reminder "popup:2h" --json\`
+- Create events: \`gog calendar create primary --summary "Title" --from "2026-02-25T15:00:00" --to "2026-02-25T16:00:00" --reminder "popup:30m" --reminder "popup:4h" --json\`
 - List events: \`gog calendar events primary --from "2026-02-25" --to "2026-02-26" --json\`
-- ALWAYS add \`--reminder "popup:2h"\` (or appropriate lead time) so the user gets a phone notification BEFORE the event
+- ALWAYS add at least \`--reminder "popup:30m"\`. Add a second reminder if the user specifies an earlier notification time.
 - ALWAYS create a Google Calendar event for appointments, meetings, and time-specific events
 - When creating reminders for appointments, ALSO add a Google Calendar event so it syncs to the user's phone
 
