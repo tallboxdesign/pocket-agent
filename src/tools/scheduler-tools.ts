@@ -5,7 +5,7 @@
  * Supports three schedule types:
  * - cron: Standard cron expressions (e.g., "0 9 * * *")
  * - at: One-time execution (e.g., "tomorrow 3pm", "in 10 minutes")
- * - every: Recurring intervals (e.g., "30m", "2h", "1d")
+ * - every: Recurring intervals (e.g., "every 30m", "every 2h", "every 1d")
  */
 
 import { getScheduler } from '../scheduler';
@@ -36,8 +36,8 @@ function parseSchedule(input: string): {
 } | null {
   const trimmed = input.trim();
 
-  // Check for "every" pattern: 30m, 2h, 1d, etc.
-  const everyMatch = trimmed.match(/^(?:every\s+)?(\d+)\s*(m|min|mins|minutes?|h|hr|hrs|hours?|d|days?)$/i);
+  // Check for explicit "every" pattern: every 30m, every 2h, every 1d
+  const everyMatch = trimmed.match(/^every\s+(\d+)\s*(m|min|mins|minutes?|h|hr|hrs|hours?|d|days?)$/i);
   if (everyMatch) {
     const [, amount, unit] = everyMatch;
     const num = parseInt(amount, 10);
@@ -46,6 +46,19 @@ function parseSchedule(input: string): {
     else if (unit.startsWith('h')) ms = num * 60 * 60 * 1000;
     else ms = num * 24 * 60 * 60 * 1000;
     return { type: 'every', intervalMs: ms };
+  }
+
+  // Bare duration without "every" = one-shot (e.g., "2h", "30m", "1d")
+  const bareMatch = trimmed.match(/^(\d+)\s*(m|min|mins|minutes?|h|hr|hrs|hours?|d|days?)$/i);
+  if (bareMatch) {
+    const [, amount, unit] = bareMatch;
+    const num = parseInt(amount, 10);
+    let ms: number;
+    if (unit.startsWith('m')) ms = num * 60 * 1000;
+    else if (unit.startsWith('h')) ms = num * 60 * 60 * 1000;
+    else ms = num * 24 * 60 * 60 * 1000;
+    const runAt = new Date(Date.now() + ms).toISOString();
+    return { type: 'at', runAt };
   }
 
   // Check for "at" pattern: specific datetime
@@ -259,7 +272,8 @@ Use this for tasks where the agent should DO something (check weather, summarize
 For simple reminders, use create_reminder instead.
 
 Schedule formats:
-- Recurring intervals: "30m", "2h", "1d"
+- One-time delay: "2h", "30m", "1d" (fires once after duration)
+- Recurring intervals: "every 2h", "every 30m", "every 1d" (requires "every" prefix)
 - Cron expressions: "0 9 * * *" (minute hour day month weekday)
 - One-time: "in 10 minutes", "in 3 days at 9am", "tomorrow 3pm", "feb 14 9am"
 
@@ -276,7 +290,7 @@ Write it as a command, not as formatted output.
         },
         schedule: {
           type: 'string',
-          description: 'When to run: "30m", "2h", "0 9 * * *", "in 10 minutes", "in 3 days at 9am", "tomorrow 3pm", "feb 14 9am"',
+          description: 'When to run: "2h" (once), "every 2h" (recurring), "0 9 * * *", "in 10 minutes", "tomorrow 3pm", "feb 14 9am"',
         },
         prompt: {
           type: 'string',
@@ -470,7 +484,8 @@ For action-based tasks (check weather, etc), use schedule_task instead.
 Schedule formats:
 - One-time: "in 10 minutes", "tomorrow 3pm", "monday 9am", "feb 14 9am"
 - One-time with time: "in 3 days at 9am", "in 5 days 2:30pm"
-- Recurring: "30m", "2h", or cron "0 9 * * *"
+- One-time delay: "2h", "30m" (fires once after duration)
+- Recurring: "every 2h", "every 30m", or cron "0 9 * * *"
 
 When creating multiple reminders for future dates, ALWAYS specify the time (e.g. "in 3 days at 9am" or "feb 14 9am"), otherwise they fire at the current time of day.
 
@@ -489,7 +504,7 @@ Compose a friendly, complete reminder message - it will be displayed directly wi
         },
         schedule: {
           type: 'string',
-          description: 'When to remind: "in 10 minutes", "in 3 days at 9am", "tomorrow 3pm", "feb 14 9am", "30m", "2h", or cron "0 9 * * *"',
+          description: 'When to remind: "in 10 minutes", "in 3 days at 9am", "tomorrow 3pm", "feb 14 9am", "2h" (once), "every 2h" (recurring), or cron "0 9 * * *"',
         },
         reminder: {
           type: 'string',

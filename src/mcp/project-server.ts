@@ -75,7 +75,10 @@ function getDb(): Database.Database | null {
     if (!fs.existsSync(DB_PATH)) {
       return null;
     }
-    return new Database(DB_PATH);
+    const db = new Database(DB_PATH);
+    db.pragma('journal_mode = WAL');
+    db.pragma('busy_timeout = 5000');
+    return db;
   } catch {
     return null;
   }

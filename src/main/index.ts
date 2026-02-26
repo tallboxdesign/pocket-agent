@@ -1665,6 +1665,10 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('app:openExternal', async (_, url: string) => {
+    if (!/^https?:\/\//i.test(url) && !/^mailto:/i.test(url)) {
+      console.warn('[IPC] Blocked openExternal with disallowed scheme:', url);
+      return;
+    }
     await shell.openExternal(url);
   });
 
@@ -2651,8 +2655,13 @@ Respond with ONLY valid JSON, no markdown, no explanation:
     return testCdpConnection(cdpUrl || 'http://localhost:9222');
   });
 
-  // Shell commands — platform-aware shell selection
-  ipcMain.handle('shell:runCommand', async (_, command: string) => {
+  // Shell commands — platform-aware shell selection (restricted to local UI origin)
+  ipcMain.handle('shell:runCommand', async (event, command: string) => {
+    const senderUrl = event.sender.getURL();
+    if (!senderUrl.startsWith('file://')) {
+      console.warn('[IPC] Blocked shell:runCommand from non-local origin:', senderUrl);
+      throw new Error('Shell commands only allowed from local UI');
+    }
     const execAsync = promisify(exec);
     const shellOpts: Record<string, unknown> = IS_WINDOWS
       ? { shell: 'powershell.exe', env: process.env }
@@ -3111,6 +3120,12 @@ Respond with ONLY valid JSON, no markdown, no explanation:
 
   // Extract text from Office documents (docx, pptx, xlsx, odt, odp, ods, rtf)
   ipcMain.handle('attachment:extract-text', async (_, filePath: string) => {
+    const attachmentsDir = path.join(app.getPath('documents'), 'Pocket-agent', 'attachments');
+    const resolvedPath = path.resolve(filePath);
+    if (!resolvedPath.startsWith(attachmentsDir)) {
+      console.warn('[IPC] Blocked attachment:extract-text outside attachments dir:', resolvedPath);
+      throw new Error('File path must be within attachments directory');
+    }
     const { parseOffice } = await import('officeparser');
     const ast = await parseOffice(filePath);
     return ast.toText();
@@ -3165,13 +3180,61 @@ async function initializeAgent(): Promise<void> {
     },
   };
 
+  // Validate model/key match — fall back if selected model has no API key
+  let selectedModel = SettingsManager.get('agent.model');
+  const providerKeyMap: Record<string, string> = {
+    anthropic: 'anthropic.apiKey',
+    moonshot: 'moonshot.apiKey',
+    glm: 'glm.apiKey',
+    minimax: 'minimax.apiKey',
+  };
+  const modelProviderMap: Record<string, string> = {
+    'claude-opus-4-6': 'anthropic',
+    'claude-sonnet-4-6': 'anthropic',
+    'claude-haiku-4-5-20251001': 'anthropic',
+    'kimi-k2.5': 'moonshot',
+    'glm-5': 'glm',
+    'MiniMax-M2.5': 'minimax',
+    'MiniMax-M2.5-Lightning': 'minimax',
+  };
+  const selectedProvider = modelProviderMap[selectedModel] || 'anthropic';
+  const hasOAuth = !!SettingsManager.get('auth.oauthToken');
+  const hasSelectedKey = selectedProvider === 'anthropic'
+    ? !!(SettingsManager.get('anthropic.apiKey') || hasOAuth)
+    : !!SettingsManager.get(providerKeyMap[selectedProvider] || '');
+
+  if (!hasSelectedKey) {
+    // Find a provider that has a key
+    const fallbackOrder = ['anthropic', 'moonshot', 'glm', 'minimax'];
+    let fallbackModel = '';
+    for (const provider of fallbackOrder) {
+      const hasKey = provider === 'anthropic'
+        ? !!(SettingsManager.get('anthropic.apiKey') || hasOAuth)
+        : !!SettingsManager.get(providerKeyMap[provider] || '');
+      if (hasKey) {
+        const defaultModels: Record<string, string> = {
+          anthropic: 'claude-sonnet-4-6',
+          moonshot: 'kimi-k2.5',
+          glm: 'glm-5',
+          minimax: 'MiniMax-M2.5',
+        };
+        fallbackModel = defaultModels[provider] || '';
+        console.warn(`[Main] Model "${selectedModel}" has no API key for provider "${selectedProvider}". Falling back to "${fallbackModel}" (${provider})`);
+        break;
+      }
+    }
+    if (fallbackModel) {
+      selectedModel = fallbackModel;
+    }
+  }
+
   // Initialize agent with tools config
   AgentManager.initialize({
     memory,
     projectRoot,
     workspace,  // Isolated working directory for agent file operations
     dataDir: app.getPath('userData'),
-    model: SettingsManager.get('agent.model'),
+    model: selectedModel,
     tools: toolsConfig,
   });
 

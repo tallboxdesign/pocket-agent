@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: file: atom: https:; media-src 'self' blob: file:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: file: atom: https:; media-src 'self' blob: file:; connect-src 'self' https://cdn.jsdelivr.net;">
   <title>Pocket Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <style>
     :root {
       --bg-primary: #0a0a0b;
@@ -3457,15 +3458,6 @@
       const emptyState = messagesDiv.querySelector('.empty-state');
       if (emptyState) emptyState.remove();
 
-      // Add the user prompt with scheduled badge
-      if (data.prompt) {
-        const promptEl = addMessage('user', data.prompt);
-        if (data.jobName) {
-          promptEl.classList.add('scheduled');
-          promptEl.dataset.badge = data.jobName;
-        }
-      }
-
       // Add the agent's response with scheduled badge
       const msgEl = addMessage('assistant', data.response);
       if (data.jobName) {
@@ -3561,6 +3553,9 @@
               addTimestamp(msgDate);
               lastDate = msgDate;
             }
+
+            // Skip routine prompts from scheduler (internal, not user-visible)
+            if (msg.role === 'user' && msg.metadata?.source === 'scheduler') continue;
 
             // Strip workflow content from user messages — show badge + user text only
             let displayContent = msg.content;
@@ -4334,6 +4329,10 @@
           /(?<!")(?<!=)(?<!data-path=")(\/(?:Users|tmp|var|home|Library|Applications|Documents|Desktop)[^\s<>"'`\)]*\/)/gi,
           '<a href="#" class="file-link" data-path="$1" title="Click to open folder, right-click to show in Finder">$1</a>'
         );
+        // Sanitize HTML to prevent XSS
+        if (typeof DOMPurify !== 'undefined') {
+          html = DOMPurify.sanitize(html, { ADD_ATTR: ['data-path', 'target'] });
+        }
         return html;
       }
       // Fallback if marked isn't loaded
