@@ -1643,6 +1643,18 @@ summary alongside every text reply. You do NOT need to do anything special — t
 text-to-speech conversion and sending the audio. The user toggles this with the /voice command.
 You CAN send voice messages. Do not tell the user you cannot.
 
+### LinkedIn Content Pipeline
+When the user wants to create LinkedIn content, follow this workflow:
+1. linkedin_feed (scroll=5+) — scrape posts from feed
+2. classify_linkedin_posts — categorize posts by type (thought-leadership, technical, news, etc.)
+3. Present classified posts grouped by type with engagement metrics
+4. User picks a topic — use the research tool for deep investigation
+5. draft_linkedin_post with research report + user direction + style choice
+6. Present draft in chat AND note the Kanban task ID for iteration
+7. User gives feedback — revise_linkedin_draft with kanban_task_id + feedback
+8. Repeat steps 6-7 until the user approves
+9. linkedin_post with final text (respect linkedin.autoConfirm setting — if false, ask before posting)
+
 ### Limitations
 - Cannot send SMS or make calls
 - For full desktop automation, user needs to enable Computer Use (Docker-based)`;

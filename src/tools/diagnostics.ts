@@ -187,6 +187,18 @@ export const TOOL_TIMEOUTS = {
 
   // Slow tools - browser operations
   browser: 45000, // Browser can be slow
+
+  // LinkedIn tools - browser automation via Python/Patchright
+  linkedin_feed: 180000,
+  linkedin_read_post: 60000,
+  linkedin_comment: 90000,
+  linkedin_post: 120000,
+  linkedin_auth_status: 30000,
+
+  // LinkedIn content pipeline tools - GLM calls
+  classify_linkedin_posts: 30000,
+  draft_linkedin_post: 45000,
+  revise_linkedin_draft: 45000,
 } as const;
 
 /**
