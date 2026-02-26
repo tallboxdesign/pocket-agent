@@ -7,12 +7,6 @@ import { sendEmail as gogSendEmail } from '../tools/gog-wrapper';
 import { findWorkflowCommand } from '../config/commands-loader';
 import type { TelegramBot } from '../channels/telegram';
 
-/**
- * Silent acknowledgment token for scheduled tasks.
- * When the agent responds with only this token, the scheduler
- * skips notification - useful for "nothing to report" scenarios.
- */
-export const HEARTBEAT_OK = 'HEARTBEAT_OK';
 
 interface CalendarEvent {
   id: number;
@@ -300,10 +294,7 @@ export class CronScheduler {
             }
           }
 
-          // Only add HEARTBEAT_OK escape for recurring jobs (cron/interval).
-          // One-time "at" jobs are intentionally scheduled — always produce output.
-          const heartbeatSuffix = job.schedule_type === 'at' ? '' : '\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.';
-          const fullPrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately:\n\n${job.prompt}${contextText}${heartbeatSuffix}`;
+          const fullPrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately and always provide a full report:\n\n${job.prompt}${contextText}`;
 
           if (!AgentManager.isInitialized()) {
             throw new Error('AgentManager not initialized');
@@ -491,17 +482,9 @@ export class CronScheduler {
 
   /**
    * Route job response to appropriate channel(s).
-   * Skips notification if response is just HEARTBEAT_OK (nothing to report).
    * Always sends to desktop (to the correct session), and also to Telegram if configured.
    */
   private async routeJobResponse(jobName: string, prompt: string, response: string, channel: string, sessionId: string = 'default'): Promise<void> {
-    // Check for silent acknowledgment - agent has nothing to report
-    // Match HEARTBEAT_OK anywhere in response (case-insensitive)
-    if (response.toUpperCase().includes(HEARTBEAT_OK)) {
-      console.log(`[Scheduler] Job ${jobName} returned HEARTBEAT_OK, skipping notification`);
-      return;
-    }
-
     // Always send to desktop (notification + chat to the correct session)
     const plainResponse = this.stripMarkdown(response);
     if (this.onNotification) {
@@ -718,9 +701,7 @@ export class CronScheduler {
       }
 
       // Wrap prompt so the LLM knows it's executing a scheduled routine, not being asked to create one
-      // Only add HEARTBEAT_OK escape for recurring jobs (cron/interval).
-      const executeHeartbeatSuffix = job.scheduleType === 'at' ? '' : '\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.';
-      const routinePrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately:\n\n${cleanPrompt}${executeHeartbeatSuffix}`;
+      const routinePrompt = `[SCHEDULED ROUTINE "${job.name}" - EXECUTE NOW]\nYou are running as an automated scheduled routine. Do NOT discuss scheduling or your capabilities. Execute the following task immediately and always provide a full report:\n\n${cleanPrompt}`;
 
       // Process through agent (use job's session)
       const sessionId = job.sessionId || 'default';

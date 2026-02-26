@@ -1005,21 +1005,9 @@ class AgentManagerClass extends EventEmitter {
         }
       }
 
-      // Skip saving HEARTBEAT_OK responses from scheduled jobs to memory/chat
-      const isScheduledJob = channel.startsWith('cron:');
-      const isHeartbeat = response.toUpperCase().includes('HEARTBEAT_OK');
-
-      if (isScheduledJob && isHeartbeat) {
-        console.log('[AgentManager] Skipping HEARTBEAT_OK from scheduled job - not saving to memory');
-      } else {
+      {
         // Clean up scheduled job messages before saving - remove internal LLM instructions
         let messageToSave = userMessage;
-
-        // Strip the heartbeat instruction suffix (for routines)
-        const heartbeatSuffix = '\n\nIf nothing needs attention, reply with only HEARTBEAT_OK.';
-        if (messageToSave.endsWith(heartbeatSuffix)) {
-          messageToSave = messageToSave.slice(0, -heartbeatSuffix.length);
-        }
 
         // Convert reminder prompts to clean display format (for reminders)
         const reminderMatch = messageToSave.match(/^\[SCHEDULED REMINDER - DELIVER NOW\]\nThe user previously asked to be reminded about: "(.+?)"\n\nDeliver this reminder/);

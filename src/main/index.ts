@@ -461,23 +461,8 @@ function ensureAgentWorkspace(): string {
 
   // Ensure CLAUDE.md exists and is up to date
   const claudeMdPath = path.join(workspace, 'CLAUDE.md');
-  const heartbeatInstruction = '**Silent Acknowledgment:** When a scheduled task has nothing to report, respond with only `HEARTBEAT_OK`. This tells the system not to notify the user.';
-
   if (fs.existsSync(claudeMdPath)) {
-    // Update existing file if missing HEARTBEAT_OK instruction
-    const existingContent = fs.readFileSync(claudeMdPath, 'utf-8');
-    if (!existingContent.includes('HEARTBEAT_OK')) {
-      console.log('[Main] Updating workspace CLAUDE.md with HEARTBEAT_OK instruction');
-      // Insert after the Scheduler tools list
-      const schedulerMarker = '- `delete_scheduled_task(name)`';
-      if (existingContent.includes(schedulerMarker)) {
-        const updatedContent = existingContent.replace(
-          schedulerMarker,
-          `${schedulerMarker}\n\n${heartbeatInstruction}`
-        );
-        fs.writeFileSync(claudeMdPath, updatedContent, 'utf-8');
-      }
-    }
+    // File exists, no updates needed
   } else {
     console.log('[Main] Creating workspace CLAUDE.md');
     const claudeMdContent = `# Pocket Agent Workspace
@@ -526,8 +511,6 @@ All tools are pre-approved. Use them directly.
 - \`schedule_task(name, cron, prompt, channel?)\`
 - \`list_scheduled_tasks()\`
 - \`delete_scheduled_task(name)\`
-
-${heartbeatInstruction}
 
 ### Browser
 - \`browser(action, ...)\` - navigate, screenshot, click, type, scroll, hover, download, upload, tabs
