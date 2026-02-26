@@ -134,10 +134,13 @@ export class TelegramBot extends BaseChannel {
   }
 
   private setupHandlers(): void {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this;
+    // Use getter so the callback is resolved at call-time, not at setup-time
     const commandDeps: CommandHandlerDeps = {
       bot: this.bot,
       onMessageCallback: this.onMessageCallback,
-      onSessionLinkCallback: this.onSessionLinkCallback,
+      get onSessionLinkCallback() { return self.onSessionLinkCallback; },
       sendResponse: this.sendResponse.bind(this),
     };
 

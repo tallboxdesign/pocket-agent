@@ -653,6 +653,7 @@ class AgentManagerClass extends EventEmitter {
     try {
       const existingSession = this.persistentSessions.get(sessionId);
       let turnResult: TurnResult;
+      let hadSdkSessionBeforeStart = false;
 
       if (existingSession?.isAlive()) {
         // === Existing session: send via streamInput ===
@@ -686,6 +687,7 @@ class AgentManagerClass extends EventEmitter {
         let sdkSessionId = this.sdkSessionIdBySession.get(sessionId)
           || memory.getSdkSessionId(sessionId)
           || undefined;
+        hadSdkSessionBeforeStart = !!sdkSessionId;
 
         if (sdkSessionId) {
           console.log(`[AgentManager] Resuming SDK session: ${sdkSessionId}`);
@@ -809,7 +811,9 @@ class AgentManagerClass extends EventEmitter {
       }
 
       // === Check for stale/crashed session errors and retry without resume ===
-      const wasResuming = this.sdkSessionIdBySession.has(sessionId);
+      // Use the flag captured BEFORE session.start() — the sdkSessionIdBySession map
+      // is populated mid-call by the 'sdkSessionId' event, so checking it here would always be true.
+      const wasResuming = hadSdkSessionBeforeStart;
       if (turnResult.errors && turnResult.errors.length > 0) {
         console.log(`[AgentManager] Turn errors: ${JSON.stringify(turnResult.errors)}, response length: ${turnResult.response.length}, wasResuming: ${wasResuming}`);
       }
@@ -1290,11 +1294,10 @@ class AgentManagerClass extends EventEmitter {
    */
   private async buildPersistentOptions(memory: MemoryManager, sessionId: string, sdkSessionId?: string): Promise<SDKOptions> {
     // === Static context (set once at session creation) ===
+    // NOTE: CLAUDE.md (this.instructions) is NOT included here because the SDK
+    // already reads it from the workspace via cwd + settingSources: ['project'].
+    // Including it here would inject it twice.
     const staticParts: string[] = [];
-
-    if (this.instructions) {
-      staticParts.push(this.instructions);
-    }
 
     if (this.identity) {
       staticParts.push(this.identity);

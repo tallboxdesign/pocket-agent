@@ -887,6 +887,23 @@ class SettingsManagerClass {
   }
 
   /**
+   * Get all settings with encrypted values redacted.
+   * Safe to send to renderer processes.
+   */
+  getAllSafe(): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const [key, value] of this.cache) {
+      const def = SETTINGS_SCHEMA.find(s => s.key === key);
+      if (def?.encrypted && value) {
+        result[key] = '••••••••';
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
+  }
+
+  /**
    * Get all settings by category
    */
   getByCategory(category: string): Record<string, string> {

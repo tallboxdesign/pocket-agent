@@ -453,25 +453,64 @@ export class CronScheduler {
     }
 
     if (type === 'cron' && schedule) {
-      // Simple next cron calculation
+      // Parse cron expression for next run calculation
       const parts = schedule.split(/\s+/);
       if (parts.length !== 5) {
         console.warn(`[Scheduler] Invalid cron expression (expected 5 parts): "${schedule}"`);
-        // Return a fallback of 24 hours to prevent job from being permanently disabled
         return new Date(now.getTime() + 86400000).toISOString();
       }
 
       const [min, hour] = parts;
+
+      // If both minute and hour are wildcards (e.g. "* * * * *"), next run is the next minute
+      if (min === '*' && hour === '*') {
+        const next = new Date(now);
+        next.setSeconds(0, 0);
+        next.setMinutes(next.getMinutes() + 1);
+        return next.toISOString();
+      }
+
+      // If only minute is wildcard (e.g. "* 14 * * *"), next run is next minute within that hour
+      if (min === '*' && hour !== '*') {
+        const targetHour = parseInt(hour, 10);
+        const next = new Date(now);
+        next.setSeconds(0, 0);
+        if (next.getHours() === targetHour && next > now) {
+          return next.toISOString();
+        } else if (next.getHours() === targetHour) {
+          next.setMinutes(next.getMinutes() + 1);
+          if (next.getHours() !== targetHour) {
+            next.setDate(next.getDate() + 1);
+            next.setHours(targetHour, 0, 0, 0);
+          }
+          return next.toISOString();
+        } else {
+          next.setHours(targetHour, 0, 0, 0);
+          if (next <= now) next.setDate(next.getDate() + 1);
+          return next.toISOString();
+        }
+      }
+
+      // If only hour is wildcard (e.g. "30 * * * *"), next run is :30 of the next matching hour
+      if (min !== '*' && hour === '*') {
+        const targetMin = parseInt(min, 10);
+        const next = new Date(now);
+        next.setSeconds(0, 0);
+        next.setMinutes(targetMin);
+        if (next <= now) {
+          next.setHours(next.getHours() + 1);
+        }
+        return next.toISOString();
+      }
+
+      // Both specified (e.g. "30 14 * * *")
       const next = new Date(now);
       next.setSeconds(0, 0);
-
-      if (min !== '*') next.setMinutes(parseInt(min, 10));
-      if (hour !== '*') next.setHours(parseInt(hour, 10));
-
+      next.setMinutes(parseInt(min, 10));
+      next.setHours(parseInt(hour, 10));
       if (next <= now) {
         next.setDate(next.getDate() + 1);
       }
-
       return next.toISOString();
     }
 

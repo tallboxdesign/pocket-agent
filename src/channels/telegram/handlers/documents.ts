@@ -8,6 +8,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { Context } from 'grammy';
 import { AgentManager } from '../../../agent';
+import { scheduleFileCleanup } from './media';
 import { SettingsManager } from '../../../settings';
 import { MessageCallback } from '../types';
 import { withTyping } from '../utils/typing';
@@ -133,6 +134,7 @@ export async function handleDocumentMessage(
   }
 
   const { onMessageCallback, sendResponse } = deps;
+  let savedFilePath: string | null = null;
 
   // Get document metadata
   const fileName = document.file_name || 'document';
@@ -187,6 +189,7 @@ export async function handleDocumentMessage(
       const filesDir = getFilesDirectory();
       const uniqueFilename = generateUniqueFilename(fileName);
       const localPath = path.join(filesDir, uniqueFilename);
+      savedFilePath = localPath;
 
       fs.writeFileSync(localPath, buffer);
 
@@ -272,7 +275,11 @@ export async function handleDocumentMessage(
     if (result.wasCompacted) {
       await ctx.reply('(your chat has been compacted)');
     }
+
+    // Schedule cleanup of the downloaded file
+    if (savedFilePath) scheduleFileCleanup(savedFilePath);
   } catch (error) {
+    if (savedFilePath) scheduleFileCleanup(savedFilePath);
     console.error('[Telegram] Document error:', error);
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
     await ctx.reply(`Error processing document: ${errorMsg}`);

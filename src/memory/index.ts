@@ -432,16 +432,16 @@ export class MemoryManager {
       // FTS5 triggers may already exist
     }
 
-    // Rebuild FTS index from existing facts
-    this.rebuildFtsIndex();
-
-    // Migration: add subject column if missing
+    // Migration: add subject column if missing (must run BEFORE FTS rebuild)
     const columns = this.db.pragma('table_info(facts)') as Array<{ name: string }>;
     const hasSubject = columns.some(c => c.name === 'subject');
     if (!hasSubject) {
       this.db.exec(`ALTER TABLE facts ADD COLUMN subject TEXT NOT NULL DEFAULT ''`);
       console.log('[Memory] Migrated facts table: added subject column');
     }
+
+    // Rebuild FTS index from existing facts (after all schema migrations)
+    this.rebuildFtsIndex();
 
     // Migration: add session_id to messages if missing
     const msgColumns = this.db.pragma('table_info(messages)') as Array<{ name: string }>;
@@ -1201,22 +1201,15 @@ export class MemoryManager {
     interval: number
   ): Promise<string | null> {
     // Check for existing rolling summary that covers up to beforeMessageId-1
-    const existingSummary = this.db.prepare(`
-      SELECT content FROM rolling_summaries
+    const existingRow = this.db.prepare(`
+      SELECT content, end_message_id FROM rolling_summaries
       WHERE session_id = ? AND end_message_id <= ?
       ORDER BY end_message_id DESC
       LIMIT 1
-    `).get(sessionId, beforeMessageId - 1) as { content: string } | undefined;
+    `).get(sessionId, beforeMessageId - 1) as { content: string; end_message_id: number } | undefined;
 
-    // Get the oldest message we need to summarize from
-    const lastSummarizedId = existingSummary
-      ? (this.db.prepare(`
-          SELECT end_message_id FROM rolling_summaries
-          WHERE session_id = ? AND end_message_id <= ?
-          ORDER BY end_message_id DESC
-          LIMIT 1
-        `).get(sessionId, beforeMessageId - 1) as { end_message_id: number })?.end_message_id || 0
-      : 0;
+    const existingSummary = existingRow ? { content: existingRow.content } : undefined;
+    const lastSummarizedId = existingRow?.end_message_id || 0;
 
     // Get messages that need summarizing (between last summary and beforeMessageId)
     const unsummarizedMessages = this.db.prepare(`
