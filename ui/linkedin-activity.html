@@ -781,6 +781,31 @@
       from { transform: scaleX(1); }
       to { transform: scaleX(0); }
     }
+    #filter-bar {
+      display: flex;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      flex-shrink: 0;
+    }
+    #filter-bar select,
+    #filter-bar input {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 4px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      color-scheme: dark;
+    }
+    #filter-count {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
   </style>
 </head>
 <body>
@@ -788,6 +813,7 @@
     <div class="header-left">
       <h1><span>LinkedIn Activity</span></h1>
       <span class="post-count" id="post-count"></span>
+      <span class="post-count" id="daily-stats" style="color:var(--accent)"></span>
     </div>
     <div class="header-actions">
       <button class="li-settings-btn" id="li-settings-btn" onclick="toggleQuickSettings()" title="LinkedIn quick settings for draft/research controls">LinkedIn Settings</button>
@@ -834,6 +860,21 @@
       <div class="li-quick-field">
         <label title="Average minutes between posting comments when scheduling/posting.">Comment Delay (min)</label>
         <input type="number" id="qs-comment-delay" min="1" max="15" step="0.5" title="Randomized around this average">
+      </div>
+      <div class="li-quick-field">
+        <label title="Minimum daily auto-post count.">Daily Min</label>
+        <input type="number" id="qs-daily-min" min="1" max="50" step="1" title="Minimum posts per day">
+      </div>
+      <div class="li-quick-field">
+        <label title="Maximum daily auto-post count.">Daily Max</label>
+        <input type="number" id="qs-daily-max" min="1" max="50" step="1" title="Maximum posts per day">
+      </div>
+      <div class="li-quick-field">
+        <label title="Enable auto-posting of approved scheduled drafts.">Auto-Poster</label>
+        <select id="qs-auto-poster">
+          <option value="false">Off</option>
+          <option value="true">On</option>
+        </select>
       </div>
     </div>
     <div class="li-quick-actions">
@@ -894,6 +935,34 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
       Re-auth
     </button>
+  </div>
+
+  <div id="filter-bar">
+    <select id="filter-status" onchange="loadPosts()">
+      <option value="">All Status</option>
+      <option value="undrafted">Undrafted</option>
+      <option value="draft">Draft</option>
+      <option value="approved">Approved</option>
+      <option value="commented">Commented</option>
+    </select>
+    <select id="filter-priority" onchange="loadPosts()">
+      <option value="">All Priority</option>
+      <option value="low">Low</option>
+      <option value="normal">Normal</option>
+      <option value="high">High</option>
+      <option value="urgent">Urgent</option>
+    </select>
+    <select id="filter-type" onchange="loadPosts()">
+      <option value="">All Types</option>
+      <option value="thought-leadership">Thought Leadership</option>
+      <option value="technical">Technical</option>
+      <option value="news">News</option>
+      <option value="personal-story">Personal Story</option>
+      <option value="question">Question</option>
+      <option value="promotional">Promotional</option>
+    </select>
+    <input id="filter-author" placeholder="Filter author..." oninput="loadPosts()" style="width:140px">
+    <span id="filter-count"></span>
   </div>
 
   <div class="selection-bar" id="selection-bar">
@@ -1087,7 +1156,7 @@
     async function loadQuickSettings() {
       if (!window.pocketAgent?.getSetting) return;
       try {
-        const [mode, timeout, researchTurns, writeTurns, queries, fallbackModel, commentDelay] = await Promise.all([
+        const [mode, timeout, researchTurns, writeTurns, queries, fallbackModel, commentDelay, dailyMin, dailyMax, autoPoster] = await Promise.all([
           window.pocketAgent.getSetting('linkedin.draftMode'),
           window.pocketAgent.getSetting('linkedin.draftTimeoutSec'),
           window.pocketAgent.getSetting('linkedin.researchMaxTurns'),
@@ -1095,6 +1164,9 @@
           window.pocketAgent.getSetting('linkedin.researchMaxQueries'),
           window.pocketAgent.getSetting('linkedin.researchFallbackModel'),
           window.pocketAgent.getSetting('linkedin.commentDelay'),
+          window.pocketAgent.getSetting('linkedin.dailyLimitMin'),
+          window.pocketAgent.getSetting('linkedin.dailyLimitMax'),
+          window.pocketAgent.getSetting('linkedin.autoPosterEnabled'),
         ]);
 
         const normalizedMode = normalizeDraftMode(mode || 'balanced');
@@ -1105,6 +1177,9 @@
         setInputValue('qs-research-queries', String(clampInt(queries || '2', 2, 1, 4)));
         setInputValue('qs-fallback-model', String(fallbackModel || 'kimi-k2.5'));
         setInputValue('qs-comment-delay', String(clampFloat(commentDelay || '3', 3, 1, 15)));
+        setInputValue('qs-daily-min', String(clampInt(dailyMin || '8', 8, 1, 50)));
+        setInputValue('qs-daily-max', String(clampInt(dailyMax || '18', 18, 1, 50)));
+        setInputValue('qs-auto-poster', autoPoster === 'true' ? 'true' : 'false');
       } catch (err) {
         showToast(`Failed to load settings: ${shortError(err)}`, 'error');
       }
@@ -1120,6 +1195,9 @@
         const queries = String(clampInt(getInputValue('qs-research-queries'), 2, 1, 4));
         const fallbackModel = getInputValue('qs-fallback-model');
         const commentDelay = String(clampFloat(getInputValue('qs-comment-delay'), 3, 1, 15));
+        const dailyMin = String(clampInt(getInputValue('qs-daily-min'), 8, 1, 50));
+        const dailyMax = String(clampInt(getInputValue('qs-daily-max'), 18, 1, 50));
+        const autoPoster = getInputValue('qs-auto-poster');
 
         await Promise.all([
           window.pocketAgent.setSetting('linkedin.draftMode', mode),
@@ -1129,6 +1207,9 @@
           window.pocketAgent.setSetting('linkedin.researchMaxQueries', queries),
           window.pocketAgent.setSetting('linkedin.researchFallbackModel', fallbackModel),
           window.pocketAgent.setSetting('linkedin.commentDelay', commentDelay),
+          window.pocketAgent.setSetting('linkedin.dailyLimitMin', dailyMin),
+          window.pocketAgent.setSetting('linkedin.dailyLimitMax', dailyMax),
+          window.pocketAgent.setSetting('linkedin.autoPosterEnabled', autoPoster),
         ]);
 
         setInputValue('qs-draft-mode', mode);
@@ -1137,6 +1218,9 @@
         setInputValue('qs-write-turns', writeTurns);
         setInputValue('qs-research-queries', queries);
         setInputValue('qs-comment-delay', commentDelay);
+        setInputValue('qs-daily-min', dailyMin);
+        setInputValue('qs-daily-max', dailyMax);
+        setInputValue('qs-auto-poster', autoPoster);
         setInputValue('draft-mode', mode);
 
         showToast('LinkedIn settings saved', 'success');
@@ -1413,8 +1497,35 @@
       sendToAgent('Schedule all unscheduled LinkedIn draft comments for today. Distribute them across my configured posting windows (linkedin.postingWindows setting, default 09:00-11:00,14:00-16:00) with the configured comment delay between each. Use priority order: urgent first, then high, then normal, then low.');
     }
 
+    function applyFilters(posts) {
+      const status = getInputValue('filter-status');
+      const priority = getInputValue('filter-priority');
+      const type = getInputValue('filter-type');
+      const author = getInputValue('filter-author').toLowerCase();
+
+      return posts.filter(p => {
+        if (status === 'undrafted' && (p.comment_draft || p.commented)) return false;
+        if (status === 'draft' && (!p.comment_draft || p.commented)) return false;
+        if (status === 'approved' && !p.approved) return false;
+        if (status === 'commented' && !p.commented) return false;
+        if (priority && (p.priority || 'normal') !== priority) return false;
+        if (type && p.post_type !== type) return false;
+        if (author && !(p.author || '').toLowerCase().includes(author)) return false;
+        return true;
+      });
+    }
+
     async function loadPosts() {
       try {
+        // Load daily stats in parallel
+        if (window.pocketAgent.getLinkedInDailyStats) {
+          window.pocketAgent.getLinkedInDailyStats().then(stats => {
+            const el = document.getElementById('daily-stats');
+            if (el && stats && stats.dailyLimit > 0) {
+              el.textContent = `${stats.postedToday}/${stats.dailyLimit} posted`;
+            }
+          }).catch(() => {});
+        }
         const date = datePicker.value;
         const result = await window.pocketAgent.listLinkedInPosts(date);
         // Handle both old format (array) and new format ({posts, snoozed})
@@ -1422,6 +1533,7 @@
         const snoozed = Array.isArray(result) ? [] : (result.snoozed || []);
         currentPosts = posts;
         currentSnoozed = snoozed;
+        const filtered = applyFilters(posts);
         const content = document.getElementById('content');
         const countEl = document.getElementById('post-count');
 
@@ -1432,6 +1544,10 @@
         if (commented) parts.push(`${commented} commented`);
         if (snoozed.length) parts.push(`${snoozed.length} snoozed`);
         countEl.textContent = `(${parts.join(', ')})`;
+        if (filtered.length !== posts.length) {
+          countEl.textContent += ` — showing ${filtered.length}`;
+        }
+        document.getElementById('filter-count').textContent = filtered.length !== posts.length ? `${filtered.length} of ${posts.length}` : '';
 
         if (posts.length === 0 && snoozed.length === 0) {
           content.innerHTML = `
@@ -1465,7 +1581,7 @@
               </tr>
             </thead>
             <tbody>
-              ${posts.map((p, i) => renderPostRow(p, i + 1)).join('')}
+              ${filtered.map((p, i) => renderPostRow(p, i + 1)).join('')}
             </tbody>
           </table>
         `;
@@ -1520,6 +1636,28 @@
       else if (p.comment_draft) statusBadges.push('<span class="badge badge-draft">Draft</span>');
       if (p.scheduled_at) statusBadges.push(`<span class="badge badge-scheduled">${formatScheduleTime(p.scheduled_at)}</span>`);
 
+      // Engagement delta badge
+      const engagementBadge = (p.engagement_checked && (p.reactions_delta || p.comments_delta))
+        ? `<span class="badge" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3)">+${p.reactions_delta || 0}r +${p.comments_delta || 0}c</span>`
+        : '';
+
+      // Relationship badge
+      let relationBadge = '';
+      const tc = p.author_total_comments || 0;
+      if (tc >= 5) relationBadge = '<span class="badge" style="background:rgba(34,197,94,0.12);color:#4ade80;border-color:rgba(34,197,94,0.25)" title="Regular contact">Regular</span>';
+      else if (tc >= 1) relationBadge = '<span class="badge" style="background:rgba(245,158,11,0.12);color:#fbbf24;border-color:rgba(245,158,11,0.25)" title="Occasional contact">Occasional</span>';
+      else relationBadge = '<span class="badge" style="background:rgba(107,114,128,0.12);color:#9ca3af;border-color:rgba(107,114,128,0.25)" title="New contact">New</span>';
+
+      // Weekly warning
+      const weeklyWarn = (p.author_weekly_comments >= 2) ? `<span style="color:var(--warning);font-size:10px">${p.author_weekly_comments}x this week</span>` : '';
+
+      // Reconnect hint
+      let reconnectHint = '';
+      if (tc >= 5 && p.author_last_commented) {
+        const daysSince = Math.floor((Date.now() - new Date(p.author_last_commented).getTime()) / (1000 * 60 * 60 * 24));
+        if (daysSince >= 14) reconnectHint = `<span style="color:var(--text-muted);font-size:10px">${daysSince}d ago</span>`;
+      }
+
       const inflightHint = isResearching
         ? '<div class="draft-inflight"><span class="mini-spinner"></span>Researching and drafting this post now...</div>'
         : (isQueued ? '<div class="draft-inflight"><span class="mini-spinner"></span>Queued for research and drafting...</div>' : '');
@@ -1529,7 +1667,7 @@
           <td class="col-check"><input type="checkbox" value="${p.id}" onchange="updateSelection()" /></td>
           <td class="col-num">${idx}</td>
           <td class="col-priority">${priorityDot(p.id, p.priority)}</td>
-          <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}</td>
+          <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}<br>${relationBadge} ${weeklyWarn} ${reconnectHint}</td>
           <td class="col-preview">
             ${escapeHtml(truncate(p.text_preview, 100))}
             ${inflightHint}
@@ -1554,7 +1692,7 @@
           <td class="col-stats">${p.reactions || 0}</td>
           <td class="col-stats">${p.comments || 0}</td>
           <td class="col-type">${p.post_type ? `<span class="badge badge-type">${escapeHtml(p.post_type)}</span>` : ''}</td>
-          <td class="col-status"><div class="status-badges">${statusBadges.join(' ')}</div></td>
+          <td class="col-status"><div class="status-badges">${statusBadges.join(' ')} ${engagementBadge}</div></td>
           <td class="col-actions">
             <button class="icon-btn danger" onclick="hidePost(${p.id})" title="Delete/hide post">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>

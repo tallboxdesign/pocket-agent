@@ -76,6 +76,8 @@ export class CronScheduler {
   private db: Database.Database | null = null; // Persistent DB connection for reminders
   private isCheckingReminders: boolean = false; // Mutex to prevent overlapping checks
   private checkStartedAt: number = 0; // Timestamp when check started (for stale mutex detection)
+  private autoPosterInterval: ReturnType<typeof setInterval> | null = null;
+  private engagementCheckInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {}
 
@@ -110,6 +112,18 @@ export class CronScheduler {
 
     // Run initial reminder check
     this.checkReminders().catch(err => console.error('[Scheduler] Error checking reminders:', err));
+
+    // Start LinkedIn auto-poster (every 60s) and engagement checks (every 30min)
+    import('../tools/linkedin-autoposter').then(({ checkAndPostNext, checkDueEngagement, syncAuthorsFromPosts }) => {
+      this.autoPosterInterval = setInterval(() => {
+        checkAndPostNext().catch(err => console.error('[Scheduler] AutoPoster error:', err));
+      }, 60000);
+      this.engagementCheckInterval = setInterval(() => {
+        checkDueEngagement().catch(err => console.error('[Scheduler] Engagement check error:', err));
+      }, 30 * 60 * 1000);
+      // Sync authors on startup
+      try { syncAuthorsFromPosts(); } catch (err) { console.error('[Scheduler] Author sync error:', err); }
+    }).catch(err => console.error('[Scheduler] Failed to load autoposter:', err));
   }
 
   /**
@@ -945,6 +959,16 @@ export class CronScheduler {
     if (this.reminderInterval) {
       clearInterval(this.reminderInterval);
       this.reminderInterval = null;
+    }
+
+    // Stop auto-poster and engagement check intervals
+    if (this.autoPosterInterval) {
+      clearInterval(this.autoPosterInterval);
+      this.autoPosterInterval = null;
+    }
+    if (this.engagementCheckInterval) {
+      clearInterval(this.engagementCheckInterval);
+      this.engagementCheckInterval = null;
     }
 
     // Close persistent DB connection

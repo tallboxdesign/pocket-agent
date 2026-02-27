@@ -692,6 +692,8 @@ export interface DraftPost {
   reactions: number;
   comments: number;
   kanban_task_id?: number;
+  post_type?: string;
+  voice_preset?: string;
 }
 
 export interface DraftResult {
@@ -722,6 +724,42 @@ export function cancelDraftJob(): void {
     activeJob.abort();
     activeJob = null;
   }
+}
+
+interface VoicePreset {
+  name: string;
+  prompt: string;
+  postTypes: string[];
+}
+
+function selectVoiceForPost(postType: string | null | undefined, overridePreset?: string | null): string {
+  const presetsJson = SettingsManager.get('linkedin.voicePresets') || '';
+  let presets: VoicePreset[] = [];
+  try {
+    const parsed = JSON.parse(presetsJson);
+    if (Array.isArray(parsed)) presets = parsed;
+  } catch { /* invalid JSON, fall through */ }
+
+  if (presets.length === 0) {
+    return SettingsManager.get('linkedin.voiceStyle') || '';
+  }
+
+  // Per-post override
+  if (overridePreset) {
+    const match = presets.find(p => p.name === overridePreset);
+    if (match) return match.prompt;
+  }
+
+  // 70% match post type, 30% random variety
+  if (Math.random() < 0.7 && postType) {
+    const matching = presets.filter(p => p.postTypes.includes(postType));
+    if (matching.length > 0) {
+      return matching[Math.floor(Math.random() * matching.length)].prompt;
+    }
+  }
+
+  // Random preset (covers 30% case and fallback)
+  return presets[Math.floor(Math.random() * presets.length)].prompt;
 }
 
 /**
@@ -846,15 +884,12 @@ export async function draftBatch(
   const errors: string[] = [];
 
   // Load writing guidance
-  let voiceStyle = '';
   let writingRules = '';
   let contentDirection = '';
   try {
-    voiceStyle = SettingsManager.get('linkedin.voiceStyle') || '';
     writingRules = SettingsManager.get('linkedin.writingRules') || '';
     contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
   } catch { /* ok */ }
-  const styleGuide = [voiceStyle, writingRules, contentDirection].filter(Boolean).join('\n\n');
   const draftModel = getDraftModel();
 
   // Load posts from DB
@@ -866,7 +901,7 @@ export async function draftBatch(
   const posts: DraftPost[] = [];
   for (const id of postIds) {
     const row = db.prepare(
-      'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id FROM linkedin_posts WHERE id = ?'
+      'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, post_type, voice_preset FROM linkedin_posts WHERE id = ?'
     ).get(id) as DraftPost | undefined;
     if (row) posts.push(row);
   }
@@ -906,7 +941,9 @@ export async function draftBatch(
       draftEvents.emit('progress', { ...progress });
 
       try {
-        const result = await draftOnePost(post, styleGuide, jobAbort, draftModel);
+        const voicePrompt = selectVoiceForPost(post.post_type, post.voice_preset);
+        const postStyleGuide = [voicePrompt, writingRules, contentDirection].filter(Boolean).join('\n\n');
+        const result = await draftOnePost(post, postStyleGuide, jobAbort, draftModel);
         results.push(result);
         progress.completed++;
         progress.results.push(result);

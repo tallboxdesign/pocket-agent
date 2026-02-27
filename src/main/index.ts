@@ -13,6 +13,7 @@ import { loadInstructions, saveInstructions, getInstructionsPath, DEFAULT_INSTRU
 import { DEFAULT_COMMANDS } from '../config/commands';
 import { loadWorkflowCommands } from '../config/commands-loader';
 import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
+import { setLinkedInTelegramBot, notifyTelegram } from '../tools/linkedin-autoposter';
 import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
 import { getBrowserManager } from '../browser';
 import { WAQManager } from '../queue/processor';
@@ -1722,9 +1723,24 @@ function setupIPC(): void {
       if (!dbPath) return [];
       const db = new Database(dbPath, { readonly: true });
       db.pragma('journal_mode = WAL');
-      const priorityOrder = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
+      const priorityOrder = `CASE lp.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
       const posts = db.prepare(
-        `SELECT * FROM linkedin_posts WHERE scraped_date = ? AND hidden = 0 AND (snoozed_until IS NULL OR snoozed_until <= datetime('now')) ORDER BY ${priorityOrder}, (reactions + comments) DESC`
+        `SELECT lp.*,
+           la.total_comments_by_me AS author_total_comments,
+           la.last_commented_date AS author_last_commented,
+           ec.reactions_delta, ec.comments_delta,
+           (SELECT COUNT(*) FROM linkedin_activity_log al
+            WHERE al.action = 'posted' AND al.post_url IN (SELECT p2.post_url FROM linkedin_posts p2 WHERE p2.author = lp.author)
+            AND al.created_at >= datetime('now', '-7 days')) AS author_weekly_comments
+         FROM linkedin_posts lp
+         LEFT JOIN linkedin_authors la ON la.name = lp.author
+         LEFT JOIN (
+           SELECT post_id, reactions_delta, comments_delta
+           FROM linkedin_engagement_checks WHERE baseline = 0
+           GROUP BY post_id HAVING id = MAX(id)
+         ) ec ON ec.post_id = lp.id
+         WHERE lp.scraped_date = ? AND lp.hidden = 0 AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now'))
+         ORDER BY ${priorityOrder}, (lp.reactions + lp.comments) DESC`
       ).all(date);
       const snoozed = db.prepare(
         `SELECT * FROM linkedin_posts WHERE scraped_date = ? AND hidden = 0 AND snoozed_until > datetime('now') ORDER BY snoozed_until ASC`
@@ -2033,6 +2049,15 @@ function setupIPC(): void {
     }
   });
 
+  // Telegram notification when batch drafting completes
+  import('../tools/linkedin-drafter').then(({ draftEvents }) => {
+    draftEvents.on('complete', (data: { total?: number; drafted?: number }) => {
+      if (data && typeof data.drafted === 'number' && data.drafted > 0) {
+        notifyTelegram(`LinkedIn: ${data.drafted} drafts ready for review`).catch(() => {});
+      }
+    });
+  }).catch(() => {});
+
   ipcMain.handle('linkedin:cancelDraftJob', async () => {
     try {
       const { cancelDraftJob } = await import('../tools/linkedin-drafter');
@@ -2040,6 +2065,16 @@ function setupIPC(): void {
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:getDailyStats', async () => {
+    try {
+      const { getDailyStats } = await import('../tools/linkedin-autoposter');
+      return getDailyStats();
+    } catch (err) {
+      console.error('[LinkedIn] getDailyStats error:', err);
+      return { postedToday: 0, dailyLimit: 0, pendingApproved: 0 };
     }
   });
 
@@ -2289,6 +2324,7 @@ function setupIPC(): void {
               await telegramBot.start();
               if (scheduler) scheduler.setTelegramBot(telegramBot);
               setResearchTelegramBot(telegramBot);
+              setLinkedInTelegramBot(telegramBot);
               console.log('[Main] Telegram started (live toggle)');
             }
           }
@@ -2298,6 +2334,7 @@ function setupIPC(): void {
             telegramBot = null;
             if (scheduler) scheduler.setTelegramBot(null);
             setResearchTelegramBot(null as unknown as TelegramBot);
+            setLinkedInTelegramBot(null);
             console.log('[Main] Telegram stopped (live toggle)');
           }
         }

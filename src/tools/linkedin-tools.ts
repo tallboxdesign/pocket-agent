@@ -12,6 +12,38 @@ import { glmFlash, glmChat, isGlmConfigured } from './glm-client';
 import { KanbanService } from '../kanban';
 
 // ============================================================================
+// Voice preset selection
+// ============================================================================
+
+interface VoicePreset {
+  name: string;
+  prompt: string;
+  postTypes: string[];
+}
+
+function selectVoiceForPost(postType: string | null | undefined): string {
+  const presetsJson = SettingsManager.get('linkedin.voicePresets') || '';
+  let presets: VoicePreset[] = [];
+  try {
+    const parsed = JSON.parse(presetsJson);
+    if (Array.isArray(parsed)) presets = parsed;
+  } catch { /* invalid JSON, fall through */ }
+
+  if (presets.length === 0) {
+    return SettingsManager.get('linkedin.voiceStyle') || '';
+  }
+
+  if (Math.random() < 0.7 && postType) {
+    const matching = presets.filter(p => p.postTypes.includes(postType));
+    if (matching.length > 0) {
+      return matching[Math.floor(Math.random() * matching.length)].prompt;
+    }
+  }
+
+  return presets[Math.floor(Math.random() * presets.length)].prompt;
+}
+
+// ============================================================================
 // Database helper (shared connection to pocket-agent.db)
 // ============================================================================
 
@@ -541,7 +573,7 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
     ? p.style : 'insight';
 
   // Load user's voice/rules/direction from settings
-  const voiceStyle = SettingsManager.get('linkedin.voiceStyle') || '';
+  const voiceStyle = selectVoiceForPost(style);
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
   const contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
 
@@ -675,7 +707,7 @@ async function handleDraftCommentTool(input: unknown): Promise<string> {
   const tone = (p.tone && p.tone in COMMENT_TONES) ? p.tone : 'insightful';
 
   // Load user's voice/rules from settings
-  const voiceStyle = SettingsManager.get('linkedin.voiceStyle') || '';
+  const voiceStyle = selectVoiceForPost(null);
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
 
   let systemPrompt = `You are a real person leaving a LinkedIn comment. You have hands-on experience in this field.

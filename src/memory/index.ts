@@ -603,6 +603,71 @@ export class MemoryManager {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN approved INTEGER DEFAULT 0`);
       console.log('[Memory] Migrated linkedin_posts: added approved column');
     }
+    if (!hasColumn('linkedin_posts', 'voice_preset')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN voice_preset TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added voice_preset column');
+    }
+    if (!hasColumn('linkedin_posts', 'engagement_check_due')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN engagement_check_due TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added engagement_check_due column');
+    }
+    if (!hasColumn('linkedin_posts', 'baseline_reactions')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN baseline_reactions INTEGER`);
+      console.log('[Memory] Migrated linkedin_posts: added baseline_reactions column');
+    }
+    if (!hasColumn('linkedin_posts', 'baseline_comments')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN baseline_comments INTEGER`);
+      console.log('[Memory] Migrated linkedin_posts: added baseline_comments column');
+    }
+    if (!hasColumn('linkedin_posts', 'engagement_checked')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN engagement_checked INTEGER DEFAULT 0`);
+      console.log('[Memory] Migrated linkedin_posts: added engagement_checked column');
+    }
+
+    // LinkedIn activity log (auto-poster audit trail)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL,
+        post_url TEXT NOT NULL,
+        action TEXT NOT NULL,
+        reason TEXT,
+        comment_text TEXT,
+        daily_limit INTEGER,
+        daily_count INTEGER,
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    // LinkedIn authors (relationship tracking)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_authors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        profile_url TEXT,
+        first_seen TEXT DEFAULT (datetime('now')),
+        last_seen TEXT DEFAULT (datetime('now')),
+        total_posts_seen INTEGER DEFAULT 0,
+        total_comments_by_me INTEGER DEFAULT 0,
+        last_commented_date TEXT,
+        notes TEXT
+      )
+    `);
+
+    // LinkedIn engagement checks (delta tracking)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_engagement_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL,
+        post_url TEXT NOT NULL,
+        checked_at TEXT DEFAULT (datetime('now')),
+        reactions INTEGER NOT NULL,
+        comments_count INTEGER NOT NULL,
+        reactions_delta INTEGER DEFAULT 0,
+        comments_delta INTEGER DEFAULT 0,
+        baseline INTEGER DEFAULT 0
+      )
+    `);
   }
 
   /**

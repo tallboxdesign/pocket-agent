@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   scheduleLinkedInPost: (id: number, datetime: string) => ipcRenderer.invoke('linkedin:schedulePost', id, datetime),
   draftLinkedInBatch: (postIds: number[], batchSize?: number) => ipcRenderer.invoke('linkedin:draftBatch', postIds, batchSize),
   cancelLinkedInDraftJob: () => ipcRenderer.invoke('linkedin:cancelDraftJob'),
+  getLinkedInDailyStats: () => ipcRenderer.invoke('linkedin:getDailyStats'),
   onLinkedInDraftProgress: (callback: (data: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
     ipcRenderer.on('linkedin:draftProgress', listener);
@@ -358,6 +359,7 @@ declare global {
       scheduleLinkedInPost: (id: number, datetime: string) => Promise<{ success: boolean; error?: string }>;
       draftLinkedInBatch: (postIds: number[], batchSize?: number) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
       cancelLinkedInDraftJob: () => Promise<{ success: boolean }>;
+      getLinkedInDailyStats: () => Promise<{ postedToday: number; dailyLimit: number; pendingApproved: number }>;
       onLinkedInDraftProgress: (callback: (data: unknown) => void) => () => void;
       openExternal: (url: string) => Promise<void>;
       openPath: (filePath: string) => Promise<void>;
