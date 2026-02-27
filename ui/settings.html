@@ -2468,21 +2468,21 @@
 
         <div class="settings-grid">
           <div class="setting-row">
-            <label>Enable LinkedIn</label>
-            <div class="toggle" id="linkedin.enabled-toggle" onclick="toggleSetting('linkedin.enabled')"></div>
+            <label title="Turns LinkedIn automation tools on or off. When disabled, scrape/read/draft/post LinkedIn tools are unavailable.">Enable LinkedIn</label>
+            <div class="toggle" id="linkedin.enabled-toggle" onclick="toggleSetting('linkedin.enabled')" title="Enable or disable all LinkedIn automation tools"></div>
           </div>
           <div class="setting-row">
-            <label>Auto-Confirm Posts</label>
-            <div class="toggle" id="linkedin.autoConfirm-toggle" onclick="toggleSetting('linkedin.autoConfirm')"></div>
+            <label title="If enabled, the agent can post/comment without asking for confirmation each time. Keep OFF for manual approval flow.">Auto-Confirm Posts</label>
+            <div class="toggle" id="linkedin.autoConfirm-toggle" onclick="toggleSetting('linkedin.autoConfirm')" title="Allow direct posting without confirmation prompts"></div>
           </div>
         </div>
 
         <div id="linkedin-config" style="margin-top: 12px;">
           <div class="settings-grid">
             <div class="setting-row">
-              <label>Feed Keywords</label>
+              <label title="Optional comma-separated topics to prioritize while scraping and filtering your feed.">Feed Keywords</label>
               <div class="key-input" style="flex:1;">
-                <input type="text" id="linkedin-feed-keywords" placeholder="ai seo, semantic seo, AI tools..." style="flex:1;">
+                <input type="text" id="linkedin-feed-keywords" placeholder="ai seo, semantic seo, AI tools..." style="flex:1;" title="Example: ai seo, semantic seo, llm content strategy">
                 <button onclick="saveLinkedInSetting('linkedin.feedKeywords', 'linkedin-feed-keywords')">Save</button>
               </div>
             </div>
@@ -2494,22 +2494,73 @@
             <div class="setting-row">
               <label title="How many times to scroll your feed. More = more posts but slower. 3 ≈ 15 posts, 6 ≈ 30, 10 ≈ 50">Scroll Depth</label>
               <div class="key-input" style="width: 120px;">
-                <input type="number" id="linkedin-feed-scroll" min="1" max="20" placeholder="3" style="width: 60px; text-align: center;">
+                <input type="number" id="linkedin-feed-scroll" min="1" max="20" placeholder="3" style="width: 60px; text-align: center;" title="Recommended 3-6 for daily runs. Higher values are slower but see more posts.">
                 <button onclick="saveLinkedInSetting('linkedin.feedScroll', 'linkedin-feed-scroll')">Save</button>
               </div>
             </div>
             <div class="setting-row">
               <label title="Maximum posts to return per scrape">Max Posts</label>
               <div class="key-input" style="width: 120px;">
-                <input type="number" id="linkedin-feed-limit" min="1" max="100" placeholder="20" style="width: 60px; text-align: center;">
+                <input type="number" id="linkedin-feed-limit" min="1" max="100" placeholder="20" style="width: 60px; text-align: center;" title="Hard cap on post count saved from one scrape run.">
                 <button onclick="saveLinkedInSetting('linkedin.feedLimit', 'linkedin-feed-limit')">Save</button>
               </div>
             </div>
             <div class="setting-row">
               <label title="Average minutes between posting comments. Randomized ±40% for natural timing.">Comment Delay (min)</label>
               <div class="key-input" style="width: 120px;">
-                <input type="number" id="linkedin-comment-delay" min="1" max="15" step="0.5" placeholder="3" style="width: 60px; text-align: center;">
+                <input type="number" id="linkedin-comment-delay" min="1" max="15" step="0.5" placeholder="3" style="width: 60px; text-align: center;" title="Average delay between comment posts. Add spacing to reduce spam risk.">
                 <button onclick="saveLinkedInSetting('linkedin.commentDelay', 'linkedin-comment-delay')">Save</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="li-subsection">Research & Draft Engine</div>
+
+          <div class="settings-grid" style="margin-bottom: 14px;">
+            <div class="setting-row">
+              <label title="Preset depth profile for LinkedIn drafting. Fast is cheaper/faster, Deep is slower but better validated.">Draft Mode</label>
+              <div class="key-input" style="width: 170px;">
+                <select id="linkedin-draft-mode" title="Select depth profile used by desktop and Telegram LinkedIn drafting">
+                  <option value="fast">Fast</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="deep">Deep</option>
+                </select>
+                <button onclick="saveLinkedInSetting('linkedin.draftMode', 'linkedin-draft-mode')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Hard per-post time budget for research + writing. If exceeded, the run aborts and may fall back to another model.">Draft Timeout (sec)</label>
+              <div class="key-input" style="width: 140px;">
+                <input type="number" id="linkedin-draft-timeout" min="30" max="240" placeholder="95" style="width: 70px; text-align: center;" title="Recommended 75-120 seconds per post.">
+                <button onclick="saveLinkedInSetting('linkedin.draftTimeoutSec', 'linkedin-draft-timeout')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Maximum SDK turns for the research pass before writing starts. Higher may improve depth but increases time/token usage.">Research Turns</label>
+              <div class="key-input" style="width: 140px;">
+                <input type="number" id="linkedin-research-turns" min="2" max="10" placeholder="5" style="width: 70px; text-align: center;" title="Recommended 4-6 turns for balanced quality/speed.">
+                <button onclick="saveLinkedInSetting('linkedin.researchMaxTurns', 'linkedin-research-turns')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Maximum SDK turns for the writing pass that converts research notes into the final human-style comment.">Write Turns</label>
+              <div class="key-input" style="width: 140px;">
+                <input type="number" id="linkedin-write-turns" min="2" max="10" placeholder="4" style="width: 70px; text-align: center;" title="Recommended 3-5 turns.">
+                <button onclick="saveLinkedInSetting('linkedin.writeMaxTurns', 'linkedin-write-turns')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Target max number of WebSearch queries during research pass. Lower is faster/cheaper, higher may improve evidence quality.">Research Queries</label>
+              <div class="key-input" style="width: 140px;">
+                <input type="number" id="linkedin-research-queries" min="1" max="4" placeholder="2" style="width: 70px; text-align: center;" title="Recommended 2 for balanced runs, 3 for deeper fact checks.">
+                <button onclick="saveLinkedInSetting('linkedin.researchMaxQueries', 'linkedin-research-queries')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Fallback model used when the primary LinkedIn draft run fails, aborts, or times out.">Research Fallback Model</label>
+              <div class="key-input" style="flex:1;">
+                <input type="text" id="linkedin-research-fallback-model" placeholder="kimi-k2.5" style="flex:1;" title="Example: kimi-k2.5. Leave empty to disable fallback.">
+                <button onclick="saveLinkedInSetting('linkedin.researchFallbackModel', 'linkedin-research-fallback-model')">Save</button>
               </div>
             </div>
           </div>
@@ -2518,8 +2569,8 @@
 
           <div class="li-voice-grid">
             <div class="li-field">
-              <label>Voice & Style</label>
-              <textarea id="linkedin-voice-style" rows="3" placeholder="Direct, data-driven, no fluff. Mix short punchy with longer analytical."></textarea>
+              <label title="High-level writing persona the drafter should mimic (tone, confidence, rhythm, vocabulary).">Voice & Style</label>
+              <textarea id="linkedin-voice-style" rows="3" placeholder="Direct, data-driven, no fluff. Mix short punchy with longer analytical." title="Describe how you naturally write. Example: concise, pragmatic, occasional contrarian angle, no hype words."></textarea>
               <div class="li-actions">
                 <button onclick="saveLinkedInSetting('linkedin.voiceStyle', 'linkedin-voice-style')">Save</button>
                 <button class="ai-btn" onclick="expandWithAI('linkedin-voice-style', 'Expand this rough description of a LinkedIn writing voice into detailed, actionable instructions for an AI writer. Cover tone, sentence structure, vocabulary level, and formatting preferences. NEVER use em-dashes or en-dashes. Use commas or periods instead. Keep it under 200 words.')">AI Expand</button>
@@ -2527,8 +2578,8 @@
             </div>
 
             <div class="li-field">
-              <label>Writing Rules</label>
-              <textarea id="linkedin-writing-rules" rows="3" placeholder="No emojis, short paragraphs, end with a question, use data"></textarea>
+              <label title="Strict hard rules the model must follow when drafting comments.">Writing Rules</label>
+              <textarea id="linkedin-writing-rules" rows="3" placeholder="No emojis, short paragraphs, end with a question, use data" title="Use this for hard constraints: no emojis, no em dashes, no generic praise, include one concrete fact, etc."></textarea>
               <div class="li-actions">
                 <button onclick="saveLinkedInSetting('linkedin.writingRules', 'linkedin-writing-rules')">Save</button>
                 <button class="ai-btn" onclick="expandWithAI('linkedin-writing-rules', 'Expand these rough writing rules into a clear, comprehensive set of LinkedIn content guidelines. Cover sentence structure, formatting, paragraph length, what to avoid, and what to always include. NEVER use em-dashes or en-dashes. Use commas or periods instead. Keep it under 200 words.')">AI Expand</button>
@@ -2536,8 +2587,8 @@
             </div>
 
             <div class="li-field">
-              <label>Content Direction</label>
-              <textarea id="linkedin-content-direction" rows="2" placeholder="SEO, AI tools, agency growth, contrarian marketing takes"></textarea>
+              <label title="Topic focus and strategic angle preferences used to decide relevance and shape narrative.">Content Direction</label>
+              <textarea id="linkedin-content-direction" rows="2" placeholder="SEO, AI tools, agency growth, contrarian marketing takes" title="Examples: SEO experimentation, AI search behavior shifts, pragmatic growth lessons, real case studies."></textarea>
               <div class="li-actions">
                 <button onclick="saveLinkedInSetting('linkedin.contentDirection', 'linkedin-content-direction')">Save</button>
                 <button class="ai-btn" onclick="expandWithAI('linkedin-content-direction', 'Expand these rough topic notes into a focused LinkedIn content direction. Cover key themes, target audience, preferred angles, and content pillars. NEVER use em-dashes or en-dashes. Use commas or periods instead. Keep it under 200 words.')">AI Expand</button>
@@ -2979,6 +3030,18 @@
       if (linkedinLimit) linkedinLimit.value = settings['linkedin.feedLimit'] || '20';
       const linkedinDelay = document.getElementById('linkedin-comment-delay');
       if (linkedinDelay) linkedinDelay.value = settings['linkedin.commentDelay'] || '3';
+      const linkedinDraftMode = document.getElementById('linkedin-draft-mode');
+      if (linkedinDraftMode) linkedinDraftMode.value = settings['linkedin.draftMode'] || 'balanced';
+      const linkedinDraftTimeout = document.getElementById('linkedin-draft-timeout');
+      if (linkedinDraftTimeout) linkedinDraftTimeout.value = settings['linkedin.draftTimeoutSec'] || '95';
+      const linkedinResearchTurns = document.getElementById('linkedin-research-turns');
+      if (linkedinResearchTurns) linkedinResearchTurns.value = settings['linkedin.researchMaxTurns'] || '5';
+      const linkedinWriteTurns = document.getElementById('linkedin-write-turns');
+      if (linkedinWriteTurns) linkedinWriteTurns.value = settings['linkedin.writeMaxTurns'] || '4';
+      const linkedinResearchQueries = document.getElementById('linkedin-research-queries');
+      if (linkedinResearchQueries) linkedinResearchQueries.value = settings['linkedin.researchMaxQueries'] || '2';
+      const linkedinFallbackModel = document.getElementById('linkedin-research-fallback-model');
+      if (linkedinFallbackModel) linkedinFallbackModel.value = settings['linkedin.researchFallbackModel'] || 'kimi-k2.5';
 
       // Browser toggle
       const browserToggle = document.getElementById('browser.enabled-toggle');
@@ -3074,7 +3137,11 @@
         'telegram.allowedUserIds', 'telegram.defaultChatId',
         'gmail-user-email', 'gmail-default-recipient',
         'ep-enabled', 'ep-interval', 'ep-processed-label', 'ep-review-label',
-        'ep-max-emails', 'ep-lookback', 'ep-gmail-conc', 'ep-glm-conc'
+        'ep-max-emails', 'ep-lookback', 'ep-gmail-conc', 'ep-glm-conc',
+        'linkedin-feed-keywords', 'linkedin-feed-scroll', 'linkedin-feed-limit', 'linkedin-comment-delay',
+        'linkedin-draft-mode', 'linkedin-draft-timeout', 'linkedin-research-turns', 'linkedin-write-turns',
+        'linkedin-research-queries', 'linkedin-research-fallback-model',
+        'linkedin-voice-style', 'linkedin-writing-rules', 'linkedin-content-direction'
       ];
 
       const inputs = document.querySelectorAll('input, select');

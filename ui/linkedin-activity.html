@@ -698,6 +698,17 @@
         <option value="all">All</option>
       </select>
     </div>
+    <div class="action-group">
+      <button class="action-btn" onclick="saveDraftMode()" title="Save drafting depth mode for desktop and Telegram">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h14a2 2 0 0 1 2 2v14l-4-2-3 2-3-2-3 2-3-2V5a2 2 0 0 1 2-2z"/></svg>
+        Mode
+      </button>
+      <select id="draft-mode" title="Draft quality mode: Fast (cheap), Balanced, Deep (best quality)">
+        <option value="fast">Fast</option>
+        <option value="balanced" selected>Balanced</option>
+        <option value="deep">Deep</option>
+      </select>
+    </div>
     <div class="divider"></div>
     <button class="action-btn" onclick="fullPipeline()" title="Scrape, draft, and schedule comments with delays" style="background:rgba(245,158,11,0.12);color:#fbbf24;border-color:rgba(245,158,11,0.25);">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -766,6 +777,10 @@
     const today = new Date();
     datePicker.value = today.toISOString().split('T')[0];
     datePicker.addEventListener('change', () => loadPosts());
+    const draftModeSelect = document.getElementById('draft-mode');
+    if (draftModeSelect) {
+      draftModeSelect.addEventListener('change', () => { saveDraftMode(true); });
+    }
 
     const PRIORITY_ORDER = ['low', 'normal', 'high', 'urgent'];
     const approvedIds = new Set();
@@ -861,6 +876,33 @@
       return msg.length > max ? msg.slice(0, max - 1) + '…' : msg;
     }
 
+    function currentDraftMode() {
+      const el = document.getElementById('draft-mode');
+      const mode = el ? String(el.value || '').toLowerCase() : '';
+      return (mode === 'fast' || mode === 'deep' || mode === 'balanced') ? mode : 'balanced';
+    }
+
+    async function loadDraftMode() {
+      const el = document.getElementById('draft-mode');
+      if (!el || !window.pocketAgent?.getSetting) return;
+      try {
+        const saved = String(await window.pocketAgent.getSetting('linkedin.draftMode') || 'balanced').toLowerCase();
+        el.value = (saved === 'fast' || saved === 'deep' || saved === 'balanced') ? saved : 'balanced';
+      } catch {}
+    }
+
+    async function saveDraftMode(silent = false) {
+      const mode = currentDraftMode();
+      if (!window.pocketAgent?.setSetting) return mode;
+      try {
+        await window.pocketAgent.setSetting('linkedin.draftMode', mode);
+        if (!silent) showToast(`Draft mode saved: ${mode}`, 'success');
+      } catch (err) {
+        if (!silent) showToast(`Failed to save draft mode: ${shortError(err)}`, 'error');
+      }
+      return mode;
+    }
+
     function markDraftQueued(ids) {
       queuedDraftIds.clear();
       activeDraftIds.clear();
@@ -892,6 +934,7 @@
         throw new Error('Batch draft API unavailable in this build. Run npm run build and restart the app.');
       }
 
+      const mode = await saveDraftMode(true);
       markDraftQueued(ids);
       await loadPosts();
 
@@ -913,9 +956,9 @@
         const drafted = typeof result.drafted === 'number' ? result.drafted : 0;
         const failed = Array.isArray(result.errors) ? result.errors.length : 0;
         if (failed > 0) {
-          showToast(`${successLabel}: ${drafted} drafted, ${failed} failed`, failed === drafted ? 'error' : 'success');
+          showToast(`${successLabel} (${mode}): ${drafted} drafted, ${failed} failed`, failed === drafted ? 'error' : 'success');
         } else {
-          showToast(`${successLabel}: ${drafted} comments`, 'success');
+          showToast(`${successLabel} (${mode}): ${drafted} comments`, 'success');
         }
         return;
       }
@@ -929,7 +972,7 @@
     async function redoSelected() {
       const ids = getSelectedIds();
       if (ids.length === 0) return;
-      showToast(`Respawning ${ids.length} research agents (2 parallel)...`, 'success');
+      showToast(`Respawning ${ids.length} research agents (${currentDraftMode()}, 2 parallel)...`, 'success');
       clearSelection();
       try {
         await runBatchDraft(ids, 'Redrafted', 'Redo failed');
@@ -993,7 +1036,7 @@
         showToast('Select posts first', 'error');
         return;
       }
-      showToast(`Spawning ${ids.length} research agents (2 parallel)...`, 'success');
+      showToast(`Spawning ${ids.length} research agents (${currentDraftMode()}, 2 parallel)...`, 'success');
       clearSelection();
       try {
         await runBatchDraft(ids, 'Drafted', 'Draft failed');
@@ -1425,6 +1468,7 @@ If you catch yourself writing any banned word or an em dash, rewrite the sentenc
       });
     }
 
+    loadDraftMode();
     loadPosts();
   </script>
 </body>

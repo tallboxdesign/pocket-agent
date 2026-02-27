@@ -41,6 +41,7 @@ export function registerCommandHandlers(deps: CommandHandlerDeps): void {
       `/help - How to use Pocket Agent\n` +
       `/new - Fresh start (keeps facts & reminders)\n` +
       `/model - List or switch AI models\n` +
+      `/limode - LinkedIn draft mode (fast/balanced/deep)\n` +
       `/status - Show agent status\n` +
       `/restart - Stop stuck query\n` +
       `/facts [query] - Search stored facts\n` +
@@ -59,6 +60,7 @@ Your AI assistant with persistent memory. I remember our conversations and learn
 <b>Commands</b>
 /new - Clear chat history (fresh start)
 /model - View or switch AI models
+/limode - Set LinkedIn draft mode (fast/balanced/deep)
 /status - See stats and memory usage
 /restart - Stop stuck query
 /facts - Browse what I remember about you
@@ -275,6 +277,33 @@ Workflows are reusable command templates. Use /workflow to see what's available,
     await ctx.reply(newValue
       ? 'Voice replies ON — I\'ll send voice summaries with my text replies.'
       : 'Voice replies OFF — text only.');
+  });
+
+  // /limode command - LinkedIn draft depth mode
+  bot.command('limode', async (ctx) => {
+    const arg = (ctx.message?.text?.split(/\s+/).slice(1)[0] || '').toLowerCase();
+    const valid = new Set(['fast', 'balanced', 'deep']);
+
+    if (!arg) {
+      const current = (SettingsManager.get('linkedin.draftMode') || 'balanced').toLowerCase();
+      await ctx.reply(
+        `LinkedIn draft mode: ${current}\n\n` +
+        `Modes:\n` +
+        `- fast: quickest + lower cost\n` +
+        `- balanced: default mix of quality/speed\n` +
+        `- deep: strongest validation + slower\n\n` +
+        `Usage: /limode fast | /limode balanced | /limode deep`
+      );
+      return;
+    }
+
+    if (!valid.has(arg)) {
+      await ctx.reply('Invalid mode. Use: /limode fast | /limode balanced | /limode deep');
+      return;
+    }
+
+    SettingsManager.set('linkedin.draftMode', arg);
+    await ctx.reply(`LinkedIn draft mode set to ${arg}.`);
   });
 
   // /restart command - abort any stuck processing
@@ -605,6 +634,7 @@ export async function registerBotCommands(bot: Bot): Promise<void> {
     { command: 'status', description: 'Agent status and stats' },
     { command: 'new', description: 'Start a new session' },
     { command: 'model', description: 'View or change AI model' },
+    { command: 'limode', description: 'LinkedIn draft mode' },
     { command: 'workflow', description: 'List available workflows' },
     { command: 'facts', description: 'Show stored facts' },
     { command: 'voice', description: 'Toggle voice replies' },

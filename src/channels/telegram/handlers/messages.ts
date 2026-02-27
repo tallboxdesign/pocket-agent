@@ -58,7 +58,7 @@ export async function handleTextMessage(
       .replace(/@\w+$/, '').toLowerCase();
     const builtInCommands = new Set([
       'start', 'help', 'status', 'mychatid', 'new', 'facts', 'workflow',
-      'model', 'voice', 'restart', 'unanswered', 'approve', 'reject',
+      'model', 'limode', 'voice', 'restart', 'unanswered', 'approve', 'reject',
       'link', 'unlink',
     ]);
     if (builtInCommands.has(cmdName)) {
