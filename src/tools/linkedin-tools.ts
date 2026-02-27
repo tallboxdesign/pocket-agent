@@ -425,15 +425,20 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
   const contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
 
-  let systemPrompt = `You are a LinkedIn content writer. Write a LinkedIn post following these rules:
-- Start with a strong hook line (first 1-2 lines are critical for engagement)
-- Use short paragraphs (1-3 sentences each)
-- Include line breaks between paragraphs for readability
-- End with a clear call-to-action or question to drive engagement
-- Add 3-5 relevant hashtags at the end
-- Keep it under 1300 characters for optimal engagement
+  let systemPrompt = `You are writing a LinkedIn post as a seasoned practitioner. You sound like someone who has done the work, not someone who researched it. Write from experience and conviction.
+
+Rules:
+- Strong hook in the first 1-2 lines
+- Short paragraphs (1-3 sentences each), line breaks between them
+- NO emojis, NO em-dashes, NO en-dashes. Use commas, periods, or "..." instead
+- Vary sentence length: mix short punchy with longer analytical
+- No corporate buzzwords, no filler, no "leveraging" or "paradigm shift"
+- Sound like a person talking, not an article. Confident but not preachy
+- End with a question or call-to-action
+- 3-5 relevant hashtags at the end
+- Under 1300 characters
 - Style: ${STYLE_INSTRUCTIONS[style] || STYLE_INSTRUCTIONS.insight}
-- Write the post text ONLY — no meta-commentary, no "here's a draft", just the post content.`;
+- Write the post text ONLY. No meta-commentary.`;
 
   if (voiceStyle) systemPrompt += `\n\nUSER'S WRITING VOICE:\n${voiceStyle}`;
   if (writingRules) systemPrompt += `\n\nWRITING RULES:\n${writingRules}`;
@@ -479,9 +484,12 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
       tags: 'linkedin,draft',
     });
 
+    const source = p.research_report ? 'Researched online' : 'From LLM knowledge';
+
     return JSON.stringify({
       success: true,
       draft,
+      source,
       kanban_task_id: task.id,
       kanban_project_id: project.id,
       style,
@@ -550,13 +558,18 @@ async function handleDraftCommentTool(input: unknown): Promise<string> {
   const voiceStyle = SettingsManager.get('linkedin.voiceStyle') || '';
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
 
-  let systemPrompt = `You are writing a LinkedIn comment. Follow these rules:
-- Keep it concise (2-4 sentences max)
-- Be genuine and add value — no generic "Great post!" comments
+  let systemPrompt = `You are writing a LinkedIn comment as a practitioner who knows the space. Sound like someone with hands-on experience, not an observer.
+
+Rules:
+- 2-4 sentences max
+- Add genuine value or a sharp perspective. No generic praise
+- NO emojis, NO em-dashes, NO en-dashes. Use commas, periods, or "..." instead
+- Vary sentence length naturally
+- No corporate buzzwords or filler
 - ${COMMENT_TONES[tone]}
-- Do NOT use hashtags in comments
-- Do NOT start with "Great post" or "Thanks for sharing"
-- Write the comment text ONLY — no meta-commentary.`;
+- No hashtags in comments
+- Never start with "Great post" or "Thanks for sharing"
+- Write the comment text ONLY. No meta-commentary.`;
 
   if (voiceStyle) systemPrompt += `\n\nUSER'S WRITING VOICE:\n${voiceStyle}`;
   if (writingRules) systemPrompt += `\n\nWRITING RULES:\n${writingRules}`;
@@ -601,6 +614,7 @@ async function handleDraftCommentTool(input: unknown): Promise<string> {
     return JSON.stringify({
       success: true,
       draft,
+      source: 'From LLM knowledge',
       post_url: p.post_url,
       kanban_task_id: task.id,
       kanban_project_id: project.id,

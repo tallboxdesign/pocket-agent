@@ -103,7 +103,7 @@ Never use schedule_task for simple notifications.
 
 **Reminder lifecycle:** One-time reminders go through: pending → fired → acknowledged.
 - When a reminder fires, it moves to "fired" status
-- If the user says "got it", "done", "thanks" after a reminder, use \`acknowledge_reminder\` to close it
+- When the user confirms a reminder is done, handled, cancelled, or no longer needed (e.g. "got it", "done", "already did it", "cancel this", "it's handled"), IMMEDIATELY use \`acknowledge_reminder\` to close it. Do NOT ask again or wait.
 - Unacknowledged reminders become "stale" after 2 days and the user gets nagged
 
 ## Daily Log - Keep It Updated

@@ -2477,30 +2477,27 @@
           <h3 style="margin-top: 16px; font-size: 13px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Content Voice & Style</h3>
 
           <div class="settings-grid">
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 8px;">
-              <label>Writing Voice & Style</label>
-              <span class="setting-desc">Describe your voice in 1-2 sentences. Click "AI Expand" to turn rough notes into detailed instructions.</span>
-              <textarea id="linkedin-voice-style" rows="3" placeholder="e.g. Direct, data-driven, no fluff. Mix short punchy sentences with longer analytical ones." style="width:100%;box-sizing:border-box;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 4px;">
+              <label>Voice & Style</label>
+              <textarea id="linkedin-voice-style" rows="2" placeholder="Direct, data-driven, no fluff. Mix short punchy with longer analytical." style="width:100%;box-sizing:border-box;resize:vertical;font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
               <div class="input-with-btn" style="justify-content:flex-start;">
                 <button onclick="saveLinkedInSetting('linkedin.voiceStyle', 'linkedin-voice-style')">Save</button>
                 <button onclick="expandWithAI('linkedin-voice-style', 'Expand this rough description of a LinkedIn writing voice into detailed, actionable instructions for an AI writer. Cover tone, sentence structure, vocabulary level, and formatting preferences. Keep it under 200 words.')" style="background:var(--accent);color:white;border-color:var(--accent);">AI Expand</button>
               </div>
             </div>
 
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 8px;">
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 4px;">
               <label>Writing Rules</label>
-              <span class="setting-desc">Rules for formatting, sentence structure, things to avoid. Click "AI Expand" to flesh out.</span>
-              <textarea id="linkedin-writing-rules" rows="3" placeholder="e.g. No emojis, short paragraphs, always end with a question, use numbers and data" style="width:100%;box-sizing:border-box;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
+              <textarea id="linkedin-writing-rules" rows="2" placeholder="No emojis, short paragraphs, end with a question, use data" style="width:100%;box-sizing:border-box;resize:vertical;font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
               <div class="input-with-btn" style="justify-content:flex-start;">
                 <button onclick="saveLinkedInSetting('linkedin.writingRules', 'linkedin-writing-rules')">Save</button>
                 <button onclick="expandWithAI('linkedin-writing-rules', 'Expand these rough writing rules into a clear, comprehensive set of LinkedIn content guidelines. Cover sentence structure, formatting, paragraph length, what to avoid, and what to always include. Keep it under 200 words.')" style="background:var(--accent);color:white;border-color:var(--accent);">AI Expand</button>
               </div>
             </div>
 
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 8px;">
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 4px;">
               <label>Content Direction</label>
-              <span class="setting-desc">Topics, themes, angles to focus on. Click "AI Expand" to turn into a content strategy.</span>
-              <textarea id="linkedin-content-direction" rows="3" placeholder="e.g. SEO, AI tools, agency growth, contrarian takes on marketing trends" style="width:100%;box-sizing:border-box;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
+              <textarea id="linkedin-content-direction" rows="2" placeholder="SEO, AI tools, agency growth, contrarian marketing takes" style="width:100%;box-sizing:border-box;resize:vertical;font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
               <div class="input-with-btn" style="justify-content:flex-start;">
                 <button onclick="saveLinkedInSetting('linkedin.contentDirection', 'linkedin-content-direction')">Save</button>
                 <button onclick="expandWithAI('linkedin-content-direction', 'Expand these rough topic notes into a focused LinkedIn content direction. Cover key themes, target audience, preferred angles, and content pillars. Keep it under 200 words.')" style="background:var(--accent);color:white;border-color:var(--accent);">AI Expand</button>
