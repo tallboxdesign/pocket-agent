@@ -118,6 +118,8 @@
     .content {
       flex: 1;
       overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-gutter: stable;
     }
 
     .content::-webkit-scrollbar { width: 8px; }
@@ -128,6 +130,7 @@
     .posts-table {
       width: 100%;
       border-collapse: collapse;
+      table-layout: fixed;
     }
 
     .posts-table th,
@@ -173,17 +176,18 @@
     }
     .col-num { width: 36px; color: var(--text-muted); text-align: center; }
     .col-priority { width: 32px; text-align: center; }
-    .col-author { width: 140px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .col-preview { color: var(--text-secondary); line-height: 1.4; max-width: 300px; }
+    .col-author { width: 210px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .col-preview { color: var(--text-secondary); line-height: 1.4; word-break: break-word; }
     .col-stats { width: 50px; text-align: center; color: var(--text-muted); font-size: 12px; }
     .col-type { width: 70px; }
-    .col-status { width: 140px; text-align: center; }
-    .col-actions { width: 80px; text-align: center; }
+    .col-status { width: 170px; text-align: center; }
+    .col-actions { width: 96px; text-align: center; }
 
     .status-badges {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
+      align-items: center;
       gap: 4px;
     }
 
@@ -345,17 +349,18 @@
 
     .draft-text {
       display: none;
-      margin-top: 6px;
-      padding: 8px 10px;
+      margin-top: 8px;
+      padding: 10px 12px;
       background: var(--bg-tertiary);
+      border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: 6px;
       font-size: 12px;
       color: var(--text-secondary);
       line-height: 1.5;
       white-space: pre-wrap;
-      width: min(620px, 100%);
+      width: 100%;
       max-width: 100%;
-      max-height: 360px;
+      max-height: 420px;
       overflow: auto;
     }
 
@@ -382,19 +387,30 @@
       word-break: break-word;
     }
 
+    .draft-extra {
+      margin-top: 6px;
+    }
+    .draft-extra:empty {
+      display: none;
+      margin-top: 0;
+    }
+
     .draft-actions {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: flex-start;
-      gap: 6px;
-      margin-top: 8px;
+      gap: 8px;
+      margin-top: 10px;
+      width: 100%;
     }
 
     .draft-actions button {
       padding: 4px 10px;
       font-size: 11px;
       font-weight: 600;
+      line-height: 1.2;
+      min-height: 26px;
       border-radius: 6px;
       border: 1px solid var(--border);
       background: var(--bg-secondary);
@@ -566,13 +582,17 @@
     .selection-bar {
       display: flex;
       gap: 8px;
-      padding: 8px 16px;
+      padding: 8px 12px 8px 16px;
       background: transparent;
       border-bottom: 1px solid transparent;
       align-items: center;
       flex-shrink: 0;
       min-height: 44px;
       height: 44px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      white-space: nowrap;
+      scrollbar-gutter: stable both-edges;
       visibility: hidden;
       opacity: 0;
       pointer-events: none;
@@ -591,7 +611,12 @@
       color: var(--accent-hover);
       margin-right: 8px;
     }
-    .selection-bar .action-btn { font-size: 11px; padding: 4px 10px; }
+    .selection-bar .action-btn { font-size: 11px; padding: 4px 10px; white-space: nowrap; }
+    .selection-bar > * { flex-shrink: 0; }
+    .selection-bar .spacer { flex: 1 0 12px; min-width: 12px; }
+    .selection-bar::-webkit-scrollbar { height: 5px; }
+    .selection-bar::-webkit-scrollbar-track { background: transparent; }
+    .selection-bar::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.3); border-radius: 3px; }
 
     /* Snoozed section */
     .snoozed-section {
@@ -747,7 +772,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       Research &amp; Draft
     </button>
-    <div style="flex:1"></div>
+    <div class="spacer"></div>
     <button class="action-btn" onclick="selectUndrafted()" style="font-size:11px;color:var(--text-muted)">Select Undrafted</button>
     <button class="action-btn" onclick="clearSelection()" style="font-size:11px;color:var(--text-muted)">Clear</button>
   </div>
@@ -820,9 +845,11 @@
       return text.length > max ? text.slice(0, max) + '...' : text;
     }
 
-    function toggleDraft(id) {
+    function toggleDraft(id, toggleEl) {
       const el = document.getElementById('draft-' + id);
-      if (el) el.classList.toggle('expanded');
+      if (!el) return;
+      const expanded = el.classList.toggle('expanded');
+      if (toggleEl) toggleEl.textContent = expanded ? 'Hide draft' : 'Show draft';
     }
 
     function getSelectedIds() {
@@ -1101,10 +1128,12 @@
     }
 
     function showSchedulePicker(postId) {
-      const el = document.getElementById('draft-content-' + postId);
-      if (!el) return;
-      const existing = el.querySelector('.schedule-picker');
+      const host = document.getElementById('draft-extra-' + postId);
+      if (!host) return;
+      const existing = host.querySelector('.schedule-picker');
       if (existing) { existing.remove(); return; }
+      const existingFeedback = host.querySelector('.feedback-input');
+      if (existingFeedback) existingFeedback.remove();
       const wrapper = document.createElement('div');
       wrapper.className = 'schedule-picker';
       wrapper.style.marginTop = '6px';
@@ -1113,7 +1142,7 @@
           <button class="btn-schedule" onclick="confirmSchedule(${postId})">Schedule</button>
           <button onclick="this.closest('.schedule-picker').remove()">Cancel</button>
         </div>`;
-      el.appendChild(wrapper);
+      host.appendChild(wrapper);
       // Default to next hour
       const now = new Date();
       now.setHours(now.getHours() + 1, 0, 0, 0);
@@ -1261,9 +1290,10 @@
             ${escapeHtml(truncate(p.text_preview, 100))}
             ${inflightHint}
             ${p.comment_draft ? `
-              <div class="draft-toggle" onclick="toggleDraft(${p.id})">Show draft</div>
+              <div class="draft-toggle" onclick="toggleDraft(${p.id}, this)">Show draft</div>
               <div class="draft-text" id="draft-${p.id}">
-                <div id="draft-content-${p.id}">${escapeHtml(p.comment_draft)}</div>
+                <div class="draft-body" id="draft-content-${p.id}">${escapeHtml(p.comment_draft)}</div>
+                <div class="draft-extra" id="draft-extra-${p.id}"></div>
                 ${!p.commented ? `
                 <div class="draft-actions">
                   <button class="btn-approve" onclick="approveDraft(${p.id})" title="Post this comment">Approve</button>
@@ -1373,6 +1403,8 @@
     function editDraft(postId) {
       const contentEl = document.getElementById('draft-content-' + postId);
       if (!contentEl) return;
+      const extraEl = document.getElementById('draft-extra-' + postId);
+      if (extraEl) extraEl.innerHTML = '';
       const currentText = contentEl.textContent || '';
       contentEl.innerHTML = `<textarea class="draft-edit-area" id="draft-edit-${postId}">${escapeHtml(currentText)}</textarea>
         <div class="draft-actions" style="margin-top:6px">
@@ -1424,10 +1456,12 @@ If you catch yourself writing any banned word or an em dash, rewrite the sentenc
       const post = currentPosts.find(p => p.id === postId);
       if (!post) return;
       const postUrl = post.post_url;
-      const contentEl = document.getElementById('draft-content-' + postId);
-      if (!contentEl) return;
-      const existingInput = contentEl.querySelector('.feedback-input');
+      const host = document.getElementById('draft-extra-' + postId);
+      if (!host) return;
+      const existingInput = host.querySelector('.feedback-input');
       if (existingInput) return;
+      const existingPicker = host.querySelector('.schedule-picker');
+      if (existingPicker) existingPicker.remove();
       const input = document.createElement('input');
       input.className = 'feedback-input';
       input.placeholder = 'Type revision feedback and press Enter...';
@@ -1437,7 +1471,7 @@ If you catch yourself writing any banned word or an em dash, rewrite the sentenc
           input.remove();
         }
       });
-      contentEl.appendChild(input);
+      host.appendChild(input);
       input.focus();
     }
 
