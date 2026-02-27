@@ -623,6 +623,22 @@ export class MemoryManager {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN engagement_checked INTEGER DEFAULT 0`);
       console.log('[Memory] Migrated linkedin_posts: added engagement_checked column');
     }
+    if (!hasColumn('linkedin_posts', 'draft_state')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN draft_state TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added draft_state column');
+    }
+    if (!hasColumn('linkedin_posts', 'draft_error')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN draft_error TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added draft_error column');
+    }
+    if (!hasColumn('linkedin_posts', 'draft_started_at')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN draft_started_at TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added draft_started_at column');
+    }
+    if (!hasColumn('linkedin_posts', 'draft_finished_at')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN draft_finished_at TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added draft_finished_at column');
+    }
 
     // LinkedIn activity log (auto-poster audit trail)
     this.db.exec(`

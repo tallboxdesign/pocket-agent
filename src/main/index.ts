@@ -1725,14 +1725,14 @@ function setupIPC(): void {
       db.pragma('journal_mode = WAL');
       const priorityOrder = `CASE lp.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
       const posts = db.prepare(
-        `SELECT lp.*,
+        `SELECT lp.*, lp.draft_state, lp.draft_error,
            aa.total_comments_by_me AS author_total_comments,
            aa.last_commented_date AS author_last_commented,
            al.last_activity_action,
            al.last_activity_reason,
            al.last_activity_at,
            (SELECT COUNT(*) FROM linkedin_activity_log af
-            WHERE af.post_id = lp.id AND af.action IN ('failed', 'error')) AS failed_attempts,
+            WHERE af.post_id = lp.id AND af.action IN ('failed', 'failed_quality', 'failed_timeout', 'failed_provider', 'error')) AS failed_attempts,
            ec.reactions_delta, ec.comments_delta,
            (SELECT COUNT(*) FROM linkedin_activity_log alw
             WHERE alw.action = 'posted' AND alw.post_url IN (SELECT p2.post_url FROM linkedin_posts p2 WHERE p2.author = lp.author)

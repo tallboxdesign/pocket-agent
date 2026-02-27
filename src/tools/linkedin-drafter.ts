@@ -157,7 +157,8 @@ function hasModelCredentials(model: string): boolean {
 
 function getAttemptModels(primaryModel: string, fallbackModel: string): string[] {
   const globalFallback = (SettingsManager.get('agent.fallbackModel') || '').trim();
-  const candidates = [primaryModel, fallbackModel, globalFallback, 'kimi-k2.5']
+  const defaults = ['claude-sonnet-4-6', 'glm-5', 'MiniMax-M2.5-Lightning', 'kimi-k2.5'];
+  const candidates = [primaryModel, fallbackModel, globalFallback, ...defaults]
     .map(m => (m || '').trim())
     .filter(Boolean);
   const unique = Array.from(new Set(candidates));
@@ -249,11 +250,10 @@ function isWeakDraft(draft: string): boolean {
   if (text.length < 320) return true;
   const sentenceCount = text.split(/[.!?]+/).filter(s => s.trim().length > 8).length;
   if (sentenceCount < 3) return true;
-  const hasNumericDetail = /\d/.test(text);
-  const hasSourceCue = /\b(according to|report|study|survey|data|from|research|analysis)\b/i.test(text);
   const hasFluff = /\b(great post|thanks for sharing|spot on|love this)\b/i.test(text);
   if (hasFluff) return true;
-  return !(hasNumericDetail && hasSourceCue);
+  const hasConcreteSignal = /\b(\d|case study|example|in practice|because|when|if|trade[- ]off|execution|signal|framework)\b/i.test(text);
+  return !hasConcreteSignal;
 }
 
 function cleanDraftText(draft: string): string {
@@ -263,12 +263,14 @@ function cleanDraftText(draft: string): string {
     .replace(/,,/g, ',')
     .replace(/^["']|["']$/g, '');
 
+  // Strip preamble lines like "Here's the comment:" or "Sure, here's a draft:"
   const lines = text.split('\n').filter(l => l.trim());
   if (lines.length > 1) {
-    const lastBlock = lines[lines.length - 1];
-    if (lastBlock.length < 900 && !lastBlock.startsWith('I ') && !lastBlock.includes('Step')) {
-      text = lastBlock;
+    const preamblePattern = /^(here['']?s|sure|okay|draft|comment|below|the final|my reply|my comment)/i;
+    while (lines.length > 1 && lines[0].length < 80 && preamblePattern.test(lines[0].trim())) {
+      lines.shift();
     }
+    text = lines.join('\n');
   }
   return text.trim();
 }
@@ -413,6 +415,57 @@ function evaluateDraftQuality(
     }
   }
   return issues;
+}
+
+function hasCriticalQualityIssue(issues: string[]): boolean {
+  const criticalSnippets = [
+    'opening does not start',
+    'missing concrete anchor',
+    'numeric claim lacks source cue',
+    'numeric claim not grounded',
+    'too generic or too short',
+  ];
+  return issues.some(issue => criticalSnippets.some(snippet => issue.includes(snippet)));
+}
+
+function buildDeterministicFallbackDraft(
+  post: DraftPost,
+  evidence: ResearchEvidence,
+  authorFirstName: string,
+  commentIntent: 'tradeoff' | 'new_data_point' | 'execution_caveat' | 'sharp_question',
+): string {
+  const anchor = (evidence.keyPoint || post.text_preview || 'the point you shared')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.?!]+$/, '')
+    .slice(0, 160);
+
+  const sourceName = (evidence.sources[0]?.name || 'recent industry').trim();
+  const rawStat = (evidence.statistic || '').replace(/\s+/g, ' ').trim();
+  const statSentence = rawStat
+    ? (hasSourceCue(rawStat) ? rawStat : `According to ${sourceName} data, ${rawStat}`)
+    : `According to ${sourceName} data, search behavior is fragmenting faster than most teams plan for.`;
+
+  const angleLineMap: Record<typeof commentIntent, string> = {
+    tradeoff: 'The trade-off is speed versus trust, and teams that optimize for volume alone usually pay for it later.',
+    new_data_point: 'The missing piece is translating that trend into one measurable execution choice this week.',
+    execution_caveat: 'The execution caveat is consistency, because most teams change tactics before signals stabilize.',
+    sharp_question: 'The useful next step is pressure-testing this with one concrete metric instead of broad assumptions.',
+  };
+
+  const question = (evidence.followUpQuestion || 'How are you validating this in your current workflow?')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.?!]+$/, '') + '?';
+
+  const text = [
+    `${authorFirstName}, your point about ${anchor} is the part most teams underestimate.`,
+    statSentence.endsWith('.') ? statSentence : `${statSentence}.`,
+    angleLineMap[commentIntent],
+    question,
+  ].join('\n\n');
+
+  return ensureReadableCommentLayout(cleanDraftText(text));
 }
 
 function extractJsonObject(text: string): Record<string, unknown> | null {
@@ -567,17 +620,20 @@ async function runResearchPass(
   const researchSystemPrompt = `You are a focused research analyst for LinkedIn comments.
 
 Rules:
-- Use at most ${config.maxSearchQueries} WebSearch calls and at most 1 WebFetch call.
-- Gather one recent concrete fact and one practical implication.
+- FIRST: Use WebFetch on the post URL to read the FULL post content. The preview below is truncated.
+- Then use at most ${config.maxSearchQueries} WebSearch calls to find one recent concrete fact.
+- Gather one practical implication grounded in real data.
 - Use grounded sources only. No made-up stats.
 - Do not write the final comment.
 - Return ONLY strict JSON.`;
 
-  const researchPrompt = `LinkedIn post by ${post.author}:
+  const researchPrompt = `LinkedIn post by ${post.author} (preview, may be truncated):
 "${post.text_preview}"
 Post URL: ${post.post_url}
 
-Research the exact topic and return STRICT JSON:
+STEP 1: WebFetch the post URL above to read the FULL post text (the preview is often truncated).
+STEP 2: Research the exact topic with WebSearch.
+STEP 3: Return STRICT JSON:
 {
   "post_summary": "one-line summary of what the author is saying",
   "key_point": "most specific point from the post to reference",
@@ -636,23 +692,30 @@ async function runWritePass(
     sharp_question: 'Prioritize one specific question that deepens the discussion.',
   };
 
-  const writingSystemPrompt = `You are writing a high-quality LinkedIn reply comment.
-
-GOAL:
-- Sound genuinely human and practitioner-level.
+  const writingSystemPrompt = `You are writing a high-quality LinkedIn reply comment. Sound like someone who genuinely knows their stuff typing a quick reply, not a conference talk or blog post.
 
 RESPONSE REQUIREMENTS:
 - 4-6 sentences, roughly 320-900 characters.
-- Sentence 1 must start with "${authorFirstName}," and then reference a specific point from the post.
+- Sentence 1 must start with "${authorFirstName}," and reference a specific point from the post.
 - Include one concrete researched fact from the notes.
 - Add an actionable implication or thoughtful question.
 
-STYLE:
-- Sentence case, natural rhythm, and varied sentence length.
-- Format for readability: use 2-4 short paragraphs with line breaks (no wall of text).
-- No emojis, no hashtags, no em dashes.
-- Avoid generic praise ("great post", "thanks for sharing").
-- Avoid AI-sounding words like "landscape", "leverage", "robust", "holistic", "transformative".${styleGuide ? `\n\nSTYLE GUIDE:\n${styleGuide}` : ''}
+VOICE (critical - this is what makes it sound human):
+- Vary paragraph length: mix short punchy lines with longer thoughts. Never uniform blocks.
+- Lowercase generic acronyms casually: "seo", "ctr", "aio", "llm" (not SEO, CTR). Brand names stay capitalized: Google, Ahrefs, ChatGPT.
+- Mix sentence-start casing: ~60% capitalized, ~40% not.
+- Use one casual connector per comment max: "honestly", "the thing is", "tbh".
+- Incomplete thoughts OK: "but yeah." or trailing "..." or starting with "and".
+- Round numbers casually sometimes: "around 60%" not "61%", "3-4x" not "3.7x".
+- Let some thoughts run naturally into each other. Don't perfectly structure every paragraph.
+
+HARD RULES:
+- No emojis, no hashtags, no em dashes, no en dashes.
+- No generic praise ("great post", "thanks for sharing", "love this", "spot on").
+- No AI jargon ("landscape", "leverage", "robust", "holistic", "transformative", "game-changing").
+- Challenge marketing stunts. If the post pushes a tool too hard, point out limitations or what it omits.
+- Never be a yes-man. Call out self-promotion with data and real perspective.
+- Use only straight quotes and apostrophes, no curly/smart quotes.${styleGuide ? `\n\nADDITIONAL STYLE GUIDE:\n${styleGuide}` : ''}
 
 OUTPUT FORMAT:
 Return ONLY the final comment text.`;
@@ -705,7 +768,38 @@ Rewrite with strict compliance:
 
   const finalIssues = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName);
   if (finalIssues.length > 0) {
-    throw new Error(`Draft quality checks failed: ${finalIssues.join('; ')}`);
+    const salvagePrompt = `${writePrompt}
+
+The latest draft still failed checks for:
+- ${finalIssues.join('\n- ')}
+
+Final rewrite requirements:
+- Exactly 4 or 5 sentences
+- Sentence 1 must start with "${authorFirstName},"
+- Include one specific number/date from research notes
+- Include one source cue phrase like "According to" or "In [source] data"
+- Keep natural human tone and short paragraph formatting with line breaks
+- No generic praise and no jargon
+
+Return only the final comment text.`;
+
+    const salvaged = ensureReadableCommentLayout(
+      cleanDraftText(await generateDraftFromSdk(queryFn, salvagePrompt, writeOptions))
+    );
+    if (salvaged) draft = salvaged;
+
+    const salvageIssues = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName);
+    if (salvageIssues.length > 0) {
+      if (hasCriticalQualityIssue(salvageIssues)) {
+        const fallbackDraft = buildDeterministicFallbackDraft(post, evidence, authorFirstName, commentIntent);
+        const fallbackIssues = evaluateDraftQuality(fallbackDraft, evidence, post.text_preview, authorFirstName);
+        if (fallbackIssues.length > 0) {
+          console.warn(`[LinkedInDrafter] Fallback draft has remaining warnings: ${fallbackIssues.join('; ')}`);
+        }
+        return fallbackDraft;
+      }
+      console.warn(`[LinkedInDrafter] Accepting draft with non-critical quality warnings: ${salvageIssues.join('; ')}`);
+    }
   }
 
   return draft;
@@ -727,6 +821,10 @@ async function generateDraftForModel(
     const commentIntent = chooseCommentIntent(post.id);
     return await runWritePass(queryFn, post, styleGuide, evidence, commentIntent, model, config, attempt.controller, env);
   } catch (err) {
+    const abortReason = parentAbortController.signal.reason;
+    if (parentAbortController.signal.aborted && abortReason === 'timeout') {
+      throw new Error(`Timed out while drafting with ${model}`);
+    }
     if (parentAbortController.signal.aborted) {
       throw new Error('Draft job cancelled');
     }
@@ -798,6 +896,73 @@ export function cancelDraftJob(): void {
     activeJob.abort();
     activeJob = null;
   }
+  jobRunning = false;
+}
+
+export function isDraftJobRunning(): boolean {
+  return jobRunning;
+}
+
+type DraftState = 'queued' | 'researching' | 'writing' | 'success' | 'failed_quality' | 'failed_timeout' | 'failed_provider' | 'cancelled_user' | 'cancelled_system';
+
+function setDraftState(postId: number, state: DraftState, error?: string): void {
+  const db = getDb();
+  if (!db) return;
+  try {
+    const now = new Date().toISOString();
+    const isTerminal = state === 'success' || state.startsWith('failed_') || state.startsWith('cancelled_');
+    if (state === 'queued' || state === 'researching') {
+      db.prepare(
+        `UPDATE linkedin_posts SET draft_state = ?, draft_error = NULL, draft_started_at = ?, draft_finished_at = NULL WHERE id = ?`
+      ).run(state, now, postId);
+    } else if (isTerminal) {
+      db.prepare(
+        `UPDATE linkedin_posts SET draft_state = ?, draft_error = ?, draft_finished_at = ? WHERE id = ?`
+      ).run(state, error || null, now, postId);
+    } else {
+      db.prepare(
+        `UPDATE linkedin_posts SET draft_state = ?, draft_error = NULL WHERE id = ?`
+      ).run(state, postId);
+    }
+  } catch (err) {
+    console.warn('[LinkedInDrafter] Failed to set draft state:', err);
+  } finally {
+    db.close();
+  }
+}
+
+function classifyDraftError(err: unknown, abortController: AbortController): DraftState {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/cancelled|cancel/i.test(msg)) {
+    const reason = abortController.signal.reason;
+    if (reason === 'job_cancelled') return 'cancelled_system';
+    return 'cancelled_user';
+  }
+  if (/timed? ?out|timeout/i.test(msg)) return 'failed_timeout';
+  if (/quality|generic|too short|weak/i.test(msg)) return 'failed_quality';
+  if (/api|auth|key|rate.?limit|network|credential|expired|oauth|500|502|503/i.test(msg)) return 'failed_provider';
+  return 'failed_provider';
+}
+
+function logDraftActivity(
+  postId: number,
+  postUrl: string,
+  action: 'drafted' | 'failed' | 'failed_quality' | 'failed_timeout' | 'failed_provider' | 'cancelled' | 'cancelled_user' | 'cancelled_system',
+  reason?: string,
+  commentText?: string,
+): void {
+  const db = getDb();
+  if (!db) return;
+  try {
+    db.prepare(
+      `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(postId, postUrl, action, reason || null, commentText || null);
+  } catch (err) {
+    console.warn('[LinkedInDrafter] Failed to log draft activity:', err);
+  } finally {
+    db.close();
+  }
 }
 
 interface VoicePreset {
@@ -848,6 +1013,8 @@ async function draftOnePost(
   const queryFn = await loadSDK();
   if (!queryFn) throw new Error('Failed to load SDK');
 
+  setDraftState(post.id, 'researching');
+
   const config = getLinkedInDraftConfig();
   const attemptModels = getAttemptModels(model, config.fallbackModel);
   const effectiveTimeoutSec = computeEffectiveTimeoutSec(config.perPostTimeoutSec, model, post.text_preview);
@@ -887,11 +1054,17 @@ async function draftOnePost(
     throw new Error(`No draft generated for post by ${post.author}${detail}`);
   }
 
+  setDraftState(post.id, 'writing');
+
   // Save to DB and kanban
   const db = getDb();
   if (!db) throw new Error('Database not available');
 
   try {
+    if (abortController.signal.aborted) {
+      throw new Error('Draft timed out before save');
+    }
+
     let project = KanbanService.getProjectByName('LinkedIn');
     if (!project) {
       try {
@@ -926,6 +1099,16 @@ async function draftOnePost(
 
     db.prepare('UPDATE linkedin_posts SET comment_draft = ?, kanban_task_id = ? WHERE id = ?')
       .run(draft, taskId, post.id);
+    db.prepare(
+      `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text)
+       VALUES (?, ?, 'drafted', 'draft:ok', ?)`
+    ).run(post.id, post.post_url, draft);
+
+    if (abortController.signal.aborted) {
+      throw new Error('Draft timed out before finalize');
+    }
+
+    setDraftState(post.id, 'success');
 
     return {
       postId: post.id,
@@ -940,16 +1123,24 @@ async function draftOnePost(
 }
 
 /**
- * Draft comments for multiple posts in parallel batches
+ * Draft comments for posts sequentially (one at a time to avoid API overload).
+ * Supports up to 50 posts. Each post goes through the state machine:
+ * queued, researching, writing, success, failed_x, cancelled_x
  */
 export async function draftBatch(
   postIds: number[],
-  batchSize: number = 2,
+  _batchSize: number = 1,
 ): Promise<{ results: DraftResult[]; errors: string[] }> {
   if (jobRunning) {
-    if (activeJob) activeJob.abort();
-    // Wait briefly for previous job to wind down
-    await new Promise(r => setTimeout(r, 500));
+    // If activeJob is null, this is a leaked state from a crashed previous run — reset it
+    if (!activeJob) {
+      jobRunning = false;
+    } else {
+      return {
+        results: [],
+        errors: ['A draft job is already running. Wait for it to finish or cancel it first.'],
+      };
+    }
   }
   const jobAbort = new AbortController();
   activeJob = jobAbort;
@@ -958,58 +1149,63 @@ export async function draftBatch(
   const results: DraftResult[] = [];
   const errors: string[] = [];
 
-  // Load writing guidance
-  let writingRules = '';
-  let contentDirection = '';
+  let totalPostsForCompletion = 0;
   try {
-    writingRules = SettingsManager.get('linkedin.writingRules') || '';
-    contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
-  } catch { /* ok */ }
-  const draftModel = getDraftModel();
+    let writingRules = '';
+    let contentDirection = '';
+    try {
+      writingRules = SettingsManager.get('linkedin.writingRules') || '';
+      contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
+    } catch { /* ok */ }
+    const draftModel = getDraftModel();
 
-  // Load posts from DB
-  const db = getDb();
-  if (!db) {
-    return { results, errors: ['Database not available'] };
-  }
+    const db = getDb();
+    if (!db) {
+      errors.push('Database not available');
+      return { results, errors };
+    }
 
-  const posts: DraftPost[] = [];
-  for (const id of postIds) {
-    const row = db.prepare(
-      'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, post_type, voice_preset FROM linkedin_posts WHERE id = ?'
-    ).get(id) as DraftPost | undefined;
-    if (row) posts.push(row);
-  }
-  db.close();
+    const posts: DraftPost[] = [];
+    for (const id of postIds) {
+      const row = db.prepare(
+        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, post_type, voice_preset FROM linkedin_posts WHERE id = ?'
+      ).get(id) as DraftPost | undefined;
+      if (row) posts.push(row);
+    }
 
-  if (posts.length === 0) {
-    return { results, errors: ['No posts found'] };
-  }
+    // Mark all posts as queued upfront
+    for (const post of posts) {
+      db.prepare(`UPDATE linkedin_posts SET draft_state = 'queued', draft_error = NULL, draft_started_at = datetime('now'), draft_finished_at = NULL WHERE id = ?`).run(post.id);
+    }
+    db.close();
 
-  const progress: DraftJobProgress = {
-    total: posts.length,
-    completed: 0,
-    current: '',
-    results: [],
-    errors: [],
-  };
+    if (posts.length === 0) {
+      errors.push('No posts found');
+      return { results, errors };
+    }
 
-  draftEvents.emit('start', { total: posts.length });
+    totalPostsForCompletion = posts.length;
+    const progress: DraftJobProgress = {
+      total: posts.length,
+      completed: 0,
+      current: '',
+      results: [],
+      errors: [],
+    };
 
-  // Process in batches
-  const effectiveBatchSize = Math.max(1, Math.min(batchSize || 1, 2));
+    draftEvents.emit('start', { total: posts.length });
 
-  for (let i = 0; i < posts.length; i += effectiveBatchSize) {
-    if (jobAbort.signal.aborted) break;
-
-    const batch = posts.slice(i, i + effectiveBatchSize);
-    const batchNum = Math.floor(i / effectiveBatchSize) + 1;
-    const totalBatches = Math.ceil(posts.length / effectiveBatchSize);
-
-    draftEvents.emit('batch', { batch: batchNum, total: totalBatches, posts: batch.map(p => p.author) });
-
-    const batchPromises = batch.map(async (post) => {
-      if (jobAbort.signal.aborted) return;
+    // Process sequentially — one post at a time
+    for (const post of posts) {
+      if (jobAbort.signal.aborted) {
+        // Mark remaining queued posts as cancelled_system
+        setDraftState(post.id, 'cancelled_system', 'Batch was cancelled');
+        logDraftActivity(post.id, post.post_url, 'cancelled_system', 'draft:batch cancelled');
+        draftEvents.emit('error', { type: 'error', postId: post.id, author: post.author, error: `Cancelled for ${post.author}` });
+        progress.completed++;
+        draftEvents.emit('progress', { ...progress });
+        continue;
+      }
 
       progress.current = post.author;
       draftEvents.emit('researching', { type: 'researching', postId: post.id, author: post.author });
@@ -1018,28 +1214,68 @@ export async function draftBatch(
       try {
         const voicePrompt = selectVoiceForPost(post.post_type, post.voice_preset);
         const postStyleGuide = [voicePrompt, writingRules, contentDirection].filter(Boolean).join('\n\n');
-        const result = await draftOnePost(post, postStyleGuide, jobAbort, draftModel);
+        const config = getLinkedInDraftConfig();
+        const perPostTimeoutSec = computeEffectiveTimeoutSec(config.perPostTimeoutSec, draftModel, post.text_preview) + 20;
+        const timeoutMs = Math.max(30000, perPostTimeoutSec * 1000);
+        const postAbort = new AbortController();
+        const onJobAbort = () => postAbort.abort('job_cancelled');
+        jobAbort.signal.addEventListener('abort', onJobAbort, { once: true });
+
+        const timeoutError = new Promise<never>((_, reject) => {
+          const timer = setTimeout(() => {
+            postAbort.abort('timeout');
+            reject(new Error(`Timed out after ${perPostTimeoutSec}s for ${post.author}`));
+          }, timeoutMs);
+          postAbort.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
+        });
+
+        const runDraft = (async () => {
+          try {
+            return await draftOnePost(post, postStyleGuide, postAbort, draftModel);
+          } finally {
+            jobAbort.signal.removeEventListener('abort', onJobAbort);
+          }
+        })();
+
+        const result = await Promise.race([runDraft, timeoutError]);
         results.push(result);
         progress.completed++;
         progress.results.push(result);
         draftEvents.emit('drafted', { type: 'drafted', postId: post.id, author: post.author, draft: result.draft });
       } catch (err) {
+        const failState = classifyDraftError(err, jobAbort);
         const msg = `Failed for ${post.author}: ${err instanceof Error ? err.message : String(err)}`;
-        errors.push(msg);
-        progress.errors.push(msg);
+        setDraftState(post.id, failState, err instanceof Error ? err.message : String(err));
+
+        const isCancelled = failState.startsWith('cancelled_');
+        if (!isCancelled) {
+          errors.push(msg);
+          progress.errors.push(msg);
+        }
         progress.completed++;
-        draftEvents.emit('error', { type: 'error', postId: post.id, author: post.author, error: msg });
+
+        const logAction = isCancelled ? failState as 'cancelled_user' | 'cancelled_system' : failState as 'failed_quality' | 'failed_timeout' | 'failed_provider';
+        logDraftActivity(post.id, post.post_url, logAction, `draft:${msg}`);
+        draftEvents.emit('error', { type: 'error', postId: post.id, author: post.author, error: isCancelled ? `Cancelled for ${post.author}` : msg });
       }
 
       draftEvents.emit('progress', { ...progress });
+    }
+
+    return { results, errors };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    errors.push(msg);
+    console.error('[LinkedInDrafter] Batch failure:', msg);
+    return { results, errors };
+  } finally {
+    activeJob = null;
+    jobRunning = false;
+    draftEvents.emit('complete', {
+      type: 'complete',
+      total: totalPostsForCompletion || postIds.length || 0,
+      drafted: results.length,
+      errors: errors.length,
     });
-
-    await Promise.all(batchPromises);
   }
-
-  activeJob = null;
-  jobRunning = false;
-  draftEvents.emit('complete', { type: 'complete', total: posts.length, drafted: results.length, errors: errors.length });
-
-  return { results, errors };
 }

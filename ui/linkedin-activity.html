@@ -912,7 +912,15 @@
           </div>
           <div class="li-quick-field span-2">
             <label title="Fallback model when primary run fails or times out.">Fallback Model</label>
-            <input type="text" id="qs-fallback-model" placeholder="kimi-k2.5" title="Leave empty to disable fallback">
+            <select id="qs-fallback-model" title="Fallback model when primary fails or times out">
+              <option value="">None (no fallback)</option>
+              <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+              <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
+              <option value="kimi-k2.5">kimi-k2.5</option>
+              <option value="glm-5">glm-5</option>
+              <option value="MiniMax-M2.5">MiniMax-M2.5</option>
+              <option value="MiniMax-M2.5-Lightning">MiniMax-M2.5-Lightning</option>
+            </select>
           </div>
         </div>
       </div>
@@ -1013,6 +1021,9 @@
         <option value="5">5</option>
         <option value="10" selected>10</option>
         <option value="15">15</option>
+        <option value="20">20</option>
+        <option value="30">30</option>
+        <option value="50">50</option>
         <option value="all">All</option>
       </select>
     </div>
@@ -1084,6 +1095,7 @@
   <div id="view-tabs" style="display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
     <button class="action-btn" id="tab-queue" onclick="setActivePanel('queue')" title="Drafting and approval queue">Queue</button>
     <button class="action-btn" id="tab-attention" onclick="setActivePanel('attention')" title="Approved but unscheduled, or failed publish attempts">Needs Attention</button>
+    <button class="action-btn" id="tab-failed" onclick="setActivePanel('failed')" title="Posts with recorded errors">Failed</button>
     <button class="action-btn" id="tab-published" onclick="setActivePanel('published')" title="Already published comments">Published</button>
     <button class="action-btn" id="tab-all" onclick="setActivePanel('all')" title="Show all records">All</button>
   </div>
@@ -1149,8 +1161,6 @@
     const PRIORITY_ORDER = ['low', 'normal', 'high', 'urgent'];
     const approvedIds = new Set();
     const rejectedIds = new Set();
-    const queuedDraftIds = new Set();
-    const activeDraftIds = new Set();
 
     // Selection management
     let selectedIds = new Set();
@@ -1158,7 +1168,7 @@
     let activePanel = 'queue';
 
     function refreshPanelTabs() {
-      ['queue', 'attention', 'published', 'all'].forEach(name => {
+      ['queue', 'attention', 'failed', 'published', 'all'].forEach(name => {
         const btn = document.getElementById(`tab-${name}`);
         if (!btn) return;
         btn.classList.toggle('panel-tab-active', activePanel === name);
@@ -1202,6 +1212,14 @@
     function toggleDraft(id, toggleEl) {
       const el = document.getElementById('draft-' + id);
       if (!el) return;
+      // Accordion: close any other open draft first
+      document.querySelectorAll('.draft-text.expanded').forEach(open => {
+        if (open.id !== 'draft-' + id) {
+          open.classList.remove('expanded');
+          const otherToggle = open.parentElement?.querySelector('.draft-toggle');
+          if (otherToggle) otherToggle.textContent = 'Show draft';
+        }
+      });
       const expanded = el.classList.toggle('expanded');
       if (toggleEl) toggleEl.textContent = expanded ? 'Hide draft' : 'Show draft';
     }
@@ -1455,30 +1473,7 @@
       return mode;
     }
 
-    function markDraftQueued(ids) {
-      queuedDraftIds.clear();
-      activeDraftIds.clear();
-      ids.forEach(id => queuedDraftIds.add(Number(id)));
-    }
-
-    function markDraftResearching(postId) {
-      const id = Number(postId);
-      if (!Number.isFinite(id)) return;
-      queuedDraftIds.delete(id);
-      activeDraftIds.add(id);
-    }
-
-    function clearDraftState(postId) {
-      const id = Number(postId);
-      if (!Number.isFinite(id)) return;
-      queuedDraftIds.delete(id);
-      activeDraftIds.delete(id);
-    }
-
-    function clearAllDraftStates() {
-      queuedDraftIds.clear();
-      activeDraftIds.clear();
-    }
+    // Draft state is now persisted in DB (draft_state column) — no transient JS tracking needed
 
     async function runBatchDraft(ids, successLabel, failureLabel) {
       const batchFn = window.pocketAgent && window.pocketAgent.draftLinkedInBatch;
@@ -1487,19 +1482,16 @@
       }
 
       const mode = await saveDraftMode(true);
-      markDraftQueued(ids);
       await loadPosts();
 
       let result;
       try {
-        result = await batchFn(ids, 2);
+        result = await batchFn(ids, 1);
       } catch (err) {
-        clearAllDraftStates();
         await loadPosts();
         throw err;
       }
       if (!result || typeof result !== 'object') {
-        clearAllDraftStates();
         await loadPosts();
         throw new Error('Batch draft returned an empty response');
       }
@@ -1515,7 +1507,6 @@
         return;
       }
 
-      clearAllDraftStates();
       await loadPosts();
       const errText = result.error || (Array.isArray(result.errors) ? result.errors[0] : 'Unknown error');
       showToast(`${failureLabel}: ${shortError(errText)}`, 'error');
@@ -1524,7 +1515,7 @@
     async function redoSelected() {
       const ids = getSelectedIds();
       if (ids.length === 0) return;
-      showToast(`Respawning ${ids.length} research agents (${currentDraftMode()}, 2 parallel)...`, 'success');
+      showToast(`Redrafting ${ids.length} posts sequentially (${currentDraftMode()})...`, 'success');
       clearSelection();
       try {
         await runBatchDraft(ids, 'Redrafted', 'Redo failed');
@@ -1723,6 +1714,7 @@
         if (activePanel === 'queue' && p.commented) return false;
         if (activePanel === 'published' && !p.commented) return false;
         if (activePanel === 'attention' && !needsAttention) return false;
+        if (activePanel === 'failed' && !hasFailed) return false;
 
         if (status === 'undrafted' && (p.comment_draft || p.commented)) return false;
         if (status === 'draft' && (!p.comment_draft || p.commented)) return false;
@@ -1756,6 +1748,10 @@
         currentSnoozed = snoozed;
         const queueCount = posts.filter(p => !p.commented).length;
         const publishedCount = posts.filter(p => !!p.commented).length;
+        const failedCount = posts.filter(p => {
+          const lastAction = String(p.last_activity_action || '').toLowerCase();
+          return Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
+        }).length;
         const attentionCount = posts.filter(p => {
           const lastAction = String(p.last_activity_action || '').toLowerCase();
           const hasFailed = Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
@@ -1763,11 +1759,14 @@
         }).length;
         const tabQueue = document.getElementById('tab-queue');
         const tabAttention = document.getElementById('tab-attention');
+        const tabFailed = document.getElementById('tab-failed');
         const tabPublished = document.getElementById('tab-published');
         if (tabQueue) tabQueue.textContent = `Queue (${queueCount})`;
         if (tabAttention) tabAttention.textContent = `Needs Attention (${attentionCount})`;
+        if (tabFailed) tabFailed.textContent = `Failed (${failedCount})`;
         if (tabPublished) tabPublished.textContent = `Published (${publishedCount})`;
         refreshPanelTabs();
+        // Draft state is read from DB (p.draft_state) — no transient pruning needed
 
         const filtered = applyFilters(posts);
         const content = document.getElementById('content');
@@ -1863,13 +1862,19 @@
     }
 
     function renderPostRow(p, idx) {
-      const isQueued = queuedDraftIds.has(p.id);
-      const isResearching = activeDraftIds.has(p.id);
+      const ds = p.draft_state || '';
+      const isQueued = ds === 'queued';
+      const isResearching = ds === 'researching';
+      const isWriting = ds === 'writing';
+      const isDraftFailed = ds.startsWith('failed_');
+      const isDraftCancelled = ds.startsWith('cancelled_');
       const lastAction = String(p.last_activity_action || '').toLowerCase();
-      const hasFailed = Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
+      const hasFailed = isDraftFailed || (lastAction === 'failed' || lastAction === 'error');
       const statusBadges = [];
       if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
+      else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
       else if (isQueued) statusBadges.push('<span class="badge badge-queued">Queued</span>');
+      if (isDraftCancelled) statusBadges.push('<span class="badge badge-rejected">Cancelled</span>');
       if (p.commented) statusBadges.push('<span class="badge badge-commented">Published</span>');
       else if (p.approved || approvedIds.has(p.id)) statusBadges.push('<span class="badge badge-approved">Approved</span>');
       else if (rejectedIds.has(p.id)) statusBadges.push('<span class="badge badge-rejected">Rejected</span>');
@@ -1879,12 +1884,13 @@
         statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)">Awaiting schedule</span>');
       }
       if (!p.commented && hasFailed) {
-        const failReason = String(p.last_activity_reason || 'Recent publish failure')
+        const failReason = String(p.draft_error || p.last_activity_reason || 'Recent failure')
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;');
-        statusBadges.push(`<span class="badge badge-rejected" title="${failReason}">Failed</span>`);
+        const failLabel = ds === 'failed_timeout' ? 'Timed out' : ds === 'failed_quality' ? 'Quality fail' : ds === 'failed_provider' ? 'Provider error' : 'Failed';
+        statusBadges.push(`<span class="badge badge-rejected" title="${failReason}">${failLabel}</span>`);
       }
 
       // Engagement delta badge
@@ -1910,8 +1916,13 @@
       }
 
       const inflightHint = isResearching
-        ? '<div class="draft-inflight"><span class="mini-spinner"></span>Researching and drafting this post now...</div>'
+        ? '<div class="draft-inflight"><span class="mini-spinner"></span>Researching this post now...</div>'
+        : isWriting
+        ? '<div class="draft-inflight"><span class="mini-spinner"></span>Writing draft now...</div>'
         : (isQueued ? '<div class="draft-inflight"><span class="mini-spinner"></span>Queued for research and drafting...</div>' : '');
+      const failureNote = (!p.commented && hasFailed && p.last_activity_reason)
+        ? `<div style="margin-top:6px;font-size:11px;color:#f87171;line-height:1.4">Last error: ${escapeHtml(String(p.last_activity_reason).slice(0, 220))}</div>`
+        : '';
 
       return `
         <tr class="${p.commented ? 'commented' : ''}" data-post-id="${p.id}">
@@ -1922,6 +1933,7 @@
           <td class="col-preview">
             ${escapeHtml(truncate(p.text_preview, 100))}
             ${inflightHint}
+            ${failureNote}
             ${p.comment_draft ? `
               <div class="draft-toggle" onclick="toggleDraft(${p.id}, this)">Show draft</div>
               <div class="draft-text" id="draft-${p.id}">
@@ -2118,19 +2130,16 @@ If you catch yourself writing any banned word or an em dash, rewrite the sentenc
       window.pocketAgent.onLinkedInDraftProgress((data) => {
         const d = data;
         if (d && typeof d === 'object') {
-          if ('type' in d && d.type === 'researching' && 'postId' in d) {
-            markDraftResearching(d.postId);
+          if ('type' in d && d.type === 'researching') {
+            showToast(`Researching ${d.author}...`, 'success');
             loadPosts();
           } else if (('type' in d && d.type === 'drafted') || ('draft' in d && 'author' in d)) {
-            if ('postId' in d) clearDraftState(d.postId);
             showToast(`Drafted: ${d.author}`, 'success');
             loadPosts();
           } else if (('type' in d && d.type === 'error') || ('error' in d && 'author' in d)) {
-            if ('postId' in d) clearDraftState(d.postId);
             showToast(`Failed: ${d.author}`, 'error');
             loadPosts();
           } else if ('type' in d && d.type === 'complete') {
-            clearAllDraftStates();
             loadPosts();
           } else if ('type' in d && d.type === 'progress' && 'completed' in d && 'total' in d) {
             const countEl = document.getElementById('post-count');

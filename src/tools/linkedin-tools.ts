@@ -1352,6 +1352,23 @@ async function handleSaveDraftTool(input: unknown): Promise<string> {
       .replace(/\s*–\s*/g, ', ')
       .replace(/,,/g, ',');
 
+    // Quality gate: reject short/weak drafts back to the agent
+    const sentenceCount = cleanDraft.split(/[.!?]+/).filter((s: string) => s.trim().length > 8).length;
+    if (cleanDraft.length < 320) {
+      return JSON.stringify({ success: false, error: `Draft too short (${cleanDraft.length} chars, need 320+). Write a longer, more substantive comment with 4-6 sentences.` });
+    }
+    if (sentenceCount < 3) {
+      return JSON.stringify({ success: false, error: `Draft has only ${sentenceCount} sentence(s), need at least 3. Write a comment with 4-6 sentences including a concrete fact and actionable insight.` });
+    }
+    const authorFirst = (post.author || '').split(/\s+/)[0] || '';
+    if (authorFirst && !new RegExp(`^["'""''(\\[\\s]*${authorFirst.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(cleanDraft)) {
+      return JSON.stringify({ success: false, error: `Draft must start with "${authorFirst}," addressing the author by name. Rewrite the opening sentence.` });
+    }
+    const fluffPattern = /\b(great post|thanks for sharing|spot on|love this|well said|couldn't agree more)\b/i;
+    if (fluffPattern.test(cleanDraft)) {
+      return JSON.stringify({ success: false, error: 'Draft contains generic praise ("great post", "thanks for sharing", etc.). Remove fluff and add substance.' });
+    }
+
     // Get or create LinkedIn project
     let project = KanbanService.getProjectByName('LinkedIn');
     if (!project) {
