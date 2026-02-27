@@ -50,6 +50,31 @@ function getAuthorFirstName(author: string | null | undefined): string {
   return first.replace(/[^\p{L}\p{N}'’.-]/gu, '').replace(/[.,:;!?]+$/g, '');
 }
 
+function ensureReadableCommentLayout(draft: string): string {
+  const raw = draft.trim();
+  if (!raw) return raw;
+
+  if (raw.includes('\n')) {
+    return raw
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  const sentences = (raw.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [])
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (sentences.length <= 1) return raw;
+
+  const lines: string[] = [];
+  for (let i = 0; i < sentences.length; i++) {
+    lines.push(sentences[i]);
+    if (i < sentences.length - 1 && i % 2 === 1) lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
 // ============================================================================
 // Database helper (shared connection to pocket-agent.db)
 // ============================================================================
@@ -279,9 +304,15 @@ Examples:
 let _lastCommentTime = 0;
 function getCommentDelayMs(): number {
   const baseMins = parseFloat(SettingsManager.get('linkedin.commentDelay') || '3');
-  // Randomize: 60% to 140% of base delay, so 3min setting = ~1.8 to 4.2 min
-  const jitter = 0.6 + Math.random() * 0.8;
+  // Keep at or above configured baseline, but still humanized.
+  const jitter = 1.0 + Math.random() * 0.4;
   return Math.max(60000, baseMins * jitter * 60 * 1000);
+}
+
+function parseDbTsMs(value: string | null | undefined): number {
+  if (!value) return 0;
+  const ts = Date.parse(`${value}Z`);
+  return Number.isFinite(ts) ? ts : 0;
 }
 
 async function handleCommentTool(input: unknown): Promise<string> {
@@ -291,13 +322,42 @@ async function handleCommentTool(input: unknown): Promise<string> {
   const p = input as { url: string; comment: string };
   if (!p.url || !p.comment) return JSON.stringify({ error: 'url and comment are required' });
 
+  const db = getDb();
+  const dbLastPostedMs = db
+    ? parseDbTsMs((db.prepare(
+      `SELECT created_at FROM linkedin_activity_log WHERE action = 'posted' ORDER BY id DESC LIMIT 1`
+    ).get() as { created_at: string } | undefined)?.created_at)
+    : 0;
+  const lastPostedMs = Math.max(_lastCommentTime, dbLastPostedMs);
+
   // Enforce rate limiting between comments
   const now = Date.now();
-  const elapsed = now - _lastCommentTime;
-  if (_lastCommentTime > 0 && elapsed < getCommentDelayMs()) {
-    const waitSec = Math.ceil((getCommentDelayMs() - elapsed) / 1000);
-    console.log(`[LinkedIn] Rate limit: waiting ${waitSec}s before next comment`);
-    await new Promise(resolve => setTimeout(resolve, getCommentDelayMs() - elapsed));
+  const elapsed = now - lastPostedMs;
+  const requiredDelayMs = getCommentDelayMs();
+  if (lastPostedMs > 0 && elapsed < requiredDelayMs) {
+    const remainingMs = requiredDelayMs - elapsed;
+    const waitSec = Math.ceil(remainingMs / 1000);
+    console.log(`[LinkedIn] Rate limit active: need ${waitSec}s before next comment`);
+
+    let scheduledAt: string | null = null;
+    if (db) {
+      const post = db.prepare(
+        `SELECT id, approved, commented FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
+      ).get(p.url) as { id: number; approved: number; commented: number } | undefined;
+      if (post && post.approved === 1 && post.commented === 0) {
+        scheduledAt = new Date(lastPostedMs + requiredDelayMs).toISOString().replace('T', ' ').slice(0, 19);
+        db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(scheduledAt, post.id);
+      }
+    }
+
+    return JSON.stringify({
+      success: false,
+      rate_limited: true,
+      retry_after_sec: waitSec,
+      scheduled_retry: !!scheduledAt,
+      scheduled_at: scheduledAt,
+      error: `Cooldown active. Retry in about ${waitSec}s to avoid LinkedIn rate limits.`,
+    });
   }
 
   try {
@@ -308,16 +368,43 @@ async function handleCommentTool(input: unknown): Promise<string> {
     );
     _lastCommentTime = Date.now();
 
-    // Mark post as commented in DB
-    const db = getDb();
     if (db) {
-      db.prepare('UPDATE linkedin_posts SET commented = 1 WHERE post_url = ?').run(p.url);
+      const post = db.prepare(
+        `SELECT id, author, kanban_task_id FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
+      ).get(p.url) as { id: number; author: string; kanban_task_id: number | null } | undefined;
+
+      if (post) {
+        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
+        db.prepare(
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, comment_text)
+           VALUES (?, ?, 'posted', ?)`
+        ).run(post.id, p.url, p.comment);
+
+        if (post.kanban_task_id) {
+          try {
+            KanbanService.moveTask(post.kanban_task_id, 'done', 'linkedin-comment');
+          } catch {
+            // Task may be missing/archived
+          }
+        }
+      }
     }
 
     return JSON.stringify({ success: true, message: 'Comment posted', post_url: p.url });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error('[LinkedIn] comment failed:', msg);
+    if (db) {
+      const post = db.prepare(
+        `SELECT id FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
+      ).get(p.url) as { id: number } | undefined;
+      if (post) {
+        db.prepare(
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
+           VALUES (?, ?, 'failed', ?)`
+        ).run(post.id, p.url, msg);
+      }
+    }
     return JSON.stringify({ success: false, error: msg });
   }
 }
@@ -735,6 +822,7 @@ STYLE:
 - Sound like a comment from someone who does this work daily, not someone summarizing it.
 - Reference a concrete detail from the post. Add your own angle or experience.
 - Short punchy sentences mixed with longer ones. Casual but smart.
+- Use 2-4 short paragraphs with line breaks, avoid one dense wall of text.
 - ${COMMENT_TONES[tone]}
 - Write the comment text ONLY. No explanation or meta-commentary.
 
@@ -763,10 +851,10 @@ Check your output: scan for em dashes and banned words. Fix before returning.`;
     }
 
     // Post-process: strip em dashes and en dashes that the model sneaks in
-    const draft = result.content.trim()
+    const draft = ensureReadableCommentLayout(result.content.trim()
       .replace(/\s*—\s*/g, ', ')
       .replace(/\s*–\s*/g, ', ')
-      .replace(/,,/g, ',');
+      .replace(/,,/g, ','));
 
     // Get or create LinkedIn project
     let project = KanbanService.getProjectByName('LinkedIn');
@@ -980,6 +1068,241 @@ async function handleTodayPostsTool(input: unknown): Promise<string> {
 }
 
 // ============================================================================
+// LinkedIn Activity Dashboard Tool
+// ============================================================================
+
+function getLinkedInActivityDashboardToolDefinition() {
+  return {
+    name: 'linkedin_activity_dashboard',
+    description: `Show a compact LinkedIn activity dashboard from the local database.
+
+Returns summary counts for a date (default: today): scraped, drafted, undrafted, approved, scheduled, published.
+Also returns small lists of next scheduled posts and approved posts ready for posting.
+
+Use this when the user asks for LinkedIn status/activity from Telegram or desktop.
+
+Examples:
+- linkedin_activity_dashboard()
+- linkedin_activity_dashboard(date="2026-02-27", limit=8)`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        date: { type: 'string', description: 'Date to inspect (YYYY-MM-DD). Default: today' },
+        limit: { type: 'number', description: 'Max posts to include in list sections (default: 10, max: 30)' },
+      },
+      required: [],
+    },
+  };
+}
+
+async function handleLinkedInActivityDashboardTool(input: unknown): Promise<string> {
+  const db = getDb();
+  if (!db) {
+    return JSON.stringify({ success: false, error: 'Database not available' });
+  }
+
+  const p = input as { date?: string; limit?: number };
+  const date = p.date || todayDate();
+  const limit = Math.max(3, Math.min(30, Math.floor(p.limit || 10)));
+
+  try {
+    const summary = db.prepare(`
+      SELECT
+        COUNT(*) AS scraped,
+        SUM(CASE WHEN comment_draft IS NOT NULL AND commented = 0 THEN 1 ELSE 0 END) AS drafted,
+        SUM(CASE WHEN (comment_draft IS NULL OR comment_draft = '') AND commented = 0 THEN 1 ELSE 0 END) AS undrafted,
+        SUM(CASE WHEN approved = 1 AND commented = 0 THEN 1 ELSE 0 END) AS approved_pending,
+        SUM(CASE WHEN scheduled_at IS NOT NULL AND commented = 0 THEN 1 ELSE 0 END) AS scheduled_pending,
+        SUM(CASE WHEN commented = 1 THEN 1 ELSE 0 END) AS published,
+        SUM(CASE WHEN hidden = 1 THEN 1 ELSE 0 END) AS hidden
+      FROM linkedin_posts
+      WHERE scraped_date = ?
+    `).get(date) as {
+      scraped: number; drafted: number; undrafted: number; approved_pending: number;
+      scheduled_pending: number; published: number; hidden: number;
+    };
+
+    const nextScheduled = db.prepare(`
+      SELECT id, author, post_url, priority, scheduled_at
+      FROM linkedin_posts
+      WHERE commented = 0 AND scheduled_at IS NOT NULL AND hidden = 0
+      ORDER BY datetime(scheduled_at) ASC
+      LIMIT ?
+    `).all(limit);
+
+    const readyToPost = db.prepare(`
+      SELECT id, author, post_url, priority, reactions, comments, scheduled_at
+      FROM linkedin_posts
+      WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL AND hidden = 0
+      ORDER BY
+        CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END,
+        CASE WHEN scheduled_at IS NULL THEN 1 ELSE 0 END,
+        datetime(scheduled_at) ASC,
+        (reactions + comments) DESC
+      LIMIT ?
+    `).all(limit);
+
+    const recentPosted = db.prepare(`
+      SELECT post_id, post_url, created_at
+      FROM linkedin_activity_log
+      WHERE action = 'posted' AND date(created_at) = ?
+      ORDER BY id DESC
+      LIMIT ?
+    `).all(date, limit);
+
+    const postedToday = (db.prepare(
+      `SELECT COUNT(*) as c FROM linkedin_activity_log
+       WHERE action = 'posted' AND date(created_at, 'localtime') = ?`
+    ).get(date) as { c: number }).c;
+
+    const failedToday = (db.prepare(
+      `SELECT COUNT(*) as c FROM linkedin_activity_log
+       WHERE action IN ('failed', 'error') AND date(created_at, 'localtime') = ?`
+    ).get(date) as { c: number }).c;
+
+    const approvedUnscheduled = (db.prepare(
+      `SELECT COUNT(*) as c
+       FROM linkedin_posts
+       WHERE approved = 1 AND commented = 0 AND hidden = 0
+         AND (scheduled_at IS NULL OR scheduled_at = '')`
+    ).get() as { c: number }).c;
+
+    const autoPosterEnabled = SettingsManager.get('linkedin.autoPosterEnabled') === 'true';
+
+    return JSON.stringify({
+      success: true,
+      date,
+      autoPosterEnabled,
+      summary: {
+        scraped: summary?.scraped || 0,
+        drafted: summary?.drafted || 0,
+        undrafted: summary?.undrafted || 0,
+        approved_pending: summary?.approved_pending || 0,
+        scheduled_pending: summary?.scheduled_pending || 0,
+        published: summary?.published || 0,
+        hidden: summary?.hidden || 0,
+        posted_today: postedToday,
+        failed_today: failedToday,
+        approved_unscheduled: approvedUnscheduled,
+      },
+      next_scheduled: nextScheduled,
+      ready_to_post: readyToPost,
+      posted_today_items: recentPosted,
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return JSON.stringify({ success: false, error: msg });
+  }
+}
+
+// ============================================================================
+// Schedule Approved LinkedIn Drafts Tool
+// ============================================================================
+
+function getScheduleApprovedLinkedInToolDefinition() {
+  return {
+    name: 'linkedin_schedule_approved',
+    description: `Schedule approved LinkedIn comment drafts across a time window.
+
+This picks approved drafts (not yet commented), ordered by priority, and assigns scheduled_at timestamps.
+Useful for requests like "schedule 3 posts in the next 15 minutes".
+
+Examples:
+- linkedin_schedule_approved(count=3, window_minutes=15)
+- linkedin_schedule_approved(count=5, window_minutes=45, start_in_minutes=5)`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        count: { type: 'number', description: 'How many approved drafts to schedule (default: 3)' },
+        window_minutes: { type: 'number', description: 'Total scheduling window in minutes (default: 15)' },
+        start_in_minutes: { type: 'number', description: 'Delay before first scheduled post (default: 0)' },
+        include_already_scheduled: { type: 'boolean', description: 'If true, allow rescheduling already scheduled drafts (default: false)' },
+      },
+      required: [],
+    },
+  };
+}
+
+async function handleScheduleApprovedLinkedInTool(input: unknown): Promise<string> {
+  const db = getDb();
+  if (!db) {
+    return JSON.stringify({ success: false, error: 'Database not available' });
+  }
+
+  const p = input as {
+    count?: number;
+    window_minutes?: number;
+    start_in_minutes?: number;
+    include_already_scheduled?: boolean;
+  };
+  const count = Math.max(1, Math.min(20, Math.floor(p.count || 3)));
+  const windowMinutes = Math.max(1, Math.min(180, Math.floor(p.window_minutes || 15)));
+  const startInMinutes = Math.max(0, Math.min(180, Math.floor(p.start_in_minutes || 0)));
+  const includeScheduled = !!p.include_already_scheduled;
+
+  try {
+    const scheduledClause = includeScheduled ? '' : 'AND scheduled_at IS NULL';
+    const candidates = db.prepare(`
+      SELECT id, author, post_url, priority
+      FROM linkedin_posts
+      WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL AND hidden = 0
+        ${scheduledClause}
+      ORDER BY
+        CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END,
+        (reactions + comments) DESC,
+        id ASC
+      LIMIT ?
+    `).all(count) as Array<{ id: number; author: string; post_url: string; priority: string }>;
+
+    if (candidates.length === 0) {
+      return JSON.stringify({
+        success: false,
+        scheduled: 0,
+        error: 'No approved drafts available to schedule',
+      });
+    }
+
+    const baseMs = Date.now() + startInMinutes * 60 * 1000;
+    const windowMs = windowMinutes * 60 * 1000;
+    const stepMs = candidates.length <= 1 ? 0 : Math.max(60 * 1000, Math.floor(windowMs / (candidates.length - 1)));
+
+    const setSchedule = db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?');
+    const tx = db.transaction(() => {
+      for (let i = 0; i < candidates.length; i++) {
+        const runAt = new Date(baseMs + i * stepMs).toISOString().replace('T', ' ').slice(0, 19);
+        setSchedule.run(runAt, candidates[i].id);
+      }
+    });
+    tx();
+
+    const scheduledItems = candidates.map((c, i) => ({
+      id: c.id,
+      author: c.author,
+      priority: c.priority,
+      scheduled_at: new Date(baseMs + i * stepMs).toISOString().replace('T', ' ').slice(0, 19),
+      post_url: c.post_url,
+    }));
+
+    const remaining = (db.prepare(
+      `SELECT COUNT(*) as c FROM linkedin_posts WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL AND hidden = 0`
+    ).get() as { c: number }).c;
+
+    return JSON.stringify({
+      success: true,
+      scheduled: scheduledItems.length,
+      requested: count,
+      window_minutes: windowMinutes,
+      start_in_minutes: startInMinutes,
+      items: scheduledItems,
+      remaining_approved: Math.max(0, remaining - scheduledItems.length),
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return JSON.stringify({ success: false, error: msg });
+  }
+}
+
+// ============================================================================
 // Save Draft Tool (for agent-written comments, bypassing GLM)
 // ============================================================================
 
@@ -1092,6 +1415,8 @@ export function getLinkedInTools() {
     { ...getDraftCommentToolDefinition(), handler: handleDraftCommentTool },
     { ...getReviseDraftToolDefinition(), handler: handleReviseDraftTool },
     { ...getTodayPostsToolDefinition(), handler: handleTodayPostsTool },
+    { ...getLinkedInActivityDashboardToolDefinition(), handler: handleLinkedInActivityDashboardTool },
+    { ...getScheduleApprovedLinkedInToolDefinition(), handler: handleScheduleApprovedLinkedInTool },
     { ...getSaveDraftToolDefinition(), handler: handleSaveDraftTool },
   ];
 }

@@ -400,6 +400,14 @@
       color: var(--error);
     }
 
+    .action-icons {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 4px;
+    }
+
     /* Snooze dropdown */
     .snooze-dropdown {
       position: absolute;
@@ -633,6 +641,12 @@
     .action-btn:disabled {
       opacity: 0.4;
       cursor: not-allowed;
+    }
+
+    .panel-tab-active {
+      background: rgba(96, 165, 250, 0.18) !important;
+      color: #93c5fd !important;
+      border-color: rgba(96, 165, 250, 0.35) !important;
     }
 
     .action-btn svg { width: 14px; height: 14px; }
@@ -876,6 +890,44 @@
           <option value="true">On</option>
         </select>
       </div>
+      <div class="li-quick-field">
+        <label title="Enable daytime auto-posting window.">Day Window</label>
+        <select id="qs-day-window-enabled">
+          <option value="true">On</option>
+          <option value="false">Off</option>
+        </select>
+      </div>
+      <div class="li-quick-field">
+        <label title="Daytime window start (local time).">Day Start</label>
+        <input type="time" id="qs-day-window-start" title="Example: 09:00">
+      </div>
+      <div class="li-quick-field">
+        <label title="Daytime window end (local time).">Day End</label>
+        <input type="time" id="qs-day-window-end" title="Example: 18:00">
+      </div>
+      <div class="li-quick-field">
+        <label title="Minimum spacing in day window (minutes).">Day Interval</label>
+        <input type="number" id="qs-day-window-interval" min="1" max="360" step="1" title="Minimum minutes between posts in day window">
+      </div>
+      <div class="li-quick-field">
+        <label title="Enable overnight auto-posting window.">Night Window</label>
+        <select id="qs-night-window-enabled">
+          <option value="false">Off</option>
+          <option value="true">On</option>
+        </select>
+      </div>
+      <div class="li-quick-field">
+        <label title="Overnight window start (local time).">Night Start</label>
+        <input type="time" id="qs-night-window-start" title="Example: 22:00">
+      </div>
+      <div class="li-quick-field">
+        <label title="Overnight window end (local time).">Night End</label>
+        <input type="time" id="qs-night-window-end" title="Example: 06:00">
+      </div>
+      <div class="li-quick-field">
+        <label title="Minimum spacing in night window (minutes). Use 120 for one every 2 hours.">Night Interval</label>
+        <input type="number" id="qs-night-window-interval" min="1" max="360" step="1" title="Minimum minutes between posts in night window">
+      </div>
     </div>
     <div class="li-quick-actions">
       <button class="action-btn" onclick="loadQuickSettings()">Reload</button>
@@ -944,6 +996,7 @@
       <option value="draft">Draft</option>
       <option value="approved">Approved</option>
       <option value="commented">Commented</option>
+      <option value="failed">Failed</option>
     </select>
     <select id="filter-priority" onchange="loadPosts()">
       <option value="">All Priority</option>
@@ -963,6 +1016,13 @@
     </select>
     <input id="filter-author" placeholder="Filter author..." oninput="loadPosts()" style="width:140px">
     <span id="filter-count"></span>
+  </div>
+
+  <div id="view-tabs" style="display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
+    <button class="action-btn" id="tab-queue" onclick="setActivePanel('queue')" title="Drafting and approval queue">Queue</button>
+    <button class="action-btn" id="tab-attention" onclick="setActivePanel('attention')" title="Approved but unscheduled, or failed publish attempts">Needs Attention</button>
+    <button class="action-btn" id="tab-published" onclick="setActivePanel('published')" title="Already published comments">Published</button>
+    <button class="action-btn" id="tab-all" onclick="setActivePanel('all')" title="Show all records">All</button>
   </div>
 
   <div class="selection-bar" id="selection-bar">
@@ -1032,6 +1092,21 @@
     // Selection management
     let selectedIds = new Set();
     let refreshInterval = null;
+    let activePanel = 'queue';
+
+    function refreshPanelTabs() {
+      ['queue', 'attention', 'published', 'all'].forEach(name => {
+        const btn = document.getElementById(`tab-${name}`);
+        if (!btn) return;
+        btn.classList.toggle('panel-tab-active', activePanel === name);
+      });
+    }
+
+    function setActivePanel(panel) {
+      activePanel = panel;
+      refreshPanelTabs();
+      loadPosts();
+    }
 
     function stopAutoRefresh() {
       if (refreshInterval) {
@@ -1156,7 +1231,26 @@
     async function loadQuickSettings() {
       if (!window.pocketAgent?.getSetting) return;
       try {
-        const [mode, timeout, researchTurns, writeTurns, queries, fallbackModel, commentDelay, dailyMin, dailyMax, autoPoster] = await Promise.all([
+        const [
+          mode,
+          timeout,
+          researchTurns,
+          writeTurns,
+          queries,
+          fallbackModel,
+          commentDelay,
+          dailyMin,
+          dailyMax,
+          autoPoster,
+          dayWindowEnabled,
+          dayWindowStart,
+          dayWindowEnd,
+          dayWindowInterval,
+          nightWindowEnabled,
+          nightWindowStart,
+          nightWindowEnd,
+          nightWindowInterval,
+        ] = await Promise.all([
           window.pocketAgent.getSetting('linkedin.draftMode'),
           window.pocketAgent.getSetting('linkedin.draftTimeoutSec'),
           window.pocketAgent.getSetting('linkedin.researchMaxTurns'),
@@ -1167,6 +1261,14 @@
           window.pocketAgent.getSetting('linkedin.dailyLimitMin'),
           window.pocketAgent.getSetting('linkedin.dailyLimitMax'),
           window.pocketAgent.getSetting('linkedin.autoPosterEnabled'),
+          window.pocketAgent.getSetting('linkedin.dayWindowEnabled'),
+          window.pocketAgent.getSetting('linkedin.dayWindowStart'),
+          window.pocketAgent.getSetting('linkedin.dayWindowEnd'),
+          window.pocketAgent.getSetting('linkedin.dayWindowIntervalMin'),
+          window.pocketAgent.getSetting('linkedin.nightWindowEnabled'),
+          window.pocketAgent.getSetting('linkedin.nightWindowStart'),
+          window.pocketAgent.getSetting('linkedin.nightWindowEnd'),
+          window.pocketAgent.getSetting('linkedin.nightWindowIntervalMin'),
         ]);
 
         const normalizedMode = normalizeDraftMode(mode || 'balanced');
@@ -1180,6 +1282,14 @@
         setInputValue('qs-daily-min', String(clampInt(dailyMin || '8', 8, 1, 50)));
         setInputValue('qs-daily-max', String(clampInt(dailyMax || '18', 18, 1, 50)));
         setInputValue('qs-auto-poster', autoPoster === 'true' ? 'true' : 'false');
+        setInputValue('qs-day-window-enabled', dayWindowEnabled === 'false' ? 'false' : 'true');
+        setInputValue('qs-day-window-start', String(dayWindowStart || '09:00'));
+        setInputValue('qs-day-window-end', String(dayWindowEnd || '18:00'));
+        setInputValue('qs-day-window-interval', String(clampInt(dayWindowInterval || '45', 45, 1, 360)));
+        setInputValue('qs-night-window-enabled', nightWindowEnabled === 'true' ? 'true' : 'false');
+        setInputValue('qs-night-window-start', String(nightWindowStart || '22:00'));
+        setInputValue('qs-night-window-end', String(nightWindowEnd || '06:00'));
+        setInputValue('qs-night-window-interval', String(clampInt(nightWindowInterval || '120', 120, 1, 360)));
       } catch (err) {
         showToast(`Failed to load settings: ${shortError(err)}`, 'error');
       }
@@ -1198,6 +1308,14 @@
         const dailyMin = String(clampInt(getInputValue('qs-daily-min'), 8, 1, 50));
         const dailyMax = String(clampInt(getInputValue('qs-daily-max'), 18, 1, 50));
         const autoPoster = getInputValue('qs-auto-poster');
+        const dayWindowEnabled = getInputValue('qs-day-window-enabled') === 'false' ? 'false' : 'true';
+        const dayWindowStart = getInputValue('qs-day-window-start') || '09:00';
+        const dayWindowEnd = getInputValue('qs-day-window-end') || '18:00';
+        const dayWindowInterval = String(clampInt(getInputValue('qs-day-window-interval'), 45, 1, 360));
+        const nightWindowEnabled = getInputValue('qs-night-window-enabled') === 'true' ? 'true' : 'false';
+        const nightWindowStart = getInputValue('qs-night-window-start') || '22:00';
+        const nightWindowEnd = getInputValue('qs-night-window-end') || '06:00';
+        const nightWindowInterval = String(clampInt(getInputValue('qs-night-window-interval'), 120, 1, 360));
 
         await Promise.all([
           window.pocketAgent.setSetting('linkedin.draftMode', mode),
@@ -1210,6 +1328,14 @@
           window.pocketAgent.setSetting('linkedin.dailyLimitMin', dailyMin),
           window.pocketAgent.setSetting('linkedin.dailyLimitMax', dailyMax),
           window.pocketAgent.setSetting('linkedin.autoPosterEnabled', autoPoster),
+          window.pocketAgent.setSetting('linkedin.dayWindowEnabled', dayWindowEnabled),
+          window.pocketAgent.setSetting('linkedin.dayWindowStart', dayWindowStart),
+          window.pocketAgent.setSetting('linkedin.dayWindowEnd', dayWindowEnd),
+          window.pocketAgent.setSetting('linkedin.dayWindowIntervalMin', dayWindowInterval),
+          window.pocketAgent.setSetting('linkedin.nightWindowEnabled', nightWindowEnabled),
+          window.pocketAgent.setSetting('linkedin.nightWindowStart', nightWindowStart),
+          window.pocketAgent.setSetting('linkedin.nightWindowEnd', nightWindowEnd),
+          window.pocketAgent.setSetting('linkedin.nightWindowIntervalMin', nightWindowInterval),
         ]);
 
         setInputValue('qs-draft-mode', mode);
@@ -1221,6 +1347,14 @@
         setInputValue('qs-daily-min', dailyMin);
         setInputValue('qs-daily-max', dailyMax);
         setInputValue('qs-auto-poster', autoPoster);
+        setInputValue('qs-day-window-enabled', dayWindowEnabled);
+        setInputValue('qs-day-window-start', dayWindowStart);
+        setInputValue('qs-day-window-end', dayWindowEnd);
+        setInputValue('qs-day-window-interval', dayWindowInterval);
+        setInputValue('qs-night-window-enabled', nightWindowEnabled);
+        setInputValue('qs-night-window-start', nightWindowStart);
+        setInputValue('qs-night-window-end', nightWindowEnd);
+        setInputValue('qs-night-window-interval', nightWindowInterval);
         setInputValue('draft-mode', mode);
 
         showToast('LinkedIn settings saved', 'success');
@@ -1371,6 +1505,21 @@
       loadPosts();
     }
 
+    async function draftSinglePost(postId) {
+      const post = currentPosts.find(p => p.id === postId);
+      if (!post) {
+        showToast('Post not found', 'error');
+        return;
+      }
+      showToast(`Researching + drafting ${post.author}...`, 'success');
+      try {
+        await runBatchDraft([postId], 'Drafted 1 post', 'Draft failed');
+        loadPosts();
+      } catch (err) {
+        showToast(`Draft failed: ${shortError(err)}`, 'error');
+      }
+    }
+
     // Store current posts data for filtering
     let currentPosts = [];
     let currentSnoozed = [];
@@ -1494,7 +1643,7 @@
     }
 
     async function scheduleAllDrafts() {
-      sendToAgent('Schedule all unscheduled LinkedIn draft comments for today. Distribute them across my configured posting windows (linkedin.postingWindows setting, default 09:00-11:00,14:00-16:00) with the configured comment delay between each. Use priority order: urgent first, then high, then normal, then low.');
+      sendToAgent('Schedule all unscheduled LinkedIn draft comments for today. Distribute them across my configured day/night windows (linkedin.dayWindow* and linkedin.nightWindow* settings) with the configured comment delay between each. Use priority order: urgent first, then high, then normal, then low.');
     }
 
     function applyFilters(posts) {
@@ -1504,10 +1653,19 @@
       const author = getInputValue('filter-author').toLowerCase();
 
       return posts.filter(p => {
+        const lastAction = String(p.last_activity_action || '').toLowerCase();
+        const hasFailed = Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
+        const needsAttention = !!(p.approved && !p.commented && (!p.scheduled_at || hasFailed));
+
+        if (activePanel === 'queue' && p.commented) return false;
+        if (activePanel === 'published' && !p.commented) return false;
+        if (activePanel === 'attention' && !needsAttention) return false;
+
         if (status === 'undrafted' && (p.comment_draft || p.commented)) return false;
         if (status === 'draft' && (!p.comment_draft || p.commented)) return false;
-        if (status === 'approved' && !p.approved) return false;
+        if (status === 'approved' && (!p.approved || p.commented)) return false;
         if (status === 'commented' && !p.commented) return false;
+        if (status === 'failed' && !hasFailed) return false;
         if (priority && (p.priority || 'normal') !== priority) return false;
         if (type && p.post_type !== type) return false;
         if (author && !(p.author || '').toLowerCase().includes(author)) return false;
@@ -1533,15 +1691,32 @@
         const snoozed = Array.isArray(result) ? [] : (result.snoozed || []);
         currentPosts = posts;
         currentSnoozed = snoozed;
+        const queueCount = posts.filter(p => !p.commented).length;
+        const publishedCount = posts.filter(p => !!p.commented).length;
+        const attentionCount = posts.filter(p => {
+          const lastAction = String(p.last_activity_action || '').toLowerCase();
+          const hasFailed = Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
+          return !!(p.approved && !p.commented && (!p.scheduled_at || hasFailed));
+        }).length;
+        const tabQueue = document.getElementById('tab-queue');
+        const tabAttention = document.getElementById('tab-attention');
+        const tabPublished = document.getElementById('tab-published');
+        if (tabQueue) tabQueue.textContent = `Queue (${queueCount})`;
+        if (tabAttention) tabAttention.textContent = `Needs Attention (${attentionCount})`;
+        if (tabPublished) tabPublished.textContent = `Published (${publishedCount})`;
+        refreshPanelTabs();
+
         const filtered = applyFilters(posts);
         const content = document.getElementById('content');
         const countEl = document.getElementById('post-count');
 
         const drafted = posts.filter(p => p.comment_draft && !p.commented).length;
         const commented = posts.filter(p => p.commented).length;
+        const approvedPending = posts.filter(p => p.approved && !p.commented).length;
         const parts = [`${posts.length} posts`];
         if (drafted) parts.push(`${drafted} drafted`);
-        if (commented) parts.push(`${commented} commented`);
+        if (approvedPending) parts.push(`${approvedPending} approved`);
+        if (commented) parts.push(`${commented} published`);
         if (snoozed.length) parts.push(`${snoozed.length} snoozed`);
         countEl.textContent = `(${parts.join(', ')})`;
         if (filtered.length !== posts.length) {
@@ -1627,14 +1802,27 @@
     function renderPostRow(p, idx) {
       const isQueued = queuedDraftIds.has(p.id);
       const isResearching = activeDraftIds.has(p.id);
+      const lastAction = String(p.last_activity_action || '').toLowerCase();
+      const hasFailed = Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
       const statusBadges = [];
       if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
       else if (isQueued) statusBadges.push('<span class="badge badge-queued">Queued</span>');
-      if (p.approved || approvedIds.has(p.id)) statusBadges.push('<span class="badge badge-approved">Approved</span>');
+      if (p.commented) statusBadges.push('<span class="badge badge-commented">Published</span>');
+      else if (p.approved || approvedIds.has(p.id)) statusBadges.push('<span class="badge badge-approved">Approved</span>');
       else if (rejectedIds.has(p.id)) statusBadges.push('<span class="badge badge-rejected">Rejected</span>');
-      else if (p.commented) statusBadges.push('<span class="badge badge-commented">Replied</span>');
       else if (p.comment_draft) statusBadges.push('<span class="badge badge-draft">Draft</span>');
       if (p.scheduled_at) statusBadges.push(`<span class="badge badge-scheduled">${formatScheduleTime(p.scheduled_at)}</span>`);
+      if (!p.commented && p.approved && !p.scheduled_at) {
+        statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)">Awaiting schedule</span>');
+      }
+      if (!p.commented && hasFailed) {
+        const failReason = String(p.last_activity_reason || 'Recent publish failure')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+        statusBadges.push(`<span class="badge badge-rejected" title="${failReason}">Failed</span>`);
+      }
 
       // Engagement delta badge
       const engagementBadge = (p.engagement_checked && (p.reactions_delta || p.comments_delta))
@@ -1694,15 +1882,20 @@
           <td class="col-type">${p.post_type ? `<span class="badge badge-type">${escapeHtml(p.post_type)}</span>` : ''}</td>
           <td class="col-status"><div class="status-badges">${statusBadges.join(' ')} ${engagementBadge}</div></td>
           <td class="col-actions">
-            <button class="icon-btn danger" onclick="hidePost(${p.id})" title="Delete/hide post">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-            <button class="icon-btn snooze-btn" onclick="showSnoozeDropdown(${p.id}, this)" title="Snooze post">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </button>
-            <button class="icon-btn" onclick="openPostUrl(${p.id})" title="Open in browser">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            </button>
+            <div class="action-icons">
+              <button class="icon-btn" onclick="draftSinglePost(${p.id})" title="Research and draft this post now">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 3.7L18 8.5l-3 2.9.7 4.1L12 13.8 8.3 15.5l.7-4.1-3-2.9 4.2-.8L12 3z"/></svg>
+              </button>
+              <button class="icon-btn danger" onclick="hidePost(${p.id})" title="Delete/hide post">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+              <button class="icon-btn snooze-btn" onclick="showSnoozeDropdown(${p.id}, this)" title="Snooze post">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </button>
+              <button class="icon-btn" onclick="openPostUrl(${p.id})" title="Open in browser">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </button>
+            </div>
           </td>
         </tr>
       `;
@@ -1884,6 +2077,7 @@ If you catch yourself writing any banned word or an em dash, rewrite the sentenc
       });
     }
 
+    refreshPanelTabs();
     loadDraftMode();
     loadPosts();
   </script>

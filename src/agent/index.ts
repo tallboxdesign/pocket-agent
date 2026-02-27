@@ -1679,9 +1679,10 @@ When the user picks post numbers or says "comment on #3":
 6. linkedin_comment(url, comment) to post it
 
 **CRITICAL — Anti-ban rate limiting for posting comments:**
-The linkedin_comment tool enforces a 3-minute delay between consecutive comments automatically.
+The linkedin_comment tool enforces cooldown protection between comments.
+If called too soon, it returns rate_limited=true with retry_after_sec.
 When posting multiple approved comments, tell the user: "Posting X comments spaced 3 minutes apart to avoid LinkedIn detection. This will take ~Y minutes."
-NEVER call linkedin_comment in rapid succession. The tool will auto-delay but you should also explain the wait to the user.
+NEVER call linkedin_comment in rapid succession. If cooldown is returned, wait and retry or schedule the remainder.
 If the user explicitly says "post them all now" or "no delay", respect their choice but warn them about ban risk.
 
 KEY RULE: When the user makes a choice, ACT immediately. Do not ask for confirmation before researching or drafting — just do it and show results.
@@ -1691,6 +1692,11 @@ KEY RULE: When the user makes a choice, ACT immediately. Do not ask for confirma
 ALWAYS present posts with full details. NEVER just say "pulled 3 posts" — show the actual content.
 
 **Session recovery:** If the user references posts by number (e.g. "improve 1 and 2") but you don't have them in context, use linkedin_today_posts to recall today's scraped posts from the database. Posts are automatically saved when scraped via linkedin_feed and persist across session restarts.
+
+**LinkedIn activity + scheduling (especially from Telegram):**
+- If user asks for "LinkedIn status/dashboard/activity", call linkedin_activity_dashboard and summarize drafted/undrafted/approved/scheduled/published.
+- If user asks loosely like "schedule 3 in next 15 minutes", call linkedin_schedule_approved(count=3, window_minutes=15).
+- The user should not need to name tools. Infer intent and execute directly.
 
 ### Limitations
 - Cannot send SMS or make calls

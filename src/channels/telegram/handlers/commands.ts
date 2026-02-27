@@ -86,6 +86,14 @@ Workflows are reusable command templates. Use /workflow to see what's available,
     }
 
     const memoryMB = process.memoryUsage().heapUsed / 1024 / 1024;
+    let linkedinLine = '';
+    try {
+      const { getDailyStats } = await import('../../../tools/linkedin-autoposter');
+      const li = getDailyStats();
+      linkedinLine = `\nLinkedIn: ${li.postedToday}/${li.dailyLimit} posted today, ${li.pendingApproved} approved pending`;
+    } catch {
+      // LinkedIn module is optional
+    }
 
     await ctx.reply(
       `Agent Status\n` +
@@ -95,7 +103,8 @@ Workflows are reusable command templates. Use /workflow to see what's available,
       `Cron Jobs: ${stats.cronJobCount}\n` +
       `Summaries: ${stats.summaryCount}\n` +
       `Est. Tokens: ${stats.estimatedTokens.toLocaleString()}\n` +
-      `Memory: ${memoryMB.toFixed(1)} MB`
+      `Memory: ${memoryMB.toFixed(1)} MB` +
+      linkedinLine
     );
   });
 

@@ -1726,14 +1726,31 @@ function setupIPC(): void {
       const priorityOrder = `CASE lp.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
       const posts = db.prepare(
         `SELECT lp.*,
-           la.total_comments_by_me AS author_total_comments,
-           la.last_commented_date AS author_last_commented,
+           aa.total_comments_by_me AS author_total_comments,
+           aa.last_commented_date AS author_last_commented,
+           al.last_activity_action,
+           al.last_activity_reason,
+           al.last_activity_at,
+           (SELECT COUNT(*) FROM linkedin_activity_log af
+            WHERE af.post_id = lp.id AND af.action IN ('failed', 'error')) AS failed_attempts,
            ec.reactions_delta, ec.comments_delta,
-           (SELECT COUNT(*) FROM linkedin_activity_log al
-            WHERE al.action = 'posted' AND al.post_url IN (SELECT p2.post_url FROM linkedin_posts p2 WHERE p2.author = lp.author)
-            AND al.created_at >= datetime('now', '-7 days')) AS author_weekly_comments
+           (SELECT COUNT(*) FROM linkedin_activity_log alw
+            WHERE alw.action = 'posted' AND alw.post_url IN (SELECT p2.post_url FROM linkedin_posts p2 WHERE p2.author = lp.author)
+            AND alw.created_at >= datetime('now', '-7 days')) AS author_weekly_comments
          FROM linkedin_posts lp
-         LEFT JOIN linkedin_authors la ON la.name = lp.author
+         LEFT JOIN linkedin_authors aa ON aa.name = lp.author
+         LEFT JOIN (
+           SELECT act.post_id,
+                  act.action AS last_activity_action,
+                  act.reason AS last_activity_reason,
+                  act.created_at AS last_activity_at
+           FROM linkedin_activity_log act
+           INNER JOIN (
+             SELECT post_id, MAX(id) AS max_id
+             FROM linkedin_activity_log
+             GROUP BY post_id
+           ) latest ON latest.max_id = act.id
+         ) al ON al.post_id = lp.id
          LEFT JOIN (
            SELECT post_id, reactions_delta, comments_delta
            FROM linkedin_engagement_checks WHERE baseline = 0
@@ -1851,7 +1868,8 @@ function setupIPC(): void {
       if (row.kanban_task_id) {
         try {
           const { KanbanService } = await import('../kanban');
-          KanbanService.moveTask(row.kanban_task_id, 'done', 'linkedin-activity');
+          KanbanService.updateTask(row.kanban_task_id, { status: 'todo' });
+          KanbanService.addComment(row.kanban_task_id, 'Approved for posting. Waiting for scheduled/auto publish.');
         } catch { /* kanban task may not exist */ }
       }
       return { success: true, postUrl: row.post_url, draft: row.comment_draft };

@@ -130,6 +130,23 @@ function getLinkedInDraftConfig(): LinkedInDraftConfig {
   };
 }
 
+function computeEffectiveTimeoutSec(baseTimeoutSec: number, primaryModel: string, preview: string): number {
+  let effective = baseTimeoutSec;
+  const provider = getProviderForModel(primaryModel);
+
+  // Non-Anthropic backends typically need more wall time for web-enabled passes.
+  if (provider !== 'anthropic') {
+    effective = Math.round(effective * 1.35);
+  }
+
+  // Long previews tend to require more research/rewrites.
+  if ((preview || '').length >= 320) {
+    effective += 15;
+  }
+
+  return Math.min(360, Math.max(30, effective));
+}
+
 function hasModelCredentials(model: string): boolean {
   const provider = getProviderForModel(model);
   if (provider === 'moonshot') return !!SettingsManager.get('moonshot.apiKey');
@@ -256,6 +273,33 @@ function cleanDraftText(draft: string): string {
   return text.trim();
 }
 
+function ensureReadableCommentLayout(draft: string): string {
+  const raw = draft.trim();
+  if (!raw) return raw;
+
+  // Keep intentional multiline drafts, just normalize spacing.
+  if (raw.includes('\n')) {
+    return raw
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  // Split dense single-paragraph output into readable short blocks.
+  const sentences = (raw.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [])
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (sentences.length <= 1) return raw;
+
+  const lines: string[] = [];
+  for (let i = 0; i < sentences.length; i++) {
+    lines.push(sentences[i]);
+    if (i < sentences.length - 1 && i % 2 === 1) lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
 function detectPostIntent(text: string): 'educational' | 'promotional' | 'mixed' {
   const low = text.toLowerCase();
   const promoHits = [
@@ -315,7 +359,7 @@ function startsWithAuthorName(draft: string, authorFirstName: string): boolean {
   if (!authorFirstName) return true;
   const start = draft.trim();
   const escaped = escapeRegex(authorFirstName);
-  const re = new RegExp(`^[\"'“”‘’(\\[]?\\s*${escaped}\\b`, 'i');
+  const re = new RegExp(`^["'“”‘’(\\[]?\\s*${escaped}\\b`, 'i');
   return re.test(start);
 }
 
@@ -355,6 +399,7 @@ function evaluateDraftQuality(
   if (isWeakDraft(draft)) issues.push('too generic or too short');
   if (!startsWithAuthorName(draft, authorFirstName)) issues.push('opening does not start with the author name');
   if (!hasRelevanceAnchor(draft, evidence.keyPoint, preview)) issues.push('missing concrete anchor from original post');
+  if (!draft.includes('\n') && draft.length > 280) issues.push('single dense paragraph, needs line breaks');
   if (hasAISlopWords(draft)) issues.push('contains AI-sounding jargon');
   const allCapsWords = draft.match(/\b[A-Z]{4,}\b/g) || [];
   if (allCapsWords.length > 2) issues.push('contains unnatural all-caps wording');
@@ -604,6 +649,7 @@ RESPONSE REQUIREMENTS:
 
 STYLE:
 - Sentence case, natural rhythm, and varied sentence length.
+- Format for readability: use 2-4 short paragraphs with line breaks (no wall of text).
 - No emojis, no hashtags, no em dashes.
 - Avoid generic praise ("great post", "thanks for sharing").
 - Avoid AI-sounding words like "landscape", "leverage", "robust", "holistic", "transformative".${styleGuide ? `\n\nSTYLE GUIDE:\n${styleGuide}` : ''}
@@ -634,7 +680,7 @@ Write the final comment now.`;
     env,
   };
 
-  let draft = cleanDraftText(await generateDraftFromSdk(queryFn, writePrompt, writeOptions));
+  let draft = ensureReadableCommentLayout(cleanDraftText(await generateDraftFromSdk(queryFn, writePrompt, writeOptions)));
   for (let repairAttempt = 0; repairAttempt < 2; repairAttempt++) {
     const issues = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName);
     if (issues.length === 0) break;
@@ -648,8 +694,9 @@ Rewrite with strict compliance:
 - reference the post's key point explicitly
 - include one numeric/date detail from research notes
 - include source cue wording
+- format as short paragraphs with line breaks, not one dense block
 - avoid hype/jargon and generic agreement`;
-    draft = cleanDraftText(await generateDraftFromSdk(queryFn, repairPrompt, writeOptions));
+    draft = ensureReadableCommentLayout(cleanDraftText(await generateDraftFromSdk(queryFn, repairPrompt, writeOptions)));
   }
 
   if (!draft) {
@@ -803,7 +850,8 @@ async function draftOnePost(
 
   const config = getLinkedInDraftConfig();
   const attemptModels = getAttemptModels(model, config.fallbackModel);
-  const deadline = Date.now() + (config.perPostTimeoutSec * 1000);
+  const effectiveTimeoutSec = computeEffectiveTimeoutSec(config.perPostTimeoutSec, model, post.text_preview);
+  const deadline = Date.now() + (effectiveTimeoutSec * 1000);
 
   let draft = '';
   const attemptErrors: string[] = [];
@@ -812,7 +860,7 @@ async function draftOnePost(
     if (abortController.signal.aborted) throw new Error('Draft job cancelled');
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 1500) {
-      attemptErrors.push(`Timed out after ${config.perPostTimeoutSec}s total`);
+      attemptErrors.push(`Timed out after ${effectiveTimeoutSec}s total`);
       break;
     }
     try {

@@ -2514,6 +2514,61 @@
             </div>
           </div>
 
+          <div class="li-subsection">Auto-Poster Schedule Windows</div>
+
+          <div class="settings-grid" style="margin-bottom: 14px;">
+            <div class="setting-row">
+              <label title="When enabled, auto-poster can publish during the daytime window below.">Day Window Enabled</label>
+              <div class="toggle" id="linkedin.dayWindowEnabled-toggle" onclick="toggleSetting('linkedin.dayWindowEnabled')" title="Enable daytime auto-post schedule window"></div>
+            </div>
+            <div class="setting-row">
+              <label title="When enabled, auto-poster can publish during the overnight window below.">Night Window Enabled</label>
+              <div class="toggle" id="linkedin.nightWindowEnabled-toggle" onclick="toggleSetting('linkedin.nightWindowEnabled')" title="Enable overnight auto-post schedule window"></div>
+            </div>
+            <div class="setting-row">
+              <label title="Local start time of daytime posting window (HH:MM).">Day Start</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="time" id="linkedin-day-window-start" style="width: 90px; text-align: center;" title="Local time, e.g. 09:00">
+                <button onclick="saveLinkedInSetting('linkedin.dayWindowStart', 'linkedin-day-window-start')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Local end time of daytime posting window (HH:MM).">Day End</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="time" id="linkedin-day-window-end" style="width: 90px; text-align: center;" title="Local time, e.g. 18:00">
+                <button onclick="saveLinkedInSetting('linkedin.dayWindowEnd', 'linkedin-day-window-end')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Minimum spacing between posts during daytime window. Anti-bot delay still applies on top.">Day Interval (min)</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-day-window-interval" min="1" max="360" step="1" placeholder="45" style="width: 70px; text-align: center;" title="Example: 30, 45, 60">
+                <button onclick="saveLinkedInSetting('linkedin.dayWindowIntervalMin', 'linkedin-day-window-interval')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Local start time of overnight posting window (HH:MM).">Night Start</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="time" id="linkedin-night-window-start" style="width: 90px; text-align: center;" title="Local time, e.g. 22:00">
+                <button onclick="saveLinkedInSetting('linkedin.nightWindowStart', 'linkedin-night-window-start')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Local end time of overnight posting window (HH:MM). Can cross midnight (e.g. 22:00 to 06:00).">Night End</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="time" id="linkedin-night-window-end" style="width: 90px; text-align: center;" title="Local time, e.g. 06:00">
+                <button onclick="saveLinkedInSetting('linkedin.nightWindowEnd', 'linkedin-night-window-end')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Minimum spacing between posts during overnight window. For one post every 2 hours, set 120.">Night Interval (min)</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-night-window-interval" min="1" max="360" step="1" placeholder="120" style="width: 70px; text-align: center;" title="Example: 120 for one post every 2 hours">
+                <button onclick="saveLinkedInSetting('linkedin.nightWindowIntervalMin', 'linkedin-night-window-interval')">Save</button>
+              </div>
+            </div>
+          </div>
+
           <div class="li-subsection">Research & Draft Engine</div>
 
           <div class="settings-grid" style="margin-bottom: 14px;">
@@ -3016,6 +3071,10 @@
       }
       const linkedinAutoConfirm = document.getElementById('linkedin.autoConfirm-toggle');
       if (linkedinAutoConfirm) linkedinAutoConfirm.classList.toggle('active', settings['linkedin.autoConfirm'] === 'true');
+      const linkedinDayWindowToggle = document.getElementById('linkedin.dayWindowEnabled-toggle');
+      if (linkedinDayWindowToggle) linkedinDayWindowToggle.classList.toggle('active', settings['linkedin.dayWindowEnabled'] !== 'false');
+      const linkedinNightWindowToggle = document.getElementById('linkedin.nightWindowEnabled-toggle');
+      if (linkedinNightWindowToggle) linkedinNightWindowToggle.classList.toggle('active', settings['linkedin.nightWindowEnabled'] === 'true');
       const linkedinKeywords = document.getElementById('linkedin-feed-keywords');
       if (linkedinKeywords && settings['linkedin.feedKeywords']) linkedinKeywords.value = settings['linkedin.feedKeywords'];
       const linkedinVoice = document.getElementById('linkedin-voice-style');
@@ -3030,6 +3089,18 @@
       if (linkedinLimit) linkedinLimit.value = settings['linkedin.feedLimit'] || '20';
       const linkedinDelay = document.getElementById('linkedin-comment-delay');
       if (linkedinDelay) linkedinDelay.value = settings['linkedin.commentDelay'] || '3';
+      const linkedinDayStart = document.getElementById('linkedin-day-window-start');
+      if (linkedinDayStart) linkedinDayStart.value = settings['linkedin.dayWindowStart'] || '09:00';
+      const linkedinDayEnd = document.getElementById('linkedin-day-window-end');
+      if (linkedinDayEnd) linkedinDayEnd.value = settings['linkedin.dayWindowEnd'] || '18:00';
+      const linkedinDayInterval = document.getElementById('linkedin-day-window-interval');
+      if (linkedinDayInterval) linkedinDayInterval.value = settings['linkedin.dayWindowIntervalMin'] || '45';
+      const linkedinNightStart = document.getElementById('linkedin-night-window-start');
+      if (linkedinNightStart) linkedinNightStart.value = settings['linkedin.nightWindowStart'] || '22:00';
+      const linkedinNightEnd = document.getElementById('linkedin-night-window-end');
+      if (linkedinNightEnd) linkedinNightEnd.value = settings['linkedin.nightWindowEnd'] || '06:00';
+      const linkedinNightInterval = document.getElementById('linkedin-night-window-interval');
+      if (linkedinNightInterval) linkedinNightInterval.value = settings['linkedin.nightWindowIntervalMin'] || '120';
       const linkedinDraftMode = document.getElementById('linkedin-draft-mode');
       if (linkedinDraftMode) linkedinDraftMode.value = settings['linkedin.draftMode'] || 'balanced';
       const linkedinDraftTimeout = document.getElementById('linkedin-draft-timeout');

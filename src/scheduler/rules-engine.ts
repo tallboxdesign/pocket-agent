@@ -747,15 +747,68 @@ export class RulesEngine {
     ].join('\n');
   }
 
+  private buildLinkedInSummaryBlock(): string {
+    try {
+      const postedRow = this.db.prepare(
+        `SELECT COUNT(*) AS c
+         FROM linkedin_activity_log
+         WHERE action = 'posted' AND created_at >= datetime('now', '-24 hours')`
+      ).get() as { c: number };
+
+      const failedRow = this.db.prepare(
+        `SELECT COUNT(*) AS c
+         FROM linkedin_activity_log
+         WHERE action IN ('failed', 'error') AND created_at >= datetime('now', '-24 hours')`
+      ).get() as { c: number };
+
+      const queuedRow = this.db.prepare(
+        `SELECT
+           SUM(CASE WHEN approved = 1 AND commented = 0 THEN 1 ELSE 0 END) AS approved_pending,
+           SUM(CASE WHEN approved = 1 AND commented = 0 AND scheduled_at IS NOT NULL THEN 1 ELSE 0 END) AS scheduled_pending,
+           SUM(CASE WHEN approved = 1 AND commented = 0 AND (scheduled_at IS NULL OR scheduled_at = '') THEN 1 ELSE 0 END) AS unscheduled_pending
+         FROM linkedin_posts
+         WHERE hidden = 0`
+      ).get() as { approved_pending: number; scheduled_pending: number; unscheduled_pending: number } | undefined;
+
+      const posted = postedRow?.c || 0;
+      const failed = failedRow?.c || 0;
+      const approvedPending = queuedRow?.approved_pending || 0;
+      const scheduledPending = queuedRow?.scheduled_pending || 0;
+      const unscheduledPending = queuedRow?.unscheduled_pending || 0;
+
+      return [
+        'LINKEDIN ACTIVITY (last 24h)',
+        `- Comments posted: ${posted}`,
+        `- Publish failures: ${failed}`,
+        `- Approved pending: ${approvedPending} (scheduled: ${scheduledPending}, unscheduled: ${unscheduledPending})`,
+      ].join('\n');
+    } catch {
+      return [
+        'LINKEDIN ACTIVITY (last 24h)',
+        '- Comments posted: 0',
+        '- Publish failures: 0',
+        '- Approved pending: 0',
+      ].join('\n');
+    }
+  }
+
   // ---------- Daily Summary ----------
 
   async runDailySummary(): Promise<{ success: boolean; summary?: string; error?: string }> {
     const items = this.db.prepare(
       'SELECT * FROM daily_summary_queue WHERE summary_run_id IS NULL ORDER BY added_at ASC',
     ).all() as DailySummaryItem[];
+    const linkedinBlock = this.buildLinkedInSummaryBlock();
 
     if (items.length === 0) {
-      return { success: true, summary: 'No items in queue.' };
+      const summaryText = `DAILY DIGEST\n\nNo email items in queue.\n\n${linkedinBlock}`;
+      if (this.telegramSender) {
+        this.telegramSender(summaryText);
+      }
+      if (this.notifyHandler) {
+        this.notifyHandler('Daily Email Digest', summaryText.slice(0, 200));
+      }
+      return { success: true, summary: summaryText };
     }
 
     const prompt = this.buildDailySummaryPrompt(items, { verbosity: 'compact', followups: 'yes' });
@@ -770,12 +823,14 @@ export class RulesEngine {
       return { success: false, error: 'GLM returned empty summary' };
     }
 
+    const summaryText = `${glmRes.content}\n\n${linkedinBlock}`;
+
     // Deliver BEFORE marking DB as done — prevents silent message loss on crash
     if (this.telegramSender) {
-      this.telegramSender(glmRes.content);
+      this.telegramSender(summaryText);
     }
     if (this.notifyHandler) {
-      this.notifyHandler('Daily Email Digest', glmRes.content.slice(0, 200));
+      this.notifyHandler('Daily Email Digest', summaryText.slice(0, 200));
     }
 
     const runId = new Date().toISOString();
@@ -783,7 +838,7 @@ export class RulesEngine {
       'UPDATE daily_summary_queue SET summary_run_id = ? WHERE summary_run_id IS NULL',
     ).run(runId);
 
-    return { success: true, summary: glmRes.content };
+    return { success: true, summary: summaryText };
   }
 
   // ---------- Logging ----------

@@ -11,6 +11,7 @@ import path from 'path';
 import fs from 'fs';
 import { SettingsManager } from '../settings';
 import { linkedinExec } from './linkedin-wrapper';
+import { KanbanService } from '../kanban';
 import type { TelegramBot } from '../channels/telegram';
 
 // Module state
@@ -41,7 +42,52 @@ function getDb(): Database.Database | null {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function parseHm(hm: string, fallback: number): number {
+  const match = String(hm || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+  const h = Math.min(23, Math.max(0, parseInt(match[1], 10)));
+  const m = Math.min(59, Math.max(0, parseInt(match[2], 10)));
+  return h * 60 + m;
+}
+
+function nowMinutes(): number {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function isInWindow(currentMin: number, startMin: number, endMin: number): boolean {
+  if (startMin === endMin) return true; // full day
+  if (startMin < endMin) return currentMin >= startMin && currentMin < endMin;
+  return currentMin >= startMin || currentMin < endMin; // overnight wrap
+}
+
+function activePostingWindow(): { name: 'day' | 'night'; intervalMs: number } | null {
+  const minuteNow = nowMinutes();
+  const dayEnabled = SettingsManager.get('linkedin.dayWindowEnabled') !== 'false';
+  const nightEnabled = SettingsManager.get('linkedin.nightWindowEnabled') === 'true';
+
+  const dayStart = parseHm(SettingsManager.get('linkedin.dayWindowStart') || '09:00', 9 * 60);
+  const dayEnd = parseHm(SettingsManager.get('linkedin.dayWindowEnd') || '18:00', 18 * 60);
+  const nightStart = parseHm(SettingsManager.get('linkedin.nightWindowStart') || '22:00', 22 * 60);
+  const nightEnd = parseHm(SettingsManager.get('linkedin.nightWindowEnd') || '06:00', 6 * 60);
+
+  const dayIntervalMin = Math.max(1, parseInt(SettingsManager.get('linkedin.dayWindowIntervalMin') || '45', 10) || 45);
+  const nightIntervalMin = Math.max(1, parseInt(SettingsManager.get('linkedin.nightWindowIntervalMin') || '120', 10) || 120);
+
+  if (dayEnabled && isInWindow(minuteNow, dayStart, dayEnd)) {
+    return { name: 'day', intervalMs: dayIntervalMin * 60 * 1000 };
+  }
+  if (nightEnabled && isInWindow(minuteNow, nightStart, nightEnd)) {
+    return { name: 'night', intervalMs: nightIntervalMin * 60 * 1000 };
+  }
+  return null;
 }
 
 function getDailyLimit(): number {
@@ -56,8 +102,20 @@ function getDailyLimit(): number {
 
 function getCommentDelayMs(): number {
   const baseMin = parseFloat(SettingsManager.get('linkedin.commentDelay') || '3') || 3;
-  const jitter = 0.6 + Math.random() * 0.8; // 0.6-1.4
+  const jitter = 1.0 + Math.random() * 0.4; // 1.0-1.4
   return baseMin * 60 * 1000 * jitter;
+}
+
+function getLastPostedAtMs(db: Database.Database): number {
+  const row = db.prepare(
+    `SELECT created_at FROM linkedin_activity_log
+     WHERE action = 'posted'
+     ORDER BY id DESC LIMIT 1`
+  ).get() as { created_at: string } | undefined;
+
+  if (!row?.created_at) return 0;
+  const ts = Date.parse(`${row.created_at}Z`);
+  return Number.isFinite(ts) ? ts : 0;
 }
 
 export async function notifyTelegram(message: string): Promise<void> {
@@ -74,6 +132,8 @@ export async function notifyTelegram(message: string): Promise<void> {
 
 export async function checkAndPostNext(): Promise<void> {
   if (SettingsManager.get('linkedin.autoPosterEnabled') !== 'true') return;
+  const window = activePostingWindow();
+  if (!window) return;
 
   const db = getDb();
   if (!db) return;
@@ -84,32 +144,31 @@ export async function checkAndPostNext(): Promise<void> {
 
     // Count today's posts
     const countRow = db.prepare(
-      `SELECT COUNT(*) as c FROM linkedin_activity_log WHERE action = 'posted' AND date(created_at) = ?`
+      `SELECT COUNT(*) as c FROM linkedin_activity_log
+       WHERE action = 'posted' AND date(created_at, 'localtime') = ?`
     ).get(todayStr) as { c: number };
     const todayCount = countRow.c;
 
     if (todayCount >= dailyLimit) return;
 
     // Rate limit check
-    const lastPosted = db.prepare(
-      `SELECT created_at FROM linkedin_activity_log WHERE action = 'posted' ORDER BY id DESC LIMIT 1`
-    ).get() as { created_at: string } | undefined;
-
-    if (lastPosted) {
-      const elapsed = Date.now() - new Date(lastPosted.created_at + 'Z').getTime();
-      if (elapsed < getCommentDelayMs()) return;
+    const lastPostedAt = getLastPostedAtMs(db);
+    if (lastPostedAt > 0) {
+      const elapsed = Date.now() - lastPostedAt;
+      const requiredDelay = Math.max(getCommentDelayMs(), window.intervalMs);
+      if (elapsed < requiredDelay) return;
     }
 
     // Find next eligible post
     const priorityOrder = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
     const candidates = db.prepare(
-      `SELECT id, post_url, author, comment_draft, reactions, comments FROM linkedin_posts
+      `SELECT id, post_url, author, comment_draft, reactions, comments, kanban_task_id FROM linkedin_posts
        WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL
          AND scheduled_at IS NOT NULL AND datetime(scheduled_at) <= datetime('now')
          AND hidden = 0
        ORDER BY ${priorityOrder}, scheduled_at ASC
        LIMIT 10`
-    ).all() as Array<{ id: number; post_url: string; author: string; comment_draft: string; reactions: number; comments: number }>;
+    ).all() as Array<{ id: number; post_url: string; author: string; comment_draft: string; reactions: number; comments: number; kanban_task_id: number | null }>;
 
     if (candidates.length === 0) return;
 
@@ -138,12 +197,21 @@ export async function checkAndPostNext(): Promise<void> {
         db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
 
         db.prepare(
-          `INSERT INTO linkedin_activity_log (post_id, post_url, action, comment_text, daily_limit, daily_count)
-           VALUES (?, ?, 'posted', ?, ?, ?)`
-        ).run(post.id, post.post_url, post.comment_draft, dailyLimit, todayCount + 1);
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text, daily_limit, daily_count)
+           VALUES (?, ?, 'posted', ?, ?, ?, ?)`
+        ).run(post.id, post.post_url, `window:${window.name}`, post.comment_draft, dailyLimit, todayCount + 1);
 
         // Schedule engagement check
         scheduleEngagementCheck(db, post.id, post.post_url, post.reactions, post.comments);
+
+        // Sync kanban state only when actually published
+        if (post.kanban_task_id) {
+          try {
+            KanbanService.moveTask(post.kanban_task_id, 'done', 'linkedin-autoposter');
+          } catch {
+            // task may be missing/archived
+          }
+        }
 
         // Telegram notification
         await notifyTelegram(`LinkedIn: Posted on ${post.author}'s post (${todayCount + 1}/${dailyLimit} today)`);
@@ -154,7 +222,7 @@ export async function checkAndPostNext(): Promise<void> {
         console.error(`[AutoPoster] Failed to post on ${post.author}:`, err);
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
-           VALUES (?, ?, 'error', ?, ?, ?)`
+           VALUES (?, ?, 'failed', ?, ?, ?)`
         ).run(post.id, post.post_url, String(err), dailyLimit, todayCount);
         return; // Don't try more on error
       }
@@ -274,7 +342,8 @@ export function getDailyStats(): { postedToday: number; dailyLimit: number; pend
   try {
     const todayStr = today();
     const posted = (db.prepare(
-      `SELECT COUNT(*) as c FROM linkedin_activity_log WHERE action = 'posted' AND date(created_at) = ?`
+      `SELECT COUNT(*) as c FROM linkedin_activity_log
+       WHERE action = 'posted' AND date(created_at, 'localtime') = ?`
     ).get(todayStr) as { c: number }).c;
 
     const pending = (db.prepare(
