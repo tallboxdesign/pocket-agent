@@ -103,6 +103,95 @@
 
     .header-actions button:active { transform: translateY(0); }
 
+    .li-settings-btn {
+      color: #60a5fa;
+      border-color: rgba(96, 165, 250, 0.28);
+      background: rgba(96, 165, 250, 0.1);
+    }
+    .li-settings-btn:hover {
+      background: rgba(96, 165, 250, 0.2);
+      color: #bfdbfe;
+    }
+
+    .li-quick-settings {
+      position: fixed;
+      top: 58px;
+      right: 16px;
+      width: min(720px, calc(100vw - 32px));
+      background: rgba(20, 20, 21, 0.98);
+      border: 1px solid rgba(96, 165, 250, 0.2);
+      border-radius: 12px;
+      padding: 12px;
+      z-index: 60;
+      display: none;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    .li-quick-settings.visible { display: block; }
+    .li-quick-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .li-quick-title {
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #93c5fd;
+      font-weight: 700;
+    }
+    .li-quick-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .li-quick-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+    }
+    .li-quick-field label {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.25;
+    }
+    .li-quick-field input,
+    .li-quick-field select {
+      width: 100%;
+      min-width: 0;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      color-scheme: dark;
+    }
+    .li-quick-field.span-2 { grid-column: span 2; }
+    .li-quick-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .li-quick-actions .action-btn {
+      font-size: 11px;
+      padding: 5px 10px;
+    }
+
+    @media (max-width: 1160px) {
+      .li-quick-grid { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
+    }
+    @media (max-width: 920px) {
+      .li-quick-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+    }
+
     input[type="date"] {
       background: var(--bg-tertiary);
       color: var(--text-secondary);
@@ -701,11 +790,57 @@
       <span class="post-count" id="post-count"></span>
     </div>
     <div class="header-actions">
+      <button class="li-settings-btn" id="li-settings-btn" onclick="toggleQuickSettings()" title="LinkedIn quick settings for draft/research controls">LinkedIn Settings</button>
       <input type="date" id="date-picker" />
       <button onclick="playNormalClick(); loadPosts()">Refresh</button>
       <button onclick="playNormalClick(); window.close()">Done</button>
     </div>
   </header>
+
+  <div class="li-quick-settings" id="li-quick-settings">
+    <div class="li-quick-header">
+      <div class="li-quick-title">LinkedIn Quick Settings</div>
+      <button class="action-btn" onclick="toggleQuickSettings(false)">Close</button>
+    </div>
+    <div class="li-quick-grid">
+      <div class="li-quick-field">
+        <label title="Preset quality profile: fast is cheapest, deep is strongest validation.">Draft Mode</label>
+        <select id="qs-draft-mode" title="Applies to desktop and Telegram LinkedIn drafting">
+          <option value="fast">Fast</option>
+          <option value="balanced">Balanced</option>
+          <option value="deep">Deep</option>
+        </select>
+      </div>
+      <div class="li-quick-field">
+        <label title="Maximum seconds allowed per post for research + writing.">Timeout (sec)</label>
+        <input type="number" id="qs-draft-timeout" min="30" max="240" step="1" title="Recommended 75-120 seconds">
+      </div>
+      <div class="li-quick-field">
+        <label title="Max SDK turns in research pass.">Research Turns</label>
+        <input type="number" id="qs-research-turns" min="2" max="10" step="1" title="Higher can improve depth but costs more">
+      </div>
+      <div class="li-quick-field">
+        <label title="Max SDK turns in write pass.">Write Turns</label>
+        <input type="number" id="qs-write-turns" min="2" max="10" step="1" title="Controls rewrite budget and polish">
+      </div>
+      <div class="li-quick-field">
+        <label title="Max number of web queries during research pass.">Research Queries</label>
+        <input type="number" id="qs-research-queries" min="1" max="4" step="1" title="2 is usually balanced">
+      </div>
+      <div class="li-quick-field span-2">
+        <label title="Fallback model when primary run fails or times out.">Fallback Model</label>
+        <input type="text" id="qs-fallback-model" placeholder="kimi-k2.5" title="Leave empty to disable fallback">
+      </div>
+      <div class="li-quick-field">
+        <label title="Average minutes between posting comments when scheduling/posting.">Comment Delay (min)</label>
+        <input type="number" id="qs-comment-delay" min="1" max="15" step="0.5" title="Randomized around this average">
+      </div>
+    </div>
+    <div class="li-quick-actions">
+      <button class="action-btn" onclick="loadQuickSettings()">Reload</button>
+      <button class="action-btn success" onclick="saveQuickSettings()">Save Settings</button>
+    </div>
+  </div>
 
   <div class="action-bar">
     <button class="action-btn primary" onclick="sendToAgent('Browse my LinkedIn feed, classify posts, filter out irrelevant ones, and present the results')" title="Scrape and classify your feed">
@@ -798,9 +933,19 @@
         document.querySelectorAll('.snooze-dropdown').forEach(d => d.remove());
       }
     });
+    document.addEventListener('click', (e) => {
+      if (!quickSettingsEl || !quickSettingsBtn) return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (!quickSettingsEl.classList.contains('visible')) return;
+      if (target.closest('#li-quick-settings') || target.closest('#li-settings-btn')) return;
+      toggleQuickSettings(false);
+    });
 
     // Default date to today
     const datePicker = document.getElementById('date-picker');
+    const quickSettingsEl = document.getElementById('li-quick-settings');
+    const quickSettingsBtn = document.getElementById('li-settings-btn');
     const today = new Date();
     datePicker.value = today.toISOString().split('T')[0];
     datePicker.addEventListener('change', () => loadPosts());
@@ -905,18 +1050,114 @@
       return msg.length > max ? msg.slice(0, max - 1) + '…' : msg;
     }
 
+    function normalizeDraftMode(value) {
+      const mode = String(value || '').toLowerCase();
+      return (mode === 'fast' || mode === 'deep' || mode === 'balanced') ? mode : 'balanced';
+    }
+
+    function clampInt(value, fallback, min, max) {
+      const parsed = Number.parseInt(String(value || ''), 10);
+      if (!Number.isFinite(parsed)) return fallback;
+      return Math.min(max, Math.max(min, parsed));
+    }
+
+    function clampFloat(value, fallback, min, max) {
+      const parsed = Number.parseFloat(String(value || ''));
+      if (!Number.isFinite(parsed)) return fallback;
+      return Math.min(max, Math.max(min, parsed));
+    }
+
+    function getInputValue(id) {
+      const el = document.getElementById(id);
+      return el ? String(el.value || '').trim() : '';
+    }
+
+    function setInputValue(id, value) {
+      const el = document.getElementById(id);
+      if (el) el.value = value;
+    }
+
+    function toggleQuickSettings(force) {
+      if (!quickSettingsEl) return;
+      const shouldShow = typeof force === 'boolean' ? force : !quickSettingsEl.classList.contains('visible');
+      quickSettingsEl.classList.toggle('visible', shouldShow);
+      if (shouldShow) loadQuickSettings();
+    }
+
+    async function loadQuickSettings() {
+      if (!window.pocketAgent?.getSetting) return;
+      try {
+        const [mode, timeout, researchTurns, writeTurns, queries, fallbackModel, commentDelay] = await Promise.all([
+          window.pocketAgent.getSetting('linkedin.draftMode'),
+          window.pocketAgent.getSetting('linkedin.draftTimeoutSec'),
+          window.pocketAgent.getSetting('linkedin.researchMaxTurns'),
+          window.pocketAgent.getSetting('linkedin.writeMaxTurns'),
+          window.pocketAgent.getSetting('linkedin.researchMaxQueries'),
+          window.pocketAgent.getSetting('linkedin.researchFallbackModel'),
+          window.pocketAgent.getSetting('linkedin.commentDelay'),
+        ]);
+
+        const normalizedMode = normalizeDraftMode(mode || 'balanced');
+        setInputValue('qs-draft-mode', normalizedMode);
+        setInputValue('qs-draft-timeout', String(clampInt(timeout || '95', 95, 30, 240)));
+        setInputValue('qs-research-turns', String(clampInt(researchTurns || '5', 5, 2, 10)));
+        setInputValue('qs-write-turns', String(clampInt(writeTurns || '4', 4, 2, 10)));
+        setInputValue('qs-research-queries', String(clampInt(queries || '2', 2, 1, 4)));
+        setInputValue('qs-fallback-model', String(fallbackModel || 'kimi-k2.5'));
+        setInputValue('qs-comment-delay', String(clampFloat(commentDelay || '3', 3, 1, 15)));
+      } catch (err) {
+        showToast(`Failed to load settings: ${shortError(err)}`, 'error');
+      }
+    }
+
+    async function saveQuickSettings() {
+      if (!window.pocketAgent?.setSetting) return;
+      try {
+        const mode = normalizeDraftMode(getInputValue('qs-draft-mode'));
+        const timeout = String(clampInt(getInputValue('qs-draft-timeout'), 95, 30, 240));
+        const researchTurns = String(clampInt(getInputValue('qs-research-turns'), 5, 2, 10));
+        const writeTurns = String(clampInt(getInputValue('qs-write-turns'), 4, 2, 10));
+        const queries = String(clampInt(getInputValue('qs-research-queries'), 2, 1, 4));
+        const fallbackModel = getInputValue('qs-fallback-model');
+        const commentDelay = String(clampFloat(getInputValue('qs-comment-delay'), 3, 1, 15));
+
+        await Promise.all([
+          window.pocketAgent.setSetting('linkedin.draftMode', mode),
+          window.pocketAgent.setSetting('linkedin.draftTimeoutSec', timeout),
+          window.pocketAgent.setSetting('linkedin.researchMaxTurns', researchTurns),
+          window.pocketAgent.setSetting('linkedin.writeMaxTurns', writeTurns),
+          window.pocketAgent.setSetting('linkedin.researchMaxQueries', queries),
+          window.pocketAgent.setSetting('linkedin.researchFallbackModel', fallbackModel),
+          window.pocketAgent.setSetting('linkedin.commentDelay', commentDelay),
+        ]);
+
+        setInputValue('qs-draft-mode', mode);
+        setInputValue('qs-draft-timeout', timeout);
+        setInputValue('qs-research-turns', researchTurns);
+        setInputValue('qs-write-turns', writeTurns);
+        setInputValue('qs-research-queries', queries);
+        setInputValue('qs-comment-delay', commentDelay);
+        setInputValue('draft-mode', mode);
+
+        showToast('LinkedIn settings saved', 'success');
+      } catch (err) {
+        showToast(`Failed to save settings: ${shortError(err)}`, 'error');
+      }
+    }
+
     function currentDraftMode() {
       const el = document.getElementById('draft-mode');
       const mode = el ? String(el.value || '').toLowerCase() : '';
-      return (mode === 'fast' || mode === 'deep' || mode === 'balanced') ? mode : 'balanced';
+      return normalizeDraftMode(mode);
     }
 
     async function loadDraftMode() {
       const el = document.getElementById('draft-mode');
       if (!el || !window.pocketAgent?.getSetting) return;
       try {
-        const saved = String(await window.pocketAgent.getSetting('linkedin.draftMode') || 'balanced').toLowerCase();
-        el.value = (saved === 'fast' || saved === 'deep' || saved === 'balanced') ? saved : 'balanced';
+        const saved = normalizeDraftMode(await window.pocketAgent.getSetting('linkedin.draftMode') || 'balanced');
+        el.value = saved;
+        setInputValue('qs-draft-mode', saved);
       } catch {}
     }
 
@@ -925,6 +1166,7 @@
       if (!window.pocketAgent?.setSetting) return mode;
       try {
         await window.pocketAgent.setSetting('linkedin.draftMode', mode);
+        setInputValue('qs-draft-mode', mode);
         if (!silent) showToast(`Draft mode saved: ${mode}`, 'success');
       } catch (err) {
         if (!silent) showToast(`Failed to save draft mode: ${shortError(err)}`, 'error');
