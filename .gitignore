@@ -13,3 +13,4 @@ config.json
 release/
 *.cer
 .claude/
+src/skills/linkedin/scripts/__pycache__/

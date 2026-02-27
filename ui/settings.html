@@ -1594,6 +1594,10 @@
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
         Gmail
       </div>
+      <div class="nav-item" data-section="linkedin">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
+        LinkedIn
+      </div>
       <div class="nav-item" data-section="memory">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         Memory
@@ -2440,6 +2444,91 @@
         </div>
       </section>
 
+      <!-- LinkedIn Section -->
+      <section id="linkedin" class="section">
+        <h2 class="section-title">LinkedIn</h2>
+        <p class="section-desc">Browse feed, read posts, comment, and create posts via browser automation.</p>
+
+        <div class="settings-grid">
+          <div class="setting-row">
+            <label>Enable LinkedIn</label>
+            <div class="toggle" id="linkedin.enabled-toggle" onclick="toggleSetting('linkedin.enabled')"></div>
+          </div>
+
+          <div class="setting-row">
+            <label>Auto-Confirm Posts</label>
+            <div class="toggle" id="linkedin.autoConfirm-toggle" onclick="toggleSetting('linkedin.autoConfirm')"></div>
+          </div>
+        </div>
+
+        <div id="linkedin-config" style="margin-top: 10px;">
+          <div class="settings-grid">
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+              <label>Default Feed Keywords</label>
+              <span class="setting-desc">Comma-separated keywords to filter feed by default (e.g. AI, startup, product)</span>
+              <div class="key-input">
+                <input type="text" id="linkedin-feed-keywords" placeholder="AI, startup, product">
+                <button onclick="saveLinkedInSetting('linkedin.feedKeywords', 'linkedin-feed-keywords')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+              <label>Default Feed People</label>
+              <span class="setting-desc">Comma-separated names to prioritize in feed (e.g. Sam Altman, Dario Amodei)</span>
+              <div class="key-input">
+                <input type="text" id="linkedin-feed-persons" placeholder="Sam Altman, Dario Amodei">
+                <button onclick="saveLinkedInSetting('linkedin.feedPersons', 'linkedin-feed-persons')">Save</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Voice & Style Settings -->
+          <h3 style="margin-top: 16px; font-size: 13px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Content Voice & Style</h3>
+
+          <div class="settings-grid">
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+              <label>Writing Voice & Style</label>
+              <span class="setting-desc">Describe your voice in 1-2 sentences. Click "AI Expand" to turn rough notes into detailed instructions.</span>
+              <textarea id="linkedin-voice-style" rows="3" placeholder="e.g. Direct, data-driven, no fluff. Mix short punchy sentences with longer analytical ones." style="width:100%;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);"></textarea>
+              <div style="display:flex;gap:6px;">
+                <button onclick="saveLinkedInSetting('linkedin.voiceStyle', 'linkedin-voice-style')">Save</button>
+                <button onclick="expandWithAI('linkedin-voice-style', 'Expand this rough description of a LinkedIn writing voice into detailed, actionable instructions for an AI writer. Cover tone, sentence structure, vocabulary level, and formatting preferences. Keep it under 200 words.')" style="background:var(--accent);color:white;">AI Expand</button>
+              </div>
+            </div>
+
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+              <label>Writing Rules</label>
+              <span class="setting-desc">Rules for formatting, sentence structure, things to avoid. Click "AI Expand" to flesh out.</span>
+              <textarea id="linkedin-writing-rules" rows="3" placeholder="e.g. No emojis, short paragraphs, always end with a question, use numbers and data" style="width:100%;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);"></textarea>
+              <div style="display:flex;gap:6px;">
+                <button onclick="saveLinkedInSetting('linkedin.writingRules', 'linkedin-writing-rules')">Save</button>
+                <button onclick="expandWithAI('linkedin-writing-rules', 'Expand these rough writing rules into a clear, comprehensive set of LinkedIn content guidelines. Cover sentence structure, formatting, paragraph length, what to avoid, and what to always include. Keep it under 200 words.')" style="background:var(--accent);color:white;">AI Expand</button>
+              </div>
+            </div>
+
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+              <label>Content Direction</label>
+              <span class="setting-desc">Topics, themes, angles to focus on. Click "AI Expand" to turn into a content strategy.</span>
+              <textarea id="linkedin-content-direction" rows="3" placeholder="e.g. SEO, AI tools, agency growth, contrarian takes on marketing trends" style="width:100%;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);"></textarea>
+              <div style="display:flex;gap:6px;">
+                <button onclick="saveLinkedInSetting('linkedin.contentDirection', 'linkedin-content-direction')">Save</button>
+                <button onclick="expandWithAI('linkedin-content-direction', 'Expand these rough topic notes into a focused LinkedIn content direction. Cover key themes, target audience, preferred angles, and content pillars. Keep it under 200 words.')" style="background:var(--accent);color:white;">AI Expand</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="info-box" style="margin-top: 12px;">
+            <p>
+              <strong>Setup:</strong> The first tool call will install a Python virtual environment and Chrome browser (~60s).
+              Authentication requires running <code>python3 src/skills/linkedin/scripts/run.py auth_manager setup</code> from terminal,
+              or ask the agent to check auth status.
+            </p>
+            <p style="margin-top: 6px;">
+              <strong>Data location:</strong> Browser state and venv are stored at <code>~/.pocket-agent/linkedin/</code> (survives app updates).
+            </p>
+          </div>
+        </div>
+      </section>
+
       <!-- Memory Section -->
       <section id="memory" class="section">
         <h2 class="section-title">Memory & Search</h2>
@@ -2843,6 +2932,27 @@
       const gmailRecipient = document.getElementById('gmail-default-recipient');
       if (gmailRecipient && settings['gmail.defaultRecipient']) gmailRecipient.value = settings['gmail.defaultRecipient'];
 
+      // LinkedIn toggles + fields
+      const linkedinToggle = document.getElementById('linkedin.enabled-toggle');
+      if (linkedinToggle) {
+        const linkedinEnabled = settings['linkedin.enabled'] === 'true';
+        linkedinToggle.classList.toggle('active', linkedinEnabled);
+        const linkedinConfig = document.getElementById('linkedin-config');
+        if (linkedinConfig) linkedinConfig.style.opacity = linkedinEnabled ? '1' : '0.5';
+      }
+      const linkedinAutoConfirm = document.getElementById('linkedin.autoConfirm-toggle');
+      if (linkedinAutoConfirm) linkedinAutoConfirm.classList.toggle('active', settings['linkedin.autoConfirm'] === 'true');
+      const linkedinKeywords = document.getElementById('linkedin-feed-keywords');
+      if (linkedinKeywords && settings['linkedin.feedKeywords']) linkedinKeywords.value = settings['linkedin.feedKeywords'];
+      const linkedinPersons = document.getElementById('linkedin-feed-persons');
+      if (linkedinPersons && settings['linkedin.feedPersons']) linkedinPersons.value = settings['linkedin.feedPersons'];
+      const linkedinVoice = document.getElementById('linkedin-voice-style');
+      if (linkedinVoice && settings['linkedin.voiceStyle']) linkedinVoice.value = settings['linkedin.voiceStyle'];
+      const linkedinRules = document.getElementById('linkedin-writing-rules');
+      if (linkedinRules && settings['linkedin.writingRules']) linkedinRules.value = settings['linkedin.writingRules'];
+      const linkedinDirection = document.getElementById('linkedin-content-direction');
+      if (linkedinDirection && settings['linkedin.contentDirection']) linkedinDirection.value = settings['linkedin.contentDirection'];
+
       // Browser toggle
       const browserToggle = document.getElementById('browser.enabled-toggle');
       const browserEnabled = settings['browser.enabled'] === 'true';
@@ -3153,6 +3263,55 @@
         showToast('Save failed', 'error');
         checkbox.checked = !checkbox.checked;
       }
+    }
+
+    // ====================================================================
+    // LinkedIn UI
+    // ====================================================================
+
+    async function saveLinkedInSetting(settingKey, inputId) {
+      const input = document.getElementById(inputId);
+      const value = input.value.trim();
+      try {
+        await window.pocketAgent.setSetting(settingKey, value);
+        settings[settingKey] = value;
+        showToast('Saved!', 'success');
+        activateReboot();
+      } catch (err) {
+        console.error('Failed to save linkedin setting:', err);
+        showToast('Save failed, try again?', 'error');
+      }
+    }
+
+    async function expandWithAI(textareaId, systemInstruction) {
+      const textarea = document.getElementById(textareaId);
+      const rawText = textarea.value.trim();
+      if (!rawText) {
+        showToast('Write something first, then click AI Expand', 'error');
+        return;
+      }
+      textarea.disabled = true;
+      const originalText = textarea.value;
+      textarea.value = 'Expanding with AI...';
+      try {
+        const result = await window.pocketAgent.sendMessage(
+          `[SYSTEM TASK - DO NOT CHAT] ${systemInstruction}\n\nUser input to expand:\n${rawText}\n\nReturn ONLY the expanded text, nothing else. No greetings, no explanations.`
+        );
+        if (result && result.response) {
+          // Strip any markdown code blocks the AI might wrap it in
+          let cleaned = result.response.replace(/^```[\s\S]*?\n/, '').replace(/\n```$/, '').trim();
+          textarea.value = cleaned;
+          showToast('Expanded! Review and click Save', 'success');
+        } else {
+          textarea.value = originalText;
+          showToast('AI expansion failed — check your API key', 'error');
+        }
+      } catch (err) {
+        console.error('AI expand failed:', err);
+        textarea.value = originalText;
+        showToast('AI expansion failed', 'error');
+      }
+      textarea.disabled = false;
     }
 
     // ====================================================================

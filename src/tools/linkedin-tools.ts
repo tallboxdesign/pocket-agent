@@ -421,7 +421,12 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
   const style = (p.style && LINKEDIN_STYLES.includes(p.style as typeof LINKEDIN_STYLES[number]))
     ? p.style : 'insight';
 
-  const systemPrompt = `You are a LinkedIn content writer. Write a LinkedIn post following these rules:
+  // Load user's voice/rules/direction from settings
+  const voiceStyle = SettingsManager.get('linkedin.voiceStyle') || '';
+  const writingRules = SettingsManager.get('linkedin.writingRules') || '';
+  const contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
+
+  let systemPrompt = `You are a LinkedIn content writer. Write a LinkedIn post following these rules:
 - Start with a strong hook line (first 1-2 lines are critical for engagement)
 - Use short paragraphs (1-3 sentences each)
 - Include line breaks between paragraphs for readability
@@ -430,6 +435,10 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
 - Keep it under 1300 characters for optimal engagement
 - Style: ${STYLE_INSTRUCTIONS[style] || STYLE_INSTRUCTIONS.insight}
 - Write the post text ONLY — no meta-commentary, no "here's a draft", just the post content.`;
+
+  if (voiceStyle) systemPrompt += `\n\nUSER'S WRITING VOICE:\n${voiceStyle}`;
+  if (writingRules) systemPrompt += `\n\nWRITING RULES:\n${writingRules}`;
+  if (contentDirection) systemPrompt += `\n\nCONTENT DIRECTION:\n${contentDirection}`;
 
   let userMessage = `Topic: ${p.topic}`;
   if (p.research_report) {
@@ -486,16 +495,137 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
 }
 
 // ============================================================================
+// Draft LinkedIn Comment Tool
+// ============================================================================
+
+function getDraftCommentToolDefinition() {
+  return {
+    name: 'draft_linkedin_comment',
+    description: `Generate a comment draft for a LinkedIn post, stored in Kanban for review before posting.
+
+Reads the post content (via text_preview or full text) and generates a relevant, engaging comment.
+Stores the draft as a Kanban task in the "LinkedIn" project with status "review".
+After user approval, use linkedin_comment to post it.
+
+Examples:
+- draft_linkedin_comment(post_url="https://...", post_text="...", tone="supportive")
+- draft_linkedin_comment(post_url="https://...", post_text="...", tone="insightful", instruction="mention our experience with RAG")`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        post_url: { type: 'string', description: 'LinkedIn post URL to comment on' },
+        post_text: { type: 'string', description: 'Post content (text_preview or full text)' },
+        post_author: { type: 'string', description: 'Post author name (for context)' },
+        tone: { type: 'string', description: 'Comment tone: supportive, insightful, contrarian, curious, congratulatory (default: insightful)' },
+        instruction: { type: 'string', description: 'Optional specific instruction for the comment (e.g. "mention our product", "share a personal anecdote")' },
+      },
+      required: ['post_url', 'post_text'],
+    },
+  };
+}
+
+const COMMENT_TONES: Record<string, string> = {
+  supportive: 'Agree with the author and add value by sharing a complementary perspective or example.',
+  insightful: 'Add a unique insight, data point, or perspective that extends the conversation.',
+  contrarian: 'Respectfully challenge or offer an alternative viewpoint. Be constructive, not combative.',
+  curious: 'Ask a thoughtful follow-up question that shows genuine interest and sparks discussion.',
+  congratulatory: 'Celebrate the author\'s achievement or milestone with genuine enthusiasm.',
+};
+
+async function handleDraftCommentTool(input: unknown): Promise<string> {
+  const err = checkEnabled();
+  if (err) return err;
+
+  const p = input as { post_url: string; post_text: string; post_author?: string; tone?: string; instruction?: string };
+  if (!p.post_url || !p.post_text) {
+    return JSON.stringify({ error: 'post_url and post_text are required' });
+  }
+
+  if (!isGlmConfigured()) {
+    return JSON.stringify({ error: 'GLM not configured. Set up a worker model in Settings > Keys to generate comment drafts.' });
+  }
+
+  const tone = (p.tone && p.tone in COMMENT_TONES) ? p.tone : 'insightful';
+
+  // Load user's voice/rules from settings
+  const voiceStyle = SettingsManager.get('linkedin.voiceStyle') || '';
+  const writingRules = SettingsManager.get('linkedin.writingRules') || '';
+
+  let systemPrompt = `You are writing a LinkedIn comment. Follow these rules:
+- Keep it concise (2-4 sentences max)
+- Be genuine and add value — no generic "Great post!" comments
+- ${COMMENT_TONES[tone]}
+- Do NOT use hashtags in comments
+- Do NOT start with "Great post" or "Thanks for sharing"
+- Write the comment text ONLY — no meta-commentary.`;
+
+  if (voiceStyle) systemPrompt += `\n\nUSER'S WRITING VOICE:\n${voiceStyle}`;
+  if (writingRules) systemPrompt += `\n\nWRITING RULES:\n${writingRules}`;
+
+  let userMessage = `Post by ${p.post_author || 'someone'}:\n${p.post_text.slice(0, 2000)}`;
+  if (p.instruction) {
+    userMessage += `\n\nSpecific instruction: ${p.instruction}`;
+  }
+
+  try {
+    const result = await glmChat({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      maxTokens: 512,
+      temperature: 0.7,
+    });
+
+    if (!result.success || !result.content) {
+      return JSON.stringify({ success: false, error: result.error || 'Failed to generate comment draft' });
+    }
+
+    const draft = result.content.trim();
+
+    // Get or create LinkedIn project
+    let project = KanbanService.getProjectByName('LinkedIn');
+    if (!project) {
+      project = KanbanService.createProject('LinkedIn', 'LinkedIn content drafts and posts', '#0a66c2');
+    }
+
+    const title = `Comment on ${p.post_author ? p.post_author + "'s post" : 'post'}: ${p.post_text.slice(0, 60)}...`;
+    const task = KanbanService.createTask({
+      project_id: project.id,
+      title: title.slice(0, 120),
+      description: `${draft}\n\n---\nPost URL: ${p.post_url}`,
+      status: 'review',
+      priority: 'medium',
+      tags: 'linkedin,comment',
+    });
+
+    return JSON.stringify({
+      success: true,
+      draft,
+      post_url: p.post_url,
+      kanban_task_id: task.id,
+      kanban_project_id: project.id,
+      tone,
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[LinkedIn] draft_comment failed:', msg);
+    return JSON.stringify({ success: false, error: msg });
+  }
+}
+
+// ============================================================================
 // Revise LinkedIn Draft Tool
 // ============================================================================
 
 function getReviseDraftToolDefinition() {
   return {
     name: 'revise_linkedin_draft',
-    description: `Revise an existing LinkedIn post draft based on user feedback.
+    description: `Revise an existing LinkedIn draft (post or comment) based on user feedback.
 
 Reads the current draft from a Kanban task, applies the feedback using AI, and updates the task.
 The task stays in "review" status for further iteration or approval.
+Works with both post drafts (from draft_linkedin_post) and comment drafts (from draft_linkedin_comment).
 
 Examples:
 - revise_linkedin_draft(kanban_task_id=42, feedback="Make it shorter and more punchy")
@@ -587,6 +717,7 @@ export function getLinkedInTools() {
     { ...getAuthStatusToolDefinition(), handler: handleAuthStatusTool },
     { ...getClassifyPostsToolDefinition(), handler: handleClassifyPostsTool },
     { ...getDraftPostToolDefinition(), handler: handleDraftPostTool },
+    { ...getDraftCommentToolDefinition(), handler: handleDraftCommentTool },
     { ...getReviseDraftToolDefinition(), handler: handleReviseDraftTool },
   ];
 }

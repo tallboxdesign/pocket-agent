@@ -127,6 +127,7 @@
       "dist/**/*",
       "ui/**/*",
       "assets/**/*",
+      "src/skills/**/*",
       "package.json"
     ],
     "extraResources": [

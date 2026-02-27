@@ -198,6 +198,7 @@ export const TOOL_TIMEOUTS = {
   // LinkedIn content pipeline tools - GLM calls
   classify_linkedin_posts: 30000,
   draft_linkedin_post: 45000,
+  draft_linkedin_comment: 45000,
   revise_linkedin_draft: 45000,
 } as const;
 

@@ -20,6 +20,7 @@ import { getKanbanTools } from './kanban-tools';
 import { getGmailTools } from './gmail-tools';
 import { getGlmWorkerTools } from './glm-worker';
 import { getVoiceTools } from './voice-tools';
+import { getLinkedInTools } from './linkedin-tools';
 import { getProjectTools } from './project-tools';
 import {
   getSendTelegramPhotoToolDefinition,
@@ -458,6 +459,30 @@ export async function buildSdkMcpServers(
       tools.push(sdkTool);
     }
 
+    // LinkedIn tools (with diagnostics wrapper)
+    const linkedInTools = getLinkedInTools();
+    for (const liTool of linkedInTools) {
+      const wrappedHandler = wrapToolHandler(liTool.name, liTool.handler, getToolTimeout(liTool.name));
+      const sdkTool = tool(
+        liTool.name,
+        liTool.description,
+        Object.fromEntries(
+          Object.entries(liTool.input_schema.properties || {}).map(([key, value]: [string, unknown]) => {
+            const prop = value as { type?: string };
+            if (prop.type === 'string') return [key, z.string().optional()];
+            if (prop.type === 'number') return [key, z.number().optional()];
+            if (prop.type === 'boolean') return [key, z.boolean().optional()];
+            return [key, z.any().optional()];
+          })
+        ),
+        async (args) => {
+          const result = await wrappedHandler(args);
+          return { content: [{ type: 'text', text: result }] };
+        }
+      );
+      tools.push(sdkTool);
+    }
+
     // Telegram photo tool
     const wrappedPhotoHandler = wrapToolHandler('send_telegram_photo', handleSendTelegramPhotoTool, getToolTimeout('send_telegram_photo'));
     const photoTool = tool(
@@ -672,6 +697,17 @@ export function getCustomTools(config: ToolsConfig): Array<{
       description: projTool.description,
       input_schema: projTool.input_schema as Record<string, unknown>,
       handler: projTool.handler,
+    });
+  }
+
+  // LinkedIn tools
+  const linkedInToolsCustom = getLinkedInTools();
+  for (const liTool of linkedInToolsCustom) {
+    tools.push({
+      name: liTool.name,
+      description: liTool.description,
+      input_schema: liTool.input_schema as Record<string, unknown>,
+      handler: liTool.handler,
     });
   }
 
