@@ -70,6 +70,10 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   listLinkedInPosts: (date: string) => ipcRenderer.invoke('linkedin:listPosts', date),
   rejectLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:rejectDraft', id),
   updateLinkedInDraft: (id: number, text: string) => ipcRenderer.invoke('linkedin:updateDraft', id, text),
+  hideLinkedInPost: (id: number) => ipcRenderer.invoke('linkedin:hidePost', id),
+  snoozeLinkedInPost: (id: number, days: number) => ipcRenderer.invoke('linkedin:snoozePost', id, days),
+  setLinkedInPriority: (id: number, priority: string) => ipcRenderer.invoke('linkedin:setPriority', id, priority),
+  scheduleLinkedInPost: (id: number, datetime: string) => ipcRenderer.invoke('linkedin:schedulePost', id, datetime),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   openPath: (filePath: string) => ipcRenderer.invoke('app:openPath', filePath),
   showInFolder: (filePath: string) => ipcRenderer.invoke('app:showInFolder', filePath),
@@ -336,9 +340,13 @@ declare global {
       openCustomize: () => Promise<void>;
       openRoutines: () => Promise<void>;
       openLinkedInActivity: () => Promise<void>;
-      listLinkedInPosts: (date: string) => Promise<Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string }>>;
+      listLinkedInPosts: (date: string) => Promise<{ posts: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string; priority: string; scheduled_at: string | null; snoozed_until: string | null; hidden: number }>; snoozed: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; snoozed_until: string; priority: string }> }>;
       rejectLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string }>;
       updateLinkedInDraft: (id: number, text: string) => Promise<{ success: boolean; error?: string }>;
+      hideLinkedInPost: (id: number) => Promise<{ success: boolean; error?: string }>;
+      snoozeLinkedInPost: (id: number, days: number) => Promise<{ success: boolean; error?: string }>;
+      setLinkedInPriority: (id: number, priority: string) => Promise<{ success: boolean; error?: string }>;
+      scheduleLinkedInPost: (id: number, datetime: string) => Promise<{ success: boolean; error?: string }>;
       openExternal: (url: string) => Promise<void>;
       openPath: (filePath: string) => Promise<void>;
       showInFolder: (filePath: string) => Promise<void>;

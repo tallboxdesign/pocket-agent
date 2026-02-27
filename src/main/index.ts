@@ -1722,11 +1722,15 @@ function setupIPC(): void {
       if (!dbPath) return [];
       const db = new Database(dbPath, { readonly: true });
       db.pragma('journal_mode = WAL');
-      const rows = db.prepare(
-        'SELECT * FROM linkedin_posts WHERE scraped_date = ? ORDER BY (reactions + comments) DESC'
+      const priorityOrder = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
+      const posts = db.prepare(
+        `SELECT * FROM linkedin_posts WHERE scraped_date = ? AND hidden = 0 AND (snoozed_until IS NULL OR snoozed_until <= datetime('now')) ORDER BY ${priorityOrder}, (reactions + comments) DESC`
+      ).all(date);
+      const snoozed = db.prepare(
+        `SELECT * FROM linkedin_posts WHERE scraped_date = ? AND hidden = 0 AND snoozed_until > datetime('now') ORDER BY snoozed_until ASC`
       ).all(date);
       db.close();
-      return rows;
+      return { posts, snoozed };
     } catch (err) {
       console.error('[LinkedIn] Failed to list posts:', err);
       return [];
@@ -1802,6 +1806,135 @@ function setupIPC(): void {
       return { success: true };
     } catch (err) {
       console.error('[LinkedIn] Failed to update draft:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:hidePost', async (_, postId: number) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      db.prepare('UPDATE linkedin_posts SET hidden = 1 WHERE id = ?').run(postId);
+      db.close();
+      return { success: true };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to hide post:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:snoozePost', async (_, postId: number, days: number) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      // Snapshot engagement and set snooze
+      const post = db.prepare('SELECT reactions, comments, author, post_url FROM linkedin_posts WHERE id = ?').get(postId) as { reactions: number; comments: number; author: string; post_url: string } | undefined;
+      if (!post) { db.close(); return { success: false, error: 'Post not found' }; }
+      db.prepare(
+        `UPDATE linkedin_posts SET snoozed_until = datetime('now', '+' || ? || ' days'), reactions_at_snooze = ?, comments_at_snooze = ? WHERE id = ?`
+      ).run(days, post.reactions, post.comments, postId);
+      // Create one-time cron job to re-check
+      const snoozedUntil = db.prepare(`SELECT datetime('now', '+' || ? || ' days') as t`).get(days) as { t: string };
+      const jobName = `linkedin-snooze-${postId}-${Date.now()}`;
+      db.prepare(
+        `INSERT INTO cron_jobs (name, schedule_type, run_at, prompt, channel, enabled, delete_after_run, session_id, status) VALUES (?, 'at', ?, ?, 'desktop', 1, 1, 'default', 'pending')`
+      ).run(
+        jobName,
+        snoozedUntil.t,
+        `Check snoozed LinkedIn post #${postId} by ${post.author} (${post.post_url}). Original engagement: ${post.reactions} reactions, ${post.comments} comments. Use linkedin_read_post to get current engagement. If reactions or comments grew by 20%+, draft a comment. Otherwise dismiss it by clearing the snooze.`
+      );
+      db.close();
+      return { success: true };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to snooze post:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:setPriority', async (_, postId: number, priority: string) => {
+    try {
+      const validPriorities = ['low', 'normal', 'high', 'urgent'];
+      if (!validPriorities.includes(priority)) return { success: false, error: 'Invalid priority' };
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      db.prepare('UPDATE linkedin_posts SET priority = ? WHERE id = ?').run(priority, postId);
+      db.close();
+      return { success: true };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to set priority:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:schedulePost', async (_, postId: number, datetime: string) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      const post = db.prepare('SELECT post_url, comment_draft FROM linkedin_posts WHERE id = ?').get(postId) as { post_url: string; comment_draft: string | null } | undefined;
+      if (!post) { db.close(); return { success: false, error: 'Post not found' }; }
+      if (!post.comment_draft) { db.close(); return { success: false, error: 'No draft to schedule' }; }
+      db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(datetime, postId);
+      // Create one-time cron job
+      const jobName = `linkedin-schedule-${postId}-${Date.now()}`;
+      db.prepare(
+        `INSERT INTO cron_jobs (name, schedule_type, run_at, prompt, channel, enabled, delete_after_run, session_id, status) VALUES (?, 'at', ?, ?, 'desktop', 1, 1, 'default', 'pending')`
+      ).run(
+        jobName,
+        datetime,
+        `Post the approved LinkedIn comment on ${post.post_url}: ${post.comment_draft}`
+      );
+      db.close();
+      return { success: true };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to schedule post:', err);
       return { success: false, error: String(err) };
     }
   });

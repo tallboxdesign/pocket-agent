@@ -573,6 +573,32 @@ export class MemoryManager {
     } catch {
       // Indexes may already exist
     }
+
+    // LinkedIn posts: add management columns
+    if (!hasColumn('linkedin_posts', 'priority')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN priority TEXT DEFAULT 'normal'`);
+      console.log('[Memory] Migrated linkedin_posts: added priority column');
+    }
+    if (!hasColumn('linkedin_posts', 'scheduled_at')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN scheduled_at TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added scheduled_at column');
+    }
+    if (!hasColumn('linkedin_posts', 'snoozed_until')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN snoozed_until TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added snoozed_until column');
+    }
+    if (!hasColumn('linkedin_posts', 'hidden')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN hidden INTEGER DEFAULT 0`);
+      console.log('[Memory] Migrated linkedin_posts: added hidden column');
+    }
+    if (!hasColumn('linkedin_posts', 'reactions_at_snooze')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN reactions_at_snooze INTEGER`);
+      console.log('[Memory] Migrated linkedin_posts: added reactions_at_snooze column');
+    }
+    if (!hasColumn('linkedin_posts', 'comments_at_snooze')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN comments_at_snooze INTEGER`);
+      console.log('[Memory] Migrated linkedin_posts: added comments_at_snooze column');
+    }
   }
 
   /**

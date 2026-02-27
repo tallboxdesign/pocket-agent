@@ -167,12 +167,13 @@
     }
 
     .col-num { width: 36px; color: var(--text-muted); text-align: center; }
+    .col-priority { width: 32px; text-align: center; }
     .col-author { width: 140px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .col-preview { color: var(--text-secondary); line-height: 1.4; max-width: 300px; }
     .col-stats { width: 50px; text-align: center; color: var(--text-muted); font-size: 12px; }
     .col-type { width: 70px; }
-    .col-status { width: 80px; text-align: center; }
-    .col-link { width: 44px; text-align: center; }
+    .col-status { width: 100px; text-align: center; }
+    .col-actions { width: 80px; text-align: center; }
 
     .badge {
       display: inline-block;
@@ -192,7 +193,39 @@
       color: var(--accent-hover);
     }
 
-    .link-btn {
+    .badge-draft {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+    }
+
+    .badge-scheduled {
+      background: rgba(96, 165, 250, 0.15);
+      color: #60a5fa;
+      font-size: 10px;
+    }
+
+    .badge-snoozed {
+      background: rgba(168, 85, 247, 0.12);
+      color: var(--accent-hover);
+    }
+
+    /* Priority dot */
+    .priority-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      display: inline-block;
+      cursor: pointer;
+      transition: transform 0.15s ease;
+      border: 2px solid transparent;
+    }
+    .priority-dot:hover { transform: scale(1.3); }
+    .priority-low { background: #636366; border-color: #4a4a4e; }
+    .priority-normal { background: transparent; border-color: #636366; }
+    .priority-high { background: #f59e0b; border-color: #d97706; }
+    .priority-urgent { background: #ef4444; border-color: #dc2626; }
+
+    .icon-btn {
       background: none;
       border: none;
       color: var(--text-muted);
@@ -205,9 +238,42 @@
       justify-content: center;
     }
 
-    .link-btn:hover {
+    .icon-btn:hover {
       background: rgba(168, 85, 247, 0.15);
       color: var(--accent);
+    }
+
+    .icon-btn.danger:hover {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--error);
+    }
+
+    /* Snooze dropdown */
+    .snooze-dropdown {
+      position: absolute;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px;
+      z-index: 100;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .snooze-dropdown button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px 12px;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .snooze-dropdown button:hover {
+      background: rgba(168, 85, 247, 0.15);
+      color: var(--text-primary);
     }
 
     .draft-toggle {
@@ -233,11 +299,6 @@
     }
 
     .draft-text.expanded { display: block; }
-
-    .badge-draft {
-      background: rgba(245, 158, 11, 0.15);
-      color: #fbbf24;
-    }
 
     .draft-actions {
       display: flex;
@@ -266,6 +327,8 @@
     .draft-actions .btn-edit:hover { background: rgba(96,165,250,0.15); }
     .draft-actions .btn-feedback { color: #c084fc; border-color: rgba(192,132,252,0.3); }
     .draft-actions .btn-feedback:hover { background: rgba(192,132,252,0.15); }
+    .draft-actions .btn-schedule { color: #60a5fa; border-color: rgba(96,165,250,0.3); }
+    .draft-actions .btn-schedule:hover { background: rgba(96,165,250,0.15); }
 
     .draft-edit-area {
       width: 100%;
@@ -294,6 +357,18 @@
       font-size: 12px;
     }
 
+    input[type="datetime-local"] {
+      background: var(--bg-primary);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      color: var(--text-primary);
+      padding: 4px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      color-scheme: dark;
+      margin-top: 6px;
+    }
+
     .empty-state {
       display: flex;
       flex-direction: column;
@@ -316,6 +391,7 @@
       border-bottom: 1px solid var(--border);
       background: var(--bg-secondary);
       flex-shrink: 0;
+      flex-wrap: wrap;
     }
 
     .action-btn {
@@ -396,6 +472,27 @@
       background: var(--border);
       margin: 0 4px;
     }
+
+    /* Snoozed section */
+    .snoozed-section {
+      border-top: 2px solid var(--border);
+      margin-top: 8px;
+    }
+    .snoozed-header {
+      padding: 8px 16px;
+      background: var(--bg-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      user-select: none;
+    }
+    .snoozed-header:hover { color: var(--text-secondary); }
+    .snoozed-header .arrow { transition: transform 0.2s; }
+    .snoozed-header.collapsed .arrow { transform: rotate(-90deg); }
 
     .toast {
       position: fixed;
@@ -486,6 +583,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       Full Pipeline
     </button>
+    <button class="action-btn" onclick="scheduleAllDrafts()" title="Distribute unscheduled drafts across posting windows" style="background:rgba(96,165,250,0.12);color:#60a5fa;border-color:rgba(96,165,250,0.25);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Schedule All Drafts
+    </button>
     <div class="divider"></div>
     <button class="action-btn" onclick="sendToAgent('Show me today\'s LinkedIn posts from the database using linkedin_today_posts')" title="Recall today's saved posts">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -512,7 +613,14 @@
       if (normalClickSound) { normalClickSound.currentTime = 0; normalClickSound.play().catch(() => {}); }
     }
     document.addEventListener('click', (e) => {
-      if (e.target.closest('button, input, .draft-toggle, .link-btn')) playNormalClick();
+      if (e.target.closest('button, input, .draft-toggle, .icon-btn, .priority-dot')) playNormalClick();
+    });
+
+    // Close any open dropdowns on outside click
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.snooze-dropdown') && !e.target.closest('.snooze-btn')) {
+        document.querySelectorAll('.snooze-dropdown').forEach(d => d.remove());
+      }
     });
 
     // Default date to today
@@ -520,6 +628,12 @@
     const today = new Date();
     datePicker.value = today.toISOString().split('T')[0];
     datePicker.addEventListener('change', () => loadPosts());
+
+    // Auto-refresh every 10 seconds
+    let refreshInterval = setInterval(loadPosts, 10000);
+    window.addEventListener('beforeunload', () => clearInterval(refreshInterval));
+
+    const PRIORITY_ORDER = ['low', 'normal', 'high', 'urgent'];
 
     function escapeHtml(text) {
       const div = document.createElement('div');
@@ -537,10 +651,106 @@
       if (el) el.classList.toggle('expanded');
     }
 
+    function cyclePriority(postId, current) {
+      const idx = PRIORITY_ORDER.indexOf(current || 'normal');
+      const next = PRIORITY_ORDER[(idx + 1) % PRIORITY_ORDER.length];
+      window.pocketAgent.setLinkedInPriority(postId, next).then(() => loadPosts());
+    }
+
+    function priorityDot(postId, priority) {
+      const p = priority || 'normal';
+      return `<span class="priority-dot priority-${p}" onclick="cyclePriority(${postId}, '${p}')" title="${p}"></span>`;
+    }
+
+    function formatScheduleTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso + 'Z');
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function hidePost(postId) {
+      try {
+        await window.pocketAgent.hideLinkedInPost(postId);
+        showToast('Post hidden', 'success');
+        loadPosts();
+      } catch (err) {
+        showToast('Failed to hide post', 'error');
+      }
+    }
+
+    function showSnoozeDropdown(postId, btn) {
+      document.querySelectorAll('.snooze-dropdown').forEach(d => d.remove());
+      const dd = document.createElement('div');
+      dd.className = 'snooze-dropdown';
+      dd.innerHTML = `
+        <button onclick="snoozePost(${postId}, 1)">1 day</button>
+        <button onclick="snoozePost(${postId}, 3)">3 days</button>
+        <button onclick="snoozePost(${postId}, 7)">7 days</button>
+      `;
+      const rect = btn.getBoundingClientRect();
+      dd.style.top = (rect.bottom + 4) + 'px';
+      dd.style.left = rect.left + 'px';
+      document.body.appendChild(dd);
+    }
+
+    async function snoozePost(postId, days) {
+      document.querySelectorAll('.snooze-dropdown').forEach(d => d.remove());
+      try {
+        await window.pocketAgent.snoozeLinkedInPost(postId, days);
+        showToast(`Post snoozed for ${days} day${days > 1 ? 's' : ''}`, 'success');
+        loadPosts();
+      } catch (err) {
+        showToast('Failed to snooze post', 'error');
+      }
+    }
+
+    function showSchedulePicker(postId) {
+      const el = document.getElementById('draft-content-' + postId);
+      if (!el) return;
+      const existing = el.querySelector('.schedule-picker');
+      if (existing) { existing.remove(); return; }
+      const wrapper = document.createElement('div');
+      wrapper.className = 'schedule-picker';
+      wrapper.style.marginTop = '6px';
+      wrapper.innerHTML = `<input type="datetime-local" id="sched-${postId}" />
+        <div class="draft-actions" style="margin-top:4px">
+          <button class="btn-schedule" onclick="confirmSchedule(${postId})">Schedule</button>
+          <button onclick="this.closest('.schedule-picker').remove()">Cancel</button>
+        </div>`;
+      el.appendChild(wrapper);
+      // Default to next hour
+      const now = new Date();
+      now.setHours(now.getHours() + 1, 0, 0, 0);
+      const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      document.getElementById('sched-' + postId).value = local;
+    }
+
+    async function confirmSchedule(postId) {
+      const input = document.getElementById('sched-' + postId);
+      if (!input || !input.value) return;
+      // Convert local datetime to ISO/UTC
+      const dt = new Date(input.value);
+      const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
+      try {
+        await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        showToast('Comment scheduled', 'success');
+        loadPosts();
+      } catch (err) {
+        showToast('Failed to schedule', 'error');
+      }
+    }
+
+    async function scheduleAllDrafts() {
+      sendToAgent('Schedule all unscheduled LinkedIn draft comments for today. Distribute them across my configured posting windows (linkedin.postingWindows setting, default 09:00-11:00,14:00-16:00) with the configured comment delay between each. Use priority order: urgent first, then high, then normal, then low.');
+    }
+
     async function loadPosts() {
       try {
         const date = datePicker.value;
-        const posts = await window.pocketAgent.listLinkedInPosts(date);
+        const result = await window.pocketAgent.listLinkedInPosts(date);
+        // Handle both old format (array) and new format ({posts, snoozed})
+        const posts = Array.isArray(result) ? result : (result.posts || []);
+        const snoozed = Array.isArray(result) ? [] : (result.snoozed || []);
         const content = document.getElementById('content');
         const countEl = document.getElementById('post-count');
 
@@ -549,9 +759,10 @@
         const parts = [`${posts.length} posts`];
         if (drafted) parts.push(`${drafted} drafted`);
         if (commented) parts.push(`${commented} commented`);
+        if (snoozed.length) parts.push(`${snoozed.length} snoozed`);
         countEl.textContent = `(${parts.join(', ')})`;
 
-        if (posts.length === 0) {
+        if (posts.length === 0 && snoozed.length === 0) {
           content.innerHTML = `
             <div class="empty-state">
               <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -566,68 +777,117 @@
           return;
         }
 
-        content.innerHTML = `
+        let html = `
           <table class="posts-table">
             <thead>
               <tr>
                 <th class="col-num">#</th>
+                <th class="col-priority">Pri</th>
                 <th>Author</th>
                 <th>Preview</th>
                 <th class="col-stats">Reacts</th>
                 <th class="col-stats">Cmts</th>
                 <th>Type</th>
                 <th class="col-status">Status</th>
-                <th class="col-link">Link</th>
+                <th class="col-actions">Actions</th>
               </tr>
             </thead>
             <tbody>
-              ${posts.map((p, i) => `
-                <tr class="${p.commented ? 'commented' : ''}">
-                  <td class="col-num">${i + 1}</td>
-                  <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}</td>
-                  <td class="col-preview">
-                    ${escapeHtml(truncate(p.text_preview, 100))}
-                    ${p.comment_draft ? `
-                      <div class="draft-toggle" onclick="toggleDraft(${p.id})">Show draft</div>
-                      <div class="draft-text" id="draft-${p.id}">
-                        <div id="draft-content-${p.id}">${escapeHtml(p.comment_draft)}</div>
-                        ${!p.commented ? `
-                        <div class="draft-actions">
-                          <button class="btn-approve" onclick="approveDraft(${p.id}, '${escapeHtml(p.post_url)}', ${JSON.stringify(escapeHtml(p.comment_draft)).replace(/'/g, "\\'")})" title="Post this comment">Approve</button>
-                          <button class="btn-reject" onclick="rejectDraft(${p.id})" title="Clear draft">Reject</button>
-                          <button class="btn-edit" onclick="editDraft(${p.id})" title="Edit inline">Edit</button>
-                          <button class="btn-feedback" onclick="feedbackDraft(${p.id}, '${escapeHtml(p.post_url)}')" title="Send revision feedback">Feedback</button>
-                        </div>
-                        ` : ''}
-                      </div>
-                    ` : ''}
-                  </td>
-                  <td class="col-stats">${p.reactions || 0}</td>
-                  <td class="col-stats">${p.comments || 0}</td>
-                  <td class="col-type">${p.post_type ? `<span class="badge badge-type">${escapeHtml(p.post_type)}</span>` : ''}</td>
-                  <td class="col-status">
-                    ${p.commented ? '<span class="badge badge-commented">Replied</span>'
-                      : p.comment_draft ? '<span class="badge badge-draft">Draft</span>'
-                      : ''}
-                  </td>
-                  <td class="col-link">
-                    <button class="link-btn" onclick="window.pocketAgent.openExternal('${escapeHtml(p.post_url)}')" title="Open in browser">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                        <polyline points="15 3 21 3 21 9"/>
-                        <line x1="10" y1="14" x2="21" y2="3"/>
-                      </svg>
-                    </button>
-                  </td>
-                </tr>
-              `).join('')}
+              ${posts.map((p, i) => renderPostRow(p, i + 1)).join('')}
             </tbody>
           </table>
         `;
+
+        if (snoozed.length > 0) {
+          html += `
+            <div class="snoozed-section">
+              <div class="snoozed-header" onclick="toggleSnoozedSection(this)">
+                <span class="arrow">&#9660;</span> Snoozed (${snoozed.length})
+              </div>
+              <table class="posts-table" id="snoozed-table">
+                <tbody>
+                  ${snoozed.map((p, i) => `
+                    <tr>
+                      <td class="col-num" style="color:var(--text-muted)">${i + 1}</td>
+                      <td class="col-priority">${priorityDot(p.id, p.priority)}</td>
+                      <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}</td>
+                      <td class="col-preview">${escapeHtml(truncate(p.text_preview, 80))}</td>
+                      <td class="col-stats">${p.reactions || 0}</td>
+                      <td class="col-stats">${p.comments || 0}</td>
+                      <td class="col-type"><span class="badge badge-snoozed">Until ${new Date(p.snoozed_until + 'Z').toLocaleDateString()}</span></td>
+                      <td class="col-status"></td>
+                      <td class="col-actions">
+                        <button class="icon-btn" onclick="window.pocketAgent.openExternal('${escapeHtml(p.post_url)}')" title="Open in browser">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                        </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `;
+        }
+
+        content.innerHTML = html;
       } catch (error) {
         console.error('Error loading posts:', error);
         showToast('Could not load posts', 'error');
       }
+    }
+
+    function renderPostRow(p, idx) {
+      const statusBadges = [];
+      if (p.commented) statusBadges.push('<span class="badge badge-commented">Replied</span>');
+      else if (p.comment_draft) statusBadges.push('<span class="badge badge-draft">Draft</span>');
+      if (p.scheduled_at) statusBadges.push(`<span class="badge badge-scheduled">${formatScheduleTime(p.scheduled_at)}</span>`);
+
+      return `
+        <tr class="${p.commented ? 'commented' : ''}">
+          <td class="col-num">${idx}</td>
+          <td class="col-priority">${priorityDot(p.id, p.priority)}</td>
+          <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}</td>
+          <td class="col-preview">
+            ${escapeHtml(truncate(p.text_preview, 100))}
+            ${p.comment_draft ? `
+              <div class="draft-toggle" onclick="toggleDraft(${p.id})">Show draft</div>
+              <div class="draft-text" id="draft-${p.id}">
+                <div id="draft-content-${p.id}">${escapeHtml(p.comment_draft)}</div>
+                ${!p.commented ? `
+                <div class="draft-actions">
+                  <button class="btn-approve" onclick="approveDraft(${p.id}, '${escapeHtml(p.post_url)}', ${JSON.stringify(escapeHtml(p.comment_draft)).replace(/'/g, "\\'")})" title="Post this comment">Approve</button>
+                  <button class="btn-reject" onclick="rejectDraft(${p.id})" title="Clear draft">Reject</button>
+                  <button class="btn-edit" onclick="editDraft(${p.id})" title="Edit inline">Edit</button>
+                  <button class="btn-feedback" onclick="feedbackDraft(${p.id}, '${escapeHtml(p.post_url)}')" title="Send revision feedback">Feedback</button>
+                  <button class="btn-schedule" onclick="showSchedulePicker(${p.id})" title="Schedule posting time">Schedule</button>
+                </div>
+                ` : ''}
+              </div>
+            ` : ''}
+          </td>
+          <td class="col-stats">${p.reactions || 0}</td>
+          <td class="col-stats">${p.comments || 0}</td>
+          <td class="col-type">${p.post_type ? `<span class="badge badge-type">${escapeHtml(p.post_type)}</span>` : ''}</td>
+          <td class="col-status">${statusBadges.join(' ')}</td>
+          <td class="col-actions">
+            <button class="icon-btn danger" onclick="hidePost(${p.id})" title="Delete/hide post">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+            <button class="icon-btn snooze-btn" onclick="showSnoozeDropdown(${p.id}, this)" title="Snooze post">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </button>
+            <button class="icon-btn" onclick="window.pocketAgent.openExternal('${escapeHtml(p.post_url)}')" title="Open in browser">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </button>
+          </td>
+        </tr>
+      `;
+    }
+
+    function toggleSnoozedSection(header) {
+      header.classList.toggle('collapsed');
+      const table = document.getElementById('snoozed-table');
+      if (table) table.style.display = header.classList.contains('collapsed') ? 'none' : '';
     }
 
     function showToast(message, type = 'success') {
@@ -653,7 +913,7 @@
     function fullPipeline() {
       const count = document.getElementById('draft-count').value;
       const n = count === 'all' ? 'all relevant' : `the top ${count}`;
-      sendToAgent(`Full LinkedIn pipeline: Browse my feed, classify and filter posts, draft comments for ${n} posts using my voice and style, create kanban tasks for each, then post all approved comments with the configured delay between each. Show me a summary of what was drafted and the posting schedule.`);
+      sendToAgent(`Full LinkedIn pipeline: Browse my feed, classify and filter posts, draft comments for ${n} posts using my voice and style, create kanban tasks for each, then post all approved comments with the configured delay between each. Post in priority order (urgent first, then high, normal, low). Show me a summary of what was drafted and the posting schedule.`);
     }
 
     async function sendToAgent(prompt) {
@@ -668,6 +928,7 @@
 
     async function approveDraft(postId, postUrl, draftText) {
       sendToAgent(`Post this approved LinkedIn comment on ${postUrl}: ${draftText}`);
+      loadPosts();
     }
 
     async function rejectDraft(postId) {
