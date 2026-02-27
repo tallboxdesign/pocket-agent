@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;">
+  <title>LinkedIn Activity</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b;
+      --bg-secondary: #141415;
+      --bg-tertiary: #1c1c1e;
+      --border: #2a2a2d;
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1a6;
+      --text-muted: #636366;
+      --accent: #a855f7;
+      --accent-secondary: #ec4899;
+      --accent-hover: #c084fc;
+      --error: #ef4444;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --radius: 16px;
+      --radius-sm: 10px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header {
+      background: var(--bg-secondary);
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-family: 'Pixelify Sans', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    header h1 span {
+      background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .post-count {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-left: 10px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .header-actions button {
+      padding: 6px 14px;
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .header-actions button:hover {
+      background: var(--border);
+      color: var(--text-primary);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .header-actions button:active { transform: translateY(0); }
+
+    input[type="date"] {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      color-scheme: dark;
+    }
+
+    .content {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .content::-webkit-scrollbar { width: 8px; }
+    .content::-webkit-scrollbar-track { background: var(--bg-primary); }
+    .content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .content::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    .posts-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .posts-table th,
+    .posts-table td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .posts-table th {
+      background: var(--bg-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .posts-table td {
+      font-size: 13px;
+      vertical-align: top;
+    }
+
+    .posts-table tbody tr {
+      transition: background 0.1s ease;
+    }
+
+    .posts-table tbody tr:hover {
+      background: var(--bg-secondary);
+    }
+
+    .posts-table tbody tr.commented {
+      border-left: 3px solid var(--success);
+    }
+
+    .col-num { width: 36px; color: var(--text-muted); text-align: center; }
+    .col-author { width: 140px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .col-preview { color: var(--text-secondary); line-height: 1.4; max-width: 300px; }
+    .col-stats { width: 50px; text-align: center; color: var(--text-muted); font-size: 12px; }
+    .col-type { width: 70px; }
+    .col-status { width: 80px; text-align: center; }
+    .col-link { width: 44px; text-align: center; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-commented {
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+    }
+
+    .badge-type {
+      background: rgba(168, 85, 247, 0.12);
+      color: var(--accent-hover);
+    }
+
+    .link-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .link-btn:hover {
+      background: rgba(168, 85, 247, 0.15);
+      color: var(--accent);
+    }
+
+    .draft-toggle {
+      color: var(--accent-hover);
+      cursor: pointer;
+      font-size: 12px;
+      margin-top: 4px;
+      display: inline-block;
+    }
+
+    .draft-toggle:hover { text-decoration: underline; }
+
+    .draft-text {
+      display: none;
+      margin-top: 6px;
+      padding: 8px 10px;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .draft-text.expanded { display: block; }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 40px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .empty-state svg { margin-bottom: 16px; opacity: 0.4; }
+    .empty-state p { font-size: 14px; }
+    .empty-state .hint { font-size: 12px; margin-top: 8px; opacity: 0.7; }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      min-width: 200px;
+      max-width: 360px;
+      background: rgba(28, 28, 30, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 14px 18px;
+      border-radius: 14px;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: toastSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      z-index: 1000;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+      color: var(--text-primary);
+    }
+
+    .toast::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      width: 100%;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-secondary) 100%);
+      animation: toastProgress 2.5s linear forwards;
+      transform-origin: left;
+    }
+
+    .toast.error::before { background: linear-gradient(90deg, #ef4444 0%, #f87171 100%); }
+    .toast.exiting { animation: toastSlideOut 0.3s cubic-bezier(0.4, 0, 1, 1) forwards; }
+
+    @keyframes toastSlideIn {
+      0% { transform: translateX(100%) scale(0.8); opacity: 0; }
+      100% { transform: translateX(0) scale(1); opacity: 1; }
+    }
+    @keyframes toastSlideOut {
+      0% { transform: translateX(0) scale(1); opacity: 1; }
+      100% { transform: translateX(100%) scale(0.8); opacity: 0; }
+    }
+    @keyframes toastProgress {
+      from { transform: scaleX(1); }
+      to { transform: scaleX(0); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1><span>LinkedIn Activity</span></h1>
+      <span class="post-count" id="post-count"></span>
+    </div>
+    <div class="header-actions">
+      <input type="date" id="date-picker" />
+      <button onclick="playNormalClick(); loadPosts()">Refresh</button>
+      <button onclick="playNormalClick(); window.close()">Done</button>
+    </div>
+  </header>
+
+  <div class="content" id="content"></div>
+
+  <audio id="normal-click-sound" preload="auto" src="../assets/normal-click.mp3"></audio>
+
+  <script>
+    const normalClickSound = document.getElementById('normal-click-sound');
+    function playNormalClick() {
+      if (normalClickSound) { normalClickSound.currentTime = 0; normalClickSound.play().catch(() => {}); }
+    }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('button, input, .draft-toggle, .link-btn')) playNormalClick();
+    });
+
+    // Default date to today
+    const datePicker = document.getElementById('date-picker');
+    const today = new Date();
+    datePicker.value = today.toISOString().split('T')[0];
+    datePicker.addEventListener('change', () => loadPosts());
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
+    }
+
+    function truncate(text, max) {
+      if (!text) return '';
+      return text.length > max ? text.slice(0, max) + '...' : text;
+    }
+
+    function toggleDraft(id) {
+      const el = document.getElementById('draft-' + id);
+      if (el) el.classList.toggle('expanded');
+    }
+
+    async function loadPosts() {
+      try {
+        const date = datePicker.value;
+        const posts = await window.pocketAgent.listLinkedInPosts(date);
+        const content = document.getElementById('content');
+        const countEl = document.getElementById('post-count');
+
+        countEl.textContent = `(${posts.length})`;
+
+        if (posts.length === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                <line x1="8" y1="21" x2="16" y2="21"/>
+                <line x1="12" y1="17" x2="12" y2="21"/>
+              </svg>
+              <p>No posts scraped for this date</p>
+              <p class="hint">Browse your LinkedIn feed to populate the database</p>
+            </div>
+          `;
+          return;
+        }
+
+        content.innerHTML = `
+          <table class="posts-table">
+            <thead>
+              <tr>
+                <th class="col-num">#</th>
+                <th>Author</th>
+                <th>Preview</th>
+                <th class="col-stats">Reacts</th>
+                <th class="col-stats">Cmts</th>
+                <th>Type</th>
+                <th class="col-status">Status</th>
+                <th class="col-link">Link</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${posts.map((p, i) => `
+                <tr class="${p.commented ? 'commented' : ''}">
+                  <td class="col-num">${i + 1}</td>
+                  <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}</td>
+                  <td class="col-preview">
+                    ${escapeHtml(truncate(p.text_preview, 100))}
+                    ${p.comment_draft ? `
+                      <div class="draft-toggle" onclick="toggleDraft(${p.id})">Show draft</div>
+                      <div class="draft-text" id="draft-${p.id}">${escapeHtml(p.comment_draft)}</div>
+                    ` : ''}
+                  </td>
+                  <td class="col-stats">${p.reactions || 0}</td>
+                  <td class="col-stats">${p.comments || 0}</td>
+                  <td class="col-type">${p.post_type ? `<span class="badge badge-type">${escapeHtml(p.post_type)}</span>` : ''}</td>
+                  <td class="col-status">${p.commented ? '<span class="badge badge-commented">Replied</span>' : ''}</td>
+                  <td class="col-link">
+                    <button class="link-btn" onclick="window.pocketAgent.openExternal('${escapeHtml(p.post_url)}')" title="Open in browser">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                        <polyline points="15 3 21 3 21 9"/>
+                        <line x1="10" y1="14" x2="21" y2="3"/>
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (error) {
+        console.error('Error loading posts:', error);
+        showToast('Could not load posts', 'error');
+      }
+    }
+
+    function showToast(message, type = 'success') {
+      const existing = document.querySelector('.toast');
+      if (existing) { existing.classList.add('exiting'); setTimeout(() => existing.remove(), 300); }
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<div style="flex:1">${escapeHtml(message)}</div>`;
+      document.body.appendChild(toast);
+      setTimeout(() => { toast.classList.add('exiting'); setTimeout(() => toast.remove(), 300); }, 2500);
+    }
+
+    loadPosts();
+  </script>
+</body>
+</html>

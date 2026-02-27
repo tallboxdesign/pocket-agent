@@ -66,6 +66,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   openSoul: () => ipcRenderer.invoke('app:openSoul'),
   openCustomize: () => ipcRenderer.invoke('app:openCustomize'),
   openRoutines: () => ipcRenderer.invoke('app:openRoutines'),
+  openLinkedInActivity: () => ipcRenderer.invoke('app:openLinkedInActivity'),
+  listLinkedInPosts: (date: string) => ipcRenderer.invoke('linkedin:listPosts', date),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   openPath: (filePath: string) => ipcRenderer.invoke('app:openPath', filePath),
   showInFolder: (filePath: string) => ipcRenderer.invoke('app:showInFolder', filePath),
@@ -323,6 +325,8 @@ declare global {
       openSoul: () => Promise<void>;
       openCustomize: () => Promise<void>;
       openRoutines: () => Promise<void>;
+      openLinkedInActivity: () => Promise<void>;
+      listLinkedInPosts: (date: string) => Promise<Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string }>>;
       openExternal: (url: string) => Promise<void>;
       openPath: (filePath: string) => Promise<void>;
       showInFolder: (filePath: string) => Promise<void>;

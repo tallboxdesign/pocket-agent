@@ -322,6 +322,7 @@ let kanbanWindow: BrowserWindow | null = null;
 let calendarWindow: BrowserWindow | null = null;
 let emailWindow: BrowserWindow | null = null;
 let dailyLogsWindow: BrowserWindow | null = null;
+let linkedInActivityWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
 
 /**
@@ -680,6 +681,10 @@ function updateTrayMenu(): void {
     {
       label: 'Calendar',
       click: () => openCalendarWindow(),
+    },
+    {
+      label: 'LinkedIn',
+      click: () => openLinkedInActivityWindow(),
     },
     { type: 'separator' },
     {
@@ -1153,6 +1158,58 @@ function openFactsWindow(): void {
 
   factsWindow.on('closed', () => {
     factsWindow = null;
+  });
+}
+
+function openLinkedInActivityWindow(): void {
+  if (linkedInActivityWindow && !linkedInActivityWindow.isDestroyed()) {
+    linkedInActivityWindow.show();
+    linkedInActivityWindow.focus();
+    return;
+  }
+
+  const savedBoundsJson = SettingsManager.get('window.linkedInActivityBounds');
+  let windowOptions: Electron.BrowserWindowConstructorOptions = {
+    width: 900,
+    height: 600,
+    title: 'LinkedIn Activity - Pocket Agent',
+    backgroundColor: '#0a0a0b',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  };
+
+  if (savedBoundsJson) {
+    try {
+      const savedBounds = JSON.parse(savedBoundsJson);
+      if (savedBounds.x !== undefined) windowOptions.x = savedBounds.x;
+      if (savedBounds.y !== undefined) windowOptions.y = savedBounds.y;
+      if (savedBounds.width) windowOptions.width = savedBounds.width;
+      if (savedBounds.height) windowOptions.height = savedBounds.height;
+    } catch { /* ignore */ }
+  }
+
+  linkedInActivityWindow = new BrowserWindow(windowOptions);
+  linkedInActivityWindow.loadFile(path.join(__dirname, '../../ui/linkedin-activity.html'));
+
+  linkedInActivityWindow.once('ready-to-show', () => {
+    linkedInActivityWindow?.show();
+  });
+
+  const saveBounds = () => {
+    if (linkedInActivityWindow && !linkedInActivityWindow.isDestroyed()) {
+      SettingsManager.set('window.linkedInActivityBounds', JSON.stringify(linkedInActivityWindow.getBounds()));
+    }
+  };
+  linkedInActivityWindow.on('moved', saveBounds);
+  linkedInActivityWindow.on('resized', saveBounds);
+  linkedInActivityWindow.on('close', saveBounds);
+
+  linkedInActivityWindow.on('closed', () => {
+    linkedInActivityWindow = null;
   });
 }
 
@@ -1643,6 +1700,37 @@ function setupIPC(): void {
 
   ipcMain.handle('app:openFacts', async () => {
     openFactsWindow();
+  });
+
+  ipcMain.handle('app:openLinkedInActivity', async () => {
+    openLinkedInActivityWindow();
+  });
+
+  ipcMain.handle('linkedin:listPosts', async (_, date: string) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return [];
+      const db = new Database(dbPath, { readonly: true });
+      db.pragma('journal_mode = WAL');
+      const rows = db.prepare(
+        'SELECT * FROM linkedin_posts WHERE scraped_date = ? ORDER BY (reactions + comments) DESC'
+      ).all(date);
+      db.close();
+      return rows;
+    } catch (err) {
+      console.error('[LinkedIn] Failed to list posts:', err);
+      return [];
+    }
   });
 
   ipcMain.handle('app:openDailyLogs', async () => {
