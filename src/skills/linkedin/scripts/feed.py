@@ -158,6 +158,12 @@ def main():
             print("ERROR: Not authenticated. Run: python run.py auth_manager setup", file=sys.stderr)
             sys.exit(1)
 
+        # Wait for feed posts to render (JS-heavy SPA)
+        try:
+            page.wait_for_selector(".feed-shared-update-v2", timeout=15000)
+        except Exception:
+            print("Warning: feed posts not found after 15s, continuing anyway", file=sys.stderr)
+
         StealthUtils.random_delay(3000, 5000)
 
         # Scroll

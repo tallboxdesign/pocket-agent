@@ -10,6 +10,7 @@ import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 import { app } from 'electron';
 import path from 'path';
+import fs from 'fs';
 
 const execFile = promisify(execFileCb);
 
@@ -20,15 +21,47 @@ function getScriptsDir(): string {
   return path.join(__dirname, '..', 'skills', 'linkedin', 'scripts');
 }
 
+/** Find python3 binary — check common paths since Electron apps have minimal PATH */
+function findPython3(): string {
+  const candidates = [
+    '/opt/homebrew/bin/python3',
+    '/usr/local/bin/python3',
+    '/usr/bin/python3',
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return 'python3'; // fallback to PATH
+}
+
 /**
  * Execute a LinkedIn skill script via run.py
  */
 export async function linkedinExec(script: string, args: string[], timeoutMs = 120000): Promise<string> {
   const runPy = path.join(getScriptsDir(), 'run.py');
-  const { stdout } = await execFile('python3', [runPy, script, ...args], {
-    timeout: timeoutMs,
-    maxBuffer: 10 * 1024 * 1024, // 10MB for feed results
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
-  });
-  return stdout.trim();
+  const python = findPython3();
+
+  console.log(`[LinkedIn] exec: ${python} ${runPy} ${script} ${args.join(' ')}`);
+  try {
+    const { stdout, stderr } = await execFile(python, [runPy, script, ...args], {
+      timeout: timeoutMs,
+      maxBuffer: 10 * 1024 * 1024, // 10MB for feed results
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: '1',
+        PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}`,
+      },
+    });
+    if (stderr) {
+      console.log(`[LinkedIn] stderr: ${stderr.slice(0, 500)}`);
+    }
+    console.log(`[LinkedIn] stdout length: ${stdout.length}, first 200: ${stdout.slice(0, 200)}`);
+    return stdout.trim();
+  } catch (error) {
+    const err = error as Error & { stderr?: string; stdout?: string };
+    console.error(`[LinkedIn] exec failed: ${err.message}`);
+    if (err.stderr) console.error(`[LinkedIn] stderr: ${err.stderr.slice(0, 500)}`);
+    if (err.stdout) console.log(`[LinkedIn] stdout (partial): ${err.stdout.slice(0, 200)}`);
+    throw error;
+  }
 }

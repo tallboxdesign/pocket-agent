@@ -200,6 +200,7 @@ export const TOOL_TIMEOUTS = {
   draft_linkedin_post: 45000,
   draft_linkedin_comment: 45000,
   revise_linkedin_draft: 45000,
+  linkedin_today_posts: 5000,
 } as const;
 
 /**

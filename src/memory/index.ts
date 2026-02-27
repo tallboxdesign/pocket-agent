@@ -395,6 +395,24 @@ export class MemoryManager {
       CREATE INDEX IF NOT EXISTS idx_kanban_activity_task ON kanban_activity_log(task_id);
       CREATE INDEX IF NOT EXISTS idx_kanban_activity_project ON kanban_activity_log(project_id);
       CREATE INDEX IF NOT EXISTS idx_kanban_projects_status ON kanban_projects(status);
+
+      -- LinkedIn posts persistence (survives session restarts)
+      CREATE TABLE IF NOT EXISTS linkedin_posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_url TEXT UNIQUE NOT NULL,
+        author TEXT NOT NULL,
+        text_preview TEXT NOT NULL,
+        reactions INTEGER DEFAULT 0,
+        comments INTEGER DEFAULT 0,
+        post_type TEXT,
+        scraped_date TEXT NOT NULL,
+        commented INTEGER DEFAULT 0,
+        comment_draft TEXT,
+        kanban_task_id INTEGER,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_lp_date ON linkedin_posts(scraped_date);
+      CREATE INDEX IF NOT EXISTS idx_lp_author ON linkedin_posts(author);
     `);
 
     // Create FTS5 virtual table for keyword search

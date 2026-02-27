@@ -4,8 +4,12 @@ Handles browser launching, stealth features, and common interactions
 """
 
 import json
+import os
+import signal
+import subprocess
 import time
 import random
+from pathlib import Path
 from typing import Optional, List
 
 from patchright.sync_api import Playwright, BrowserContext, Page
@@ -16,12 +20,45 @@ class BrowserFactory:
     """Factory for creating configured browser contexts"""
 
     @staticmethod
+    def _cleanup_stale_profile(user_data_dir: str):
+        """Remove stale SingletonLock if the owning process is dead"""
+        lock_file = Path(user_data_dir) / "SingletonLock"
+        if not lock_file.exists() and not lock_file.is_symlink():
+            return
+
+        # SingletonLock is a symlink like hostname-pid on Linux/Mac
+        try:
+            target = os.readlink(str(lock_file))
+            # Format: hostname-pid
+            parts = target.rsplit('-', 1)
+            if len(parts) == 2:
+                pid = int(parts[1])
+                try:
+                    os.kill(pid, 0)  # Check if alive
+                    # Process alive — try to kill it (it's our stale browser)
+                    print(f"  Killing stale browser process {pid}", flush=True)
+                    os.kill(pid, signal.SIGTERM)
+                    time.sleep(2)
+                except ProcessLookupError:
+                    pass  # Already dead
+        except (OSError, ValueError):
+            pass
+
+        # Remove stale lock
+        try:
+            lock_file.unlink(missing_ok=True)
+            print("  Removed stale SingletonLock", flush=True)
+        except OSError:
+            pass
+
+    @staticmethod
     def launch_persistent_context(
         playwright: Playwright,
         headless: bool = True,
         user_data_dir: str = str(BROWSER_PROFILE_DIR)
     ) -> BrowserContext:
         """Launch a persistent browser context with anti-detection features"""
+        BrowserFactory._cleanup_stale_profile(user_data_dir)
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=headless,

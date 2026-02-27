@@ -4,6 +4,7 @@
 
 import Database from 'better-sqlite3';
 import path from 'path';
+import os from 'os';
 import fs from 'fs';
 import { linkedinExec } from './linkedin-wrapper';
 import { SettingsManager } from '../settings';
@@ -99,9 +100,33 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   if (p.person) args.push('--person', p.person);
   if (keyword) args.push('--keyword', keyword);
 
+  // Always dump HTML for diagnostics when feed is empty
+  const dumpPath = path.join(os.homedir(), '.pocket-agent', 'linkedin', 'data', 'debug_feed.html');
+  args.push('--dump-html', dumpPath);
+
   try {
     const stdout = await linkedinExec('feed', args, 180000);
     const posts = JSON.parse(stdout);
+
+    if (posts.length === 0) {
+      // Check what page we actually loaded
+      let hint = '';
+      try {
+        const html = fs.readFileSync(dumpPath, 'utf-8').slice(0, 2000);
+        if (html.includes('login') || html.includes('session_redirect')) {
+          hint = ' Session expired — re-authentication needed.';
+        } else if (html.length < 5000) {
+          hint = ` Page was mostly empty (${html.length} bytes) — possible rate limit or blocked.`;
+        } else {
+          hint = ` Page loaded (${html.length} bytes) but CSS selectors matched nothing — LinkedIn may have changed their markup.`;
+        }
+      } catch { /* no dump */ }
+      console.warn(`[LinkedIn] Feed returned 0 posts.${hint}`);
+      return JSON.stringify({
+        success: true, count: 0, posts: [],
+        warning: `Feed returned 0 posts.${hint} Debug HTML saved to ${dumpPath}`,
+      });
+    }
 
     // Persist scraped posts to DB
     const db = getDb();
@@ -338,7 +363,9 @@ async function handleAuthStatusTool(input: unknown): Promise<string> {
   }
 
   try {
-    const stdout = await linkedinExec('auth_manager', [action], 30000);
+    // setup needs longer timeout since user logs in manually
+    const timeout = action === 'setup' ? 600000 : 30000;
+    const stdout = await linkedinExec('auth_manager', [action], timeout);
     return JSON.stringify({ success: true, action, output: stdout });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
