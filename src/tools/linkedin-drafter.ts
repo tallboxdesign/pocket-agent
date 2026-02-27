@@ -300,6 +300,25 @@ function hasSourceCue(text: string): boolean {
   return /\b(according to|in .* data|in .* report|research from|study from|survey by)\b/i.test(text);
 }
 
+function escapeRegex(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getAuthorFirstName(author: string): string {
+  const raw = String(author || '').trim();
+  if (!raw) return '';
+  const first = raw.split(/\s+/)[0] || '';
+  return first.replace(/[^\p{L}\p{N}'’.-]/gu, '').replace(/[.,:;!?]+$/g, '');
+}
+
+function startsWithAuthorName(draft: string, authorFirstName: string): boolean {
+  if (!authorFirstName) return true;
+  const start = draft.trim();
+  const escaped = escapeRegex(authorFirstName);
+  const re = new RegExp(`^[\"'“”‘’(\\[]?\\s*${escaped}\\b`, 'i');
+  return re.test(start);
+}
+
 function getMeaningfulTokens(input: string): string[] {
   const stop = new Set([
     'the', 'and', 'that', 'with', 'from', 'this', 'have', 'will', 'your', 'about', 'their', 'they', 'into',
@@ -326,9 +345,15 @@ function getNumbers(text: string): string[] {
   return Array.from(new Set((text.match(/\b\d+(?:\.\d+)?%?\b/g) || []).map(n => n.trim())));
 }
 
-function evaluateDraftQuality(draft: string, evidence: ResearchEvidence, preview: string): string[] {
+function evaluateDraftQuality(
+  draft: string,
+  evidence: ResearchEvidence,
+  preview: string,
+  authorFirstName: string,
+): string[] {
   const issues: string[] = [];
   if (isWeakDraft(draft)) issues.push('too generic or too short');
+  if (!startsWithAuthorName(draft, authorFirstName)) issues.push('opening does not start with the author name');
   if (!hasRelevanceAnchor(draft, evidence.keyPoint, preview)) issues.push('missing concrete anchor from original post');
   if (hasAISlopWords(draft)) issues.push('contains AI-sounding jargon');
   const allCapsWords = draft.match(/\b[A-Z]{4,}\b/g) || [];
@@ -554,6 +579,7 @@ async function runWritePass(
   env: Record<string, string | undefined>,
 ): Promise<string> {
   const researchBrief = evidenceToBrief(evidence);
+  const authorFirstName = getAuthorFirstName(post.author);
   const challengeInstruction = evidence.postIntent === 'promotional' || evidence.postIntent === 'mixed'
     ? 'The post has promotional intent. Do not default to agreement. Constructively challenge assumptions and add a practical tradeoff.'
     : 'Be constructive and add practical value beyond agreement.';
@@ -572,7 +598,7 @@ GOAL:
 
 RESPONSE REQUIREMENTS:
 - 4-6 sentences, roughly 320-900 characters.
-- Sentence 1 must reference a specific point from the post.
+- Sentence 1 must start with "${authorFirstName}," and then reference a specific point from the post.
 - Include one concrete researched fact from the notes.
 - Add an actionable implication or thoughtful question.
 
@@ -595,7 +621,7 @@ ${researchBrief}
 Narrative guidance:
 - ${challengeInstruction}
 - Comment intent: ${commentIntent} (${intentInstructionMap[commentIntent]})
-- The first sentence must reference the key point from the original post.
+- Start the first sentence with "${authorFirstName}," and reference the key point from the original post.
 
 Write the final comment now.`;
 
@@ -610,7 +636,7 @@ Write the final comment now.`;
 
   let draft = cleanDraftText(await generateDraftFromSdk(queryFn, writePrompt, writeOptions));
   for (let repairAttempt = 0; repairAttempt < 2; repairAttempt++) {
-    const issues = evaluateDraftQuality(draft, evidence, post.text_preview);
+    const issues = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName);
     if (issues.length === 0) break;
     const repairPrompt = `${writePrompt}
 
@@ -618,6 +644,7 @@ The previous draft failed quality checks for:
 - ${issues.join('\n- ')}
 
 Rewrite with strict compliance:
+- start sentence 1 with "${authorFirstName},"
 - reference the post's key point explicitly
 - include one numeric/date detail from research notes
 - include source cue wording
@@ -629,7 +656,7 @@ Rewrite with strict compliance:
     throw new Error('Write pass returned empty output');
   }
 
-  const finalIssues = evaluateDraftQuality(draft, evidence, post.text_preview);
+  const finalIssues = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName);
   if (finalIssues.length > 0) {
     throw new Error(`Draft quality checks failed: ${finalIssues.join('; ')}`);
   }

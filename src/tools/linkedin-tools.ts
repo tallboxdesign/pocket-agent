@@ -43,6 +43,13 @@ function selectVoiceForPost(postType: string | null | undefined): string {
   return presets[Math.floor(Math.random() * presets.length)].prompt;
 }
 
+function getAuthorFirstName(author: string | null | undefined): string {
+  const raw = String(author || '').trim();
+  if (!raw) return '';
+  const first = raw.split(/\s+/)[0] || '';
+  return first.replace(/[^\p{L}\p{N}'’.-]/gu, '').replace(/[.,:;!?]+$/g, '');
+}
+
 // ============================================================================
 // Database helper (shared connection to pocket-agent.db)
 // ============================================================================
@@ -705,6 +712,10 @@ async function handleDraftCommentTool(input: unknown): Promise<string> {
   }
 
   const tone = (p.tone && p.tone in COMMENT_TONES) ? p.tone : 'insightful';
+  const authorFirstName = getAuthorFirstName(p.post_author);
+  const authorOpeningRule = authorFirstName
+    ? `Start sentence 1 with "${authorFirstName}," and then acknowledge a concrete point from their post.`
+    : 'Start sentence 1 by acknowledging a concrete point from the post.';
 
   // Load user's voice/rules from settings
   const voiceStyle = selectVoiceForPost(null);
@@ -720,6 +731,7 @@ ABSOLUTE RULES (violating any = failure):
 
 STYLE:
 - 2-4 sentences. Be specific to what the author actually said.
+- ${authorOpeningRule}
 - Sound like a comment from someone who does this work daily, not someone summarizing it.
 - Reference a concrete detail from the post. Add your own angle or experience.
 - Short punchy sentences mixed with longer ones. Casual but smart.
