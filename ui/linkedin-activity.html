@@ -214,21 +214,34 @@
       color: var(--accent-hover);
     }
 
-    /* Priority dot */
-    .priority-dot {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      display: inline-block;
-      cursor: pointer;
-      transition: transform 0.15s ease;
-      border: 2px solid transparent;
+    .badge-approved {
+      background: rgba(34, 197, 94, 0.2);
+      color: #4ade80;
     }
-    .priority-dot:hover { transform: scale(1.3); }
-    .priority-low { background: #636366; border-color: #4a4a4e; }
-    .priority-normal { background: transparent; border-color: #636366; }
-    .priority-high { background: #f59e0b; border-color: #d97706; }
-    .priority-urgent { background: #ef4444; border-color: #dc2626; }
+
+    .badge-rejected {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+    }
+
+    /* Priority badge */
+    .priority-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      user-select: none;
+    }
+    .priority-badge:hover { filter: brightness(1.3); }
+    .priority-low { background: rgba(99,99,102,0.2); color: #8e8e93; }
+    .priority-normal { background: rgba(99,99,102,0.1); color: #636366; }
+    .priority-high { background: rgba(245,158,11,0.2); color: #fbbf24; }
+    .priority-urgent { background: rgba(239,68,68,0.2); color: #f87171; }
 
     .icon-btn {
       background: none;
@@ -638,7 +651,12 @@
     <button class="action-btn" onclick="approveSelected()" style="background:rgba(34,197,94,0.12);color:#4ade80;border-color:rgba(34,197,94,0.25);">Approve Selected</button>
     <button class="action-btn" onclick="rejectSelected()" style="background:rgba(239,68,68,0.12);color:#f87171;border-color:rgba(239,68,68,0.25);">Reject Selected</button>
     <button class="action-btn" onclick="hideSelected()">Hide Selected</button>
+    <button class="action-btn" onclick="draftSelected()" style="background:rgba(34,197,94,0.12);color:#4ade80;border-color:rgba(34,197,94,0.25);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Draft Selected
+    </button>
     <div style="flex:1"></div>
+    <button class="action-btn" onclick="selectUndrafted()" style="font-size:11px;color:var(--text-muted)">Select Undrafted</button>
     <button class="action-btn" onclick="clearSelection()" style="font-size:11px;color:var(--text-muted)">Clear</button>
   </div>
 
@@ -673,6 +691,8 @@
     window.addEventListener('beforeunload', () => clearInterval(refreshInterval));
 
     const PRIORITY_ORDER = ['low', 'normal', 'high', 'urgent'];
+    const approvedIds = new Set();
+    const rejectedIds = new Set();
 
     function escapeHtml(text) {
       const div = document.createElement('div');
@@ -775,15 +795,37 @@
       loadPosts();
     }
 
+    // Store current posts data for filtering
+    let currentPosts = [];
+
+    function selectUndrafted() {
+      document.querySelectorAll('.posts-table tbody tr').forEach(row => {
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (!cb) return;
+        const hasStatus = row.querySelector('.badge-draft, .badge-commented');
+        cb.checked = !hasStatus;
+      });
+      updateSelection();
+    }
+
+    async function draftSelected() {
+      const ids = getSelectedIds();
+      if (ids.length === 0) return;
+      showToast(`Drafting comments for ${ids.length} posts...`, 'success');
+      sendToAgent(`Draft LinkedIn comments for these post IDs: ${ids.join(', ')}. Use the draft_linkedin_comment tool for each. Use my configured voice and style. Create kanban tasks for each draft.`);
+      clearSelection();
+    }
+
     function cyclePriority(postId, current) {
       const idx = PRIORITY_ORDER.indexOf(current || 'normal');
       const next = PRIORITY_ORDER[(idx + 1) % PRIORITY_ORDER.length];
       window.pocketAgent.setLinkedInPriority(postId, next).then(() => loadPosts());
     }
 
+    const PRIORITY_LABELS = { low: 'Low', normal: '--', high: 'High', urgent: '!!!' };
     function priorityDot(postId, priority) {
       const p = priority || 'normal';
-      return `<span class="priority-dot priority-${p}" onclick="cyclePriority(${postId}, '${p}')" title="${p}"></span>`;
+      return `<span class="priority-badge priority-${p}" onclick="cyclePriority(${postId}, '${p}')" title="Click to cycle priority">${PRIORITY_LABELS[p] || p}</span>`;
     }
 
     function formatScheduleTime(iso) {
@@ -963,7 +1005,9 @@
 
     function renderPostRow(p, idx) {
       const statusBadges = [];
-      if (p.commented) statusBadges.push('<span class="badge badge-commented">Replied</span>');
+      if (approvedIds.has(p.id)) statusBadges.push('<span class="badge badge-approved">Approved</span>');
+      else if (rejectedIds.has(p.id)) statusBadges.push('<span class="badge badge-rejected">Rejected</span>');
+      else if (p.commented) statusBadges.push('<span class="badge badge-commented">Replied</span>');
       else if (p.comment_draft) statusBadges.push('<span class="badge badge-draft">Draft</span>');
       if (p.scheduled_at) statusBadges.push(`<span class="badge badge-scheduled">${formatScheduleTime(p.scheduled_at)}</span>`);
 
@@ -1055,10 +1099,11 @@
 
     async function approveDraft(postId, postUrl, draftText) {
       try {
-        // Sync kanban task to approved status
         await window.pocketAgent.approveLinkedInDraft(postId);
-        sendToAgent(`Post this approved LinkedIn comment on ${postUrl}: ${draftText}`);
+        approvedIds.add(postId);
+        showToast('Draft approved, posting...', 'success');
         loadPosts();
+        sendToAgent(`Post this approved LinkedIn comment on ${postUrl}: ${draftText}`);
       } catch (err) {
         console.error('Failed to approve draft:', err);
         showToast('Failed to approve draft', 'error');
@@ -1068,6 +1113,7 @@
     async function rejectDraft(postId) {
       try {
         await window.pocketAgent.rejectLinkedInDraft(postId);
+        rejectedIds.add(postId);
         showToast('Draft rejected', 'success');
         loadPosts();
       } catch (err) {
