@@ -62,9 +62,8 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   if (p.min_engagement) args.push('--min-engagement', String(p.min_engagement));
 
   // Apply explicit filters or fall back to settings defaults
-  const person = p.person || SettingsManager.get('linkedin.feedPersons');
   const keyword = p.keyword || SettingsManager.get('linkedin.feedKeywords');
-  if (person) args.push('--person', person);
+  if (p.person) args.push('--person', p.person);
   if (keyword) args.push('--keyword', keyword);
 
   try {

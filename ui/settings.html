@@ -2471,47 +2471,39 @@
                 <button onclick="saveLinkedInSetting('linkedin.feedKeywords', 'linkedin-feed-keywords')">Save</button>
               </div>
             </div>
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
-              <label>Default Feed People</label>
-              <span class="setting-desc">Comma-separated names to prioritize in feed (e.g. Sam Altman, Dario Amodei)</span>
-              <div class="key-input">
-                <input type="text" id="linkedin-feed-persons" placeholder="Sam Altman, Dario Amodei">
-                <button onclick="saveLinkedInSetting('linkedin.feedPersons', 'linkedin-feed-persons')">Save</button>
-              </div>
-            </div>
           </div>
 
           <!-- Voice & Style Settings -->
           <h3 style="margin-top: 16px; font-size: 13px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Content Voice & Style</h3>
 
           <div class="settings-grid">
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 8px;">
               <label>Writing Voice & Style</label>
               <span class="setting-desc">Describe your voice in 1-2 sentences. Click "AI Expand" to turn rough notes into detailed instructions.</span>
-              <textarea id="linkedin-voice-style" rows="3" placeholder="e.g. Direct, data-driven, no fluff. Mix short punchy sentences with longer analytical ones." style="width:100%;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);"></textarea>
-              <div style="display:flex;gap:6px;">
+              <textarea id="linkedin-voice-style" rows="3" placeholder="e.g. Direct, data-driven, no fluff. Mix short punchy sentences with longer analytical ones." style="width:100%;box-sizing:border-box;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
+              <div class="input-with-btn" style="justify-content:flex-start;">
                 <button onclick="saveLinkedInSetting('linkedin.voiceStyle', 'linkedin-voice-style')">Save</button>
-                <button onclick="expandWithAI('linkedin-voice-style', 'Expand this rough description of a LinkedIn writing voice into detailed, actionable instructions for an AI writer. Cover tone, sentence structure, vocabulary level, and formatting preferences. Keep it under 200 words.')" style="background:var(--accent);color:white;">AI Expand</button>
+                <button onclick="expandWithAI('linkedin-voice-style', 'Expand this rough description of a LinkedIn writing voice into detailed, actionable instructions for an AI writer. Cover tone, sentence structure, vocabulary level, and formatting preferences. Keep it under 200 words.')" style="background:var(--accent);color:white;border-color:var(--accent);">AI Expand</button>
               </div>
             </div>
 
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 8px;">
               <label>Writing Rules</label>
               <span class="setting-desc">Rules for formatting, sentence structure, things to avoid. Click "AI Expand" to flesh out.</span>
-              <textarea id="linkedin-writing-rules" rows="3" placeholder="e.g. No emojis, short paragraphs, always end with a question, use numbers and data" style="width:100%;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);"></textarea>
-              <div style="display:flex;gap:6px;">
+              <textarea id="linkedin-writing-rules" rows="3" placeholder="e.g. No emojis, short paragraphs, always end with a question, use numbers and data" style="width:100%;box-sizing:border-box;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
+              <div class="input-with-btn" style="justify-content:flex-start;">
                 <button onclick="saveLinkedInSetting('linkedin.writingRules', 'linkedin-writing-rules')">Save</button>
-                <button onclick="expandWithAI('linkedin-writing-rules', 'Expand these rough writing rules into a clear, comprehensive set of LinkedIn content guidelines. Cover sentence structure, formatting, paragraph length, what to avoid, and what to always include. Keep it under 200 words.')" style="background:var(--accent);color:white;">AI Expand</button>
+                <button onclick="expandWithAI('linkedin-writing-rules', 'Expand these rough writing rules into a clear, comprehensive set of LinkedIn content guidelines. Cover sentence structure, formatting, paragraph length, what to avoid, and what to always include. Keep it under 200 words.')" style="background:var(--accent);color:white;border-color:var(--accent);">AI Expand</button>
               </div>
             </div>
 
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 8px;">
               <label>Content Direction</label>
               <span class="setting-desc">Topics, themes, angles to focus on. Click "AI Expand" to turn into a content strategy.</span>
-              <textarea id="linkedin-content-direction" rows="3" placeholder="e.g. SEO, AI tools, agency growth, contrarian takes on marketing trends" style="width:100%;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);"></textarea>
-              <div style="display:flex;gap:6px;">
+              <textarea id="linkedin-content-direction" rows="3" placeholder="e.g. SEO, AI tools, agency growth, contrarian takes on marketing trends" style="width:100%;box-sizing:border-box;resize:vertical;font-size:12px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
+              <div class="input-with-btn" style="justify-content:flex-start;">
                 <button onclick="saveLinkedInSetting('linkedin.contentDirection', 'linkedin-content-direction')">Save</button>
-                <button onclick="expandWithAI('linkedin-content-direction', 'Expand these rough topic notes into a focused LinkedIn content direction. Cover key themes, target audience, preferred angles, and content pillars. Keep it under 200 words.')" style="background:var(--accent);color:white;">AI Expand</button>
+                <button onclick="expandWithAI('linkedin-content-direction', 'Expand these rough topic notes into a focused LinkedIn content direction. Cover key themes, target audience, preferred angles, and content pillars. Keep it under 200 words.')" style="background:var(--accent);color:white;border-color:var(--accent);">AI Expand</button>
               </div>
             </div>
           </div>
@@ -2944,8 +2936,6 @@
       if (linkedinAutoConfirm) linkedinAutoConfirm.classList.toggle('active', settings['linkedin.autoConfirm'] === 'true');
       const linkedinKeywords = document.getElementById('linkedin-feed-keywords');
       if (linkedinKeywords && settings['linkedin.feedKeywords']) linkedinKeywords.value = settings['linkedin.feedKeywords'];
-      const linkedinPersons = document.getElementById('linkedin-feed-persons');
-      if (linkedinPersons && settings['linkedin.feedPersons']) linkedinPersons.value = settings['linkedin.feedPersons'];
       const linkedinVoice = document.getElementById('linkedin-voice-style');
       if (linkedinVoice && settings['linkedin.voiceStyle']) linkedinVoice.value = settings['linkedin.voiceStyle'];
       const linkedinRules = document.getElementById('linkedin-writing-rules');
@@ -3294,17 +3284,17 @@
       const originalText = textarea.value;
       textarea.value = 'Expanding with AI...';
       try {
-        const result = await window.pocketAgent.sendMessage(
-          `[SYSTEM TASK - DO NOT CHAT] ${systemInstruction}\n\nUser input to expand:\n${rawText}\n\nReturn ONLY the expanded text, nothing else. No greetings, no explanations.`
+        const result = await window.pocketAgent.glmExpand(
+          systemInstruction + ' Return ONLY the expanded text, nothing else. No greetings, no explanations.',
+          rawText
         );
-        if (result && result.response) {
-          // Strip any markdown code blocks the AI might wrap it in
-          let cleaned = result.response.replace(/^```[\s\S]*?\n/, '').replace(/\n```$/, '').trim();
+        if (result && result.ok && result.text) {
+          let cleaned = result.text.replace(/^```[\s\S]*?\n/, '').replace(/\n```$/, '').trim();
           textarea.value = cleaned;
           showToast('Expanded! Review and click Save', 'success');
         } else {
           textarea.value = originalText;
-          showToast('AI expansion failed — check your API key', 'error');
+          showToast('AI expansion failed — ' + (result?.error || 'check GLM API key'), 'error');
         }
       } catch (err) {
         console.error('AI expand failed:', err);

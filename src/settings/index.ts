@@ -589,15 +589,6 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     type: 'string',
   },
   {
-    key: 'linkedin.feedPersons',
-    defaultValue: '',
-    encrypted: false,
-    category: 'linkedin',
-    label: 'Default Feed People',
-    description: 'Comma-separated people names to prioritize in feed',
-    type: 'string',
-  },
-  {
     key: 'linkedin.voiceStyle',
     defaultValue: '',
     encrypted: false,

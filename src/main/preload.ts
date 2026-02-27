@@ -114,6 +114,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   getAvailableModels: () => ipcRenderer.invoke('settings:getAvailableModels'),
   restartAgent: () => ipcRenderer.invoke('agent:restart'),
   glmHealthCheck: () => ipcRenderer.invoke('glm:healthCheck'),
+  glmExpand: (systemPrompt: string, userText: string) => ipcRenderer.invoke('glm:expand', systemPrompt, userText),
   gogStatus: () => ipcRenderer.invoke('gog:status'),
 
   // Gmail Email Processing
@@ -362,6 +363,7 @@ declare global {
       getAvailableModels: () => Promise<Array<{ id: string; name: string; provider: string }>>;
       restartAgent: () => Promise<{ success: boolean }>;
       glmHealthCheck: () => Promise<{ ok: boolean; models?: string[]; error?: string }>;
+      glmExpand: (systemPrompt: string, userText: string) => Promise<{ ok: boolean; text?: string; error?: string }>;
       gogStatus: () => Promise<{ ok: boolean; accounts?: string; error?: string }>;
       gmailFetchLabels: (account?: string) => Promise<{ success: boolean; labels?: string; error?: string }>;
       gmailFetchRecentEmails: (account?: string) => Promise<{ success: boolean; emails?: string; error?: string }>;

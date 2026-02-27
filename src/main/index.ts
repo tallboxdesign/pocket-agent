@@ -2001,6 +2001,23 @@ function setupIPC(): void {
     return glmHealthCheck();
   });
 
+  ipcMain.handle('glm:expand', async (_event, systemPrompt: string, userText: string) => {
+    const { glmChat, isGlmConfigured } = await import('../tools/glm-client');
+    if (!isGlmConfigured()) return { ok: false, error: 'GLM not configured — add API key in settings' };
+    try {
+      const result = await glmChat({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userText },
+        ],
+      });
+      if (result.success && result.content) return { ok: true, text: result.content };
+      return { ok: false, error: result.error || 'No response' };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle('gog:status', async () => {
     const { isGogAvailable } = await import('../tools/gog-wrapper');
     try {

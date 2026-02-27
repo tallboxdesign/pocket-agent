@@ -422,8 +422,12 @@ export class CronScheduler {
     if (staleJobs.length === 0) return;
 
     // Send notification BEFORE marking DB as stale — prevents silent message loss on crash
-    const lines = staleJobs.map(j => `- ${j.name}: ${j.prompt.slice(0, 80)}`);
-    const message = `The following reminders fired over 2 days ago but were never acknowledged:\n${lines.join('\n')}\n\nUse acknowledge_reminder to dismiss them.`;
+    const lines = staleJobs.map(j => {
+      const firedDate = new Date(j.fired_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return `⚠️ MISSED TASK (${firedDate}):\n${j.prompt}\n`;
+    });
+    const count = staleJobs.length;
+    const message = `🔴 OVERDUE — ${count} task${count > 1 ? 's were' : ' was'} scheduled but never completed:\n\n${lines.join('\n')}\nThese tasks are still pending. Should I execute ${count > 1 ? 'them' : 'it'} now, or dismiss?`;
 
     // Route to the first stale job's channel/session as representative
     const representative = staleJobs[0];

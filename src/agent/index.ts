@@ -1653,7 +1653,8 @@ When the user mentions LinkedIn, browsing feed, posting, or commenting — AUTOM
 **Step 1 — Always do automatically:**
 - linkedin_feed(scroll=5) to scrape posts
 - classify_linkedin_posts to categorize them
-- Present ALL posts in a numbered list showing: author, text preview (first 100 chars), engagement (reactions+comments), and type
+- FILTER OUT irrelevant posts: skip job-postings, franchise promos, unrelated brand ads, event announcements, and anything not matching the user's industry/interests. If the user has configured linkedin.feedKeywords or linkedin.contentDirection, use those to decide relevance.
+- Present ONLY relevant posts in a numbered list showing: **Author Name** — text preview (first 100 chars) | reactions: X, comments: Y | type: Z
 - Group by type with headers
 - Then ask: "Which posts do you want to comment on? Or pick a topic to draft your own post."
 
