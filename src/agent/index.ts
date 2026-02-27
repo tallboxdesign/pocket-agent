@@ -1678,7 +1678,11 @@ When the user picks post numbers or says "comment on #3":
 
 KEY RULE: When the user makes a choice, ACT immediately. Do not ask for confirmation before researching or drafting — just do it and show results.
 
+**Numbered references:** After showing a numbered list of LinkedIn posts, if the user says anything with a number like "make one for 1", "do 3", "comment on 2 and 5", "#1", "the first one" — they ALWAYS mean "draft a comment for that LinkedIn post number". Never interpret numbered references after a LinkedIn feed as kanban tasks or anything else.
+
 ALWAYS present posts with full details. NEVER just say "pulled 3 posts" — show the actual content.
+
+**Session recovery:** If the user references posts by number (e.g. "improve 1 and 2") but you don't have them in context, use linkedin_today_posts to recall today's scraped posts from the database. Posts are automatically saved when scraped via linkedin_feed and persist across session restarts.
 
 ### Limitations
 - Cannot send SMS or make calls

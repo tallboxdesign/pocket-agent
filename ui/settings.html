@@ -2446,6 +2446,23 @@
 
       <!-- LinkedIn Section -->
       <section id="linkedin" class="section">
+        <style>
+          .li-field { display: flex; flex-direction: column; gap: 6px; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; }
+          .li-field label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+          .li-field textarea { width: 100%; box-sizing: border-box; resize: vertical; font-size: 12px; line-height: 1.5; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font-family: inherit; }
+          .li-field textarea:focus { border-color: var(--accent); outline: none; }
+          .li-field .li-actions { display: flex; gap: 6px; }
+          .li-field .li-actions button { padding: 4px 12px; font-size: 11px; font-weight: 500; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-secondary); cursor: pointer; transition: all 0.15s ease; }
+          .li-field .li-actions button:hover { background: var(--border); color: var(--text-primary); }
+          .li-field .li-actions .ai-btn { background: rgba(168, 85, 247, 0.15); color: var(--accent-hover); border-color: rgba(168, 85, 247, 0.3); }
+          .li-field .li-actions .ai-btn:hover { background: rgba(168, 85, 247, 0.25); }
+          .li-subsection { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin: 18px 0 8px; }
+          .li-voice-grid { display: flex; flex-direction: column; gap: 10px; }
+          .li-info { display: flex; gap: 12px; margin-top: 14px; font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+          .li-info code { font-size: 10px; padding: 1px 4px; background: var(--bg-tertiary); border-radius: 3px; }
+          .li-info > div { flex: 1; padding: 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; }
+        </style>
+
         <h2 class="section-title">LinkedIn</h2>
         <p class="section-desc">Browse feed, read posts, comment, and create posts via browser automation.</p>
 
@@ -2454,66 +2471,57 @@
             <label>Enable LinkedIn</label>
             <div class="toggle" id="linkedin.enabled-toggle" onclick="toggleSetting('linkedin.enabled')"></div>
           </div>
-
           <div class="setting-row">
             <label>Auto-Confirm Posts</label>
             <div class="toggle" id="linkedin.autoConfirm-toggle" onclick="toggleSetting('linkedin.autoConfirm')"></div>
           </div>
         </div>
 
-        <div id="linkedin-config" style="margin-top: 10px;">
+        <div id="linkedin-config" style="margin-top: 12px;">
           <div class="settings-grid">
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
-              <label>Default Feed Keywords</label>
-              <span class="setting-desc">Comma-separated keywords to filter feed by default (e.g. AI, startup, product)</span>
-              <div class="key-input">
-                <input type="text" id="linkedin-feed-keywords" placeholder="AI, startup, product">
+            <div class="setting-row">
+              <label>Feed Keywords</label>
+              <div class="key-input" style="flex:1;">
+                <input type="text" id="linkedin-feed-keywords" placeholder="ai seo, semantic seo, AI tools..." style="flex:1;">
                 <button onclick="saveLinkedInSetting('linkedin.feedKeywords', 'linkedin-feed-keywords')">Save</button>
               </div>
             </div>
           </div>
 
-          <!-- Voice & Style Settings -->
-          <h3 style="margin-top: 16px; font-size: 13px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Content Voice & Style</h3>
+          <div class="li-subsection">Content Voice & Style</div>
 
-          <div class="settings-grid">
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 4px;">
+          <div class="li-voice-grid">
+            <div class="li-field">
               <label>Voice & Style</label>
-              <textarea id="linkedin-voice-style" rows="2" placeholder="Direct, data-driven, no fluff. Mix short punchy with longer analytical." style="width:100%;box-sizing:border-box;resize:vertical;font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
-              <div class="input-with-btn" style="justify-content:flex-start;">
+              <textarea id="linkedin-voice-style" rows="3" placeholder="Direct, data-driven, no fluff. Mix short punchy with longer analytical."></textarea>
+              <div class="li-actions">
                 <button onclick="saveLinkedInSetting('linkedin.voiceStyle', 'linkedin-voice-style')">Save</button>
-                <button onclick="expandWithAI('linkedin-voice-style', 'Expand this rough description of a LinkedIn writing voice into detailed, actionable instructions for an AI writer. Cover tone, sentence structure, vocabulary level, and formatting preferences. Keep it under 200 words.')" style="background:var(--accent);color:white;border-color:var(--accent);">AI Expand</button>
+                <button class="ai-btn" onclick="expandWithAI('linkedin-voice-style', 'Expand this rough description of a LinkedIn writing voice into detailed, actionable instructions for an AI writer. Cover tone, sentence structure, vocabulary level, and formatting preferences. NEVER use em-dashes or en-dashes. Use commas or periods instead. Keep it under 200 words.')">AI Expand</button>
               </div>
             </div>
 
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 4px;">
+            <div class="li-field">
               <label>Writing Rules</label>
-              <textarea id="linkedin-writing-rules" rows="2" placeholder="No emojis, short paragraphs, end with a question, use data" style="width:100%;box-sizing:border-box;resize:vertical;font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
-              <div class="input-with-btn" style="justify-content:flex-start;">
+              <textarea id="linkedin-writing-rules" rows="3" placeholder="No emojis, short paragraphs, end with a question, use data"></textarea>
+              <div class="li-actions">
                 <button onclick="saveLinkedInSetting('linkedin.writingRules', 'linkedin-writing-rules')">Save</button>
-                <button onclick="expandWithAI('linkedin-writing-rules', 'Expand these rough writing rules into a clear, comprehensive set of LinkedIn content guidelines. Cover sentence structure, formatting, paragraph length, what to avoid, and what to always include. Keep it under 200 words.')" style="background:var(--accent);color:white;border-color:var(--accent);">AI Expand</button>
+                <button class="ai-btn" onclick="expandWithAI('linkedin-writing-rules', 'Expand these rough writing rules into a clear, comprehensive set of LinkedIn content guidelines. Cover sentence structure, formatting, paragraph length, what to avoid, and what to always include. NEVER use em-dashes or en-dashes. Use commas or periods instead. Keep it under 200 words.')">AI Expand</button>
               </div>
             </div>
 
-            <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 4px;">
+            <div class="li-field">
               <label>Content Direction</label>
-              <textarea id="linkedin-content-direction" rows="2" placeholder="SEO, AI tools, agency growth, contrarian marketing takes" style="width:100%;box-sizing:border-box;resize:vertical;font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit;"></textarea>
-              <div class="input-with-btn" style="justify-content:flex-start;">
+              <textarea id="linkedin-content-direction" rows="2" placeholder="SEO, AI tools, agency growth, contrarian marketing takes"></textarea>
+              <div class="li-actions">
                 <button onclick="saveLinkedInSetting('linkedin.contentDirection', 'linkedin-content-direction')">Save</button>
-                <button onclick="expandWithAI('linkedin-content-direction', 'Expand these rough topic notes into a focused LinkedIn content direction. Cover key themes, target audience, preferred angles, and content pillars. Keep it under 200 words.')" style="background:var(--accent);color:white;border-color:var(--accent);">AI Expand</button>
+                <button class="ai-btn" onclick="expandWithAI('linkedin-content-direction', 'Expand these rough topic notes into a focused LinkedIn content direction. Cover key themes, target audience, preferred angles, and content pillars. NEVER use em-dashes or en-dashes. Use commas or periods instead. Keep it under 200 words.')">AI Expand</button>
               </div>
             </div>
           </div>
 
-          <div class="info-box" style="margin-top: 12px;">
-            <p>
-              <strong>Setup:</strong> The first tool call will install a Python virtual environment and Chrome browser (~60s).
-              Authentication requires running <code>python3 src/skills/linkedin/scripts/run.py auth_manager setup</code> from terminal,
-              or ask the agent to check auth status.
-            </p>
-            <p style="margin-top: 6px;">
-              <strong>Data location:</strong> Browser state and venv are stored at <code>~/.pocket-agent/linkedin/</code> (survives app updates).
-            </p>
+          <div class="li-info">
+            <div><strong>Setup:</strong> First tool call installs Python venv + Chrome (~60s). Auth: <code>python3 src/skills/linkedin/scripts/run.py auth_manager setup</code></div>
+            <div><strong>Data:</strong> Browser state and venv at <code>~/.pocket-agent/linkedin/</code> (survives updates).</div>
           </div>
         </div>
       </section>
