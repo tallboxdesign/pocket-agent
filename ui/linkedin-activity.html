@@ -143,11 +143,50 @@
       color: #93c5fd;
       font-weight: 700;
     }
+    .li-quick-groups {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .li-quick-group {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.015);
+    }
+    .li-quick-group-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .li-quick-group.group-research {
+      border-color: rgba(96, 165, 250, 0.34);
+      background: rgba(96, 165, 250, 0.06);
+    }
+    .li-quick-group.group-research .li-quick-group-title { color: #93c5fd; }
+    .li-quick-group.group-posting {
+      border-color: rgba(34, 197, 94, 0.34);
+      background: rgba(34, 197, 94, 0.055);
+    }
+    .li-quick-group.group-posting .li-quick-group-title { color: #86efac; }
+    .li-quick-group.group-day {
+      border-color: rgba(251, 191, 36, 0.34);
+      background: rgba(245, 158, 11, 0.06);
+    }
+    .li-quick-group.group-day .li-quick-group-title { color: #fcd34d; }
+    .li-quick-group.group-night {
+      border-color: rgba(192, 132, 252, 0.34);
+      background: rgba(168, 85, 247, 0.06);
+    }
+    .li-quick-group.group-night .li-quick-group-title { color: #d8b4fe; }
     .li-quick-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(130px, 1fr));
       gap: 10px;
-      margin-bottom: 10px;
+      margin-bottom: 0;
     }
     .li-quick-field {
       display: flex;
@@ -174,6 +213,7 @@
       color-scheme: dark;
     }
     .li-quick-field.span-2 { grid-column: span 2; }
+    .li-quick-field.span-all { grid-column: 1 / -1; }
     .li-quick-actions {
       display: flex;
       align-items: center;
@@ -842,91 +882,114 @@
       <div class="li-quick-title">LinkedIn Quick Settings</div>
       <button class="action-btn" onclick="toggleQuickSettings(false)">Close</button>
     </div>
-    <div class="li-quick-grid">
-      <div class="li-quick-field">
-        <label title="Preset quality profile: fast is cheapest, deep is strongest validation.">Draft Mode</label>
-        <select id="qs-draft-mode" title="Applies to desktop and Telegram LinkedIn drafting">
-          <option value="fast">Fast</option>
-          <option value="balanced">Balanced</option>
-          <option value="deep">Deep</option>
-        </select>
+    <div class="li-quick-groups">
+      <div class="li-quick-group group-research">
+        <div class="li-quick-group-title">Research and Draft</div>
+        <div class="li-quick-grid">
+          <div class="li-quick-field">
+            <label title="Preset quality profile: fast is cheapest, deep is strongest validation.">Draft Mode</label>
+            <select id="qs-draft-mode" title="Applies to desktop and Telegram LinkedIn drafting">
+              <option value="fast">Fast</option>
+              <option value="balanced">Balanced</option>
+              <option value="deep">Deep</option>
+            </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Maximum seconds allowed per post for research + writing.">Timeout (sec)</label>
+            <input type="number" id="qs-draft-timeout" min="30" max="240" step="1" title="Recommended 75-120 seconds">
+          </div>
+          <div class="li-quick-field">
+            <label title="Max SDK turns in research pass.">Research Turns</label>
+            <input type="number" id="qs-research-turns" min="2" max="10" step="1" title="Higher can improve depth but costs more">
+          </div>
+          <div class="li-quick-field">
+            <label title="Max SDK turns in write pass.">Write Turns</label>
+            <input type="number" id="qs-write-turns" min="2" max="10" step="1" title="Controls rewrite budget and polish">
+          </div>
+          <div class="li-quick-field">
+            <label title="Max number of web queries during research pass.">Research Queries</label>
+            <input type="number" id="qs-research-queries" min="1" max="4" step="1" title="2 is usually balanced">
+          </div>
+          <div class="li-quick-field span-2">
+            <label title="Fallback model when primary run fails or times out.">Fallback Model</label>
+            <input type="text" id="qs-fallback-model" placeholder="kimi-k2.5" title="Leave empty to disable fallback">
+          </div>
+        </div>
       </div>
-      <div class="li-quick-field">
-        <label title="Maximum seconds allowed per post for research + writing.">Timeout (sec)</label>
-        <input type="number" id="qs-draft-timeout" min="30" max="240" step="1" title="Recommended 75-120 seconds">
+
+      <div class="li-quick-group group-posting">
+        <div class="li-quick-group-title">Posting and Safety</div>
+        <div class="li-quick-grid">
+          <div class="li-quick-field">
+            <label title="Average minutes between posting comments when scheduling/posting.">Comment Delay (min)</label>
+            <input type="number" id="qs-comment-delay" min="1" max="15" step="0.5" title="Randomized around this average">
+          </div>
+          <div class="li-quick-field">
+            <label title="Minimum daily auto-post count.">Daily Min</label>
+            <input type="number" id="qs-daily-min" min="1" max="50" step="1" title="Minimum posts per day">
+          </div>
+          <div class="li-quick-field">
+            <label title="Maximum daily auto-post count.">Daily Max</label>
+            <input type="number" id="qs-daily-max" min="1" max="50" step="1" title="Maximum posts per day">
+          </div>
+          <div class="li-quick-field">
+            <label title="Enable auto-posting of approved scheduled drafts.">Auto-Poster</label>
+            <select id="qs-auto-poster">
+              <option value="false">Off</option>
+              <option value="true">On</option>
+            </select>
+          </div>
+        </div>
       </div>
-      <div class="li-quick-field">
-        <label title="Max SDK turns in research pass.">Research Turns</label>
-        <input type="number" id="qs-research-turns" min="2" max="10" step="1" title="Higher can improve depth but costs more">
+
+      <div class="li-quick-group group-day">
+        <div class="li-quick-group-title">Day Window</div>
+        <div class="li-quick-grid">
+          <div class="li-quick-field">
+            <label title="Enable daytime auto-posting window.">Day Window</label>
+            <select id="qs-day-window-enabled">
+              <option value="true">On</option>
+              <option value="false">Off</option>
+            </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Daytime window start (local time).">Day Start</label>
+            <input type="time" id="qs-day-window-start" title="Example: 09:00">
+          </div>
+          <div class="li-quick-field">
+            <label title="Daytime window end (local time).">Day End</label>
+            <input type="time" id="qs-day-window-end" title="Example: 18:00">
+          </div>
+          <div class="li-quick-field">
+            <label title="Minimum spacing in day window (minutes).">Day Interval</label>
+            <input type="number" id="qs-day-window-interval" min="1" max="360" step="1" title="Minimum minutes between posts in day window">
+          </div>
+        </div>
       </div>
-      <div class="li-quick-field">
-        <label title="Max SDK turns in write pass.">Write Turns</label>
-        <input type="number" id="qs-write-turns" min="2" max="10" step="1" title="Controls rewrite budget and polish">
-      </div>
-      <div class="li-quick-field">
-        <label title="Max number of web queries during research pass.">Research Queries</label>
-        <input type="number" id="qs-research-queries" min="1" max="4" step="1" title="2 is usually balanced">
-      </div>
-      <div class="li-quick-field span-2">
-        <label title="Fallback model when primary run fails or times out.">Fallback Model</label>
-        <input type="text" id="qs-fallback-model" placeholder="kimi-k2.5" title="Leave empty to disable fallback">
-      </div>
-      <div class="li-quick-field">
-        <label title="Average minutes between posting comments when scheduling/posting.">Comment Delay (min)</label>
-        <input type="number" id="qs-comment-delay" min="1" max="15" step="0.5" title="Randomized around this average">
-      </div>
-      <div class="li-quick-field">
-        <label title="Minimum daily auto-post count.">Daily Min</label>
-        <input type="number" id="qs-daily-min" min="1" max="50" step="1" title="Minimum posts per day">
-      </div>
-      <div class="li-quick-field">
-        <label title="Maximum daily auto-post count.">Daily Max</label>
-        <input type="number" id="qs-daily-max" min="1" max="50" step="1" title="Maximum posts per day">
-      </div>
-      <div class="li-quick-field">
-        <label title="Enable auto-posting of approved scheduled drafts.">Auto-Poster</label>
-        <select id="qs-auto-poster">
-          <option value="false">Off</option>
-          <option value="true">On</option>
-        </select>
-      </div>
-      <div class="li-quick-field">
-        <label title="Enable daytime auto-posting window.">Day Window</label>
-        <select id="qs-day-window-enabled">
-          <option value="true">On</option>
-          <option value="false">Off</option>
-        </select>
-      </div>
-      <div class="li-quick-field">
-        <label title="Daytime window start (local time).">Day Start</label>
-        <input type="time" id="qs-day-window-start" title="Example: 09:00">
-      </div>
-      <div class="li-quick-field">
-        <label title="Daytime window end (local time).">Day End</label>
-        <input type="time" id="qs-day-window-end" title="Example: 18:00">
-      </div>
-      <div class="li-quick-field">
-        <label title="Minimum spacing in day window (minutes).">Day Interval</label>
-        <input type="number" id="qs-day-window-interval" min="1" max="360" step="1" title="Minimum minutes between posts in day window">
-      </div>
-      <div class="li-quick-field">
-        <label title="Enable overnight auto-posting window.">Night Window</label>
-        <select id="qs-night-window-enabled">
-          <option value="false">Off</option>
-          <option value="true">On</option>
-        </select>
-      </div>
-      <div class="li-quick-field">
-        <label title="Overnight window start (local time).">Night Start</label>
-        <input type="time" id="qs-night-window-start" title="Example: 22:00">
-      </div>
-      <div class="li-quick-field">
-        <label title="Overnight window end (local time).">Night End</label>
-        <input type="time" id="qs-night-window-end" title="Example: 06:00">
-      </div>
-      <div class="li-quick-field">
-        <label title="Minimum spacing in night window (minutes). Use 120 for one every 2 hours.">Night Interval</label>
-        <input type="number" id="qs-night-window-interval" min="1" max="360" step="1" title="Minimum minutes between posts in night window">
+
+      <div class="li-quick-group group-night">
+        <div class="li-quick-group-title">Night Window</div>
+        <div class="li-quick-grid">
+          <div class="li-quick-field">
+            <label title="Enable overnight auto-posting window.">Night Window</label>
+            <select id="qs-night-window-enabled">
+              <option value="false">Off</option>
+              <option value="true">On</option>
+            </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Overnight window start (local time).">Night Start</label>
+            <input type="time" id="qs-night-window-start" title="Example: 22:00">
+          </div>
+          <div class="li-quick-field">
+            <label title="Overnight window end (local time).">Night End</label>
+            <input type="time" id="qs-night-window-end" title="Example: 06:00">
+          </div>
+          <div class="li-quick-field">
+            <label title="Minimum spacing in night window (minutes). Use 120 for one every 2 hours.">Night Interval</label>
+            <input type="number" id="qs-night-window-interval" min="1" max="360" step="1" title="Minimum minutes between posts in night window">
+          </div>
+        </div>
       </div>
     </div>
     <div class="li-quick-actions">
