@@ -651,9 +651,9 @@
     <button class="action-btn" onclick="approveSelected()" style="background:rgba(34,197,94,0.12);color:#4ade80;border-color:rgba(34,197,94,0.25);">Approve Selected</button>
     <button class="action-btn" onclick="rejectSelected()" style="background:rgba(239,68,68,0.12);color:#f87171;border-color:rgba(239,68,68,0.25);">Reject Selected</button>
     <button class="action-btn" onclick="hideSelected()">Hide Selected</button>
-    <button class="action-btn" onclick="draftSelected()" style="background:rgba(34,197,94,0.12);color:#4ade80;border-color:rgba(34,197,94,0.25);">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      Draft Selected
+    <button class="action-btn" onclick="researchDraftSelected()" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3);" title="Spawn parallel SDK agents to research and draft (5 at a time)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      Research &amp; Draft
     </button>
     <div style="flex:1"></div>
     <button class="action-btn" onclick="selectUndrafted()" style="font-size:11px;color:var(--text-muted)">Select Undrafted</button>
@@ -750,15 +750,19 @@
     async function redoSelected() {
       const ids = getSelectedIds();
       if (ids.length === 0) return;
-      showToast(`Redoing ${ids.length} drafts...`, 'success');
-      sendToAgent(`Re-draft LinkedIn comments for these post IDs: ${ids.join(', ')}. The previous drafts were rejected for sounding too generic and AI-generated. Use the draft_linkedin_comment tool for each post. It will automatically update existing kanban tasks. CRITICAL RULES for new drafts:
-- NEVER use em dashes. Use commas, periods, or parentheses.
-- NEVER use corporate buzzwords (crucial, leverage, delve, comprehensive, robust, utilize, paradigm, synergy, streamline, optimize, ecosystem, landscape, unprecedented, transformative, game-changing, cutting-edge, holistic, prevalent).
-- Write like a real person. Be specific. Reference concrete details from each post.
-- Short punchy sentences. Casual but smart. No fluff.
-- Use my configured voice and style.`);
+      showToast(`Respawning ${ids.length} research agents (5 parallel)...`, 'success');
       clearSelection();
-      loadPosts();
+      try {
+        const result = await window.pocketAgent.draftLinkedInBatch(ids, 5);
+        if (result.success) {
+          showToast(`Redrafted ${result.drafted} comments`, 'success');
+        } else {
+          showToast(`Redo failed: ${result.error}`, 'error');
+        }
+        loadPosts();
+      } catch (err) {
+        showToast('Batch redo failed', 'error');
+      }
     }
 
     async function approveSelected() {
@@ -808,12 +812,25 @@
       updateSelection();
     }
 
-    async function draftSelected() {
+    async function researchDraftSelected() {
       const ids = getSelectedIds();
-      if (ids.length === 0) return;
-      showToast(`Drafting comments for ${ids.length} posts...`, 'success');
-      sendToAgent(`Draft LinkedIn comments for these post IDs: ${ids.join(', ')}. Use the draft_linkedin_comment tool for each. Use my configured voice and style. Create kanban tasks for each draft.`);
+      if (ids.length === 0) {
+        showToast('Select posts first', 'error');
+        return;
+      }
+      showToast(`Spawning ${ids.length} research agents (5 parallel)...`, 'success');
       clearSelection();
+      try {
+        const result = await window.pocketAgent.draftLinkedInBatch(ids, 5);
+        if (result.success) {
+          showToast(`Drafted ${result.drafted} comments`, 'success');
+        } else {
+          showToast(`Draft failed: ${result.error}`, 'error');
+        }
+        loadPosts();
+      } catch (err) {
+        showToast('Batch draft failed', 'error');
+      }
     }
 
     function cyclePriority(postId, current) {
@@ -1151,13 +1168,22 @@
     }
 
     async function redoDraft(postId, postUrl) {
-      sendToAgent(`Re-draft the LinkedIn comment for post ${postUrl} (post ID ${postId}). The previous draft was rejected for sounding too generic and AI-generated. Use the draft_linkedin_comment tool to generate a new draft. It will automatically update the existing kanban task. CRITICAL RULES for the new draft:
-- NEVER use em dashes. Use commas, periods, or parentheses instead.
-- NEVER use words: crucial, leverage, delve, comprehensive, robust, utilize, paradigm, synergy, streamline, optimize, ecosystem, landscape, unprecedented, transformative, game-changing, cutting-edge, holistic.
-- Write like a real person commenting on LinkedIn, not a corporate PR team.
-- Be specific and personal. Reference concrete details from the post.
-- Keep it conversational and genuine. Short sentences. No fluff.
-- Use my configured voice and personal style.`);
+      sendToAgent(`Re-draft the LinkedIn comment for post ${postUrl} (post ID ${postId}). The previous draft was rejected for quality issues.
+
+STEP 1: Use linkedin_read_post to read the FULL post content. Actually understand what the author is saying.
+STEP 2: Research the topic using web search. Find a real stat, case study, tool, or recent example related to the post's topic that you can reference in your comment.
+STEP 3: Write the comment YOURSELF (do NOT use draft_linkedin_comment — it delegates to a weaker model). Include something concrete from your research. Think about what a real practitioner would say.
+STEP 4: Save it using linkedin_save_draft with the post_id and your draft text. This updates the kanban task too.
+
+YOUR COMMENT MUST:
+- Be 2-3 sentences MAX. Not a paragraph. Short and punchy.
+- Reference something SPECIFIC the author said. Not a vague summary.
+- Add your own angle, experience, or a question. Not just agreement.
+- Sound like a real human typed it on their phone. Casual but smart.
+
+NEVER USE: em dashes (—), "landscape", "crucial", "leverage", "comprehensive", "robust", "ecosystem", "transformative", "cutting-edge", "holistic", "navigate", "streamline", "optimize", "paradigm", "innovative", "unprecedented", "game-changing", "delve", "foster", "harness", "elevate".
+
+If you catch yourself writing any banned word or an em dash, rewrite the sentence.`);
     }
 
     function feedbackDraft(postId, postUrl) {
@@ -1176,6 +1202,24 @@
       });
       contentEl.appendChild(input);
       input.focus();
+    }
+
+    // Listen for draft progress from parallel agents
+    if (window.pocketAgent.onLinkedInDraftProgress) {
+      window.pocketAgent.onLinkedInDraftProgress((data) => {
+        const d = data;
+        if (d && typeof d === 'object') {
+          if ('draft' in d && 'author' in d) {
+            showToast(`Drafted: ${d.author}`, 'success');
+            loadPosts();
+          } else if ('error' in d && 'author' in d) {
+            showToast(`Failed: ${d.author}`, 'error');
+          } else if ('type' in d && d.type === 'progress' && 'completed' in d && 'total' in d) {
+            const countEl = document.getElementById('post-count');
+            if (countEl) countEl.textContent = `(drafting ${d.completed}/${d.total}...)`;
+          }
+        }
+      });
     }
 
     loadPosts();

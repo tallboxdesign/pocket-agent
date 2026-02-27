@@ -936,6 +936,104 @@ async function handleTodayPostsTool(input: unknown): Promise<string> {
 }
 
 // ============================================================================
+// Save Draft Tool (for agent-written comments, bypassing GLM)
+// ============================================================================
+
+function getSaveDraftToolDefinition() {
+  return {
+    name: 'linkedin_save_draft',
+    description: `Save a comment draft that YOU (the agent) wrote directly. Use this instead of draft_linkedin_comment when you want to write the comment yourself for better quality.
+
+This saves the draft to the LinkedIn posts database and creates/updates a Kanban task.
+
+Parameters:
+- post_id: The numeric ID of the LinkedIn post in the database
+- draft: The comment text to save
+- post_url: (optional) The LinkedIn post URL, used for Kanban description`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        post_id: { type: 'number', description: 'LinkedIn post database ID' },
+        draft: { type: 'string', description: 'The comment text to save as draft' },
+        post_url: { type: 'string', description: 'LinkedIn post URL (optional)' },
+      },
+      required: ['post_id', 'draft'],
+    },
+  };
+}
+
+async function handleSaveDraftTool(input: unknown): Promise<string> {
+  const p = input as { post_id: number; draft: string; post_url?: string };
+  if (!p.post_id || !p.draft) {
+    return JSON.stringify({ error: 'post_id and draft are required' });
+  }
+
+  try {
+    const { KanbanService } = await import('../kanban');
+    const db = getDb();
+    if (!db) return JSON.stringify({ error: 'Database not available' });
+
+    // Get existing post data
+    const post = db.prepare('SELECT post_url, kanban_task_id, author, text_preview FROM linkedin_posts WHERE id = ?')
+      .get(p.post_id) as { post_url: string; kanban_task_id?: number; author: string; text_preview: string } | undefined;
+    if (!post) return JSON.stringify({ error: `Post ID ${p.post_id} not found` });
+
+    const postUrl = p.post_url || post.post_url;
+
+    // Post-process: strip em/en dashes
+    const cleanDraft = p.draft.trim()
+      .replace(/\s*—\s*/g, ', ')
+      .replace(/\s*–\s*/g, ', ')
+      .replace(/,,/g, ',');
+
+    // Get or create LinkedIn project
+    let project = KanbanService.getProjectByName('LinkedIn');
+    if (!project) {
+      project = KanbanService.createProject('LinkedIn', 'LinkedIn content drafts and posts', '#0a66c2');
+    }
+
+    let taskId: number;
+    if (post.kanban_task_id) {
+      // Update existing kanban task
+      KanbanService.updateTask(post.kanban_task_id, {
+        description: `${cleanDraft}\n\n---\nPost URL: ${postUrl}`,
+        status: 'review',
+      });
+      KanbanService.addComment(post.kanban_task_id, `Draft rewritten by agent:\n${cleanDraft}`);
+      taskId = post.kanban_task_id;
+    } else {
+      // Create new kanban task
+      const title = `Comment on ${post.author ? post.author + "'s post" : 'post'}: ${post.text_preview.slice(0, 60)}...`;
+      const task = KanbanService.createTask({
+        project_id: project.id,
+        title: title.slice(0, 120),
+        description: `${cleanDraft}\n\n---\nPost URL: ${postUrl}`,
+        status: 'review',
+        priority: 'medium',
+        tags: 'linkedin,comment',
+      });
+      taskId = task.id;
+    }
+
+    // Save to linkedin_posts
+    db.prepare('UPDATE linkedin_posts SET comment_draft = ?, kanban_task_id = ? WHERE id = ?')
+      .run(cleanDraft, taskId, p.post_id);
+
+    return JSON.stringify({
+      success: true,
+      draft: cleanDraft,
+      post_id: p.post_id,
+      kanban_task_id: taskId,
+      redone: !!post.kanban_task_id,
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[LinkedIn] save_draft failed:', msg);
+    return JSON.stringify({ success: false, error: msg });
+  }
+}
+
+// ============================================================================
 // Export
 // ============================================================================
 
@@ -951,5 +1049,6 @@ export function getLinkedInTools() {
     { ...getDraftCommentToolDefinition(), handler: handleDraftCommentTool },
     { ...getReviseDraftToolDefinition(), handler: handleReviseDraftTool },
     { ...getTodayPostsToolDefinition(), handler: handleTodayPostsTool },
+    { ...getSaveDraftToolDefinition(), handler: handleSaveDraftTool },
   ];
 }

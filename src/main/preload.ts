@@ -75,6 +75,13 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   snoozeLinkedInPost: (id: number, days: number) => ipcRenderer.invoke('linkedin:snoozePost', id, days),
   setLinkedInPriority: (id: number, priority: string) => ipcRenderer.invoke('linkedin:setPriority', id, priority),
   scheduleLinkedInPost: (id: number, datetime: string) => ipcRenderer.invoke('linkedin:schedulePost', id, datetime),
+  draftLinkedInBatch: (postIds: number[], batchSize?: number) => ipcRenderer.invoke('linkedin:draftBatch', postIds, batchSize),
+  cancelLinkedInDraftJob: () => ipcRenderer.invoke('linkedin:cancelDraftJob'),
+  onLinkedInDraftProgress: (callback: (data: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on('linkedin:draftProgress', listener);
+    return () => ipcRenderer.removeListener('linkedin:draftProgress', listener);
+  },
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   openPath: (filePath: string) => ipcRenderer.invoke('app:openPath', filePath),
   showInFolder: (filePath: string) => ipcRenderer.invoke('app:showInFolder', filePath),
@@ -349,6 +356,9 @@ declare global {
       snoozeLinkedInPost: (id: number, days: number) => Promise<{ success: boolean; error?: string }>;
       setLinkedInPriority: (id: number, priority: string) => Promise<{ success: boolean; error?: string }>;
       scheduleLinkedInPost: (id: number, datetime: string) => Promise<{ success: boolean; error?: string }>;
+      draftLinkedInBatch: (postIds: number[], batchSize?: number) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
+      cancelLinkedInDraftJob: () => Promise<{ success: boolean }>;
+      onLinkedInDraftProgress: (callback: (data: unknown) => void) => () => void;
       openExternal: (url: string) => Promise<void>;
       openPath: (filePath: string) => Promise<void>;
       showInFolder: (filePath: string) => Promise<void>;

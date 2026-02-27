@@ -1972,6 +1972,43 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('linkedin:draftBatch', async (_, postIds: number[], batchSize?: number) => {
+    try {
+      const { draftBatch, draftEvents } = await import('../tools/linkedin-drafter');
+      // Forward progress events to the renderer
+      const progressHandler = (data: unknown) => {
+        linkedInActivityWindow?.webContents.send('linkedin:draftProgress', data);
+      };
+      draftEvents.on('drafted', progressHandler);
+      draftEvents.on('error', progressHandler);
+      draftEvents.on('complete', progressHandler);
+      draftEvents.on('progress', (data: unknown) => {
+        linkedInActivityWindow?.webContents.send('linkedin:draftProgress', { type: 'progress', ...data as Record<string, unknown> });
+      });
+
+      const result = await draftBatch(postIds, batchSize || 5);
+
+      draftEvents.removeListener('drafted', progressHandler);
+      draftEvents.removeListener('error', progressHandler);
+      draftEvents.removeListener('complete', progressHandler);
+
+      return { success: true, drafted: result.results.length, errors: result.errors };
+    } catch (err) {
+      console.error('[LinkedIn] Batch draft failed:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:cancelDraftJob', async () => {
+    try {
+      const { cancelDraftJob } = await import('../tools/linkedin-drafter');
+      cancelDraftJob();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle('app:openDailyLogs', async () => {
     openDailyLogsWindow();
   });
