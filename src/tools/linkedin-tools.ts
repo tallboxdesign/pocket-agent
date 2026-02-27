@@ -2,10 +2,41 @@
  * LinkedIn agent tools — browse feed, read posts, comment, create posts, manage auth.
  */
 
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
 import { linkedinExec } from './linkedin-wrapper';
 import { SettingsManager } from '../settings';
 import { glmFlash, glmChat, isGlmConfigured } from './glm-client';
 import { KanbanService } from '../kanban';
+
+// ============================================================================
+// Database helper (shared connection to pocket-agent.db)
+// ============================================================================
+
+let _db: Database.Database | null = null;
+
+function getDb(): Database.Database | null {
+  if (_db) return _db;
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  const possiblePaths = [
+    path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+    path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+    path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      _db = new Database(p);
+      _db.pragma('journal_mode = WAL');
+      return _db;
+    }
+  }
+  return null;
+}
+
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 function checkEnabled(): string | null {
   if (!SettingsManager.getBoolean('linkedin.enabled')) {
@@ -57,8 +88,10 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   };
 
   const args: string[] = [];
-  if (p.scroll) args.push('--scroll', String(p.scroll));
-  if (p.limit) args.push('--limit', String(p.limit));
+  const defaultScroll = parseInt(SettingsManager.get('linkedin.feedScroll') || '3', 10);
+  const defaultLimit = parseInt(SettingsManager.get('linkedin.feedLimit') || '20', 10);
+  args.push('--scroll', String(p.scroll || defaultScroll));
+  args.push('--limit', String(p.limit || defaultLimit));
   if (p.min_engagement) args.push('--min-engagement', String(p.min_engagement));
 
   // Apply explicit filters or fall back to settings defaults
@@ -69,6 +102,33 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   try {
     const stdout = await linkedinExec('feed', args, 180000);
     const posts = JSON.parse(stdout);
+
+    // Persist scraped posts to DB
+    const db = getDb();
+    if (db) {
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO linkedin_posts (post_url, author, text_preview, reactions, comments, post_type, scraped_date)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      const today = todayDate();
+      const tx = db.transaction(() => {
+        for (const post of posts) {
+          if (post.post_url) {
+            insert.run(
+              post.post_url,
+              post.author || 'Unknown',
+              (post.text_preview || '').slice(0, 500),
+              post.reactions || 0,
+              post.comments || 0,
+              post.type || null,
+              today,
+            );
+          }
+        }
+      });
+      tx();
+    }
+
     return JSON.stringify({ success: true, count: posts.length, posts });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -144,6 +204,15 @@ Examples:
   };
 }
 
+// Rate limiter: track last comment time to space them out with randomized delays
+let _lastCommentTime = 0;
+function getCommentDelayMs(): number {
+  const baseMins = parseFloat(SettingsManager.get('linkedin.commentDelay') || '3');
+  // Randomize: 60% to 140% of base delay, so 3min setting = ~1.8 to 4.2 min
+  const jitter = 0.6 + Math.random() * 0.8;
+  return Math.max(60000, baseMins * jitter * 60 * 1000);
+}
+
 async function handleCommentTool(input: unknown): Promise<string> {
   const err = checkEnabled();
   if (err) return err;
@@ -151,12 +220,29 @@ async function handleCommentTool(input: unknown): Promise<string> {
   const p = input as { url: string; comment: string };
   if (!p.url || !p.comment) return JSON.stringify({ error: 'url and comment are required' });
 
+  // Enforce rate limiting between comments
+  const now = Date.now();
+  const elapsed = now - _lastCommentTime;
+  if (_lastCommentTime > 0 && elapsed < getCommentDelayMs()) {
+    const waitSec = Math.ceil((getCommentDelayMs() - elapsed) / 1000);
+    console.log(`[LinkedIn] Rate limit: waiting ${waitSec}s before next comment`);
+    await new Promise(resolve => setTimeout(resolve, getCommentDelayMs() - elapsed));
+  }
+
   try {
     await linkedinExec(
       'reply',
       ['--url', p.url, '--comment', p.comment, '--no-confirm'],
       90000
     );
+    _lastCommentTime = Date.now();
+
+    // Mark post as commented in DB
+    const db = getDb();
+    if (db) {
+      db.prepare('UPDATE linkedin_posts SET commented = 1 WHERE post_url = ?').run(p.url);
+    }
+
     return JSON.stringify({ success: true, message: 'Comment posted', post_url: p.url });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -611,6 +697,13 @@ Rules:
       tags: 'linkedin,comment',
     });
 
+    // Store draft and kanban link in DB
+    const db = getDb();
+    if (db) {
+      db.prepare('UPDATE linkedin_posts SET comment_draft = ?, kanban_task_id = ? WHERE post_url = ?')
+        .run(draft, task.id, p.post_url);
+    }
+
     return JSON.stringify({
       success: true,
       draft,
@@ -718,6 +811,66 @@ async function handleReviseDraftTool(input: unknown): Promise<string> {
 }
 
 // ============================================================================
+// Today's Saved Posts Tool
+// ============================================================================
+
+function getTodayPostsToolDefinition() {
+  return {
+    name: 'linkedin_today_posts',
+    description: `Recall today's scraped LinkedIn posts from the database.
+
+Returns posts that were scraped today, sorted by engagement (reactions + comments) descending.
+Use this when the user references posts by number after a session restart — the posts persist in the database.
+
+Optionally filter by date (defaults to today) or author.
+
+Examples:
+- linkedin_today_posts() — get all posts scraped today
+- linkedin_today_posts(date="2026-02-26") — get yesterday's posts
+- linkedin_today_posts(author="Sam Altman") — filter by author`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        date: { type: 'string', description: 'Date to query (YYYY-MM-DD, default: today)' },
+        author: { type: 'string', description: 'Filter by author name (case-insensitive)' },
+      },
+      required: [],
+    },
+  };
+}
+
+async function handleTodayPostsTool(input: unknown): Promise<string> {
+  const err = checkEnabled();
+  if (err) return err;
+
+  const db = getDb();
+  if (!db) {
+    return JSON.stringify({ error: 'Database not available' });
+  }
+
+  const p = input as { date?: string; author?: string };
+  const date = p.date || todayDate();
+
+  let query = 'SELECT * FROM linkedin_posts WHERE scraped_date = ?';
+  const params: (string | number)[] = [date];
+
+  if (p.author) {
+    query += ' AND author LIKE ?';
+    params.push(`%${p.author}%`);
+  }
+
+  query += ' ORDER BY (reactions + comments) DESC';
+
+  try {
+    const posts = db.prepare(query).all(...params);
+    return JSON.stringify({ success: true, date, count: posts.length, posts });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return JSON.stringify({ success: false, error: msg });
+  }
+}
+
+// ============================================================================
 // Export
 // ============================================================================
 
@@ -732,5 +885,6 @@ export function getLinkedInTools() {
     { ...getDraftPostToolDefinition(), handler: handleDraftPostTool },
     { ...getDraftCommentToolDefinition(), handler: handleDraftCommentTool },
     { ...getReviseDraftToolDefinition(), handler: handleReviseDraftTool },
+    { ...getTodayPostsToolDefinition(), handler: handleTodayPostsTool },
   ];
 }

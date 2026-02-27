@@ -510,12 +510,9 @@
     }
 
     async function sendToAgent(prompt) {
-      showToast('Sending to agent...', 'success');
+      showToast('Sending to chat...', 'success');
       try {
-        await window.pocketAgent.send(prompt);
-        showToast('Command sent!', 'success');
-        // Reload after a delay to pick up new data
-        setTimeout(() => loadPosts(), 5000);
+        await window.pocketAgent.injectChatMessage(prompt);
       } catch (err) {
         console.error('Failed to send:', err);
         showToast('Failed to send command', 'error');

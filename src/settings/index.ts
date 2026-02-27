@@ -616,6 +616,34 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     type: 'string',
   },
 
+  {
+    key: 'linkedin.feedScroll',
+    defaultValue: '3',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Feed Scroll Depth',
+    description: 'How many times to scroll the feed (more = more posts, slower). 3 = ~15 posts, 6 = ~30 posts, 10 = ~50 posts',
+    type: 'string',
+  },
+  {
+    key: 'linkedin.feedLimit',
+    defaultValue: '20',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Max Posts',
+    description: 'Maximum posts to return per scrape',
+    type: 'string',
+  },
+  {
+    key: 'linkedin.commentDelay',
+    defaultValue: '3',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Comment Delay (min)',
+    description: 'Minutes between posting comments to avoid LinkedIn detection (recommended: 3-5)',
+    type: 'string',
+  },
+
   // Window state settings
   {
     key: 'window.chatBounds',

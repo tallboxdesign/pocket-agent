@@ -3078,6 +3078,15 @@
         handleTelegramMessage(data);
       });
       console.log('[Chat] Telegram message listener set up');
+
+      // Listen for injected messages from external windows (LinkedIn Activity, etc.)
+      if (window.pocketAgent.onChatInject) {
+        window.pocketAgent.onChatInject((message) => {
+          console.log('[Chat] Received injected message:', message);
+          input.value = message;
+          sendMessage();
+        });
+      }
     });
 
     // ============ SESSION MANAGEMENT ============

@@ -2712,6 +2712,27 @@ Respond with ONLY valid JSON, no markdown, no explanation:
     openChatWindow();
   });
 
+  ipcMain.handle('chat:injectMessage', async (_, message: string) => {
+    openChatWindow();
+    // Wait for window to be ready
+    await new Promise<void>(resolve => {
+      if (chatWindow && !chatWindow.isDestroyed()) {
+        if (chatWindow.isVisible()) {
+          resolve();
+        } else {
+          chatWindow.once('ready-to-show', () => resolve());
+          // Fallback timeout
+          setTimeout(() => resolve(), 500);
+        }
+      } else {
+        setTimeout(() => resolve(), 500);
+      }
+    });
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.webContents.send('chat:inject', message);
+    }
+  });
+
   // OAuth flow for Claude subscription
   ipcMain.handle('auth:startOAuth', async () => {
     const { ClaudeOAuth } = await import('../auth/oauth');

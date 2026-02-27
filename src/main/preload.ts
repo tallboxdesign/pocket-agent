@@ -168,6 +168,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   },
   openSettings: (tab?: string) => ipcRenderer.invoke('app:openSettings', tab),
   openChat: () => ipcRenderer.invoke('app:openChat'),
+  injectChatMessage: (message: string) => ipcRenderer.invoke('chat:injectMessage', message),
   startOAuth: () => ipcRenderer.invoke('auth:startOAuth'),
   completeOAuth: (code: string) => ipcRenderer.invoke('auth:completeOAuth', code),
   cancelOAuth: () => ipcRenderer.invoke('auth:cancelOAuth'),
@@ -263,6 +264,13 @@ contextBridge.exposeInMainWorld('pocketAgent', {
 
   // Platform info
   getPlatform: () => process.platform,
+
+  // Chat injection (from external windows like LinkedIn Activity)
+  onChatInject: (callback: (message: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, message: string) => callback(message);
+    ipcRenderer.on('chat:inject', listener);
+    return () => ipcRenderer.removeListener('chat:inject', listener);
+  },
 
   // Navigation
   onNavigateTab: (callback: (tab: string) => void) => {
@@ -406,6 +414,7 @@ declare global {
       onEmailProgress: (callback: (data: { status: string; [key: string]: unknown }) => void) => () => void;
       openSettings: (tab?: string) => Promise<void>;
       openChat: () => Promise<void>;
+      injectChatMessage: (message: string) => Promise<void>;
       startOAuth: () => Promise<{ success: boolean; error?: string }>;
       completeOAuth: (code: string) => Promise<{ success: boolean; error?: string }>;
       cancelOAuth: () => Promise<{ success: boolean }>;
