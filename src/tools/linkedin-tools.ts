@@ -969,7 +969,6 @@ async function handleSaveDraftTool(input: unknown): Promise<string> {
   }
 
   try {
-    const { KanbanService } = await import('../kanban');
     const db = getDb();
     if (!db) return JSON.stringify({ error: 'Database not available' });
 

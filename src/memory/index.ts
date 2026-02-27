@@ -599,6 +599,10 @@ export class MemoryManager {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN comments_at_snooze INTEGER`);
       console.log('[Memory] Migrated linkedin_posts: added comments_at_snooze column');
     }
+    if (!hasColumn('linkedin_posts', 'approved')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN approved INTEGER DEFAULT 0`);
+      console.log('[Memory] Migrated linkedin_posts: added approved column');
+    }
   }
 
   /**

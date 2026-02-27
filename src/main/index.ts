@@ -1733,7 +1733,7 @@ function setupIPC(): void {
       return { posts, snoozed };
     } catch (err) {
       console.error('[LinkedIn] Failed to list posts:', err);
-      return [];
+      return { posts: [], snoozed: [], error: String(err) };
     }
   });
 
@@ -1828,6 +1828,8 @@ function setupIPC(): void {
       db.pragma('journal_mode = WAL');
       const row = db.prepare('SELECT post_url, comment_draft, kanban_task_id FROM linkedin_posts WHERE id = ?').get(postId) as { post_url: string; comment_draft: string | null; kanban_task_id?: number } | undefined;
       if (!row || !row.comment_draft) { db.close(); return { success: false, error: 'No draft to approve' }; }
+      // Mark as approved in DB (not yet commented - that happens when actually posted)
+      db.prepare('UPDATE linkedin_posts SET approved = 1 WHERE id = ?').run(postId);
       db.close();
       // Approve kanban task if exists
       if (row.kanban_task_id) {
@@ -1894,9 +1896,10 @@ function setupIPC(): void {
       const snoozedUntil = db.prepare(`SELECT datetime('now', '+' || ? || ' days') as t`).get(days) as { t: string };
       const jobName = `linkedin-snooze-${postId}-${Date.now()}`;
       db.prepare(
-        `INSERT INTO cron_jobs (name, schedule_type, run_at, prompt, channel, enabled, delete_after_run, session_id, status) VALUES (?, 'at', ?, ?, 'desktop', 1, 1, 'default', 'pending')`
+        `INSERT INTO cron_jobs (name, schedule_type, run_at, next_run_at, prompt, channel, enabled, delete_after_run, session_id, status) VALUES (?, 'at', ?, ?, ?, 'desktop', 1, 1, 'default', 'pending')`
       ).run(
         jobName,
+        snoozedUntil.t,
         snoozedUntil.t,
         `Check snoozed LinkedIn post #${postId} by ${post.author} (${post.post_url}). Original engagement: ${post.reactions} reactions, ${post.comments} comments. Use linkedin_read_post to get current engagement. If reactions or comments grew by 20%+, draft a comment. Otherwise dismiss it by clearing the snooze.`
       );
@@ -1958,9 +1961,10 @@ function setupIPC(): void {
       // Create one-time cron job
       const jobName = `linkedin-schedule-${postId}-${Date.now()}`;
       db.prepare(
-        `INSERT INTO cron_jobs (name, schedule_type, run_at, prompt, channel, enabled, delete_after_run, session_id, status) VALUES (?, 'at', ?, ?, 'desktop', 1, 1, 'default', 'pending')`
+        `INSERT INTO cron_jobs (name, schedule_type, run_at, next_run_at, prompt, channel, enabled, delete_after_run, session_id, status) VALUES (?, 'at', ?, ?, ?, 'desktop', 1, 1, 'default', 'pending')`
       ).run(
         jobName,
+        datetime,
         datetime,
         `Post the approved LinkedIn comment on ${post.post_url}: ${post.comment_draft}`
       );
@@ -1973,29 +1977,59 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('linkedin:draftBatch', async (_, postIds: number[], batchSize?: number) => {
+    const safeSendProgress = (payload: unknown): void => {
+      try {
+        if (!linkedInActivityWindow || linkedInActivityWindow.isDestroyed()) return;
+        linkedInActivityWindow.webContents.send('linkedin:draftProgress', payload);
+      } catch (sendErr) {
+        console.warn('[LinkedIn] Failed to send draft progress event:', sendErr);
+      }
+    };
+
     try {
+      const cleanIds = Array.isArray(postIds)
+        ? postIds.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0)
+        : [];
+      if (cleanIds.length === 0) {
+        return { success: false, error: 'No valid post IDs selected', errors: ['No valid post IDs selected'] };
+      }
+
       const { draftBatch, draftEvents } = await import('../tools/linkedin-drafter');
-      // Forward progress events to the renderer
-      const progressHandler = (data: unknown) => {
-        linkedInActivityWindow?.webContents.send('linkedin:draftProgress', data);
-      };
+      const progressHandler = (data: unknown) => safeSendProgress(data);
+      const typedProgressHandler = (data: unknown) =>
+        safeSendProgress({ type: 'progress', ...(data as Record<string, unknown>) });
+
       draftEvents.on('drafted', progressHandler);
       draftEvents.on('error', progressHandler);
+      draftEvents.on('researching', progressHandler);
       draftEvents.on('complete', progressHandler);
-      draftEvents.on('progress', (data: unknown) => {
-        linkedInActivityWindow?.webContents.send('linkedin:draftProgress', { type: 'progress', ...data as Record<string, unknown> });
-      });
+      draftEvents.on('progress', typedProgressHandler);
 
-      const result = await draftBatch(postIds, batchSize || 5);
+      try {
+        const result = await draftBatch(cleanIds, batchSize || 2);
+        const drafted = result.results.length;
+        const errors = result.errors;
 
-      draftEvents.removeListener('drafted', progressHandler);
-      draftEvents.removeListener('error', progressHandler);
-      draftEvents.removeListener('complete', progressHandler);
+        if (drafted === 0 && errors.length > 0) {
+          return {
+            success: false,
+            error: errors[0],
+            drafted,
+            errors,
+          };
+        }
 
-      return { success: true, drafted: result.results.length, errors: result.errors };
+        return { success: true, drafted, errors };
+      } finally {
+        draftEvents.removeListener('drafted', progressHandler);
+        draftEvents.removeListener('error', progressHandler);
+        draftEvents.removeListener('researching', progressHandler);
+        draftEvents.removeListener('complete', progressHandler);
+        draftEvents.removeListener('progress', typedProgressHandler);
+      }
     } catch (err) {
       console.error('[LinkedIn] Batch draft failed:', err);
-      return { success: false, error: String(err) };
+      return { success: false, error: String(err), errors: [String(err)] };
     }
   });
 
