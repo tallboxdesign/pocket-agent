@@ -234,6 +234,66 @@
 
     .draft-text.expanded { display: block; }
 
+    .badge-draft {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+    }
+
+    .draft-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .draft-actions button {
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .draft-actions button:hover { color: var(--text-primary); }
+    .draft-actions .btn-approve { color: #4ade80; border-color: rgba(34,197,94,0.3); }
+    .draft-actions .btn-approve:hover { background: rgba(34,197,94,0.15); }
+    .draft-actions .btn-reject { color: #f87171; border-color: rgba(239,68,68,0.3); }
+    .draft-actions .btn-reject:hover { background: rgba(239,68,68,0.15); }
+    .draft-actions .btn-edit { color: #60a5fa; border-color: rgba(96,165,250,0.3); }
+    .draft-actions .btn-edit:hover { background: rgba(96,165,250,0.15); }
+    .draft-actions .btn-feedback { color: #c084fc; border-color: rgba(192,132,252,0.3); }
+    .draft-actions .btn-feedback:hover { background: rgba(192,132,252,0.15); }
+
+    .draft-edit-area {
+      width: 100%;
+      min-height: 60px;
+      margin-top: 6px;
+      padding: 8px;
+      background: var(--bg-primary);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 1.5;
+      resize: vertical;
+    }
+
+    .feedback-input {
+      width: 100%;
+      margin-top: 6px;
+      padding: 6px 8px;
+      background: var(--bg-primary);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 12px;
+    }
+
     .empty-state {
       display: flex;
       flex-direction: column;
@@ -484,7 +544,12 @@
         const content = document.getElementById('content');
         const countEl = document.getElementById('post-count');
 
-        countEl.textContent = `(${posts.length})`;
+        const drafted = posts.filter(p => p.comment_draft && !p.commented).length;
+        const commented = posts.filter(p => p.commented).length;
+        const parts = [`${posts.length} posts`];
+        if (drafted) parts.push(`${drafted} drafted`);
+        if (commented) parts.push(`${commented} commented`);
+        countEl.textContent = `(${parts.join(', ')})`;
 
         if (posts.length === 0) {
           content.innerHTML = `
@@ -524,13 +589,27 @@
                     ${escapeHtml(truncate(p.text_preview, 100))}
                     ${p.comment_draft ? `
                       <div class="draft-toggle" onclick="toggleDraft(${p.id})">Show draft</div>
-                      <div class="draft-text" id="draft-${p.id}">${escapeHtml(p.comment_draft)}</div>
+                      <div class="draft-text" id="draft-${p.id}">
+                        <div id="draft-content-${p.id}">${escapeHtml(p.comment_draft)}</div>
+                        ${!p.commented ? `
+                        <div class="draft-actions">
+                          <button class="btn-approve" onclick="approveDraft(${p.id}, '${escapeHtml(p.post_url)}', ${JSON.stringify(escapeHtml(p.comment_draft)).replace(/'/g, "\\'")})" title="Post this comment">Approve</button>
+                          <button class="btn-reject" onclick="rejectDraft(${p.id})" title="Clear draft">Reject</button>
+                          <button class="btn-edit" onclick="editDraft(${p.id})" title="Edit inline">Edit</button>
+                          <button class="btn-feedback" onclick="feedbackDraft(${p.id}, '${escapeHtml(p.post_url)}')" title="Send revision feedback">Feedback</button>
+                        </div>
+                        ` : ''}
+                      </div>
                     ` : ''}
                   </td>
                   <td class="col-stats">${p.reactions || 0}</td>
                   <td class="col-stats">${p.comments || 0}</td>
                   <td class="col-type">${p.post_type ? `<span class="badge badge-type">${escapeHtml(p.post_type)}</span>` : ''}</td>
-                  <td class="col-status">${p.commented ? '<span class="badge badge-commented">Replied</span>' : ''}</td>
+                  <td class="col-status">
+                    ${p.commented ? '<span class="badge badge-commented">Replied</span>'
+                      : p.comment_draft ? '<span class="badge badge-draft">Draft</span>'
+                      : ''}
+                  </td>
                   <td class="col-link">
                     <button class="link-btn" onclick="window.pocketAgent.openExternal('${escapeHtml(p.post_url)}')" title="Open in browser">
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -585,6 +664,67 @@
         console.error('Failed to send:', err);
         showToast('Failed to send command', 'error');
       }
+    }
+
+    async function approveDraft(postId, postUrl, draftText) {
+      sendToAgent(`Post this approved LinkedIn comment on ${postUrl}: ${draftText}`);
+    }
+
+    async function rejectDraft(postId) {
+      try {
+        await window.pocketAgent.rejectLinkedInDraft(postId);
+        showToast('Draft rejected', 'success');
+        loadPosts();
+      } catch (err) {
+        console.error('Failed to reject draft:', err);
+        showToast('Failed to reject draft', 'error');
+      }
+    }
+
+    function editDraft(postId) {
+      const contentEl = document.getElementById('draft-content-' + postId);
+      if (!contentEl) return;
+      const currentText = contentEl.textContent || '';
+      contentEl.innerHTML = `<textarea class="draft-edit-area" id="draft-edit-${postId}">${escapeHtml(currentText)}</textarea>
+        <div class="draft-actions" style="margin-top:6px">
+          <button class="btn-approve" onclick="saveDraftEdit(${postId})">Save</button>
+          <button onclick="loadPosts()">Cancel</button>
+        </div>`;
+      const textarea = document.getElementById('draft-edit-' + postId);
+      if (textarea) textarea.focus();
+    }
+
+    async function saveDraftEdit(postId) {
+      const textarea = document.getElementById('draft-edit-' + postId);
+      if (!textarea) return;
+      const newText = textarea.value.trim();
+      if (!newText) return;
+      try {
+        await window.pocketAgent.updateLinkedInDraft(postId, newText);
+        showToast('Draft updated', 'success');
+        loadPosts();
+      } catch (err) {
+        console.error('Failed to update draft:', err);
+        showToast('Failed to update draft', 'error');
+      }
+    }
+
+    function feedbackDraft(postId, postUrl) {
+      const contentEl = document.getElementById('draft-content-' + postId);
+      if (!contentEl) return;
+      const existingInput = contentEl.querySelector('.feedback-input');
+      if (existingInput) return;
+      const input = document.createElement('input');
+      input.className = 'feedback-input';
+      input.placeholder = 'Type revision feedback and press Enter...';
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && input.value.trim()) {
+          sendToAgent(`Revise comment draft for ${postUrl}: ${input.value.trim()}`);
+          input.remove();
+        }
+      });
+      contentEl.appendChild(input);
+      input.focus();
     }
 
     loadPosts();

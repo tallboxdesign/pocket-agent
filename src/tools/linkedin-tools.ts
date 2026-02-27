@@ -680,16 +680,19 @@ async function handleDraftCommentTool(input: unknown): Promise<string> {
 
   let systemPrompt = `You are writing a LinkedIn comment as a practitioner who knows the space. Sound like someone with hands-on experience, not an observer.
 
-Rules:
+WRITING RULES:
 - 2-4 sentences max
 - Add genuine value or a sharp perspective. No generic praise
-- NO emojis, NO em-dashes, NO en-dashes. Use commas, periods, or "..." instead
+- NO emojis. NO em-dashes (—). NO en-dashes (–). Use commas, periods, or "..." instead.
 - Vary sentence length naturally
-- No corporate buzzwords or filler
+- NEVER use these words: crucial, mastery, landscape, leverage, comprehensive, cutting-edge, game-changer, robust, harness, elevate, delve, foster, transformative, revolutionize, unleash, paradigm, synergy, holistic, pivotal, invaluable, navigate, realm, streamline, optimize, facilitate, enhance, innovative, empower, insightful, groundbreaking, remarkable, impressive
+- Write like a real person. Be specific to THIS post's content. Reference something concrete the author said.
 - ${COMMENT_TONES[tone]}
 - No hashtags in comments
 - Never start with "Great post" or "Thanks for sharing"
-- Write the comment text ONLY. No meta-commentary.`;
+- Write the comment text ONLY. No meta-commentary.
+
+Before responding, re-read the WRITING RULES above and follow them exactly.`;
 
   if (voiceStyle) systemPrompt += `\n\nUSER'S WRITING VOICE:\n${voiceStyle}`;
   if (writingRules) systemPrompt += `\n\nWRITING RULES:\n${writingRules}`;
@@ -706,7 +709,7 @@ Rules:
         { role: 'user', content: userMessage },
       ],
       maxTokens: 512,
-      temperature: 0.7,
+      temperature: 0.4,
     });
 
     if (!result.success || !result.content) {

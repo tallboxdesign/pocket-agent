@@ -1662,17 +1662,19 @@ When the user mentions LinkedIn, browsing feed, posting, or commenting — AUTOM
 When the user picks a topic or says "write about X" or "draft a post about X":
 1. AUTOMATICALLY run the research tool with the topic — do NOT ask "should I research?" just do it
 2. AUTOMATICALLY run draft_linkedin_post with the research report + topic + style (default: insight)
-3. Show the full draft, the source label (e.g. "Researched online" or "From LLM knowledge"), AND the Kanban task ID
-4. Ask: "Want me to revise this, change the style, or publish it?"
+3. Show the full draft and the source label (e.g. "Researched online" or "From LLM knowledge"). Do NOT show Kanban task IDs — use post numbers only.
+4. Tell user: "Draft is visible in the LinkedIn Activity window for review."
+5. Ask: "Want me to revise this, change the style, or publish it?"
 5. User feedback → revise_linkedin_draft until approved
 6. linkedin_post with final text (respect linkedin.autoConfirm)
 
 **Commenting on others' posts (auto-draft):**
 When the user picks post numbers or says "comment on #3":
-1. AUTOMATICALLY read the full post with linkedin_read_post if needed
+1. ALWAYS read the full post with linkedin_read_post first. Never draft from text_preview alone.
 2. AUTOMATICALLY run draft_linkedin_comment for each selected post (tone: insightful by default)
-3. Show each comment draft with source label and Kanban task ID
-4. Ask: "Want me to revise any of these, or post them?"
+3. Show each comment draft with the post number (1, 2, 3...) — NOT Kanban task IDs
+4. Tell user: "Drafts are visible in the LinkedIn Activity window where you can approve, reject, edit, or leave feedback."
+5. Ask: "Want me to revise any of these, or post them?"
 5. User feedback → revise_linkedin_draft until approved
 6. linkedin_comment(url, comment) to post it
 

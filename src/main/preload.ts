@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   openRoutines: () => ipcRenderer.invoke('app:openRoutines'),
   openLinkedInActivity: () => ipcRenderer.invoke('app:openLinkedInActivity'),
   listLinkedInPosts: (date: string) => ipcRenderer.invoke('linkedin:listPosts', date),
+  rejectLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:rejectDraft', id),
+  updateLinkedInDraft: (id: number, text: string) => ipcRenderer.invoke('linkedin:updateDraft', id, text),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   openPath: (filePath: string) => ipcRenderer.invoke('app:openPath', filePath),
   showInFolder: (filePath: string) => ipcRenderer.invoke('app:showInFolder', filePath),
@@ -335,6 +337,8 @@ declare global {
       openRoutines: () => Promise<void>;
       openLinkedInActivity: () => Promise<void>;
       listLinkedInPosts: (date: string) => Promise<Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string }>>;
+      rejectLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string }>;
+      updateLinkedInDraft: (id: number, text: string) => Promise<{ success: boolean; error?: string }>;
       openExternal: (url: string) => Promise<void>;
       openPath: (filePath: string) => Promise<void>;
       showInFolder: (filePath: string) => Promise<void>;

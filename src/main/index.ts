@@ -1733,6 +1733,79 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('linkedin:rejectDraft', async (_, postId: number) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      // Get kanban_task_id before clearing
+      const row = db.prepare('SELECT kanban_task_id FROM linkedin_posts WHERE id = ?').get(postId) as { kanban_task_id?: number } | undefined;
+      db.prepare('UPDATE linkedin_posts SET comment_draft = NULL, kanban_task_id = NULL WHERE id = ?').run(postId);
+      db.close();
+      // Cancel kanban task if exists
+      if (row?.kanban_task_id) {
+        try {
+          const { KanbanService } = await import('../kanban');
+          KanbanService.updateTask(row.kanban_task_id, { status: 'done' });
+        } catch { /* kanban task may not exist */ }
+      }
+      return { success: true };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to reject draft:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:updateDraft', async (_, postId: number, newText: string) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      const row = db.prepare('SELECT kanban_task_id FROM linkedin_posts WHERE id = ?').get(postId) as { kanban_task_id?: number } | undefined;
+      db.prepare('UPDATE linkedin_posts SET comment_draft = ? WHERE id = ?').run(newText, postId);
+      db.close();
+      // Update kanban task description if exists
+      if (row?.kanban_task_id) {
+        try {
+          const { KanbanService } = await import('../kanban');
+          const task = KanbanService.getTask(row.kanban_task_id);
+          if (task) {
+            // Preserve the post URL from description
+            const urlMatch = (task.description || '').match(/---\nPost URL: .+/);
+            const urlSuffix = urlMatch ? `\n\n${urlMatch[0]}` : '';
+            KanbanService.updateTask(row.kanban_task_id, { description: newText + urlSuffix });
+          }
+        } catch { /* kanban task may not exist */ }
+      }
+      return { success: true };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to update draft:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle('app:openDailyLogs', async () => {
     openDailyLogsWindow();
   });
