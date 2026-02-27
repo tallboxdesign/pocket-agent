@@ -166,6 +166,11 @@
       border-left: 3px solid var(--success);
     }
 
+    .col-check { width: 28px; text-align: center; }
+    .col-check input[type="checkbox"] {
+      width: 14px; height: 14px; cursor: pointer;
+      accent-color: var(--accent);
+    }
     .col-num { width: 36px; color: var(--text-muted); text-align: center; }
     .col-priority { width: 32px; text-align: center; }
     .col-author { width: 140px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -327,6 +332,8 @@
     .draft-actions .btn-edit:hover { background: rgba(96,165,250,0.15); }
     .draft-actions .btn-feedback { color: #c084fc; border-color: rgba(192,132,252,0.3); }
     .draft-actions .btn-feedback:hover { background: rgba(192,132,252,0.15); }
+    .draft-actions .btn-redo { color: #fb923c; border-color: rgba(251,146,60,0.3); }
+    .draft-actions .btn-redo:hover { background: rgba(251,146,60,0.15); }
     .draft-actions .btn-schedule { color: #60a5fa; border-color: rgba(96,165,250,0.3); }
     .draft-actions .btn-schedule:hover { background: rgba(96,165,250,0.15); }
 
@@ -473,6 +480,25 @@
       margin: 0 4px;
     }
 
+    /* Selection bar */
+    .selection-bar {
+      display: none;
+      gap: 8px;
+      padding: 8px 16px;
+      background: rgba(168, 85, 247, 0.08);
+      border-bottom: 1px solid rgba(168, 85, 247, 0.2);
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .selection-bar.visible { display: flex; }
+    .selection-bar .sel-count {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent-hover);
+      margin-right: 8px;
+    }
+    .selection-bar .action-btn { font-size: 11px; padding: 4px 10px; }
+
     /* Snoozed section */
     .snoozed-section {
       border-top: 2px solid var(--border);
@@ -603,6 +629,19 @@
     </button>
   </div>
 
+  <div class="selection-bar" id="selection-bar">
+    <span class="sel-count" id="sel-count">0 selected</span>
+    <button class="action-btn" onclick="redoSelected()" style="background:rgba(251,146,60,0.12);color:#fb923c;border-color:rgba(251,146,60,0.25);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+      Redo Selected
+    </button>
+    <button class="action-btn" onclick="approveSelected()" style="background:rgba(34,197,94,0.12);color:#4ade80;border-color:rgba(34,197,94,0.25);">Approve Selected</button>
+    <button class="action-btn" onclick="rejectSelected()" style="background:rgba(239,68,68,0.12);color:#f87171;border-color:rgba(239,68,68,0.25);">Reject Selected</button>
+    <button class="action-btn" onclick="hideSelected()">Hide Selected</button>
+    <div style="flex:1"></div>
+    <button class="action-btn" onclick="clearSelection()" style="font-size:11px;color:var(--text-muted)">Clear</button>
+  </div>
+
   <div class="content" id="content"></div>
 
   <audio id="normal-click-sound" preload="auto" src="../assets/normal-click.mp3"></audio>
@@ -649,6 +688,91 @@
     function toggleDraft(id) {
       const el = document.getElementById('draft-' + id);
       if (el) el.classList.toggle('expanded');
+    }
+
+    // Selection management
+    let selectedIds = new Set();
+
+    function getSelectedIds() {
+      const ids = [];
+      document.querySelectorAll('.posts-table tbody input[type="checkbox"]:checked').forEach(cb => {
+        ids.push(Number(cb.value));
+      });
+      return ids;
+    }
+
+    function updateSelection() {
+      selectedIds = new Set(getSelectedIds());
+      const bar = document.getElementById('selection-bar');
+      const countEl = document.getElementById('sel-count');
+      if (selectedIds.size > 0) {
+        bar.classList.add('visible');
+        countEl.textContent = `${selectedIds.size} selected`;
+      } else {
+        bar.classList.remove('visible');
+      }
+    }
+
+    function toggleSelectAll(checked) {
+      document.querySelectorAll('.posts-table tbody input[type="checkbox"]').forEach(cb => {
+        cb.checked = checked;
+      });
+      updateSelection();
+    }
+
+    function clearSelection() {
+      document.querySelectorAll('.posts-table tbody input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+      });
+      updateSelection();
+    }
+
+    async function redoSelected() {
+      const ids = getSelectedIds();
+      if (ids.length === 0) return;
+      showToast(`Redoing ${ids.length} drafts...`, 'success');
+      sendToAgent(`Re-draft LinkedIn comments for these post IDs: ${ids.join(', ')}. The previous drafts were rejected for sounding too generic and AI-generated. Use the draft_linkedin_comment tool for each post. It will automatically update existing kanban tasks. CRITICAL RULES for new drafts:
+- NEVER use em dashes. Use commas, periods, or parentheses.
+- NEVER use corporate buzzwords (crucial, leverage, delve, comprehensive, robust, utilize, paradigm, synergy, streamline, optimize, ecosystem, landscape, unprecedented, transformative, game-changing, cutting-edge, holistic, prevalent).
+- Write like a real person. Be specific. Reference concrete details from each post.
+- Short punchy sentences. Casual but smart. No fluff.
+- Use my configured voice and style.`);
+      clearSelection();
+      loadPosts();
+    }
+
+    async function approveSelected() {
+      const ids = getSelectedIds();
+      if (ids.length === 0) return;
+      for (const id of ids) {
+        try { await window.pocketAgent.approveLinkedInDraft(id); } catch {}
+      }
+      showToast(`Approved ${ids.length} drafts`, 'success');
+      sendToAgent(`Post these approved LinkedIn comments (post IDs: ${ids.join(', ')}). Post them in order with the configured delay between each.`);
+      clearSelection();
+      loadPosts();
+    }
+
+    async function rejectSelected() {
+      const ids = getSelectedIds();
+      if (ids.length === 0) return;
+      for (const id of ids) {
+        try { await window.pocketAgent.rejectLinkedInDraft(id); } catch {}
+      }
+      showToast(`Rejected ${ids.length} drafts`, 'success');
+      clearSelection();
+      loadPosts();
+    }
+
+    async function hideSelected() {
+      const ids = getSelectedIds();
+      if (ids.length === 0) return;
+      for (const id of ids) {
+        try { await window.pocketAgent.hideLinkedInPost(id); } catch {}
+      }
+      showToast(`Hidden ${ids.length} posts`, 'success');
+      clearSelection();
+      loadPosts();
     }
 
     function cyclePriority(postId, current) {
@@ -781,6 +905,7 @@
           <table class="posts-table">
             <thead>
               <tr>
+                <th class="col-check"><input type="checkbox" onchange="toggleSelectAll(this.checked)" /></th>
                 <th class="col-num">#</th>
                 <th class="col-priority">Pri</th>
                 <th>Author</th>
@@ -843,7 +968,8 @@
       if (p.scheduled_at) statusBadges.push(`<span class="badge badge-scheduled">${formatScheduleTime(p.scheduled_at)}</span>`);
 
       return `
-        <tr class="${p.commented ? 'commented' : ''}">
+        <tr class="${p.commented ? 'commented' : ''}" data-post-id="${p.id}">
+          <td class="col-check"><input type="checkbox" value="${p.id}" onchange="updateSelection()" /></td>
           <td class="col-num">${idx}</td>
           <td class="col-priority">${priorityDot(p.id, p.priority)}</td>
           <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}</td>
@@ -859,6 +985,7 @@
                   <button class="btn-reject" onclick="rejectDraft(${p.id})" title="Clear draft">Reject</button>
                   <button class="btn-edit" onclick="editDraft(${p.id})" title="Edit inline">Edit</button>
                   <button class="btn-feedback" onclick="feedbackDraft(${p.id}, '${escapeHtml(p.post_url)}')" title="Send revision feedback">Feedback</button>
+                  <button class="btn-redo" onclick="redoDraft(${p.id}, '${escapeHtml(p.post_url)}')" title="Regenerate draft with stricter quality">Redo</button>
                   <button class="btn-schedule" onclick="showSchedulePicker(${p.id})" title="Schedule posting time">Schedule</button>
                 </div>
                 ` : ''}
@@ -927,8 +1054,15 @@
     }
 
     async function approveDraft(postId, postUrl, draftText) {
-      sendToAgent(`Post this approved LinkedIn comment on ${postUrl}: ${draftText}`);
-      loadPosts();
+      try {
+        // Sync kanban task to approved status
+        await window.pocketAgent.approveLinkedInDraft(postId);
+        sendToAgent(`Post this approved LinkedIn comment on ${postUrl}: ${draftText}`);
+        loadPosts();
+      } catch (err) {
+        console.error('Failed to approve draft:', err);
+        showToast('Failed to approve draft', 'error');
+      }
     }
 
     async function rejectDraft(postId) {
@@ -968,6 +1102,16 @@
         console.error('Failed to update draft:', err);
         showToast('Failed to update draft', 'error');
       }
+    }
+
+    async function redoDraft(postId, postUrl) {
+      sendToAgent(`Re-draft the LinkedIn comment for post ${postUrl} (post ID ${postId}). The previous draft was rejected for sounding too generic and AI-generated. Use the draft_linkedin_comment tool to generate a new draft. It will automatically update the existing kanban task. CRITICAL RULES for the new draft:
+- NEVER use em dashes. Use commas, periods, or parentheses instead.
+- NEVER use words: crucial, leverage, delve, comprehensive, robust, utilize, paradigm, synergy, streamline, optimize, ecosystem, landscape, unprecedented, transformative, game-changing, cutting-edge, holistic.
+- Write like a real person commenting on LinkedIn, not a corporate PR team.
+- Be specific and personal. Reference concrete details from the post.
+- Keep it conversational and genuine. Short sentences. No fluff.
+- Use my configured voice and personal style.`);
     }
 
     function feedbackDraft(postId, postUrl) {

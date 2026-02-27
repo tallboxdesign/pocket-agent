@@ -678,21 +678,23 @@ async function handleDraftCommentTool(input: unknown): Promise<string> {
   const voiceStyle = SettingsManager.get('linkedin.voiceStyle') || '';
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
 
-  let systemPrompt = `You are writing a LinkedIn comment as a practitioner who knows the space. Sound like someone with hands-on experience, not an observer.
+  let systemPrompt = `You are a real person leaving a LinkedIn comment. You have hands-on experience in this field.
 
-WRITING RULES:
-- 2-4 sentences max
-- Add genuine value or a sharp perspective. No generic praise
-- NO emojis. NO em-dashes (—). NO en-dashes (–). Use commas, periods, or "..." instead.
-- Vary sentence length naturally
-- NEVER use these words: crucial, mastery, landscape, leverage, comprehensive, cutting-edge, game-changer, robust, harness, elevate, delve, foster, transformative, revolutionize, unleash, paradigm, synergy, holistic, pivotal, invaluable, navigate, realm, streamline, optimize, facilitate, enhance, innovative, empower, insightful, groundbreaking, remarkable, impressive
-- Write like a real person. Be specific to THIS post's content. Reference something concrete the author said.
+ABSOLUTE RULES (violating any = failure):
+1. PUNCTUATION: NEVER use em dashes (—) or en dashes (–). Use commas, periods, semicolons, or parentheses. If you write a single em dash the comment fails.
+2. BANNED WORDS (never use any of these): crucial, mastery, landscape, leverage, comprehensive, cutting-edge, game-changer, robust, harness, elevate, delve, foster, transformative, revolutionize, unleash, paradigm, synergy, holistic, pivotal, invaluable, navigate, realm, streamline, optimize, facilitate, enhance, innovative, empower, insightful, groundbreaking, remarkable, impressive, prevalent, crucial, utilize, ecosystem, unprecedented
+3. NO emojis, NO hashtags
+4. Never start with "Great post", "Thanks for sharing", "This is so important", "Absolutely", "100%"
+
+STYLE:
+- 2-4 sentences. Be specific to what the author actually said.
+- Sound like a comment from someone who does this work daily, not someone summarizing it.
+- Reference a concrete detail from the post. Add your own angle or experience.
+- Short punchy sentences mixed with longer ones. Casual but smart.
 - ${COMMENT_TONES[tone]}
-- No hashtags in comments
-- Never start with "Great post" or "Thanks for sharing"
-- Write the comment text ONLY. No meta-commentary.
+- Write the comment text ONLY. No explanation or meta-commentary.
 
-Before responding, re-read the WRITING RULES above and follow them exactly.`;
+Check your output: scan for em dashes and banned words. Fix before returning.`;
 
   if (voiceStyle) systemPrompt += `\n\nUSER'S WRITING VOICE:\n${voiceStyle}`;
   if (writingRules) systemPrompt += `\n\nWRITING RULES:\n${writingRules}`;
@@ -709,14 +711,18 @@ Before responding, re-read the WRITING RULES above and follow them exactly.`;
         { role: 'user', content: userMessage },
       ],
       maxTokens: 512,
-      temperature: 0.4,
+      temperature: 0.3,
     });
 
     if (!result.success || !result.content) {
       return JSON.stringify({ success: false, error: result.error || 'Failed to generate comment draft' });
     }
 
-    const draft = result.content.trim();
+    // Post-process: strip em dashes and en dashes that the model sneaks in
+    const draft = result.content.trim()
+      .replace(/\s*—\s*/g, ', ')
+      .replace(/\s*–\s*/g, ', ')
+      .replace(/,,/g, ',');
 
     // Get or create LinkedIn project
     let project = KanbanService.getProjectByName('LinkedIn');
@@ -725,20 +731,41 @@ Before responding, re-read the WRITING RULES above and follow them exactly.`;
     }
 
     const title = `Comment on ${p.post_author ? p.post_author + "'s post" : 'post'}: ${p.post_text.slice(0, 60)}...`;
-    const task = KanbanService.createTask({
-      project_id: project.id,
-      title: title.slice(0, 120),
-      description: `${draft}\n\n---\nPost URL: ${p.post_url}`,
-      status: 'review',
-      priority: 'medium',
-      tags: 'linkedin,comment',
-    });
+
+    // Check if there's an existing kanban task for this post (redo scenario)
+    const db = getDb();
+    let existingTaskId: number | null = null;
+    if (db) {
+      const existing = db.prepare('SELECT kanban_task_id FROM linkedin_posts WHERE post_url = ?').get(p.post_url) as { kanban_task_id?: number } | undefined;
+      if (existing?.kanban_task_id) existingTaskId = existing.kanban_task_id;
+    }
+
+    let taskId: number;
+    if (existingTaskId) {
+      // Update existing kanban task with new draft
+      KanbanService.updateTask(existingTaskId, {
+        description: `${draft}\n\n---\nPost URL: ${p.post_url}`,
+        status: 'review',
+      });
+      KanbanService.addComment(existingTaskId, `Draft redone:\n${draft}`);
+      taskId = existingTaskId;
+    } else {
+      // Create new kanban task
+      const task = KanbanService.createTask({
+        project_id: project.id,
+        title: title.slice(0, 120),
+        description: `${draft}\n\n---\nPost URL: ${p.post_url}`,
+        status: 'review',
+        priority: 'medium',
+        tags: 'linkedin,comment',
+      });
+      taskId = task.id;
+    }
 
     // Store draft and kanban link in DB
-    const db = getDb();
     if (db) {
       db.prepare('UPDATE linkedin_posts SET comment_draft = ?, kanban_task_id = ? WHERE post_url = ?')
-        .run(draft, task.id, p.post_url);
+        .run(draft, taskId, p.post_url);
     }
 
     return JSON.stringify({
@@ -746,9 +773,10 @@ Before responding, re-read the WRITING RULES above and follow them exactly.`;
       draft,
       source: 'From LLM knowledge',
       post_url: p.post_url,
-      kanban_task_id: task.id,
+      kanban_task_id: taskId,
       kanban_project_id: project.id,
       tone,
+      redone: !!existingTaskId,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

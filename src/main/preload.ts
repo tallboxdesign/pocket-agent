@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   openRoutines: () => ipcRenderer.invoke('app:openRoutines'),
   openLinkedInActivity: () => ipcRenderer.invoke('app:openLinkedInActivity'),
   listLinkedInPosts: (date: string) => ipcRenderer.invoke('linkedin:listPosts', date),
+  approveLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:approveDraft', id),
   rejectLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:rejectDraft', id),
   updateLinkedInDraft: (id: number, text: string) => ipcRenderer.invoke('linkedin:updateDraft', id, text),
   hideLinkedInPost: (id: number) => ipcRenderer.invoke('linkedin:hidePost', id),
@@ -341,6 +342,7 @@ declare global {
       openRoutines: () => Promise<void>;
       openLinkedInActivity: () => Promise<void>;
       listLinkedInPosts: (date: string) => Promise<{ posts: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string; priority: string; scheduled_at: string | null; snoozed_until: string | null; hidden: number }>; snoozed: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; snoozed_until: string; priority: string }> }>;
+      approveLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string; postUrl?: string; draft?: string }>;
       rejectLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string }>;
       updateLinkedInDraft: (id: number, text: string) => Promise<{ success: boolean; error?: string }>;
       hideLinkedInPost: (id: number) => Promise<{ success: boolean; error?: string }>;

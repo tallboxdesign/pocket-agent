@@ -1810,6 +1810,39 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('linkedin:approveDraft', async (_, postId: number) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      const row = db.prepare('SELECT post_url, comment_draft, kanban_task_id FROM linkedin_posts WHERE id = ?').get(postId) as { post_url: string; comment_draft: string | null; kanban_task_id?: number } | undefined;
+      if (!row || !row.comment_draft) { db.close(); return { success: false, error: 'No draft to approve' }; }
+      db.close();
+      // Approve kanban task if exists
+      if (row.kanban_task_id) {
+        try {
+          const { KanbanService } = await import('../kanban');
+          KanbanService.moveTask(row.kanban_task_id, 'done', 'linkedin-activity');
+        } catch { /* kanban task may not exist */ }
+      }
+      return { success: true, postUrl: row.post_url, draft: row.comment_draft };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to approve draft:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle('linkedin:hidePost', async (_, postId: number) => {
     try {
       const Database = (await import('better-sqlite3')).default;
