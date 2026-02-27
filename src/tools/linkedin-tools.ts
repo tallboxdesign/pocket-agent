@@ -1355,10 +1355,10 @@ async function handleSaveDraftTool(input: unknown): Promise<string> {
     // Quality gate: reject short/weak drafts back to the agent
     const sentenceCount = cleanDraft.split(/[.!?]+/).filter((s: string) => s.trim().length > 8).length;
     if (cleanDraft.length < 320) {
-      return JSON.stringify({ success: false, error: `Draft too short (${cleanDraft.length} chars, need 320+). Write a longer, more substantive comment with 4-6 sentences.` });
+      return JSON.stringify({ success: false, error: `Draft too short (${cleanDraft.length} chars, need 320+). Match length to topic depth: simple topics 4-5 sentences (~400 chars), complex topics 6-10 sentences (~800-1500 chars).` });
     }
     if (sentenceCount < 3) {
-      return JSON.stringify({ success: false, error: `Draft has only ${sentenceCount} sentence(s), need at least 3. Write a comment with 4-6 sentences including a concrete fact and actionable insight.` });
+      return JSON.stringify({ success: false, error: `Draft has only ${sentenceCount} sentence(s), need at least 3. Write a substantive comment with a concrete fact, your own angle, and a sharp question.` });
     }
     const authorFirst = (post.author || '').split(/\s+/)[0] || '';
     if (authorFirst && !new RegExp(`^["'""''(\\[\\s]*${authorFirst.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(cleanDraft)) {

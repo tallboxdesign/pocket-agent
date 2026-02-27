@@ -401,7 +401,7 @@ function evaluateDraftQuality(
   if (isWeakDraft(draft)) issues.push('too generic or too short');
   if (!startsWithAuthorName(draft, authorFirstName)) issues.push('opening does not start with the author name');
   if (!hasRelevanceAnchor(draft, evidence.keyPoint, preview)) issues.push('missing concrete anchor from original post');
-  if (!draft.includes('\n') && draft.length > 280) issues.push('single dense paragraph, needs line breaks');
+  if (!draft.includes('\n') && draft.length > 350) issues.push('single dense paragraph, needs line breaks');
   if (hasAISlopWords(draft)) issues.push('contains AI-sounding jargon');
   const allCapsWords = draft.match(/\b[A-Z]{4,}\b/g) || [];
   if (allCapsWords.length > 2) issues.push('contains unnatural all-caps wording');
@@ -695,7 +695,7 @@ async function runWritePass(
   const writingSystemPrompt = `You are writing a high-quality LinkedIn reply comment. Sound like someone who genuinely knows their stuff typing a quick reply, not a conference talk or blog post.
 
 RESPONSE REQUIREMENTS:
-- 4-6 sentences, roughly 320-900 characters.
+- YOU decide the length based on the topic. Simple agreement/observation: 4-5 sentences (~400 chars). Moderate discussion: 5-8 sentences (~600-1200 chars). Complex topic needing real argument with evidence: 8-12 sentences (~1000-2000 chars). Never pad for length, never cut short if you have substance. Let the content decide.
 - Sentence 1 must start with "${authorFirstName}," and reference a specific point from the post.
 - Include one concrete researched fact from the notes.
 - Add an actionable implication or thoughtful question.
@@ -703,7 +703,7 @@ RESPONSE REQUIREMENTS:
 VOICE (critical - this is what makes it sound human):
 - Vary paragraph length: mix short punchy lines with longer thoughts. Never uniform blocks.
 - Lowercase generic acronyms casually: "seo", "ctr", "aio", "llm" (not SEO, CTR). Brand names stay capitalized: Google, Ahrefs, ChatGPT.
-- Mix sentence-start casing: ~60% capitalized, ~40% not.
+- Mix sentence-start casing: ~50% capitalized, ~50% not.
 - Use one casual connector per comment max: "honestly", "the thing is", "tbh".
 - Incomplete thoughts OK: "but yeah." or trailing "..." or starting with "and".
 - Round numbers casually sometimes: "around 60%" not "61%", "3-4x" not "3.7x".
@@ -1014,6 +1014,14 @@ async function draftOnePost(
   if (!queryFn) throw new Error('Failed to load SDK');
 
   setDraftState(post.id, 'researching');
+
+  // Clear old draft so stale content doesn't persist if this attempt fails
+  const clearDb = getDb();
+  if (clearDb) {
+    try { clearDb.prepare('UPDATE linkedin_posts SET comment_draft = NULL WHERE id = ?').run(post.id); }
+    catch { /* ok */ }
+    finally { clearDb.close(); }
+  }
 
   const config = getLinkedInDraftConfig();
   const attemptModels = getAttemptModels(model, config.fallbackModel);
