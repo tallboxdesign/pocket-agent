@@ -178,15 +178,17 @@ def main():
         # Extract
         posts = extract_posts(page)
 
-        # Filter by person
+        # Filter by person (comma-separated: match ANY person)
         if args.person:
-            person_lower = args.person.lower()
-            posts = [p for p in posts if person_lower in (p["author"] or "").lower()]
+            persons = [p.strip().lower() for p in args.person.split(',') if p.strip()]
+            if persons:
+                posts = [p for p in posts if any(pn in (p["author"] or "").lower() for pn in persons)]
 
-        # Filter by keyword
+        # Filter by keyword (comma-separated: match ANY keyword)
         if args.keyword:
-            kw_lower = args.keyword.lower()
-            posts = [p for p in posts if kw_lower in (p["text_preview"] or "").lower()]
+            keywords = [k.strip().lower() for k in args.keyword.split(',') if k.strip()]
+            if keywords:
+                posts = [p for p in posts if any(kw in (p["text_preview"] or "").lower() for kw in keywords)]
 
         # Filter by engagement
         if args.min_engagement > 0:

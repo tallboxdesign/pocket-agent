@@ -10,6 +10,7 @@ import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 import { app } from 'electron';
 import path from 'path';
+import os from 'os';
 import fs from 'fs';
 
 const execFile = promisify(execFileCb);
@@ -41,27 +42,36 @@ export async function linkedinExec(script: string, args: string[], timeoutMs = 1
   const runPy = path.join(getScriptsDir(), 'run.py');
   const python = findPython3();
 
+  const execEnv = {
+    ...process.env,
+    HOME: process.env.HOME || os.homedir(),
+    PYTHONUNBUFFERED: '1',
+    PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}`,
+  };
   console.log(`[LinkedIn] exec: ${python} ${runPy} ${script} ${args.join(' ')}`);
+  console.log(`[LinkedIn] HOME=${execEnv.HOME}, isPackaged=${app.isPackaged}, scriptsDir=${path.dirname(runPy)}`);
   try {
     const { stdout, stderr } = await execFile(python, [runPy, script, ...args], {
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024, // 10MB for feed results
-      env: {
-        ...process.env,
-        PYTHONUNBUFFERED: '1',
-        PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}`,
-      },
+      env: execEnv,
     });
     if (stderr) {
       console.log(`[LinkedIn] stderr: ${stderr.slice(0, 500)}`);
     }
     console.log(`[LinkedIn] stdout length: ${stdout.length}, first 200: ${stdout.slice(0, 200)}`);
+    // Write diagnostic log to file
+    const logPath = path.join(os.homedir(), '.pocket-agent', 'linkedin', 'data', 'exec_log.txt');
+    fs.appendFileSync(logPath, `\n---\n${new Date().toISOString()}\ncmd: ${python} ${runPy} ${script} ${args.join(' ')}\nstdout_len: ${stdout.length}\nstderr_len: ${stderr?.length || 0}\nstderr: ${stderr?.slice(0, 500) || ''}\nstdout_head: ${stdout.slice(0, 500)}\n`);
     return stdout.trim();
   } catch (error) {
     const err = error as Error & { stderr?: string; stdout?: string };
     console.error(`[LinkedIn] exec failed: ${err.message}`);
     if (err.stderr) console.error(`[LinkedIn] stderr: ${err.stderr.slice(0, 500)}`);
     if (err.stdout) console.log(`[LinkedIn] stdout (partial): ${err.stdout.slice(0, 200)}`);
+    // Write error diagnostic
+    const logPath = path.join(os.homedir(), '.pocket-agent', 'linkedin', 'data', 'exec_log.txt');
+    fs.appendFileSync(logPath, `\n---\n${new Date().toISOString()}\nERROR: ${err.message}\nstderr: ${err.stderr?.slice(0, 1000) || ''}\nstdout: ${err.stdout?.slice(0, 500) || ''}\n`);
     throw error;
   }
 }

@@ -41,7 +41,14 @@ function todayDate(): string {
 
 function checkEnabled(): string | null {
   if (!SettingsManager.getBoolean('linkedin.enabled')) {
-    return JSON.stringify({ error: 'LinkedIn integration is not enabled. Enable it in Settings → LinkedIn.' });
+    // Auto-enable if auth profile exists (settings may have been reset)
+    const profileDir = path.join(os.homedir(), '.pocket-agent', 'linkedin', 'data', 'browser_state', 'browser_profile');
+    if (fs.existsSync(profileDir)) {
+      SettingsManager.set('linkedin.enabled', 'true');
+      console.log('[LinkedIn] Auto-enabled: browser profile found at', profileDir);
+    } else {
+      return JSON.stringify({ error: 'LinkedIn integration is not enabled. Enable it in Settings → LinkedIn.' });
+    }
   }
   return null;
 }
