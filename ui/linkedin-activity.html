@@ -238,10 +238,10 @@
       user-select: none;
     }
     .priority-badge:hover { filter: brightness(1.3); }
-    .priority-low { background: rgba(99,99,102,0.2); color: #8e8e93; }
-    .priority-normal { background: rgba(99,99,102,0.1); color: #636366; }
+    .priority-low { background: rgba(99,99,102,0.15); color: #8e8e93; }
+    .priority-normal { background: rgba(96,165,250,0.12); color: #60a5fa; }
     .priority-high { background: rgba(245,158,11,0.2); color: #fbbf24; }
-    .priority-urgent { background: rgba(239,68,68,0.2); color: #f87171; }
+    .priority-urgent { background: rgba(239,68,68,0.25); color: #f87171; }
 
     .icon-btn {
       background: none;
@@ -822,7 +822,7 @@
       window.pocketAgent.setLinkedInPriority(postId, next).then(() => loadPosts());
     }
 
-    const PRIORITY_LABELS = { low: 'Low', normal: '--', high: 'High', urgent: '!!!' };
+    const PRIORITY_LABELS = { low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent' };
     function priorityDot(postId, priority) {
       const p = priority || 'normal';
       return `<span class="priority-badge priority-${p}" onclick="cyclePriority(${postId}, '${p}')" title="Click to cycle priority">${PRIORITY_LABELS[p] || p}</span>`;
