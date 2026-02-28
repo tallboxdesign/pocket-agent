@@ -3079,18 +3079,18 @@ Respond with ONLY valid JSON, no markdown, no explanation:
 
   ipcMain.handle('chat:injectMessage', async (_, message: string) => {
     openChatWindow();
-    // Wait for window to be ready
+    // Wait for window page JS to finish loading so chat:inject listener is registered
     await new Promise<void>(resolve => {
       if (chatWindow && !chatWindow.isDestroyed()) {
-        if (chatWindow.isVisible()) {
+        const wc = chatWindow.webContents;
+        if (!wc.isLoading()) {
           resolve();
         } else {
-          chatWindow.once('ready-to-show', () => resolve());
-          // Fallback timeout
-          setTimeout(() => resolve(), 500);
+          wc.once('did-finish-load', () => resolve());
+          setTimeout(() => resolve(), 3000);
         }
       } else {
-        setTimeout(() => resolve(), 500);
+        setTimeout(() => resolve(), 3000);
       }
     });
     if (chatWindow && !chatWindow.isDestroyed()) {
