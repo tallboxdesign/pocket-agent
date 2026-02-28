@@ -384,7 +384,7 @@ function hasRelevanceAnchor(draft: string, keyPoint: string, preview: string): b
 }
 
 function hasAISlopWords(text: string): boolean {
-  return /\b(landscape|leverage|robust|comprehensive|holistic|streamline|optimize|paradigm|game[- ]changing|cutting-edge|transformative|unprecedented|synergy|foster|harness|delve|elevate)\b/i.test(text);
+  return /\b(landscape|leverage|robust|comprehensive|holistic|streamline|optimize|paradigm|game[- ]changing|cutting-edge|transformative|unprecedented|synergy|foster|harness|delve|elevate|dramatically|significantly|meaningful|signaling|proposes|pressure-testing|measurable|acquisition channel|survey questions)\b/i.test(text);
 }
 
 function getNumbers(text: string): string[] {
@@ -403,6 +403,9 @@ function evaluateDraftQuality(
   if (!hasRelevanceAnchor(draft, evidence.keyPoint, preview)) issues.push('missing concrete anchor from original post');
   if (!draft.includes('\n') && draft.length > 350) issues.push('single dense paragraph, needs line breaks');
   if (hasAISlopWords(draft)) issues.push('contains AI-sounding jargon');
+  if (/\?\s*$/.test(draft.trim())) issues.push('ends with a question');
+  if (/\b(according to|study by|data from|research by|report by)\b/i.test(draft)) issues.push('cites source by name');
+  if (/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Study|Report|Research|Survey|Data|Index)\b/.test(draft)) issues.push('references named study or report');
   const allCapsWords = draft.match(/\b[A-Z]{4,}\b/g) || [];
   if (allCapsWords.length > 2) issues.push('contains unnatural all-caps wording');
 
@@ -424,6 +427,9 @@ function hasCriticalQualityIssue(issues: string[]): boolean {
     'numeric claim lacks source cue',
     'numeric claim not grounded',
     'too generic or too short',
+    'ends with a question',
+    'cites source by name',
+    'references named study or report',
   ];
   return issues.some(issue => criticalSnippets.some(snippet => issue.includes(snippet)));
 }
