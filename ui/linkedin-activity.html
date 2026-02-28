@@ -289,6 +289,22 @@
       position: sticky;
       top: 0;
       z-index: 10;
+      overflow: hidden;
+    }
+
+    .th-resize-handle {
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      cursor: col-resize;
+      z-index: 11;
+    }
+    .th-resize-handle:hover,
+    .th-resize-handle.active {
+      background: var(--accent);
+      opacity: 0.5;
     }
 
     .posts-table td {
@@ -313,14 +329,14 @@
       width: 14px; height: 14px; cursor: pointer;
       accent-color: var(--accent);
     }
-    .col-num { width: 36px; color: var(--text-muted); text-align: center; }
-    .col-priority { width: 92px; text-align: center; }
-    .col-author { width: 180px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .col-num { width: 28px; color: var(--text-muted); text-align: center; }
+    .col-priority { width: 70px; text-align: center; }
+    .col-author { width: 130px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .col-preview { color: var(--text-secondary); line-height: 1.4; word-break: break-word; }
-    .col-stats { width: 50px; text-align: center; color: var(--text-muted); font-size: 12px; }
-    .col-type { width: 70px; }
-    .col-status { width: 140px; text-align: center; }
-    .col-actions { width: 88px; text-align: center; }
+    .col-stats { width: 38px; text-align: center; color: var(--text-muted); font-size: 12px; }
+    .col-type { width: 55px; }
+    .col-status { width: 100px; text-align: center; }
+    .col-actions { width: 80px; text-align: center; }
 
     .status-badges {
       display: flex;
@@ -1859,18 +1875,30 @@
         }
 
         let html = `
-          <table class="posts-table">
+          <table class="posts-table" id="main-table">
+            <colgroup>
+              <col id="col-w-check" style="width:28px">
+              <col id="col-w-num" style="width:24px">
+              <col id="col-w-pri" style="width:60px">
+              <col id="col-w-author" style="width:120px">
+              <col id="col-w-preview">
+              <col id="col-w-reacts" style="width:35px">
+              <col id="col-w-cmts" style="width:35px">
+              <col id="col-w-type" style="width:50px">
+              <col id="col-w-status" style="width:90px">
+              <col id="col-w-actions" style="width:75px">
+            </colgroup>
             <thead>
               <tr>
                 <th class="col-check"><input type="checkbox" onchange="toggleSelectAll(this.checked)" /></th>
                 <th class="col-num">#</th>
-                <th class="col-priority" style="cursor:pointer" onclick="toggleSort('priority')">Pri</th>
-                <th style="cursor:pointer" onclick="toggleSort('author')">Author</th>
-                <th>Preview</th>
-                <th class="col-stats" style="cursor:pointer" onclick="toggleSort('reactions')">Reacts</th>
-                <th class="col-stats" style="cursor:pointer" onclick="toggleSort('comments')">Cmts</th>
-                <th style="cursor:pointer" onclick="toggleSort('type')">Type</th>
-                <th class="col-status" style="cursor:pointer" onclick="toggleSort('status')">Status</th>
+                <th class="col-priority" style="cursor:pointer;position:relative" onclick="toggleSort('priority')">Pri<div class="th-resize-handle" data-col="pri"></div></th>
+                <th style="cursor:pointer;position:relative" onclick="toggleSort('author')">Author<div class="th-resize-handle" data-col="author"></div></th>
+                <th style="position:relative">Preview<div class="th-resize-handle" data-col="preview"></div></th>
+                <th class="col-stats" style="cursor:pointer;position:relative" onclick="toggleSort('reactions')">Reacts<div class="th-resize-handle" data-col="reacts"></div></th>
+                <th class="col-stats" style="cursor:pointer;position:relative" onclick="toggleSort('comments')">Cmts<div class="th-resize-handle" data-col="cmts"></div></th>
+                <th style="cursor:pointer;position:relative" onclick="toggleSort('type')">Type<div class="th-resize-handle" data-col="type"></div></th>
+                <th class="col-status" style="cursor:pointer;position:relative" onclick="toggleSort('status')">Status<div class="th-resize-handle" data-col="status"></div></th>
                 <th class="col-actions">Actions</th>
               </tr>
             </thead>
@@ -1887,6 +1915,17 @@
                 <span class="arrow">&#9660;</span> Snoozed (${snoozed.length})
               </div>
               <table class="posts-table" id="snoozed-table">
+                <colgroup>
+                  <col style="width:24px">
+                  <col id="col-s-pri" style="width:60px">
+                  <col id="col-s-author" style="width:120px">
+                  <col id="col-s-preview">
+                  <col id="col-s-reacts" style="width:35px">
+                  <col id="col-s-cmts" style="width:35px">
+                  <col id="col-s-type" style="width:50px">
+                  <col id="col-s-status" style="width:90px">
+                  <col id="col-s-actions" style="width:75px">
+                </colgroup>
                 <tbody>
                   ${snoozed.map((p, i) => `
                     <tr>
@@ -2213,6 +2252,83 @@ If you catch yourself writing any banned word or a dash, rewrite the sentence.`)
         }
       });
     }
+
+    // --- Resizable columns with localStorage persistence ---
+    const COL_STORAGE_KEY = 'linkedin-col-widths';
+    const RESIZABLE_COLS = ['pri','author','preview','reacts','cmts','type','status','actions'];
+
+    function saveColumnWidths() {
+      const widths = {};
+      for (const name of RESIZABLE_COLS) {
+        const col = document.getElementById('col-w-' + name);
+        if (col && col.style.width) widths[name] = col.style.width;
+      }
+      localStorage.setItem(COL_STORAGE_KEY, JSON.stringify(widths));
+    }
+
+    function loadColumnWidths() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(COL_STORAGE_KEY));
+        if (!stored) return;
+        for (const [name, w] of Object.entries(stored)) {
+          const main = document.getElementById('col-w-' + name);
+          const snz = document.getElementById('col-s-' + name);
+          if (main) main.style.width = w;
+          if (snz) snz.style.width = w;
+        }
+      } catch {}
+    }
+
+    function syncSnoozedWidths() {
+      for (const name of RESIZABLE_COLS) {
+        const main = document.getElementById('col-w-' + name);
+        const snz = document.getElementById('col-s-' + name);
+        if (main && snz) snz.style.width = main.style.width;
+      }
+    }
+
+    function initColumnResize() {
+      document.querySelectorAll('.th-resize-handle').forEach(handle => {
+        handle.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const colName = handle.dataset.col;
+          const col = document.getElementById('col-w-' + colName);
+          if (!col) return;
+          const th = handle.parentElement;
+          const startX = e.clientX;
+          const startWidth = th.offsetWidth;
+          handle.classList.add('active');
+
+          const onMove = (ev) => {
+            const newWidth = Math.max(20, startWidth + ev.clientX - startX);
+            col.style.width = newWidth + 'px';
+            const snz = document.getElementById('col-s-' + colName);
+            if (snz) snz.style.width = newWidth + 'px';
+          };
+          const onUp = () => {
+            handle.classList.remove('active');
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            saveColumnWidths();
+          };
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        });
+      });
+    }
+
+    // Apply saved widths on load, init resize after first render
+    loadColumnWidths();
+    const _origLoadPosts = loadPosts;
+    let _resizeInited = false;
+    loadPosts = async function() {
+      await _origLoadPosts();
+      loadColumnWidths();
+      syncSnoozedWidths();
+      if (!_resizeInited) { _resizeInited = true; initColumnResize(); }
+      else { initColumnResize(); }
+    };
 
     refreshPanelTabs();
     loadDraftMode();
