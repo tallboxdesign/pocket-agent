@@ -1842,8 +1842,9 @@
         const hasFailed = Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
         const needsAttention = !!(p.approved && !p.commented && (!p.scheduled_at || hasFailed));
 
-        if (activePanel === 'queue' && p.commented) return false;
-        if (activePanel === 'published' && !p.commented) return false;
+        const isScheduled = !!(p.approved && p.scheduled_at && !p.commented);
+        if (activePanel === 'queue' && (p.commented || isScheduled)) return false;
+        if (activePanel === 'published' && !p.commented && !isScheduled) return false;
         if (activePanel === 'attention' && !needsAttention) return false;
         if (activePanel === 'failed' && !hasFailed) return false;
 
@@ -1877,8 +1878,9 @@
         const snoozed = Array.isArray(result) ? [] : (result.snoozed || []);
         currentPosts = posts;
         currentSnoozed = snoozed;
-        const queueCount = posts.filter(p => !p.commented).length;
-        const publishedCount = posts.filter(p => !!p.commented).length;
+        const scheduledCount = posts.filter(p => !!(p.approved && p.scheduled_at && !p.commented)).length;
+        const queueCount = posts.filter(p => !p.commented && !(p.approved && p.scheduled_at)).length;
+        const publishedCount = posts.filter(p => !!p.commented).length + scheduledCount;
         const failedCount = posts.filter(p => {
           const lastAction = String(p.last_activity_action || '').toLowerCase();
           return Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
@@ -2029,11 +2031,12 @@
       else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
       else if (isQueued) statusBadges.push('<span class="badge badge-queued">Queued</span>');
       if (isDraftCancelled) statusBadges.push('<span class="badge badge-rejected">Cancelled</span>');
+      const isScheduled = !!(p.approved && p.scheduled_at && !p.commented);
       if (p.commented) statusBadges.push('<span class="badge badge-commented">Published</span>');
+      else if (isScheduled) statusBadges.push(`<span class="badge badge-scheduled">Scheduled ${formatScheduleTime(p.scheduled_at)}</span>`);
       else if (p.approved || approvedIds.has(p.id)) statusBadges.push('<span class="badge badge-approved">Approved</span>');
       else if (rejectedIds.has(p.id)) statusBadges.push('<span class="badge badge-rejected">Rejected</span>');
       else if (p.comment_draft) statusBadges.push('<span class="badge badge-draft">Draft</span>');
-      if (p.scheduled_at) statusBadges.push(`<span class="badge badge-scheduled">${formatScheduleTime(p.scheduled_at)}</span>`);
       if (!p.commented && p.approved && !p.scheduled_at) {
         statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)">Awaiting schedule</span>');
       }
@@ -2091,7 +2094,7 @@
             ${p.comment_draft ? `
               <div class="draft-actions" style="margin-top:6px">
                 <span class="draft-toggle" onclick="toggleDraft(${p.id}, this)" style="margin:0">${expandedDraftId === p.id ? 'Hide draft' : 'Show draft'}</span>
-                ${!p.commented ? `
+                ${!p.commented && !isScheduled ? `
                   <button class="btn-approve" onclick="approveDraft(${p.id})">Approve</button>
                   <button class="btn-reject" onclick="rejectDraft(${p.id})">Reject</button>
                   <button class="btn-edit" onclick="editDraft(${p.id})">Edit</button>
