@@ -1,5 +1,5 @@
 /**
- * GLM Worker tools — cheap bulk processing via Zhipu GLM models.
+ * GLM Worker tools -cheap bulk processing via Zhipu GLM models.
  *
  * The orchestrator (Claude/Kimi) calls these tools to offload repetitive,
  * token-heavy tasks to GLM instead of burning expensive primary model tokens.

@@ -25,7 +25,7 @@ IMPORTANT: Use UNIQUE subject names to prevent overwriting previous facts:
 - Good: project_rule_ken, project_rule_semantics, preference_voice_speed
 - Bad: project_rule (overwrites previous rules with same subject)
 
-Format: {type}_{identifier} — e.g., routing_ken, preference_coffee, person_mom
+Format: {type}_{identifier} -e.g., routing_ken, preference_coffee, person_mom
 
 Categories: user_info, preferences, projects, people, work, notes, decisions, rules.`,
     input_schema: {

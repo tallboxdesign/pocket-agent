@@ -118,7 +118,7 @@ async function configureProviderEnvironment(model: string): Promise<void> {
     if (anthropicKey) {
       process.env.ANTHROPIC_API_KEY = anthropicKey;
     } else {
-      // No API key — check for OAuth token
+      // No API key -check for OAuth token
       const authMethod = SettingsManager.get('auth.method');
       if (authMethod === 'oauth') {
         // Refresh token if needed before using it
@@ -128,7 +128,7 @@ async function configureProviderEnvironment(model: string): Promise<void> {
           // OAuth tokens require Bearer auth, not x-api-key.
           // CLAUDE_CODE_OAUTH_TOKEN tells the SDK to use OAuth mode:
           // apiKey=null (no x-api-key header), authToken=token (Authorization: Bearer).
-          // ANTHROPIC_API_KEY must NOT be set — it would be sent as x-api-key and rejected.
+          // ANTHROPIC_API_KEY must NOT be set -it would be sent as x-api-key and rejected.
           process.env.CLAUDE_CODE_OAUTH_TOKEN = freshToken;
           delete process.env.ANTHROPIC_API_KEY;
           delete process.env.ANTHROPIC_AUTH_TOKEN;
@@ -147,7 +147,7 @@ async function configureProviderEnvironment(model: string): Promise<void> {
 
 /**
  * Map SDK/API error strings to human-readable messages.
- * No "Error:" prefix — display layers add their own (red bubble in UI, warning in Telegram).
+ * No "Error:" prefix -display layers add their own (red bubble in UI, warning in Telegram).
  * Covers Anthropic, Moonshot (Kimi), GLM (Z.AI), and common SDK errors.
  *
  * Errors that indicate potential app bugs (server, session, timeout, unknown)
@@ -174,18 +174,18 @@ function formatAgentError(error: string): string {
   if (e.includes('billing_error') || e.includes('insufficient') || e.includes('credit')
     || e.includes('payment') || e.includes('quota') || e.includes('exceeded')
     || e.includes('balance')) {
-    return 'Billing issue — your account may have run out of credits. Check your provider dashboard. [billing_error]';
+    return 'Billing issue -your account may have run out of credits. Check your provider dashboard. [billing_error]';
   }
 
-  // Rate limiting (all providers — Anthropic 429, Moonshot/GLM rate limits)
+  // Rate limiting (all providers -Anthropic 429, Moonshot/GLM rate limits)
   if (e.includes('rate_limit') || e.includes('too many requests') || e.includes('overloaded')
     || e.includes('throttl') || e.includes('concurrency') || e.includes('capacity')) {
-    return 'Rate limited — too many requests. Wait a moment and try again. [rate_limit]';
+    return 'Rate limited -too many requests. Wait a moment and try again. [rate_limit]';
   }
 
   // Model / request errors
   if (e.includes('invalid_request') && !e.includes('key')) {
-    return `Invalid request — ${error} [invalid_request]`;
+    return `Invalid request -${error} [invalid_request]`;
   }
   if (e.includes('max_output_tokens') || e.includes('max tokens') || e.includes('output limit')) {
     return 'Response exceeded maximum token limit. Try a simpler request. [max_output_tokens]';
@@ -194,40 +194,40 @@ function formatAgentError(error: string): string {
     return 'Message too long for model context window. Try a shorter message or start a new session. [context_overflow]';
   }
   if (e.includes('model') && (e.includes('not found') || e.includes('not available') || e.includes('does not exist') || e.includes('not support'))) {
-    return `Model not available — ${error}. Check Settings > Model. [model_not_found]`;
+    return `Model not available -${error}. Check Settings > Model. [model_not_found]`;
   }
 
   // Server errors (all providers)
   if (e.includes('server_error') || e.includes('internal server') || e.includes('bad gateway')
     || e.includes('service unavailable') || e.includes('temporarily')) {
-    return reportable('API server error. The provider may be experiencing issues — try again shortly. [server_error]');
+    return reportable('API server error. The provider may be experiencing issues -try again shortly. [server_error]');
   }
 
-  // Network errors — user-side, no report needed
+  // Network errors -user-side, no report needed
   if (e.includes('econnrefused') || e.includes('enotfound') || e.includes('etimedout')
     || e.includes('econnreset') || e.includes('epipe') || e.includes('fetch failed')
     || e.includes('network') || e.includes('dns') || e.includes('socket hang up')) {
-    return 'Network error — cannot reach the API. Check your internet connection. [network_error]';
+    return 'Network error -cannot reach the API. Check your internet connection. [network_error]';
   }
 
-  // Session errors — include the underlying reason so the developer can debug
+  // Session errors -include the underlying reason so the developer can debug
   if (e.includes('session error') || e.includes('session closed') || e.includes('session not alive')) {
     const reasonMatch = error.match(/Session error:\s*(.+)/i);
     const reason = reasonMatch ? reasonMatch[1] : error;
     return reportable(`Agent session crashed: ${reason} [session_error]`);
   }
 
-  // Timeout — could indicate app issue
+  // Timeout -could indicate app issue
   if (e.includes('timed out') || e.includes('timeout')) {
     return reportable('Request timed out. Try again or use a simpler prompt. [timeout]');
   }
 
   // Permission denied (SDK tool use)
   if (e.includes('permission') && e.includes('denied')) {
-    return `Permission denied — ${error} [permission_denied]`;
+    return `Permission denied -${error} [permission_denied]`;
   }
 
-  // Fallback — unknown error, developer should know
+  // Fallback -unknown error, developer should know
   return reportable(error);
 }
 
@@ -302,7 +302,7 @@ type SDKOptions = {
   model?: string;
   cwd?: string;
   maxTurns?: number;
-  maxThinkingTokens?: number;  // deprecated — kept for non-Anthropic providers
+  maxThinkingTokens?: number;  // deprecated -kept for non-Anthropic providers
   thinking?: ThinkingConfig;
   effort?: 'low' | 'medium' | 'high' | 'max';
   abortController?: AbortController;
@@ -428,7 +428,7 @@ class AgentManagerClass extends EventEmitter {
 
   // Per-tool timeouts for SDK built-in tools (MCP tools have their own via wrapToolHandler)
   private static readonly SDK_TOOL_TIMEOUTS: Record<string, number> = {
-    Bash: 120_000,      // 2 min — commands can be long-running
+    Bash: 120_000,      // 2 min -commands can be long-running
     Read: 15_000,
     Write: 15_000,
     Edit: 15_000,
@@ -436,7 +436,7 @@ class AgentManagerClass extends EventEmitter {
     Grep: 30_000,       // large codebases
     WebSearch: 30_000,
     WebFetch: 45_000,
-    Task: 300_000,      // 5 min — subagent work
+    Task: 300_000,      // 5 min -subagent work
   };
   private static readonly SDK_TOOL_DEFAULT_TIMEOUT = 60_000; // 1 min default
 
@@ -811,7 +811,7 @@ class AgentManagerClass extends EventEmitter {
       }
 
       // === Check for stale/crashed session errors and retry without resume ===
-      // Use the flag captured BEFORE session.start() — the sdkSessionIdBySession map
+      // Use the flag captured BEFORE session.start() -the sdkSessionIdBySession map
       // is populated mid-call by the 'sdkSessionId' event, so checking it here would always be true.
       const wasResuming = hadSdkSessionBeforeStart;
       if (turnResult.errors && turnResult.errors.length > 0) {
@@ -824,7 +824,7 @@ class AgentManagerClass extends EventEmitter {
       const isUnknownResumeError = wasResuming && turnResult.errors?.some(e => e === 'unknown');
       const isSessionCrash = !turnResult.response && turnResult.errors?.some(e =>
         e.includes('Session error') || e.includes('session closed'));
-      // OAuth token expired mid-session — the subprocess can't refresh it, so we must
+      // OAuth token expired mid-session -the subprocess can't refresh it, so we must
       // kill the session, refresh the token, and retry with a new subprocess.
       const isAuthFailed = turnResult.errors?.some(e => e.includes('authentication_failed'));
       if (isStaleSession || isInvalidThinking || isUnknownResumeError || isSessionCrash || isAuthFailed) {
@@ -915,7 +915,7 @@ class AgentManagerClass extends EventEmitter {
           this.closePersistentSession(sessionId);
           this.setModel(fallbackModel);
           const result = await this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo, true);
-          result.response = `[Switched to ${fallbackModel} — ${originalModel} quota exceeded]\n\n${result.response}`;
+          result.response = `[Switched to ${fallbackModel} -${originalModel} quota exceeded]\n\n${result.response}`;
           return result;
         }
       }
@@ -953,7 +953,7 @@ class AgentManagerClass extends EventEmitter {
 
       // If no text response, try to recover or surface the actual problem
       if (!response) {
-        // Check if the SDK reported errors — throw so they route through the error display path
+        // Check if the SDK reported errors -throw so they route through the error display path
         // (red bubble in UI, warning in Telegram)
         // BUT first check if this is a quota error that should trigger model fallback
         if (turnResult.errors && turnResult.errors.length > 0) {
@@ -966,7 +966,7 @@ class AgentManagerClass extends EventEmitter {
               this.closePersistentSession(sessionId);
               this.setModel(fallbackModel);
               const result = await this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo, true);
-              result.response = `[Switched to ${fallbackModel} — ${originalModel} quota exceeded]\n\n${result.response}`;
+              result.response = `[Switched to ${fallbackModel} -${originalModel} quota exceeded]\n\n${result.response}`;
               return result;
             }
           }
@@ -975,7 +975,7 @@ class AgentManagerClass extends EventEmitter {
           throw new Error(formatAgentError(turnResult.errors[0]));
         }
 
-        // No errors — agent likely did tool-only work, request a summary
+        // No errors -agent likely did tool-only work, request a summary
         const currentSession = this.persistentSessions.get(sessionId);
         if (currentSession?.isAlive()) {
           console.log('[AgentManager] No text response (no errors), requesting summary...');
@@ -989,7 +989,7 @@ class AgentManagerClass extends EventEmitter {
               console.error(`[AgentManager] Summary returned errors: ${summaryResult.errors.join('; ')}`);
               throw new Error(formatAgentError(summaryResult.errors[0]));
             } else {
-              console.warn('[AgentManager] Summary also returned empty — no errors, no text');
+              console.warn('[AgentManager] Summary also returned empty -no errors, no text');
               response = 'Task completed (no details available).';
             }
           } catch (summaryError) {
@@ -1004,7 +1004,7 @@ class AgentManagerClass extends EventEmitter {
 
           this.emitStatus({ type: 'done', sessionId });
         } else {
-          console.warn('[AgentManager] Session not alive for summary — session may have crashed');
+          console.warn('[AgentManager] Session not alive for summary -session may have crashed');
           throw new Error(reportable('Agent session ended unexpectedly. Send another message to start a new session.'));
         }
       }
@@ -1074,7 +1074,7 @@ class AgentManagerClass extends EventEmitter {
           this.closePersistentSession(sessionId);
           this.setModel(fallbackModel);
           const result = await this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo, true);
-          result.response = `[Switched to ${fallbackModel} — ${originalModel} quota exceeded]\n\n${result.response}`;
+          result.response = `[Switched to ${fallbackModel} -${originalModel} quota exceeded]\n\n${result.response}`;
           return result;
         }
       }
@@ -1329,20 +1329,20 @@ class AgentManagerClass extends EventEmitter {
     }
 
     // Acknowledgment-first behavior: respond quickly, then execute
-    // Only for user-initiated messages — scheduled routines should execute silently
+    // Only for user-initiated messages -scheduled routines should execute silently
     staticParts.push(
-      `## Response Style — Acknowledge First\n` +
+      `## Response Style -Acknowledge First\n` +
       `When the user sends you a task or request (via Telegram or desktop), ALWAYS respond in two parts:\n` +
       `1. **Immediate acknowledgment** (1-2 sentences): Confirm you received the task and briefly state what you will do. Send this FIRST.\n` +
       `2. **Execution**: Then proceed to use tools and complete the task. Send the full result when done.\n\n` +
       `Example: User says "check my emails for anything urgent"\n` +
-      `→ First respond: "On it — checking your recent unread emails across both accounts for anything urgent."\n` +
+      `→ First respond: "On it -checking your recent unread emails across both accounts for anything urgent."\n` +
       `→ Then use read_emails, analyze, and send the full report.\n\n` +
       `This ensures the user knows you heard them and what you're about to do, especially for tasks that take time.\n\n` +
-      `**Exception:** Do NOT acknowledge [SCHEDULED ROUTINE] tasks. These are automated — just execute them directly and return the result.`
+      `**Exception:** Do NOT acknowledge [SCHEDULED ROUTINE] tasks. These are automated -just execute them directly and return the result.`
     );
 
-    // Get thinking level config — only Anthropic models support thinking/effort.
+    // Get thinking level config -only Anthropic models support thinking/effort.
     // Non-Anthropic providers (Kimi, GLM) use Anthropic-compatible APIs but may not
     // handle thinking parameters correctly, causing all output to go to thinking blocks.
     const provider = getProviderForModel(this.model);
@@ -1639,30 +1639,30 @@ notify(title="Reminder", body="Meeting in 5 minutes", urgency="critical")
 
 ### Voice Messages (Telegram)
 When voice mode is enabled (user sends /voice in Telegram), you automatically send a TTS voice
-summary alongside every text reply. You do NOT need to do anything special — the system handles
+summary alongside every text reply. You do NOT need to do anything special -the system handles
 text-to-speech conversion and sending the audio. The user toggles this with the /voice command.
 You CAN send voice messages. Do not tell the user you cannot.
 
 ### LinkedIn Content Pipeline
-IMPORTANT: NEVER use WebFetch or web_fetch to access LinkedIn URLs — they require authentication and will fail.
+IMPORTANT: NEVER use WebFetch or web_fetch to access LinkedIn URLs -they require authentication and will fail.
 Always use the linkedin_* tools (linkedin_feed, linkedin_read_post, linkedin_comment, linkedin_post) which use an authenticated browser session.
-To read a post's full content, use linkedin_read_post(url=...) — NOT WebFetch.
+To read a post's full content, use linkedin_read_post(url=...) -NOT WebFetch.
 
-When the user mentions LinkedIn, browsing feed, posting, or commenting — AUTOMATICALLY run the full pipeline without waiting for detailed instructions:
+When the user mentions LinkedIn, browsing feed, posting, or commenting -AUTOMATICALLY run the full pipeline without waiting for detailed instructions:
 
-**Step 1 — Always do automatically:**
+**Step 1 -Always do automatically:**
 - linkedin_feed(scroll=5) to scrape posts
 - classify_linkedin_posts to categorize them
 - FILTER OUT irrelevant posts: skip job-postings, franchise promos, unrelated brand ads, event announcements, and anything not matching the user's industry/interests. If the user has configured linkedin.feedKeywords or linkedin.contentDirection, use those to decide relevance.
-- Present ONLY relevant posts in a numbered list showing: **Author Name** — text preview (first 100 chars) | reactions: X, comments: Y | type: Z
+- Present ONLY relevant posts in a numbered list showing: **Author Name** -text preview (first 100 chars) | reactions: X, comments: Y | type: Z
 - Group by type with headers
 - Then ask: "Which posts do you want to comment on? Or pick a topic to draft your own post."
 
 **Creating your own post (auto-research + auto-draft):**
 When the user picks a topic or says "write about X" or "draft a post about X":
-1. AUTOMATICALLY run the research tool with the topic — do NOT ask "should I research?" just do it
+1. AUTOMATICALLY run the research tool with the topic -do NOT ask "should I research?" just do it
 2. AUTOMATICALLY run draft_linkedin_post with the research report + topic + style (default: insight)
-3. Show the full draft and the source label (e.g. "Researched online" or "From LLM knowledge"). Do NOT show Kanban task IDs — use post numbers only.
+3. Show the full draft and the source label (e.g. "Researched online" or "From LLM knowledge"). Do NOT show Kanban task IDs -use post numbers only.
 4. Tell user: "Draft is visible in the LinkedIn Activity window for review."
 5. Ask: "Want me to revise this, change the style, or publish it?"
 5. User feedback → revise_linkedin_draft until approved
@@ -1672,24 +1672,24 @@ When the user picks a topic or says "write about X" or "draft a post about X":
 When the user picks post numbers or says "comment on #3":
 1. ALWAYS read the full post with linkedin_read_post first. Never draft from text_preview alone.
 2. AUTOMATICALLY run draft_linkedin_comment for each selected post (tone: insightful by default)
-3. Show each comment draft with the post number (1, 2, 3...) — NOT Kanban task IDs
+3. Show each comment draft with the post number (1, 2, 3...) -NOT Kanban task IDs
 4. Tell user: "Drafts are visible in the LinkedIn Activity window where you can approve, reject, edit, or leave feedback."
 5. Ask: "Want me to revise any of these, or post them?"
 5. User feedback → revise_linkedin_draft until approved
 6. linkedin_comment(url, comment) to post it
 
-**CRITICAL — Anti-ban rate limiting for posting comments:**
+**CRITICAL -Anti-ban rate limiting for posting comments:**
 The linkedin_comment tool enforces cooldown protection between comments.
 If called too soon, it returns rate_limited=true with retry_after_sec.
 When posting multiple approved comments, tell the user: "Posting X comments spaced 3 minutes apart to avoid LinkedIn detection. This will take ~Y minutes."
 NEVER call linkedin_comment in rapid succession. If cooldown is returned, wait and retry or schedule the remainder.
 If the user explicitly says "post them all now" or "no delay", respect their choice but warn them about ban risk.
 
-KEY RULE: When the user makes a choice, ACT immediately. Do not ask for confirmation before researching or drafting — just do it and show results.
+KEY RULE: When the user makes a choice, ACT immediately. Do not ask for confirmation before researching or drafting -just do it and show results.
 
-**Numbered references:** After showing a numbered list of LinkedIn posts, if the user says anything with a number like "make one for 1", "do 3", "comment on 2 and 5", "#1", "the first one" — they ALWAYS mean "draft a comment for that LinkedIn post number". Never interpret numbered references after a LinkedIn feed as kanban tasks or anything else.
+**Numbered references:** After showing a numbered list of LinkedIn posts, if the user says anything with a number like "make one for 1", "do 3", "comment on 2 and 5", "#1", "the first one" -they ALWAYS mean "draft a comment for that LinkedIn post number". Never interpret numbered references after a LinkedIn feed as kanban tasks or anything else.
 
-ALWAYS present posts with full details. NEVER just say "pulled 3 posts" — show the actual content.
+ALWAYS present posts with full details. NEVER just say "pulled 3 posts" -show the actual content.
 
 **Session recovery:** If the user references posts by number (e.g. "improve 1 and 2") but you don't have them in context, use linkedin_today_posts to recall today's scraped posts from the database. Posts are automatically saved when scraped via linkedin_feed and persist across session restarts.
 
@@ -1732,7 +1732,7 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" — show
         // Accumulate text across multi-message turns (e.g. text → tool → text)
         return current ? current + '\n\n' + cleanedText : cleanedText;
       } else if (content !== undefined) {
-        // content exists but isn't an array — unexpected format
+        // content exists but isn't an array -unexpected format
         console.warn(`[AgentManager] Assistant message content is not an array (type: ${typeof content})`);
       }
     }
@@ -1783,7 +1783,7 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" — show
           : '.png';
 
         if (b.source.type === 'base64' && b.source.data) {
-          // Base64 image — save directly to disk
+          // Base64 image -save directly to disk
           const filename = `img-${Date.now()}-${this.pendingMedia.length}${ext}`;
           const filePath = path.join(mediaDir, filename);
           fs.writeFileSync(filePath, Buffer.from(b.source.data, 'base64'));
@@ -1791,7 +1791,7 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" — show
           this.pendingMedia.push({ type: 'image', filePath, mimeType });
           console.log(`[AgentManager] Saved image: ${filePath}`);
         } else if (b.source.type === 'url' && b.source.url) {
-          // URL image — download and save to disk
+          // URL image -download and save to disk
           const filename = `img-${Date.now()}-${this.pendingMedia.length}${ext}`;
           const filePath = path.join(mediaDir, filename);
 
@@ -1997,7 +1997,7 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" — show
               });
             }
 
-            // Detect TaskStop/KillBash — remove bg task from tracking
+            // Detect TaskStop/KillBash -remove bg task from tracking
             // Note: SDK task IDs don't match our toolUseIds, so remove oldest matching type
             if (rawName === 'TaskStop' || rawName === 'KillBash') {
               const firstKey = backgroundTasks.keys().next().value;

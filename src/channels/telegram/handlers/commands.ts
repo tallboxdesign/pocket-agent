@@ -284,8 +284,8 @@ Workflows are reusable command templates. Use /workflow to see what's available,
     const newValue = !current;
     SettingsManager.set('telegram.voiceReplies', String(newValue));
     await ctx.reply(newValue
-      ? 'Voice replies ON — I\'ll send voice summaries with my text replies.'
-      : 'Voice replies OFF — text only.');
+      ? 'Voice replies ON -I\'ll send voice summaries with my text replies.'
+      : 'Voice replies OFF -text only.');
   });
 
   // /limode command - LinkedIn draft depth mode

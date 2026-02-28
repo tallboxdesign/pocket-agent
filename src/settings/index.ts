@@ -590,7 +590,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     key: 'linkedin.voiceStyle',
-    defaultValue: '',
+    defaultValue: 'casual but smart. lowercase most things. short sentences. challenge bs. never sound like a consultant or a report.',
     encrypted: false,
     category: 'linkedin',
     label: 'Writing Voice & Style',
@@ -599,7 +599,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     key: 'linkedin.writingRules',
-    defaultValue: '',
+    defaultValue: 'no citations or source names. no exact stats with attribution. no ending questions. no em dashes. just say what you think in plain language.',
     encrypted: false,
     category: 'linkedin',
     label: 'Writing Rules',
@@ -608,7 +608,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     key: 'linkedin.contentDirection',
-    defaultValue: '',
+    defaultValue: 'seo, ai search, web development. practical takes from someone who builds stuff daily.',
     encrypted: false,
     category: 'linkedin',
     label: 'Content Direction',

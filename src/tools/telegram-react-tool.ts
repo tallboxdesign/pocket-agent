@@ -14,9 +14,9 @@ export function getTelegramReactToolDefinition() {
     description: `Place an emoji reaction on the user's current Telegram message. Use this when a reaction alone is sufficient (e.g., acknowledging a request you're about to execute) instead of sending a text reply.
 
 Examples:
-- telegram_react(emoji="👍")  — acknowledge / got it
-- telegram_react(emoji="❤️")  — love it
-- telegram_react(emoji="🔥")  — impressive`,
+- telegram_react(emoji="👍")  -acknowledge / got it
+- telegram_react(emoji="❤️")  -love it
+- telegram_react(emoji="🔥")  -impressive`,
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -40,7 +40,7 @@ export async function handleTelegramReactTool(input: unknown): Promise<string> {
 
   const msgCtx = getTelegramMessageContext();
   if (!msgCtx) {
-    return JSON.stringify({ error: 'No Telegram message context — this tool only works when responding to a Telegram message' });
+    return JSON.stringify({ error: 'No Telegram message context -this tool only works when responding to a Telegram message' });
   }
 
   try {
@@ -48,7 +48,7 @@ export async function handleTelegramReactTool(input: unknown): Promise<string> {
     if (success) {
       return JSON.stringify({ success: true, message: `Reacted with ${params.emoji}` });
     }
-    return JSON.stringify({ error: 'Failed to set reaction — the emoji may not be supported by Telegram' });
+    return JSON.stringify({ error: 'Failed to set reaction -the emoji may not be supported by Telegram' });
   } catch (error) {
     return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to set reaction' });
   }

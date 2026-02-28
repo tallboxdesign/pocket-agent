@@ -1,5 +1,5 @@
 /**
- * LinkedIn agent tools — browse feed, read posts, comment, create posts, manage auth.
+ * LinkedIn agent tools -browse feed, read posts, comment, create posts, manage auth.
  */
 
 import Database from 'better-sqlite3';
@@ -132,10 +132,10 @@ Useful for finding trending content, monitoring topics, or discovering posts to 
 The first call may be slow (~60s) if the Python environment needs setup.
 
 Examples:
-- linkedin_feed() — browse feed with default settings
-- linkedin_feed(scroll=5, keyword="AI") — scroll more, filter by keyword
-- linkedin_feed(person="Sam Altman") — find posts by a specific person
-- linkedin_feed(min_engagement=50, limit=10) — high-engagement posts only`,
+- linkedin_feed() -browse feed with default settings
+- linkedin_feed(scroll=5, keyword="AI") -scroll more, filter by keyword
+- linkedin_feed(person="Sam Altman") -find posts by a specific person
+- linkedin_feed(min_engagement=50, limit=10) -high-engagement posts only`,
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -185,11 +185,11 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       try {
         const html = fs.readFileSync(dumpPath, 'utf-8').slice(0, 2000);
         if (html.includes('login') || html.includes('session_redirect')) {
-          hint = ' Session expired — re-authentication needed.';
+          hint = ' Session expired -re-authentication needed.';
         } else if (html.length < 5000) {
-          hint = ` Page was mostly empty (${html.length} bytes) — possible rate limit or blocked.`;
+          hint = ` Page was mostly empty (${html.length} bytes) -possible rate limit or blocked.`;
         } else {
-          hint = ` Page loaded (${html.length} bytes) but CSS selectors matched nothing — LinkedIn may have changed their markup.`;
+          hint = ` Page loaded (${html.length} bytes) but CSS selectors matched nothing -LinkedIn may have changed their markup.`;
         }
       } catch { /* no dump */ }
       console.warn(`[LinkedIn] Feed returned 0 posts.${hint}`);
@@ -285,7 +285,7 @@ function getCommentToolDefinition() {
 
 Always pass --no-confirm to avoid hanging on stdin prompt.
 The agent should use its own judgment about whether to ask the user for confirmation before commenting.
-Check linkedin.autoConfirm setting — if false, ask the user first.
+Check linkedin.autoConfirm setting -if false, ask the user first.
 
 Examples:
 - linkedin_comment(url="https://...", comment="Great insights!")`,
@@ -420,7 +420,7 @@ function getCreatePostToolDefinition() {
 
 Always uses --no-confirm to avoid hanging on stdin prompt.
 The agent should use its own judgment about whether to ask the user for confirmation before posting.
-Check linkedin.autoConfirm setting — if false, ask the user first.
+Check linkedin.autoConfirm setting -if false, ask the user first.
 
 Examples:
 - linkedin_post(text="Excited to share...")`,
@@ -561,7 +561,7 @@ async function handleClassifyPostsTool(input: unknown): Promise<string> {
   }
 
   if (!isGlmConfigured()) {
-    // Graceful degradation — return posts without classification
+    // Graceful degradation -return posts without classification
     return JSON.stringify({
       success: true,
       classified: false,
@@ -1017,14 +1017,14 @@ function getTodayPostsToolDefinition() {
     description: `Recall today's scraped LinkedIn posts from the database.
 
 Returns posts that were scraped today, sorted by engagement (reactions + comments) descending.
-Use this when the user references posts by number after a session restart — the posts persist in the database.
+Use this when the user references posts by number after a session restart -the posts persist in the database.
 
 Optionally filter by date (defaults to today) or author.
 
 Examples:
-- linkedin_today_posts() — get all posts scraped today
-- linkedin_today_posts(date="2026-02-26") — get yesterday's posts
-- linkedin_today_posts(author="Sam Altman") — filter by author`,
+- linkedin_today_posts() -get all posts scraped today
+- linkedin_today_posts(date="2026-02-26") -get yesterday's posts
+- linkedin_today_posts(author="Sam Altman") -filter by author`,
     input_schema: {
       type: 'object' as const,
       properties: {

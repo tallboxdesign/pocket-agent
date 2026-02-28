@@ -1,5 +1,5 @@
 /**
- * Gmail agent tools — send, read, label, draft, and manage emails via gog CLI.
+ * Gmail agent tools -send, read, label, draft, and manage emails via gog CLI.
  */
 
 import {
@@ -84,14 +84,14 @@ Uses Gmail search syntax for queries.
 Gmail categories: category:primary, category:updates, category:social, category:promotions, category:forums
 Combine with OR: "category:primary OR category:updates"
 
-IMPORTANT — Finding emails that need a response:
+IMPORTANT -Finding emails that need a response:
 Threads can start months ago but have NEW replies today. To find ALL threads needing the user's attention:
 1. Search broadly: "is:unread newer_than:7d" (catches replies on old threads too)
 2. For each thread with multiple messages, use get_thread to check who sent the last message
 3. If the last message is NOT from the user → that thread needs the user's response
-4. Don't over-filter with keywords in the Gmail query — search broadly, filter in your analysis
+4. Don't over-filter with keywords in the Gmail query -search broadly, filter in your analysis
 
-IMPORTANT — Old threads with recent replies:
+IMPORTANT -Old threads with recent replies:
 Gmail "newer_than:Xd" matches individual messages, so a reply from today on an October thread WILL appear. But keyword-based searches may miss them if the recent reply doesn't contain the keywords. Always search broadly first, then filter by topic in your analysis.
 
 When user asks to "check emails" or find emails on a topic:
@@ -101,14 +101,14 @@ When user asks to "check emails" or find emails on a topic:
 - Cross-reference with /unanswered results for completeness
 
 Examples:
-- read_emails() — emails from last 24 hours (all folders)
-- read_emails(query="category:primary newer_than:1d") — primary inbox only
-- read_emails(query="is:unread newer_than:7d", max=50) — all unread recent messages (catches old thread replies)
-- read_emails(query="category:primary OR category:updates newer_than:1d") — primary + updates
+- read_emails() -emails from last 24 hours (all folders)
+- read_emails(query="category:primary newer_than:1d") -primary inbox only
+- read_emails(query="is:unread newer_than:7d", max=50) -all unread recent messages (catches old thread replies)
+- read_emails(query="category:primary OR category:updates newer_than:1d") -primary + updates
 - read_emails(query="from:alice@example.com")
 - read_emails(query="is:unread", max=5)
 - read_emails(query="subject:invoice newer_than:7d")
-- read_emails(account="jorgepa.tallbox@gmail.com") — read from secondary account`,
+- read_emails(account="jorgepa.tallbox@gmail.com") -read from secondary account`,
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -190,15 +190,15 @@ function getGetThreadToolDefinition() {
 
 Returns the full thread with all messages including From headers, dates, and content.
 
-KEY USE CASE — Determining who needs to respond:
+KEY USE CASE -Determining who needs to respond:
 Each message in the thread has a "From" header. Look at the LAST message's From field:
 - If the last message is FROM the user → user is waiting for a reply (awaiting_reply)
 - If the last message is NOT from the user → user needs to respond (unanswered)
 This is how you determine which threads need the user's attention.
 
 Workflow for finding threads needing response:
-1. read_emails(query="is:unread newer_than:7d", max=50) — find threads with recent activity
-2. get_thread(thread_id=...) on each — check who sent the last message
+1. read_emails(query="is:unread newer_than:7d", max=50) -find threads with recent activity
+2. get_thread(thread_id=...) on each -check who sent the last message
 3. Report threads where the last message is NOT from the user
 
 Also use this to:

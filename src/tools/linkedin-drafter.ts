@@ -543,10 +543,9 @@ function evidenceToBrief(evidence: ResearchEvidence): string {
   const lines = [
     evidence.postSummary ? `Post summary: ${evidence.postSummary}` : '',
     evidence.keyPoint ? `Key point: ${evidence.keyPoint}` : '',
-    evidence.statistic ? `Fact/stat: ${evidence.statistic}` : '',
+    evidence.statistic ? `Background insight (paraphrase loosely, do NOT cite source names or exact numbers): ${evidence.statistic}` : '',
     sourceLines,
     evidence.implication ? `Implication: ${evidence.implication}` : '',
-    evidence.followUpQuestion ? `Follow-up angle: ${evidence.followUpQuestion}` : '',
     `Post intent: ${evidence.postIntent}`,
     `Evidence confidence: ${evidence.confidence}`,
   ].filter(Boolean);
@@ -637,13 +636,12 @@ STEP 3: Return STRICT JSON:
 {
   "post_summary": "one-line summary of what the author is saying",
   "key_point": "most specific point from the post to reference",
-  "statistic": "one concrete recent fact with number/date",
-  "source_1": "publication/org name for primary source",
+  "statistic": "one loose fact or trend you found (paraphrase casually, no exact numbers or source names needed)",
+  "source_1": "publication/org name for your reference only",
   "source_url_1": "url if found, else empty string",
-  "source_2": "secondary source name (optional unless required)",
+  "source_2": "secondary source name (optional)",
   "source_url_2": "secondary source url (optional)",
-  "implication": "why this matters in practice",
-  "follow_up_question": "one sharp question to deepen the discussion",
+  "implication": "why this matters in practice, in plain language",
   "post_intent": "educational|promotional|mixed",
   "confidence": "high|medium|low"
 }`;
@@ -695,10 +693,10 @@ async function runWritePass(
   const writingSystemPrompt = `You are writing a high-quality LinkedIn reply comment. Sound like someone who genuinely knows their stuff typing a quick reply, not a conference talk or blog post.
 
 RESPONSE REQUIREMENTS:
-- YOU decide the length based on the topic. Simple agreement/observation: 4-5 sentences (~400 chars). Moderate discussion: 5-8 sentences (~600-1200 chars). Complex topic needing real argument with evidence: 8-12 sentences (~1000-2000 chars). Never pad for length, never cut short if you have substance. Let the content decide.
+- YOU decide the length based on the topic. Quick take: 3-5 sentences (~300-500 chars). Real discussion: 5-8 sentences (~500-900 chars). Deep argument: 8-10 sentences (~800-1400 chars). Never pad for length. Let the content decide.
 - Sentence 1 must start with "${authorFirstName}," and reference a specific point from the post.
-- Include one concrete researched fact from the notes.
-- Add an actionable implication or thoughtful question.
+- Weave in ONE insight from the research naturally. Do NOT cite source names, publication names, or exact statistics. Paraphrase loosely like you already knew it. Say "the market is roughly doubling" not "according to Mordor Intelligence the market will grow from $75B to $149B by 2031".
+- Do NOT end with a question. End with a statement, a take, or an incomplete thought. Questions at the end feel like interview prompts, not real comments.
 
 VOICE (critical - this is what makes it sound human):
 - Vary paragraph length: mix short punchy lines with longer thoughts. Never uniform blocks.
@@ -712,7 +710,7 @@ VOICE (critical - this is what makes it sound human):
 HARD RULES:
 - No emojis, no hashtags, no em dashes, no en dashes.
 - No generic praise ("great post", "thanks for sharing", "love this", "spot on").
-- No AI jargon ("landscape", "leverage", "robust", "holistic", "transformative", "game-changing").
+- No AI jargon ("landscape", "leverage", "robust", "holistic", "transformative", "game-changing", "trajectory", "institutionalizing", "decoupling", "paradigm", "ecosystem", "scalable", "actionable", "double down").
 - Challenge marketing stunts. If the post pushes a tool too hard, point out limitations or what it omits.
 - Never be a yes-man. Call out self-promotion with data and real perspective.
 - Use only straight quotes and apostrophes, no curly/smart quotes.${styleGuide ? `\n\nADDITIONAL STYLE GUIDE:\n${styleGuide}` : ''}
@@ -1140,7 +1138,7 @@ export async function draftBatch(
   _batchSize: number = 1,
 ): Promise<{ results: DraftResult[]; errors: string[] }> {
   if (jobRunning) {
-    // If activeJob is null, this is a leaked state from a crashed previous run — reset it
+    // If activeJob is null, this is a leaked state from a crashed previous run -reset it
     if (!activeJob) {
       jobRunning = false;
     } else {
@@ -1203,7 +1201,7 @@ export async function draftBatch(
 
     draftEvents.emit('start', { total: posts.length });
 
-    // Process sequentially — one post at a time
+    // Process sequentially -one post at a time
     for (const post of posts) {
       if (jobAbort.signal.aborted) {
         // Mark remaining queued posts as cancelled_system

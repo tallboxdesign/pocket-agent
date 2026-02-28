@@ -72,7 +72,7 @@ export async function handleSendTelegramPhotoTool(input: unknown): Promise<strin
     if (success) {
       return JSON.stringify({ success: true, message: `Photo sent to Telegram chat ${chatId}` });
     }
-    return JSON.stringify({ error: 'Failed to send photo — file may not exist or bot error' });
+    return JSON.stringify({ error: 'Failed to send photo -file may not exist or bot error' });
   } catch (error) {
     return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to send photo' });
   }

@@ -44,9 +44,10 @@
       background: var(--bg-secondary);
       padding: 10px 16px;
       border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
       align-items: center;
+      gap: 8px 12px;
       flex-shrink: 0;
     }
 
@@ -64,16 +65,25 @@
     }
 
     .post-count {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
       font-weight: 500;
-      margin-left: 10px;
+      white-space: nowrap;
     }
 
     .header-left {
       display: flex;
       align-items: center;
       gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .header-center {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .header-actions {
@@ -540,7 +550,6 @@
       align-items: center;
       justify-content: flex-start;
       gap: 8px;
-      margin-top: 10px;
       width: 100%;
     }
 
@@ -866,12 +875,16 @@
   <header>
     <div class="header-left">
       <h1><span>LinkedIn Activity</span></h1>
+    </div>
+    <div class="header-center">
       <span class="post-count" id="post-count"></span>
       <span class="post-count" id="daily-stats" style="color:var(--accent)"></span>
     </div>
     <div class="header-actions">
       <button class="li-settings-btn" id="li-settings-btn" onclick="toggleQuickSettings()" title="LinkedIn quick settings for draft/research controls">LinkedIn Settings</button>
+      <button onclick="playNormalClick(); shiftDate(-1)" title="Previous day" style="padding:4px 8px;font-size:14px;min-width:28px">◀</button>
       <input type="date" id="date-picker" />
+      <button onclick="playNormalClick(); shiftDate(1)" title="Next day" style="padding:4px 8px;font-size:14px;min-width:28px">▶</button>
       <button onclick="playNormalClick(); loadPosts()">Refresh</button>
       <button onclick="playNormalClick(); window.close()">Done</button>
     </div>
@@ -1093,10 +1106,10 @@
   </div>
 
   <div id="view-tabs" style="display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
-    <button class="action-btn" id="tab-queue" onclick="setActivePanel('queue')" title="Drafting and approval queue">Queue</button>
-    <button class="action-btn" id="tab-attention" onclick="setActivePanel('attention')" title="Approved but unscheduled, or failed publish attempts">Needs Attention</button>
-    <button class="action-btn" id="tab-failed" onclick="setActivePanel('failed')" title="Posts with recorded errors">Failed</button>
-    <button class="action-btn" id="tab-published" onclick="setActivePanel('published')" title="Already published comments">Published</button>
+    <button class="action-btn" id="tab-queue" onclick="setActivePanel('queue')" title="Drafting and approval queue" style="min-width:90px">Queue</button>
+    <button class="action-btn" id="tab-attention" onclick="setActivePanel('attention')" title="Approved but unscheduled, or failed publish attempts" style="min-width:150px">Needs Attention</button>
+    <button class="action-btn" id="tab-failed" onclick="setActivePanel('failed')" title="Posts with recorded errors" style="min-width:80px">Failed</button>
+    <button class="action-btn" id="tab-published" onclick="setActivePanel('published')" title="Already published comments" style="min-width:110px">Published</button>
     <button class="action-btn" id="tab-all" onclick="setActivePanel('all')" title="Show all records">All</button>
   </div>
 
@@ -1153,6 +1166,14 @@
     const today = new Date();
     datePicker.value = today.toISOString().split('T')[0];
     datePicker.addEventListener('change', () => loadPosts());
+
+    function shiftDate(delta) {
+      const current = new Date(datePicker.value + 'T00:00:00');
+      current.setDate(current.getDate() + delta);
+      datePicker.value = current.toISOString().split('T')[0];
+      loadPosts();
+    }
+
     const draftModeSelect = document.getElementById('draft-mode');
     if (draftModeSelect) {
       draftModeSelect.addEventListener('change', () => { saveDraftMode(true); });
@@ -1705,6 +1726,37 @@
       sendToAgent(`Schedule all unscheduled LinkedIn draft comments for today. IMPORTANT: Each post MUST be scheduled at a DIFFERENT time. Space them at least ${delay} minutes apart. Distribute across my configured day/night windows (linkedin.dayWindow* and linkedin.nightWindow* settings). Use priority order: urgent first, then high, then normal, then low. Never schedule two posts at the same time.`);
     }
 
+    let sortField = null;
+    let sortAsc = true;
+
+    function toggleSort(field) {
+      if (sortField === field) { sortAsc = !sortAsc; }
+      else { sortField = field; sortAsc = true; }
+      loadPosts();
+    }
+
+    function applySorting(posts) {
+      if (!sortField) return posts;
+      const PRIO_ORDER = { urgent: 0, high: 1, normal: 2, low: 3 };
+      return [...posts].sort((a, b) => {
+        let va, vb;
+        switch (sortField) {
+          case 'reactions': va = a.reactions || 0; vb = b.reactions || 0; break;
+          case 'comments': va = a.comments || 0; vb = b.comments || 0; break;
+          case 'author': va = (a.author || '').toLowerCase(); vb = (b.author || '').toLowerCase(); break;
+          case 'priority': va = PRIO_ORDER[a.priority] ?? 2; vb = PRIO_ORDER[b.priority] ?? 2; break;
+          case 'type': va = a.post_type || ''; vb = b.post_type || ''; break;
+          case 'status':
+            va = a.commented ? 3 : a.approved ? 2 : a.comment_draft ? 1 : 0;
+            vb = b.commented ? 3 : b.approved ? 2 : b.comment_draft ? 1 : 0;
+            break;
+          default: return 0;
+        }
+        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+        return sortAsc ? cmp : -cmp;
+      });
+    }
+
     function applyFilters(posts) {
       const status = getInputValue('filter-status');
       const priority = getInputValue('filter-priority');
@@ -1773,7 +1825,7 @@
         refreshPanelTabs();
         // Draft state is read from DB (p.draft_state) — no transient pruning needed
 
-        const filtered = applyFilters(posts);
+        const filtered = applySorting(applyFilters(posts));
         const content = document.getElementById('content');
         const countEl = document.getElementById('post-count');
 
@@ -1812,13 +1864,13 @@
               <tr>
                 <th class="col-check"><input type="checkbox" onchange="toggleSelectAll(this.checked)" /></th>
                 <th class="col-num">#</th>
-                <th class="col-priority">Pri</th>
-                <th>Author</th>
+                <th class="col-priority" style="cursor:pointer" onclick="toggleSort('priority')">Pri</th>
+                <th style="cursor:pointer" onclick="toggleSort('author')">Author</th>
                 <th>Preview</th>
-                <th class="col-stats">Reacts</th>
-                <th class="col-stats">Cmts</th>
-                <th>Type</th>
-                <th class="col-status">Status</th>
+                <th class="col-stats" style="cursor:pointer" onclick="toggleSort('reactions')">Reacts</th>
+                <th class="col-stats" style="cursor:pointer" onclick="toggleSort('comments')">Cmts</th>
+                <th style="cursor:pointer" onclick="toggleSort('type')">Type</th>
+                <th class="col-status" style="cursor:pointer" onclick="toggleSort('status')">Status</th>
                 <th class="col-actions">Actions</th>
               </tr>
             </thead>
@@ -1860,16 +1912,6 @@
         }
 
         content.innerHTML = html;
-
-        // Restore expanded draft panel after re-render
-        if (expandedDraftId !== null) {
-          const el = document.getElementById('draft-' + expandedDraftId);
-          if (el) {
-            el.classList.add('expanded');
-            const toggle = el.parentElement?.querySelector('.draft-toggle');
-            if (toggle) toggle.textContent = 'Hide draft';
-          }
-        }
       } catch (error) {
         console.error('Error loading posts:', error);
         showToast('Could not load posts', 'error');
@@ -1950,18 +1992,17 @@
             ${inflightHint}
             ${failureNote}
             ${p.comment_draft ? `
-              <div class="draft-toggle" onclick="toggleDraft(${p.id}, this)">Show draft</div>
-              <div class="draft-text" id="draft-${p.id}">
+              <div class="draft-actions" style="margin-top:6px">
+                <span class="draft-toggle" onclick="toggleDraft(${p.id}, this)" style="margin:0">${expandedDraftId === p.id ? 'Hide draft' : 'Show draft'}</span>
                 ${!p.commented ? `
-                <div class="draft-actions">
-                  <button class="btn-approve" onclick="approveDraft(${p.id})" title="Post this comment">Approve</button>
-                  <button class="btn-reject" onclick="rejectDraft(${p.id})" title="Clear draft">Reject</button>
-                  <button class="btn-edit" onclick="editDraft(${p.id})" title="Edit inline">Edit</button>
-                  <button class="btn-feedback" onclick="feedbackDraft(${p.id})" title="Send revision feedback">Feedback</button>
-                  <button class="btn-redo" onclick="redoDraft(${p.id})" title="Regenerate draft with stricter quality">Redo</button>
-                  <button class="btn-schedule" onclick="showSchedulePicker(${p.id})" title="Schedule posting time">Schedule</button>
-                </div>
+                  <button class="btn-approve" onclick="approveDraft(${p.id})">Approve</button>
+                  <button class="btn-reject" onclick="rejectDraft(${p.id})">Reject</button>
+                  <button class="btn-edit" onclick="editDraft(${p.id})">Edit</button>
+                  <button class="btn-redo" onclick="redoDraft(${p.id})">Redo</button>
+                  <button class="btn-schedule" onclick="showSchedulePicker(${p.id})">Schedule</button>
                 ` : ''}
+              </div>
+              <div class="draft-text ${expandedDraftId === p.id ? 'expanded' : ''}" id="draft-${p.id}">
                 <div class="draft-body" id="draft-content-${p.id}">${escapeHtml(p.comment_draft)}</div>
                 <div class="draft-extra" id="draft-extra-${p.id}"></div>
               </div>
@@ -2107,10 +2148,10 @@ STEP 3: Write the comment YOURSELF (do NOT use draft_linkedin_comment). Include 
 STEP 4: Save it using linkedin_save_draft with the post_id and your draft text. This updates the kanban task too.
 
 YOUR COMMENT MUST:
-- YOU decide the length based on the topic. Simple take: 4-5 sentences (~400 chars). Moderate discussion: 5-8 sentences (~600-1200 chars). Complex topic needing real argument: 8-12 sentences (~1000-2000 chars). Let the content decide, don't pad.
+- YOU decide the length. Quick take: 3-5 sentences (~300-500 chars). Real discussion: 5-8 sentences (~500-900 chars). Deep argument: 8-10 sentences (~800-1400 chars). Let the content decide, don't pad.
 - Start with the author's first name, then reference something SPECIFIC they said.
-- Include one concrete researched fact (stat, case study, recent example) with a source cue like "according to" or "in [source] data".
-- Add your own angle, experience, or a sharp question. Never just agree.
+- Weave in ONE insight from research naturally. Do NOT cite source names, publication names, or exact statistics. Paraphrase loosely like you already knew it.
+- Add your own angle or experience. Never just agree. Do NOT end with a question.
 - Format as 2-4 short paragraphs with line breaks. No wall of text.
 - Sound like someone who genuinely knows their stuff typing a quick reply.
 

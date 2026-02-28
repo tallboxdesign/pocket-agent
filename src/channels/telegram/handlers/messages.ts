@@ -50,7 +50,7 @@ export async function handleTextMessage(
   if (messageId) setTelegramMessageContext({ chatId, messageId });
   setActiveChannel('telegram');
 
-  // Skip built-in commands — grammy's bot.command() should handle these, but
+  // Skip built-in commands -grammy's bot.command() should handle these, but
   // if they fall through (Electron/grammy timing issue), don't send to agent
   if (message.startsWith('/')) {
     const spaceIdx = message.indexOf(' ');
@@ -85,7 +85,7 @@ export async function handleTextMessage(
       if (userText) fullMessage += `\n\n${userText}`;
       console.log(`[Telegram:Text] Executing workflow: ${workflow.name}`);
     } else {
-      // Not a workflow — strip leading / so the SDK doesn't intercept it as a slash command
+      // Not a workflow -strip leading / so the SDK doesn't intercept it as a slash command
       fullMessage = fullMessage.substring(1);
       console.log(`[Telegram:Text] Unknown command /${commandName}, stripping slash and sending to agent`);
     }

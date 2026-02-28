@@ -39,7 +39,7 @@ export function runWithSessionId<T>(sessionId: string, fn: () => T): T {
   return asyncLocalStorage.run(sessionId, fn);
 }
 
-// Telegram message context — set before each agent query so tools can target the right message
+// Telegram message context -set before each agent query so tools can target the right message
 let telegramMessageContext: { chatId: number; messageId: number } | null = null;
 
 /**

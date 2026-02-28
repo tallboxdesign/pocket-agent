@@ -1,7 +1,7 @@
 /**
  * Standalone GLM (Zhipu AI) API client.
  *
- * OpenAI-compatible HTTP client using raw fetch — does NOT use the Claude Agent SDK.
+ * OpenAI-compatible HTTP client using raw fetch -does NOT use the Claude Agent SDK.
  * Used as a worker model for cheap bulk tasks (summarization, classification, extraction).
  *
  * Bulk classification supports provider override: set zhipu.bulkBaseUrl + zhipu.bulkApiKey
@@ -56,7 +56,7 @@ const DEFAULT_MAX_TOKENS = 2048;
 const REQUEST_TIMEOUT = 15000;
 
 // ============================================================================
-// Provider resolution — auto-detect from model name
+// Provider resolution -auto-detect from model name
 // ============================================================================
 
 function resolveModelProvider(model: string): { baseUrl: string; apiKey: string } {
@@ -105,7 +105,7 @@ async function callGlmApi(params: GlmRequestParams & CallApiOverrides): Promise<
     stream: false,
   };
 
-  // Thinking parameter is Zhipu-only — other providers reject unknown fields
+  // Thinking parameter is Zhipu-only -other providers reject unknown fields
   if (params.disableThinking && isZhipu) {
     body.thinking = { type: 'disabled' };
   }
@@ -223,7 +223,7 @@ export function isGlmConfigured(): boolean {
 }
 
 /**
- * Quick health check — pings flash and bulk models (skips duplicate if same provider+model).
+ * Quick health check -pings flash and bulk models (skips duplicate if same provider+model).
  */
 export async function glmHealthCheck(): Promise<{ ok: boolean; models?: string[]; error?: string }> {
   const flashModel = SettingsManager.get('zhipu.flashModel') || DEFAULT_FLASH_MODEL;

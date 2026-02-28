@@ -19,7 +19,7 @@ export function setActiveChannel(channel: string): void { activeChannel = channe
 export function getActiveChannel(): string { return activeChannel; }
 
 // ============================================================================
-// speak — Synthesize and play text aloud
+// speak -Synthesize and play text aloud
 // ============================================================================
 
 export function getSpeakToolDefinition() {
@@ -27,7 +27,7 @@ export function getSpeakToolDefinition() {
     name: 'speak',
     description: `Synthesize text and play it aloud in the desktop chat window via TTS.
 
-DO NOT use this tool for Telegram conversations — Telegram voice replies are sent automatically.
+DO NOT use this tool for Telegram conversations -Telegram voice replies are sent automatically.
 Only use this for DESKTOP chat when:
 - The user asks you to "say" or "read" something aloud
 - Delivering reminders in the desktop window
@@ -55,7 +55,7 @@ export async function handleSpeakTool(input: unknown): Promise<string> {
     return JSON.stringify({ success: false, error: 'text is required' });
   }
 
-  // Skip desktop playback for Telegram — voice replies are handled by sendVoiceReply
+  // Skip desktop playback for Telegram -voice replies are handled by sendVoiceReply
   if (activeChannel === 'telegram') {
     return JSON.stringify({ success: true, skipped: true, reason: 'Telegram voice replies are automatic' });
   }
@@ -79,7 +79,7 @@ export async function handleSpeakTool(input: unknown): Promise<string> {
 }
 
 // ============================================================================
-// voice_status — Check current voice settings
+// voice_status -Check current voice settings
 // ============================================================================
 
 export function getVoiceStatusToolDefinition() {
@@ -109,7 +109,7 @@ export async function handleVoiceStatusTool(): Promise<string> {
 }
 
 // ============================================================================
-// voice_toggle — Enable/disable auto-TTS
+// voice_toggle -Enable/disable auto-TTS
 // ============================================================================
 
 export function getVoiceToggleToolDefinition() {
@@ -150,7 +150,7 @@ export async function handleVoiceToggleTool(input: unknown): Promise<string> {
 }
 
 // ============================================================================
-// voice_config — Configure voice settings
+// voice_config -Configure voice settings
 // ============================================================================
 
 export function getVoiceConfigToolDefinition() {

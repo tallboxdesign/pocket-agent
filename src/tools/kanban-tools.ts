@@ -96,7 +96,7 @@ export async function handleKanbanListProjectsTool(): Promise<string> {
 export function getKanbanCreateTaskToolDefinition() {
   return {
     name: 'kanban_create_task',
-    description: `Add a task to a Kanban project. Prefer project_name over project_id — it resolves by name (case-insensitive). Call kanban_list_projects if unsure which project exists.
+    description: `Add a task to a Kanban project. Prefer project_name over project_id -it resolves by name (case-insensitive). Call kanban_list_projects if unsure which project exists.
 
 Status: backlog (default), todo, in_progress, review, done
 Priority: low, medium (default), high, urgent
@@ -581,7 +581,7 @@ export function getKanbanLogResearchToolDefinition() {
     name: 'kanban_log_research',
     description: `Log completed research or work to the Kanban board. Creates a task in the Review column so the user can see and approve your work.
 
-Use this ONLY for actual research results — not for general task creation (use kanban_create_task instead).
+Use this ONLY for actual research results -not for general task creation (use kanban_create_task instead).
 
 Default project is "Research" (auto-created if needed), but can be overridden with project_name.
 

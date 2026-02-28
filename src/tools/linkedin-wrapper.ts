@@ -1,5 +1,5 @@
 /**
- * LinkedIn skill wrapper — executes Python scripts via run.py
+ * LinkedIn skill wrapper -executes Python scripts via run.py
  *
  * Uses execFile (not exec) to avoid shell injection.
  * Scripts live in src/skills/linkedin/scripts/ (dev) or
@@ -22,7 +22,7 @@ function getScriptsDir(): string {
   return path.join(__dirname, '..', 'skills', 'linkedin', 'scripts');
 }
 
-/** Find python3 binary — check common paths since Electron apps have minimal PATH */
+/** Find python3 binary -check common paths since Electron apps have minimal PATH */
 function findPython3(): string {
   const candidates = [
     '/opt/homebrew/bin/python3',

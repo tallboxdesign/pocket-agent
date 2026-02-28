@@ -32,7 +32,7 @@ The filename becomes the command identifier. Use lowercase kebab-case (e.g., \`d
 
 Every workflow file has two parts:
 
-**1. YAML Frontmatter** (required) — metadata between \`---\` delimiters:
+**1. YAML Frontmatter** (required) -metadata between \`---\` delimiters:
 
 \`\`\`yaml
 ---
@@ -44,7 +44,7 @@ description: Short one-line description of what this workflow does
 - \`name\`: Display name shown in the workflows panel. Keep it short (1-3 words).
 - \`description\`: Shown as a tooltip on hover. One sentence max.
 
-**2. Markdown Body** — the instructions the agent will follow when the workflow is triggered. This is standard Markdown and can include:
+**2. Markdown Body** -the instructions the agent will follow when the workflow is triggered. This is standard Markdown and can include:
 
 - Step-by-step numbered instructions
 - Bash code blocks for commands to run
@@ -80,10 +80,10 @@ Review the current staged changes and provide feedback.
 
 ## Guidelines for Writing Good Workflows
 
-- Write instructions as if briefing an agent — be specific about what to do and in what order
+- Write instructions as if briefing an agent -be specific about what to do and in what order
 - Include verification steps (e.g., "run tests after making changes")
 - Use code blocks for any shell commands the agent should run
-- Keep the description concise — it appears as a tooltip in the UI
+- Keep the description concise -it appears as a tooltip in the UI
 - The user can provide additional context when triggering the workflow, so the instructions don't need to cover every edge case
 
 ## Creating the File

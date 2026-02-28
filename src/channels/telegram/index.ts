@@ -571,7 +571,7 @@ export class TelegramBot extends BaseChannel {
       if (!this.isRunning || this.intentionalStop) return;
       const elapsed = Date.now() - this.lastSuccessfulPoll;
       if (elapsed > 120_000) {
-        console.warn(`[Telegram] No activity for ${Math.round(elapsed / 1000)}s — connection stale, reconnecting...`);
+        console.warn(`[Telegram] No activity for ${Math.round(elapsed / 1000)}s -connection stale, reconnecting...`);
         // Actually reconnect instead of just logging!
         try {
           await this.bot.stop();

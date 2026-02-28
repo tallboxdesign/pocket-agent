@@ -47,7 +47,7 @@ export function scheduleFileCleanup(filePath: string, delayMs: number = 5 * 60 *
         console.log(`[Telegram] Cleaned up temp file: ${filePath}`);
       }
     } catch {
-      // Ignore cleanup errors — file may already be gone
+      // Ignore cleanup errors -file may already be gone
     }
   }, delayMs);
 }
