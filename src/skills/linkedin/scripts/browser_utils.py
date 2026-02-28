@@ -21,7 +21,37 @@ class BrowserFactory:
 
     @staticmethod
     def _cleanup_stale_profile(user_data_dir: str):
-        """Remove stale SingletonLock if the owning process is dead"""
+        """Remove stale SingletonLock and kill zombie browser/driver processes"""
+        # Kill zombie patchright drivers running >5 minutes (stale from previous crashes)
+        try:
+            result = subprocess.run(
+                ['ps', '-eo', 'pid,etime,args'],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.strip().split('\n'):
+                if 'patchright/driver' not in line or 'run-driver' not in line:
+                    continue
+                parts = line.strip().split(None, 2)
+                if len(parts) < 2:
+                    continue
+                pid = int(parts[0])
+                etime = parts[1]  # Format: MM:SS, HH:MM:SS, or D-HH:MM:SS
+                # Parse elapsed time to minutes
+                mins = 0
+                if '-' in etime:
+                    mins = int(etime.split('-')[0]) * 24 * 60  # days
+                elif etime.count(':') == 2:
+                    h, m, _ = etime.split(':')
+                    mins = int(h) * 60 + int(m)
+                elif etime.count(':') == 1:
+                    m, _ = etime.split(':')
+                    mins = int(m)
+                if mins >= 5:
+                    print(f"  Killing stale patchright driver {pid} (running {etime})", flush=True)
+                    os.kill(pid, signal.SIGTERM)
+        except Exception:
+            pass
+
         lock_file = Path(user_data_dir) / "SingletonLock"
         if not lock_file.exists() and not lock_file.is_symlink():
             return

@@ -199,17 +199,22 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       });
     }
 
-    // Persist scraped posts to DB
+    // Persist scraped posts to DB, track which are new
     const db = getDb();
+    let newPosts = posts;
     if (db) {
       const insert = db.prepare(
         `INSERT OR IGNORE INTO linkedin_posts (post_url, author, text_preview, reactions, comments, post_type, scraped_date)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       );
+      const check = db.prepare('SELECT id FROM linkedin_posts WHERE post_url = ?');
       const today = todayDate();
+      const existingUrls = new Set<string>();
       const tx = db.transaction(() => {
         for (const post of posts) {
           if (post.post_url) {
+            const existing = check.get(post.post_url);
+            if (existing) existingUrls.add(post.post_url);
             insert.run(
               post.post_url,
               post.author || 'Unknown',
@@ -223,9 +228,11 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
         }
       });
       tx();
+      // Only return posts that were actually new
+      newPosts = posts.filter((p: { post_url?: string }) => p.post_url && !existingUrls.has(p.post_url));
     }
 
-    return JSON.stringify({ success: true, count: posts.length, posts });
+    return JSON.stringify({ success: true, count: newPosts.length, total_scraped: posts.length, skipped_existing: posts.length - newPosts.length, posts: newPosts });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error('[LinkedIn] feed failed:', msg);

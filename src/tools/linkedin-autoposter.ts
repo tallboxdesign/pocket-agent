@@ -149,7 +149,52 @@ export async function checkAndPostNext(): Promise<void> {
     ).get(todayStr) as { c: number };
     const todayCount = countRow.c;
 
-    if (todayCount >= dailyLimit) return;
+    if (todayCount >= dailyLimit) {
+      // Reschedule remaining posts to tomorrow or night window
+      const remaining = db.prepare(
+        `SELECT id, author FROM linkedin_posts
+         WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL
+           AND scheduled_at IS NOT NULL AND hidden = 0
+         ORDER BY scheduled_at ASC`
+      ).all() as Array<{ id: number; author: string }>;
+
+      if (remaining.length > 0) {
+        const nightEnabled = SettingsManager.get('linkedin.nightWindowEnabled') === 'true';
+        const nightStart = SettingsManager.get('linkedin.nightWindowStart') || '22:00';
+        const [nh, nm] = nightStart.split(':').map(Number);
+
+        const update = db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?');
+        const tx = db.transaction(() => {
+          let cumulativeMs = 0;
+          for (const post of remaining) {
+            const spacingMin = 3 + Math.random() * 5;
+            const jitterSec = 10 + Math.floor(Math.random() * 61);
+            cumulativeMs += spacingMin * 60000 + jitterSec * 1000;
+
+            let baseTime: Date;
+            if (nightEnabled) {
+              // Move to tonight's night window
+              baseTime = new Date();
+              baseTime.setHours(nh, nm, 0, 0);
+              if (baseTime.getTime() < Date.now()) baseTime.setDate(baseTime.getDate() + 1);
+            } else {
+              // Move to tomorrow 09:00
+              baseTime = new Date();
+              baseTime.setDate(baseTime.getDate() + 1);
+              baseTime.setHours(9, 0, 0, 0);
+            }
+            const newTime = new Date(baseTime.getTime() + cumulativeMs).toISOString().replace('T', ' ').slice(0, 19);
+            update.run(newTime, post.id);
+          }
+        });
+        tx();
+
+        const target = nightEnabled ? `tonight's night window (${nightStart})` : 'tomorrow 09:00';
+        notifyTelegram(`LinkedIn: Daily limit reached (${todayCount}/${dailyLimit}). ${remaining.length} posts moved to ${target}.`).catch(() => {});
+        console.log(`[AutoPoster] Daily limit ${dailyLimit} reached. Rescheduled ${remaining.length} posts to ${target}`);
+      }
+      return;
+    }
 
     // Rate limit check
     const lastPostedAt = getLastPostedAtMs(db);
@@ -193,20 +238,18 @@ export async function checkAndPostNext(): Promise<void> {
       // Claim the post by clearing scheduled_at to prevent double-posting
       db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?').run(post.id);
 
-      // Post the comment with retry
+      // Post the comment — single attempt, no blind retry (prevents double-posting)
       let posted = false;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          const timeout = attempt === 1 ? 120000 : 150000; // 120s first, 150s retry
-          await linkedinExec('reply', ['--url', post.post_url, '--comment', post.comment_draft, '--no-confirm'], timeout);
+      try {
+        await linkedinExec('reply', ['--url', post.post_url, '--comment', post.comment_draft, '--no-confirm'], 120000);
+        posted = true;
+      } catch (err) {
+        console.error(`[AutoPoster] Posting failed for ${post.author}:`, err);
+        // Check if "Comment posted successfully" appears in stdout (timeout after submit)
+        const errMsg = String((err as Error & { stdout?: string }).stdout || '');
+        if (errMsg.includes('Comment posted successfully')) {
+          console.log(`[AutoPoster] Comment was actually posted despite timeout for ${post.author}`);
           posted = true;
-          break;
-        } catch (err) {
-          console.error(`[AutoPoster] Attempt ${attempt}/2 failed for ${post.author}:`, err);
-          if (attempt < 2) {
-            // Wait 10s before retry
-            await new Promise(r => setTimeout(r, 10000));
-          }
         }
       }
 
@@ -347,6 +390,43 @@ export function syncAuthorsFromPosts(): void {
     tx();
 
     console.log(`[AutoPoster] Synced ${authors.length} authors`);
+  } finally {
+    db.close();
+  }
+}
+
+export function rescheduleStalePosts(): number {
+  const db = getDb();
+  if (!db) return 0;
+
+  try {
+    const stale = db.prepare(
+      `SELECT id, author FROM linkedin_posts
+       WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL
+         AND scheduled_at IS NOT NULL AND datetime(scheduled_at) < datetime('now')
+         AND hidden = 0
+       ORDER BY scheduled_at ASC`
+    ).all() as Array<{ id: number; author: string }>;
+
+    if (stale.length === 0) return 0;
+
+    const update = db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?');
+    const tx = db.transaction(() => {
+      let cumulativeMs = 0;
+      for (const post of stale) {
+        // Random 3-8 min spacing between each post
+        const spacingMin = 3 + Math.random() * 5;
+        // Plus 10-70s jitter
+        const jitterSec = 10 + Math.floor(Math.random() * 61);
+        cumulativeMs += spacingMin * 60000 + jitterSec * 1000;
+        const newTime = new Date(Date.now() + cumulativeMs).toISOString().replace('T', ' ').slice(0, 19);
+        update.run(newTime, post.id);
+      }
+    });
+    tx();
+
+    console.log(`[AutoPoster] Rescheduled ${stale.length} stale posts with random intervals`);
+    return stale.length;
   } finally {
     db.close();
   }

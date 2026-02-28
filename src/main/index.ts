@@ -13,7 +13,7 @@ import { loadInstructions, saveInstructions, getInstructionsPath, DEFAULT_INSTRU
 import { DEFAULT_COMMANDS } from '../config/commands';
 import { loadWorkflowCommands } from '../config/commands-loader';
 import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
-import { setLinkedInTelegramBot, notifyTelegram } from '../tools/linkedin-autoposter';
+import { setLinkedInTelegramBot, notifyTelegram, rescheduleStalePosts } from '../tools/linkedin-autoposter';
 import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
 import { getBrowserManager } from '../browser';
 import { WAQManager } from '../queue/processor';
@@ -1992,16 +1992,7 @@ function setupIPC(): void {
       if (!post) { db.close(); return { success: false, error: 'Post not found' }; }
       if (!post.comment_draft) { db.close(); return { success: false, error: 'No draft to schedule' }; }
       db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(datetime, postId);
-      // Create one-time cron job
-      const jobName = `linkedin-schedule-${postId}-${Date.now()}`;
-      db.prepare(
-        `INSERT INTO cron_jobs (name, schedule_type, run_at, next_run_at, prompt, channel, enabled, delete_after_run, session_id, status) VALUES (?, 'at', ?, ?, ?, 'desktop', 1, 1, 'default', 'pending')`
-      ).run(
-        jobName,
-        datetime,
-        datetime,
-        `Post the approved LinkedIn comment on ${post.post_url}: ${post.comment_draft}`
-      );
+      // No cron job needed — the autoposter daemon picks up posts where scheduled_at <= now
       db.close();
       return { success: true };
     } catch (err) {
@@ -3974,6 +3965,11 @@ app.whenReady().then(async () => {
       scheduler?.catchUpMissedJobs().catch((err) => {
         console.error('[Power] Failed to catch up missed jobs:', err);
       });
+      // Reschedule any LinkedIn posts that went stale during sleep
+      const rescheduled = rescheduleStalePosts();
+      if (rescheduled > 0) {
+        notifyTelegram(`LinkedIn: Rescheduled ${rescheduled} stale posts after wake`).catch(() => {});
+      }
     });
 
     // Handle lock screen (display off but CPU running)
@@ -4091,6 +4087,11 @@ app.whenReady().then(async () => {
     } else {
       console.log('[Main] Initializing agent...');
       await initializeAgent();
+      // Reschedule any LinkedIn posts that went stale while app was off
+      const staleCount = rescheduleStalePosts();
+      if (staleCount > 0) {
+        notifyTelegram(`LinkedIn: Rescheduled ${staleCount} stale posts on launch`).catch(() => {});
+      }
       // Open chat window on launch so users see the app
       openChatWindow();
     }

@@ -1156,6 +1156,7 @@
       Redo Selected
     </button>
     <button class="action-btn" onclick="approveSelected()" style="background:rgba(34,197,94,0.12);color:#4ade80;border-color:rgba(34,197,94,0.25);">Approve Selected</button>
+    <button class="action-btn" onclick="postNowSelected()" style="background:rgba(34,197,94,0.18);color:#4ade80;border-color:rgba(34,197,94,0.4);font-weight:600;">Post Now</button>
     <button class="action-btn" onclick="rejectSelected()" style="background:rgba(239,68,68,0.12);color:#f87171;border-color:rgba(239,68,68,0.25);">Reject Selected</button>
     <button class="action-btn" onclick="hideSelected()">Hide Selected</button>
     <button class="action-btn" onclick="researchDraftSelected()" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3);" title="Spawn parallel SDK agents to research and draft (2 at a time)">
@@ -1839,7 +1840,8 @@
 
       return posts.filter(p => {
         const lastAction = String(p.last_activity_action || '').toLowerCase();
-        const hasFailed = Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
+        const hasPostingFail = (lastAction === 'failed' || lastAction === 'error') && !p.scheduled_at;
+        const hasFailed = Number(p.failed_attempts || 0) > 0 && !p.scheduled_at || hasPostingFail;
         const needsAttention = !!(p.approved && !p.commented && (!p.scheduled_at || hasFailed));
 
         const isScheduled = !!(p.approved && p.scheduled_at && !p.commented);
@@ -1882,13 +1884,13 @@
         const queueCount = posts.filter(p => !p.commented && !(p.approved && p.scheduled_at)).length;
         const publishedCount = posts.filter(p => !!p.commented).length + scheduledCount;
         const failedCount = posts.filter(p => {
-          const lastAction = String(p.last_activity_action || '').toLowerCase();
-          return Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
+          const la = String(p.last_activity_action || '').toLowerCase();
+          return (Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error') && !p.scheduled_at;
         }).length;
         const attentionCount = posts.filter(p => {
-          const lastAction = String(p.last_activity_action || '').toLowerCase();
-          const hasFailed = Number(p.failed_attempts || 0) > 0 || lastAction === 'failed' || lastAction === 'error';
-          return !!(p.approved && !p.commented && (!p.scheduled_at || hasFailed));
+          const la = String(p.last_activity_action || '').toLowerCase();
+          const hf = ((Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error') && !p.scheduled_at);
+          return !!(p.approved && !p.commented && (!p.scheduled_at || hf));
         }).length;
         const tabQueue = document.getElementById('tab-queue');
         const tabAttention = document.getElementById('tab-attention');
@@ -2025,7 +2027,8 @@
       const isDraftFailed = ds.startsWith('failed_');
       const isDraftCancelled = ds.startsWith('cancelled_');
       const lastAction = String(p.last_activity_action || '').toLowerCase();
-      const hasFailed = isDraftFailed || (lastAction === 'failed' || lastAction === 'error');
+      const hasPostingFailure = (lastAction === 'failed' || lastAction === 'error') && !p.scheduled_at;
+      const hasFailed = isDraftFailed || hasPostingFailure;
       const statusBadges = [];
       if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
       else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
@@ -2096,6 +2099,7 @@
                 <span class="draft-toggle" onclick="toggleDraft(${p.id}, this)" style="margin:0">${expandedDraftId === p.id ? 'Hide draft' : 'Show draft'}</span>
                 ${!p.commented && !isScheduled ? `
                   <button class="btn-approve" onclick="approveDraft(${p.id})">Approve</button>
+                  <button class="btn-approve" onclick="postNow(${p.id})" style="background:rgba(34,197,94,0.18);color:#4ade80;border-color:rgba(34,197,94,0.4)">Post Now</button>
                   <button class="btn-reject" onclick="rejectDraft(${p.id})">Reject</button>
                   <button class="btn-edit" onclick="editDraft(${p.id})">Edit</button>
                   <button class="btn-redo" onclick="redoDraft(${p.id})">Redo</button>
@@ -2202,6 +2206,51 @@
       } catch (err) {
         console.error('Failed to approve draft:', err);
         showToast('Failed to approve draft', 'error');
+      }
+    }
+
+    async function postNow(postId) {
+      try {
+        const post = currentPosts.find(p => p.id === postId);
+        if (!post || !post.comment_draft) { showToast('No draft to post', 'error'); return; }
+        if (!post.approved) await window.pocketAgent.approveLinkedInDraft(postId);
+        approvedIds.add(postId);
+        const iso = new Date(Date.now() + 5000).toISOString().replace('T', ' ').slice(0, 19);
+        await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        showToast('Scheduled for immediate posting', 'success');
+        loadPosts();
+      } catch (err) {
+        console.error('Failed to post now:', err);
+        showToast('Failed to schedule immediate post', 'error');
+      }
+    }
+
+    async function postNowSelected() {
+      const ids = getSelectedIds().filter(id => {
+        const p = currentPosts.find(pp => pp.id === id);
+        return p && p.comment_draft && !p.commented;
+      });
+      if (ids.length === 0) { showToast('No eligible posts selected', 'error'); return; }
+      try {
+        let cumulativeMs = 0;
+        for (let i = 0; i < ids.length; i++) {
+          const p = currentPosts.find(pp => pp.id === ids[i]);
+          if (!p.approved) await window.pocketAgent.approveLinkedInDraft(ids[i]);
+          approvedIds.add(ids[i]);
+          if (i === 0) {
+            cumulativeMs = 5000; // First one: now
+          } else {
+            cumulativeMs += jitterMs(3 + Math.random() * 2); // 3-5 min + jitter
+          }
+          const dt = new Date(Date.now() + cumulativeMs);
+          const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
+          await window.pocketAgent.scheduleLinkedInPost(ids[i], iso);
+        }
+        showToast(`${ids.length} posts scheduled for immediate posting`, 'success');
+        loadPosts();
+      } catch (err) {
+        console.error('Post now selected failed:', err);
+        showToast('Failed to schedule posts', 'error');
       }
     }
 

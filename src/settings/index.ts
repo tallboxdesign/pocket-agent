@@ -618,7 +618,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
 
   {
     key: 'linkedin.feedScroll',
-    defaultValue: '3',
+    defaultValue: '5',
     encrypted: false,
     category: 'linkedin',
     label: 'Feed Scroll Depth',
