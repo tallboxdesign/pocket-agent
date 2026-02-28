@@ -2185,12 +2185,19 @@
         if (!post || !post.comment_draft) { showToast('No draft to approve', 'error'); return; }
         await window.pocketAgent.approveLinkedInDraft(postId);
         approvedIds.add(postId);
-        // Auto-schedule ~1 minute from now with jitter
-        const offsetMs = 50000 + Math.floor(Math.random() * 30000); // 50-80 seconds
-        const dt = new Date(Date.now() + offsetMs);
+        // Find latest scheduled time among all posts to offset from
+        const delayStr = await window.pocketAgent.getSetting('linkedin.commentDelay') || '3';
+        const delayMin = Math.max(1, parseInt(delayStr, 10) || 3);
+        const scheduledTimes = currentPosts
+          .filter(p => p.scheduled_at && !p.commented && p.id !== postId)
+          .map(p => new Date(p.scheduled_at + (p.scheduled_at.includes('Z') ? '' : 'Z')).getTime())
+          .filter(t => !isNaN(t));
+        const latestScheduled = scheduledTimes.length > 0 ? Math.max(...scheduledTimes) : 0;
+        const earliest = Math.max(Date.now() + 60000, latestScheduled + delayMin * 60000);
+        const dt = new Date(earliest + jitterMs(0));
         const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
         await window.pocketAgent.scheduleLinkedInPost(postId, iso);
-        showToast('Approved and scheduled', 'success');
+        showToast(`Approved, scheduled ${dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`, 'success');
         loadPosts();
       } catch (err) {
         console.error('Failed to approve draft:', err);
