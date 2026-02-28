@@ -361,11 +361,20 @@ async function handleCommentTool(input: unknown): Promise<string> {
   }
 
   try {
-    await linkedinExec(
-      'reply',
-      ['--url', p.url, '--comment', p.comment, '--no-confirm'],
-      90000
-    );
+    // Retry once with longer timeout if first attempt fails
+    let posted = false;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const timeout = attempt === 1 ? 120000 : 150000;
+        await linkedinExec('reply', ['--url', p.url, '--comment', p.comment, '--no-confirm'], timeout);
+        posted = true;
+        break;
+      } catch (retryErr) {
+        console.error(`[LinkedIn] comment attempt ${attempt}/2 failed:`, retryErr);
+        if (attempt < 2) await new Promise(r => setTimeout(r, 10000));
+      }
+    }
+    if (!posted) throw new Error('Comment posting failed after 2 attempts');
     _lastCommentTime = Date.now();
 
     if (db) {

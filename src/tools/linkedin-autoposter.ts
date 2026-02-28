@@ -190,10 +190,24 @@ export async function checkAndPostNext(): Promise<void> {
         continue;
       }
 
-      // Post the comment
-      try {
-        await linkedinExec('reply', ['--url', post.post_url, '--comment', post.comment_draft, '--no-confirm'], 90000);
+      // Post the comment with retry
+      let posted = false;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const timeout = attempt === 1 ? 120000 : 150000; // 120s first, 150s retry
+          await linkedinExec('reply', ['--url', post.post_url, '--comment', post.comment_draft, '--no-confirm'], timeout);
+          posted = true;
+          break;
+        } catch (err) {
+          console.error(`[AutoPoster] Attempt ${attempt}/2 failed for ${post.author}:`, err);
+          if (attempt < 2) {
+            // Wait 10s before retry
+            await new Promise(r => setTimeout(r, 10000));
+          }
+        }
+      }
 
+      if (posted) {
         db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
 
         db.prepare(
@@ -201,31 +215,31 @@ export async function checkAndPostNext(): Promise<void> {
            VALUES (?, ?, 'posted', ?, ?, ?, ?)`
         ).run(post.id, post.post_url, `window:${window.name}`, post.comment_draft, dailyLimit, todayCount + 1);
 
-        // Schedule engagement check
         scheduleEngagementCheck(db, post.id, post.post_url, post.reactions, post.comments);
 
-        // Sync kanban state only when actually published
         if (post.kanban_task_id) {
           try {
             KanbanService.moveTask(post.kanban_task_id, 'done', 'linkedin-autoposter');
-          } catch {
-            // task may be missing/archived
-          }
+          } catch { /* task may be missing/archived */ }
         }
 
-        // Telegram notification
         await notifyTelegram(`LinkedIn: Posted on ${post.author}'s post (${todayCount + 1}/${dailyLimit} today)`);
-
         console.log(`[AutoPoster] Posted comment on ${post.author}'s post (${todayCount + 1}/${dailyLimit})`);
-        return; // One post per tick
-      } catch (err) {
-        console.error(`[AutoPoster] Failed to post on ${post.author}:`, err);
+      } else {
+        // Reschedule 5-10 min later instead of giving up
+        const retryMin = 5 + Math.floor(Math.random() * 6); // 5-10 min
+        const retryAt = new Date(Date.now() + retryMin * 60000).toISOString().replace('T', ' ').slice(0, 19);
+        db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(retryAt, post.id);
+
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
-           VALUES (?, ?, 'failed', ?, ?, ?)`
-        ).run(post.id, post.post_url, String(err), dailyLimit, todayCount);
-        return; // Don't try more on error
+           VALUES (?, ?, 'retry_scheduled', ?, ?, ?)`
+        ).run(post.id, post.post_url, `timeout_retry_at_${retryAt}`, dailyLimit, todayCount);
+
+        await notifyTelegram(`LinkedIn: Posting on ${post.author}'s post timed out. Auto-retrying at ${retryAt.slice(11, 16)}.`);
+        console.log(`[AutoPoster] Timed out on ${post.author}, rescheduled to ${retryAt}`);
       }
+      return; // One post per tick
     }
   } finally {
     db.close();
