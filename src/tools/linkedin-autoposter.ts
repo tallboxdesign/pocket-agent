@@ -190,6 +190,9 @@ export async function checkAndPostNext(): Promise<void> {
         continue;
       }
 
+      // Claim the post by clearing scheduled_at to prevent double-posting
+      db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?').run(post.id);
+
       // Post the comment with retry
       let posted = false;
       for (let attempt = 1; attempt <= 2; attempt++) {

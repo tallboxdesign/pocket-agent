@@ -361,6 +361,14 @@ async function handleCommentTool(input: unknown): Promise<string> {
   }
 
   try {
+    // Double-post guard: check if already commented
+    if (db) {
+      const check = db.prepare('SELECT commented FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1').get(p.url) as { commented: number } | undefined;
+      if (check && check.commented === 1) {
+        return JSON.stringify({ success: false, error: 'Already posted on this post' });
+      }
+    }
+
     // Retry once with longer timeout if first attempt fails
     let posted = false;
     for (let attempt = 1; attempt <= 2; attempt++) {
