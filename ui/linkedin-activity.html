@@ -1588,12 +1588,21 @@
     async function approveSelected() {
       const ids = getSelectedIds();
       if (ids.length === 0) return;
-      for (const id of ids) {
-        try { await window.pocketAgent.approveLinkedInDraft(id); } catch {}
+      const delayStr = await window.pocketAgent.getSetting('linkedin.commentDelay') || '3';
+      const delayMin = Math.max(1, parseInt(delayStr, 10) || 3);
+      let cumulativeMs = 60000; // start 1 min from now
+      let scheduled = 0;
+      for (let i = 0; i < ids.length; i++) {
+        try {
+          if (i > 0) cumulativeMs += jitterMs(delayMin);
+          await window.pocketAgent.approveLinkedInDraft(ids[i]);
+          const dt = new Date(Date.now() + cumulativeMs);
+          const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
+          await window.pocketAgent.scheduleLinkedInPost(ids[i], iso);
+          scheduled++;
+        } catch {}
       }
-      const delay = await window.pocketAgent.getSetting('linkedin.commentDelay') || '3';
-      showToast(`Approved ${ids.length} drafts`, 'success');
-      sendToAgent(`Post these approved LinkedIn comments (post IDs: ${ids.join(', ')}). Post them in order with at least ${delay} minutes delay between each post. Never post two at the same time.`);
+      showToast(`Approved and scheduled ${scheduled} drafts (~${delayMin}min apart)`, 'success');
       clearSelection();
       loadPosts();
     }
@@ -1757,9 +1766,38 @@
       }
     }
 
+    // Random jitter: base delay +/- 10-70 seconds so posts aren't exactly evenly spaced
+    function jitterMs(baseMinutes) {
+      const jitterSec = 10 + Math.floor(Math.random() * 61); // 10-70 seconds
+      return baseMinutes * 60000 + jitterSec * 1000;
+    }
+
     async function scheduleAllDrafts() {
-      const delay = await window.pocketAgent.getSetting('linkedin.commentDelay') || '3';
-      sendToAgent(`Schedule all unscheduled LinkedIn draft comments for today. IMPORTANT: Each post MUST be scheduled at a DIFFERENT time. Space them at least ${delay} minutes apart. Distribute across my configured day/night windows (linkedin.dayWindow* and linkedin.nightWindow* settings). Use priority order: urgent first, then high, then normal, then low. Never schedule two posts at the same time.`);
+      try {
+        const delayStr = await window.pocketAgent.getSetting('linkedin.commentDelay') || '3';
+        const delayMin = Math.max(1, parseInt(delayStr, 10) || 3);
+        // Find approved, unscheduled, uncommented posts with drafts
+        const eligible = currentPosts.filter(p => p.approved && !p.commented && p.comment_draft && !p.scheduled_at);
+        if (eligible.length === 0) { showToast('No approved drafts to schedule', 'info'); return; }
+        // Sort by priority: urgent > high > normal > low
+        const priOrder = { urgent: 0, high: 1, normal: 2, low: 3 };
+        eligible.sort((a, b) => (priOrder[a.priority] ?? 2) - (priOrder[b.priority] ?? 2));
+        // Schedule starting from now + 1 minute, spaced by delay with random jitter
+        let cumulativeMs = 60000; // start 1 min from now
+        let scheduled = 0;
+        for (let i = 0; i < eligible.length; i++) {
+          if (i > 0) cumulativeMs += jitterMs(delayMin);
+          const dt = new Date(Date.now() + cumulativeMs);
+          const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
+          const result = await window.pocketAgent.scheduleLinkedInPost(eligible[i].id, iso);
+          if (result.success) scheduled++;
+        }
+        showToast(`Scheduled ${scheduled} posts (~${delayMin}min apart)`, 'success');
+        loadPosts();
+      } catch (err) {
+        console.error('scheduleAllDrafts failed:', err);
+        showToast('Failed to schedule: ' + err.message, 'error');
+      }
     }
 
     let sortField = null;
@@ -2144,9 +2182,13 @@
         if (!post || !post.comment_draft) { showToast('No draft to approve', 'error'); return; }
         await window.pocketAgent.approveLinkedInDraft(postId);
         approvedIds.add(postId);
-        showToast('Draft approved, posting...', 'success');
+        // Auto-schedule ~1 minute from now with jitter
+        const offsetMs = 50000 + Math.floor(Math.random() * 30000); // 50-80 seconds
+        const dt = new Date(Date.now() + offsetMs);
+        const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
+        await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        showToast('Approved and scheduled', 'success');
         loadPosts();
-        sendToAgent(`Post this approved LinkedIn comment on ${post.post_url}: ${post.comment_draft}`);
       } catch (err) {
         console.error('Failed to approve draft:', err);
         showToast('Failed to approve draft', 'error');
