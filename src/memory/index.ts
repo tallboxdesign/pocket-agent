@@ -413,6 +413,32 @@ export class MemoryManager {
       );
       CREATE INDEX IF NOT EXISTS idx_lp_date ON linkedin_posts(scraped_date);
       CREATE INDEX IF NOT EXISTS idx_lp_author ON linkedin_posts(author);
+
+      -- LinkedIn draft evidence (why a specific draft was generated)
+      CREATE TABLE IF NOT EXISTS linkedin_draft_evidence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL REFERENCES linkedin_posts(id) ON DELETE CASCADE,
+        post_url TEXT NOT NULL,
+        model TEXT,
+        comment_intent TEXT,
+        post_summary TEXT,
+        key_point TEXT,
+        statistic TEXT,
+        implication TEXT,
+        follow_up_question TEXT,
+        stance_basis TEXT,
+        actionable_add_on TEXT,
+        post_intent TEXT,
+        confidence TEXT,
+        full_post_word_count INTEGER,
+        source_1_name TEXT,
+        source_1_url TEXT,
+        source_2_name TEXT,
+        source_2_url TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_linkedin_draft_evidence_post ON linkedin_draft_evidence(post_id);
+      CREATE INDEX IF NOT EXISTS idx_linkedin_draft_evidence_created ON linkedin_draft_evidence(created_at);
     `);
 
     // Create FTS5 virtual table for keyword search

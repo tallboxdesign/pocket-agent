@@ -580,6 +580,47 @@
       margin-top: 0;
     }
 
+    .draft-evidence {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(96, 165, 250, 0.22);
+      border-radius: 6px;
+      background: rgba(96, 165, 250, 0.08);
+      color: var(--text-secondary);
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: normal;
+    }
+    .draft-evidence-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+      color: #bfdbfe;
+      font-weight: 600;
+      font-size: 11px;
+    }
+    .draft-evidence-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .draft-evidence-tag {
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(191, 219, 254, 0.28);
+      color: #bfdbfe;
+      background: rgba(191, 219, 254, 0.08);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+    .draft-evidence-line {
+      margin-top: 4px;
+      word-break: break-word;
+    }
+
     .draft-actions {
       display: flex;
       flex-wrap: wrap;
@@ -2032,6 +2073,47 @@
     }
 
     function renderPostRow(p, idx) {
+      const renderEvidenceBlock = (row) => {
+        const hasEvidence = !!(
+          row.evidence_stance_basis || row.evidence_actionable_add_on || row.evidence_key_point
+          || row.evidence_statistic || row.evidence_source_1_name || row.evidence_source_1_url
+          || row.evidence_source_2_name || row.evidence_source_2_url
+        );
+        if (!hasEvidence) return '';
+
+        const tags = [];
+        if (row.evidence_stance_basis) tags.push(`<span class="draft-evidence-tag">basis: ${escapeHtml(String(row.evidence_stance_basis))}</span>`);
+        if (row.evidence_comment_intent) tags.push(`<span class="draft-evidence-tag">intent: ${escapeHtml(String(row.evidence_comment_intent))}</span>`);
+        if (row.evidence_confidence) tags.push(`<span class="draft-evidence-tag">confidence: ${escapeHtml(String(row.evidence_confidence))}</span>`);
+
+        const sourceBits = [];
+        if (row.evidence_source_1_name || row.evidence_source_1_url) {
+          const n = escapeHtml(String(row.evidence_source_1_name || 'source 1'));
+          const u = escapeHtml(String(row.evidence_source_1_url || ''));
+          sourceBits.push(u ? `${n} (${u})` : n);
+        }
+        if (row.evidence_source_2_name || row.evidence_source_2_url) {
+          const n = escapeHtml(String(row.evidence_source_2_name || 'source 2'));
+          const u = escapeHtml(String(row.evidence_source_2_url || ''));
+          sourceBits.push(u ? `${n} (${u})` : n);
+        }
+        const evidenceAt = row.evidence_created_at ? formatShortDateTime(row.evidence_created_at) : '';
+
+        return `
+          <div class="draft-evidence">
+            <div class="draft-evidence-title">
+              <span>Why this draft</span>
+              ${evidenceAt ? `<span style="opacity:.75;font-weight:500">${escapeHtml(evidenceAt)}</span>` : ''}
+            </div>
+            ${tags.length ? `<div class="draft-evidence-tags">${tags.join('')}</div>` : ''}
+            ${row.evidence_key_point ? `<div class="draft-evidence-line"><strong>Anchor:</strong> ${escapeHtml(truncate(String(row.evidence_key_point), 220))}</div>` : ''}
+            ${row.evidence_statistic ? `<div class="draft-evidence-line"><strong>Research cue:</strong> ${escapeHtml(truncate(String(row.evidence_statistic), 240))}</div>` : ''}
+            ${row.evidence_actionable_add_on ? `<div class="draft-evidence-line"><strong>Action add-on:</strong> ${escapeHtml(truncate(String(row.evidence_actionable_add_on), 220))}</div>` : ''}
+            ${sourceBits.length ? `<div class="draft-evidence-line"><strong>Sources:</strong> ${sourceBits.join(' | ')}</div>` : ''}
+          </div>
+        `;
+      };
+
       const ds = p.draft_state || '';
       const isQueued = ds === 'queued';
       const isResearching = ds === 'researching';
@@ -2098,6 +2180,7 @@
       const failureNote = (!p.commented && hasFailed && p.last_activity_reason)
         ? `<div style="margin-top:6px;font-size:11px;color:#f87171;line-height:1.4">Last error: ${escapeHtml(String(p.last_activity_reason).slice(0, 220))}</div>`
         : '';
+      const evidenceBlock = renderEvidenceBlock(p);
 
       return `
         <tr class="${p.commented ? 'commented' : ''}" data-post-id="${p.id}">
@@ -2123,6 +2206,7 @@
               </div>
               <div class="draft-text ${expandedDraftId === p.id ? 'expanded' : ''}" id="draft-${p.id}">
                 <div class="draft-body" id="draft-content-${p.id}">${escapeHtml(p.comment_draft)}</div>
+                ${evidenceBlock}
                 <div class="draft-extra" id="draft-extra-${p.id}"></div>
               </div>
             ` : ''}
@@ -2318,20 +2402,24 @@
       sendToAgent(`Re-draft the LinkedIn comment for post ${postUrl} (post ID ${postId}). The previous draft was rejected for quality issues.
 
 STEP 1: Use linkedin_read_post to read the FULL post content. Actually understand what the author is saying.
-STEP 2: Research the topic using web search. Find a real stat, case study, tool, or recent example related to the post's topic that you can reference in your comment.
+STEP 2: Research the topic using web search. Use ONLY this run's research, not model memory. Pick your two-cents basis in this order: contradiction > missing piece > lived experience > logical gap.
 STEP 3: Write the comment YOURSELF (do NOT use draft_linkedin_comment). Include something concrete from your research. Think about what a real practitioner would say.
 STEP 4: Save it using linkedin_save_draft with the post_id and your draft text. This updates the kanban task too.
 
 YOUR COMMENT MUST:
-- YOU decide the length. Quick take: 3-5 sentences (~300-500 chars). Real discussion: 5-8 sentences (~500-900 chars). Deep argument: 8-10 sentences (~800-1400 chars). Let the content decide, don't pad.
+- Auto-size length from the post depth. Keep it concise if the claim is simple, longer if the claim needs unpacking. Don't pad.
 - Start with the author's first name, then reference something SPECIFIC they said.
 - Weave in ONE insight from research naturally. Do NOT cite source names, publication names, or exact statistics. Paraphrase loosely like you already knew it.
-- Add your own angle or experience. Never just agree. Do NOT end with a question.
+- Add your own angle or experience. Never just agree.
+- Include one clear two-cents stance, then actionable follow-through (mini tutorial step, practical suggestion, or concrete discovery).
+- Even if you call something bullshit, leave the reader with useful next-step advice.
+- Do NOT end with a question.
 - Format as 2-4 short paragraphs with line breaks. No wall of text.
 - Sound like someone who genuinely knows their stuff typing a quick reply.
 
 VOICE:
-- Vary paragraph length. Mix short punchy lines with longer thoughts.
+- Vary sentence rhythm. Include short sentences and longer ones.
+- Add punctuation texture naturally, use "..." or ";" or an inline "?" mid-comment.
 - Lowercase generic acronyms: "seo", "ctr", "aio". Brand names stay capitalized.
 - Use one casual connector max: "honestly", "the thing is", "tbh".
 - Incomplete thoughts OK: "but yeah." or "..." or starting with "and".

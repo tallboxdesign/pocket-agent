@@ -1723,9 +1723,63 @@ function setupIPC(): void {
       if (!dbPath) return [];
       const db = new Database(dbPath, { readonly: true });
       db.pragma('journal_mode = WAL');
+      const hasEvidenceTable = !!db.prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'linkedin_draft_evidence' LIMIT 1`
+      ).get();
       const priorityOrder = `CASE lp.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
+      const evidenceSelect = hasEvidenceTable
+        ? `,
+           de.model AS evidence_model,
+           de.comment_intent AS evidence_comment_intent,
+           de.post_summary AS evidence_post_summary,
+           de.key_point AS evidence_key_point,
+           de.statistic AS evidence_statistic,
+           de.implication AS evidence_implication,
+           de.follow_up_question AS evidence_follow_up_question,
+           de.stance_basis AS evidence_stance_basis,
+           de.actionable_add_on AS evidence_actionable_add_on,
+           de.post_intent AS evidence_post_intent,
+           de.confidence AS evidence_confidence,
+           de.full_post_word_count AS evidence_full_post_word_count,
+           de.source_1_name AS evidence_source_1_name,
+           de.source_1_url AS evidence_source_1_url,
+           de.source_2_name AS evidence_source_2_name,
+           de.source_2_url AS evidence_source_2_url,
+           de.created_at AS evidence_created_at,
+           `
+        : `,
+           `;
+      const evidenceJoin = hasEvidenceTable
+        ? `
+         LEFT JOIN (
+           SELECT ev.post_id,
+                  ev.model,
+                  ev.comment_intent,
+                  ev.post_summary,
+                  ev.key_point,
+                  ev.statistic,
+                  ev.implication,
+                  ev.follow_up_question,
+                  ev.stance_basis,
+                  ev.actionable_add_on,
+                  ev.post_intent,
+                  ev.confidence,
+                  ev.full_post_word_count,
+                  ev.source_1_name,
+                  ev.source_1_url,
+                  ev.source_2_name,
+                  ev.source_2_url,
+                  ev.created_at
+           FROM linkedin_draft_evidence ev
+           INNER JOIN (
+             SELECT post_id, MAX(id) AS max_id
+             FROM linkedin_draft_evidence
+             GROUP BY post_id
+           ) latest_ev ON latest_ev.max_id = ev.id
+         ) de ON de.post_id = lp.id`
+        : '';
       const posts = db.prepare(
-        `SELECT lp.*, lp.draft_state, lp.draft_error,
+        `SELECT lp.*, lp.draft_state, lp.draft_error${evidenceSelect}
            aa.total_comments_by_me AS author_total_comments,
            aa.last_commented_date AS author_last_commented,
            al.last_activity_action,
@@ -1756,6 +1810,7 @@ function setupIPC(): void {
            FROM linkedin_engagement_checks WHERE baseline = 0
            GROUP BY post_id HAVING id = MAX(id)
          ) ec ON ec.post_id = lp.id
+         ${evidenceJoin}
          WHERE lp.scraped_date = ? AND lp.hidden = 0 AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now'))
          ORDER BY ${priorityOrder}, (lp.reactions + lp.comments) DESC`
       ).all(date);

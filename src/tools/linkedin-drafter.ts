@@ -55,6 +55,9 @@ type LinkedInDraftConfig = {
   requireTwoSources: boolean;
 };
 
+type StanceBasis = 'contradiction' | 'missing_piece' | 'lived_experience' | 'logical_gap';
+type CommentIntent = 'tradeoff' | 'new_data_point' | 'execution_caveat' | 'sharp_question';
+
 type ResearchEvidence = {
   postSummary: string;
   keyPoint: string;
@@ -62,8 +65,16 @@ type ResearchEvidence = {
   sources: Array<{ name: string; url: string }>;
   implication: string;
   followUpQuestion: string;
+  stanceBasis: StanceBasis;
+  actionableAddOn: string;
+  fullPostWordCount: number;
   postIntent: 'educational' | 'promotional' | 'mixed';
   confidence: 'high' | 'medium' | 'low';
+};
+
+type DraftDiversityContext = {
+  usedOpeningSignatures: Set<string>;
+  usedLeadInSignatures: Set<string>;
 };
 
 const MODEL_PROVIDERS: Record<string, ProviderType> = {
@@ -331,8 +342,8 @@ function detectPostIntent(text: string): 'educational' | 'promotional' | 'mixed'
   return 'educational';
 }
 
-function chooseCommentIntent(postId: number): 'tradeoff' | 'new_data_point' | 'execution_caveat' | 'sharp_question' {
-  const intents: Array<'tradeoff' | 'new_data_point' | 'execution_caveat' | 'sharp_question'> = [
+function chooseCommentIntent(postId: number): CommentIntent {
+  const intents: Array<CommentIntent> = [
     'tradeoff',
     'new_data_point',
     'execution_caveat',
@@ -391,51 +402,225 @@ function getNumbers(text: string): string[] {
   return Array.from(new Set((text.match(/\b\d+(?:\.\d+)?%?\b/g) || []).map(n => n.trim())));
 }
 
+function countWords(text: string): number {
+  return (String(text || '').match(/\b[\p{L}\p{N}][\p{L}\p{N}'’-]*\b/gu) || []).length;
+}
+
+function clampNumber(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+type LengthPlan = {
+  targetWords: number;
+  minWords: number;
+  maxWords: number;
+  label: 'short' | 'medium' | 'long';
+};
+
+type DraftQualityAssessment = {
+  hardIssues: string[];
+  softWarnings: string[];
+};
+
+type DraftGenerationResult = {
+  draft: string;
+  evidence: ResearchEvidence;
+  commentIntent: CommentIntent;
+  model: string;
+};
+
+function getLengthPlan(
+  preview: string,
+  evidence: ResearchEvidence,
+  commentIntent: CommentIntent,
+): LengthPlan {
+  const sourceWords = Number.isFinite(evidence.fullPostWordCount) && evidence.fullPostWordCount > 0
+    ? evidence.fullPostWordCount
+    : countWords(preview);
+  let target = Math.round(sourceWords * 0.95);
+
+  if (evidence.postIntent === 'promotional' || evidence.postIntent === 'mixed') target += 18;
+  if (commentIntent === 'execution_caveat' || commentIntent === 'tradeoff') target += 14;
+  if (commentIntent === 'sharp_question') target -= 10;
+  if (evidence.confidence === 'low') target -= 8;
+
+  target = clampNumber(target, 70, 230);
+  const minWords = clampNumber(target - 22, 55, 210);
+  const maxWords = clampNumber(target + 38, 90, 270);
+  const label: LengthPlan['label'] = target < 105 ? 'short' : target < 165 ? 'medium' : 'long';
+
+  return { targetWords: target, minWords, maxWords, label };
+}
+
+function normalizeSignatureWords(text: string, maxWords: number): string {
+  return (String(text || '').toLowerCase().match(/[a-z0-9']+/g) || [])
+    .slice(0, maxWords)
+    .join(' ');
+}
+
+function getOpeningSignature(draft: string): string {
+  const firstSentence = (String(draft || '').match(/[^.!?]+[.!?]?/) || [''])[0];
+  return normalizeSignatureWords(firstSentence, 7);
+}
+
+function getLeadInSignatures(draft: string): string[] {
+  const lines = String(draft || '')
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  return lines
+    .map(line => normalizeSignatureWords(line, 4))
+    .filter(Boolean);
+}
+
+function hasTwoCentsMoment(text: string): boolean {
+  const low = text.toLowerCase();
+  const stancePatterns = [
+    /\bmy two cents\b/,
+    /\bi (?:disagree|don't buy|would push back|would challenge|think)\b/,
+    /\bthe miss is\b/,
+    /\bthe gap is\b/,
+    /\bthe problem is\b/,
+    /\bhard truth\b/,
+    /\bthis part is bs\b/,
+    /\bbullshit\b/,
+    /\bwrong level\b/,
+    /\btrade[- ]off\b/,
+    /\bi'd do it differently\b/,
+  ];
+  if (stancePatterns.some(re => re.test(low))) return true;
+  return /\bbut\b/.test(low) && /\b(not|isn't|doesn't|won't|can't|miss|wrong)\b/.test(low);
+}
+
+function getSentenceWordLengths(text: string): number[] {
+  return (String(text || '').match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [])
+    .map(s => countWords(s))
+    .filter(n => n > 0);
+}
+
+function hasHumanSentenceRhythm(text: string, lengthPlan: LengthPlan): boolean {
+  const lengths = getSentenceWordLengths(text);
+  if (lengths.length < 2) return false;
+
+  const minLen = Math.min(...lengths);
+  const maxLen = Math.max(...lengths);
+  const spread = maxLen - minLen;
+
+  // For medium/long comments, enforce visible cadence shifts.
+  if (lengthPlan.label !== 'short') {
+    const hasShort = lengths.some(n => n <= 6);
+    const hasLong = lengths.some(n => n >= 16);
+    return (hasShort && hasLong) || spread >= 12;
+  }
+
+  // Short comments still need some variance, just less extreme.
+  return spread >= 7 || (minLen <= 6 && maxLen >= 12);
+}
+
+function hasPunctuationTexture(text: string, lengthPlan: LengthPlan): boolean {
+  if (lengthPlan.label === 'short') return true;
+  const trimmed = text.trim();
+  const withoutFinalQuestion = trimmed.replace(/\?\s*$/, '');
+  return withoutFinalQuestion.includes('...') || withoutFinalQuestion.includes(';') || withoutFinalQuestion.includes('?');
+}
+
+function hasActionableFollowThrough(text: string): boolean {
+  const low = text.toLowerCase();
+  const actionPatterns = [
+    /\bstart with\b/,
+    /\bnext step\b/,
+    /\btry\b/,
+    /\bdo this\b/,
+    /\bdo x then y\b/,
+    /\bmeasure\b/,
+    /\btrack\b/,
+    /\bmap\b/,
+    /\baudit\b/,
+    /\btest\b/,
+    /\bship\b/,
+    /\bprioritize\b/,
+    /\bworkflow\b/,
+    /\bchecklist\b/,
+    /\bpractically\b/,
+    /\bif you want this to work\b/,
+  ];
+  return actionPatterns.some(re => re.test(low));
+}
+
 function evaluateDraftQuality(
   draft: string,
   evidence: ResearchEvidence,
   preview: string,
   authorFirstName: string,
-): string[] {
-  const issues: string[] = [];
-  if (isWeakDraft(draft)) issues.push('too generic or too short');
-  if (!startsWithAuthorName(draft, authorFirstName)) issues.push('opening does not start with the author name');
-  if (!hasRelevanceAnchor(draft, evidence.keyPoint, preview)) issues.push('missing concrete anchor from original post');
-  if (!draft.includes('\n') && draft.length > 350) issues.push('single dense paragraph, needs line breaks');
-  if (hasAISlopWords(draft)) issues.push('contains AI-sounding jargon');
-  if (/\?\s*$/.test(draft.trim())) issues.push('ends with a question');
-  if (/\b(according to|study by|data from|research by|report by)\b/i.test(draft)) issues.push('cites source by name');
-  if (/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Study|Report|Research|Survey|Data|Index)\b/.test(draft)) issues.push('references named study or report');
+  lengthPlan: LengthPlan,
+  diversity?: DraftDiversityContext,
+): DraftQualityAssessment {
+  const hardIssues: string[] = [];
+  const softWarnings: string[] = [];
+
+  if (isWeakDraft(draft)) hardIssues.push('too generic or too short');
+  if (!startsWithAuthorName(draft, authorFirstName)) hardIssues.push('opening does not start with the author name');
+  if (!hasRelevanceAnchor(draft, evidence.keyPoint, preview)) hardIssues.push('missing concrete anchor from original post');
+  if (!draft.includes('\n') && draft.length > 350) hardIssues.push('single dense paragraph, needs line breaks');
+  if (hasAISlopWords(draft)) hardIssues.push('contains AI-sounding jargon');
+  if (/\?\s*$/.test(draft.trim())) hardIssues.push('ends with a question');
+  if (/\b(according to|study by|data from|research by|report by)\b/i.test(draft)) hardIssues.push('cites source by name');
+  if (/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Study|Report|Research|Survey|Data|Index)\b/.test(draft)) hardIssues.push('references named study or report');
   const allCapsWords = draft.match(/\b[A-Z]{4,}\b/g) || [];
-  if (allCapsWords.length > 2) issues.push('contains unnatural all-caps wording');
+  if (allCapsWords.length > 2) hardIssues.push('contains unnatural all-caps wording');
+  if (!hasTwoCentsMoment(draft)) hardIssues.push('missing clear two-cents stance');
+  if (!hasActionableFollowThrough(draft)) hardIssues.push('missing actionable follow-through');
+
+  const words = countWords(draft);
+  if (words < lengthPlan.minWords) hardIssues.push(`too short for auto-length target (${words} words, need ${lengthPlan.minWords}-${lengthPlan.maxWords})`);
+  if (words > lengthPlan.maxWords) hardIssues.push(`too long for auto-length target (${words} words, need ${lengthPlan.minWords}-${lengthPlan.maxWords})`);
 
   const draftNums = getNumbers(draft);
   if (draftNums.length > 0) {
-    if (!hasSourceCue(draft)) issues.push('numeric claim lacks source cue');
+    if (!hasSourceCue(draft)) hardIssues.push('numeric claim lacks source cue');
     const evidenceNums = getNumbers(evidence.statistic);
     if (evidenceNums.length > 0 && !draftNums.some(n => evidenceNums.includes(n))) {
-      issues.push('numeric claim not grounded in research evidence');
+      hardIssues.push('numeric claim not grounded in research evidence');
     }
   }
 
   // Metaphors and analogies — instant AI tell
   if (/\b(it'?s like|the way .{5,30} is the same|think of it as|imagine a|picture a|it'?s the equivalent)\b/i.test(draft)) {
-    issues.push('contains metaphor or analogy');
+    hardIssues.push('contains metaphor or analogy');
   }
 
   // Audience-lecturing: talking to "anyone" or "people" instead of the author
   if (/\b(anyone considering|people need to|everyone should|people who|those who are)\b/i.test(draft)) {
-    issues.push('lectures the audience instead of talking to the author');
+    hardIssues.push('lectures the audience instead of talking to the author');
   }
 
   // Too many paragraphs = essay structure
   const paragraphs = draft.split(/\n\s*\n|\n/).filter(p => p.trim().length > 20);
-  if (paragraphs.length > 5) issues.push('too many paragraphs, sounds like an essay');
+  if (paragraphs.length > 5) hardIssues.push('too many paragraphs, sounds like an essay');
 
   // Too long overall
-  if (draft.length > 1400) issues.push('comment too long, trim to under 1400 chars');
+  if (draft.length > 1400) hardIssues.push('comment too long, trim to under 1400 chars');
 
-  return issues;
+  if (diversity) {
+    const opening = getOpeningSignature(draft);
+    if (opening && diversity.usedOpeningSignatures.has(opening)) {
+      hardIssues.push('opening pattern repeated from earlier draft in this batch');
+    }
+    const repeatedLeadIns = getLeadInSignatures(draft).filter(sig => diversity.usedLeadInSignatures.has(sig));
+    if (repeatedLeadIns.length >= 2) {
+      hardIssues.push('too many repeated lead-ins from earlier drafts in this batch');
+    }
+  }
+
+  if (!hasHumanSentenceRhythm(draft, lengthPlan)) {
+    softWarnings.push('sentence rhythm too uniform (needs short + long sentence mix)');
+  }
+  if (!hasPunctuationTexture(draft, lengthPlan)) {
+    softWarnings.push('missing punctuation texture (use ... or ; or inline ? naturally)');
+  }
+
+  return { hardIssues, softWarnings };
 }
 
 function hasCriticalQualityIssue(issues: string[]): boolean {
@@ -452,6 +637,12 @@ function hasCriticalQualityIssue(issues: string[]): boolean {
     'too many paragraphs',
     'comment too long',
     'contains metaphor',
+    'missing clear two-cents stance',
+    'missing actionable follow-through',
+    'too short for auto-length target',
+    'too long for auto-length target',
+    'opening pattern repeated',
+    'repeated lead-ins',
   ];
   return issues.some(issue => criticalSnippets.some(snippet => issue.includes(snippet)));
 }
@@ -460,7 +651,7 @@ function buildDeterministicFallbackDraft(
   post: DraftPost,
   evidence: ResearchEvidence,
   authorFirstName: string,
-  commentIntent: 'tradeoff' | 'new_data_point' | 'execution_caveat' | 'sharp_question',
+  commentIntent: CommentIntent,
 ): string {
   const anchor = (evidence.keyPoint || post.text_preview || 'the point you shared')
     .replace(/\s+/g, ' ')
@@ -471,26 +662,26 @@ function buildDeterministicFallbackDraft(
   const sourceName = (evidence.sources[0]?.name || 'recent industry').trim();
   const rawStat = (evidence.statistic || '').replace(/\s+/g, ' ').trim();
   const statSentence = rawStat
-    ? (hasSourceCue(rawStat) ? rawStat : `According to ${sourceName} data, ${rawStat}`)
-    : `According to ${sourceName} data, search behavior is fragmenting faster than most teams plan for.`;
+    ? (hasSourceCue(rawStat) ? rawStat : `in recent ${sourceName.toLowerCase()} data, ${rawStat}`)
+    : 'in recent market data, search behavior is fragmenting faster than most teams plan for.';
 
   const angleLineMap: Record<typeof commentIntent, string> = {
-    tradeoff: 'The trade-off is speed versus trust, and teams that optimize for volume alone usually pay for it later.',
-    new_data_point: 'The missing piece is translating that trend into one measurable execution choice this week.',
-    execution_caveat: 'The execution caveat is consistency, because most teams change tactics before signals stabilize.',
-    sharp_question: 'The useful next step is pressure-testing this with one concrete metric instead of broad assumptions.',
+    tradeoff: 'my two cents, the tradeoff is speed versus trust; teams chasing volume usually pay for it later.',
+    new_data_point: 'my two cents, the trend only matters if it changes one concrete execution choice this week...',
+    execution_caveat: 'my two cents, execution consistency is the real bottleneck because most teams pivot before signals settle.',
+    sharp_question: 'my two cents, this is worth stress-testing with one hard metric instead of broad assumptions.',
   };
 
-  const question = (evidence.followUpQuestion || 'How are you validating this in your current workflow?')
+  const actionLine = (evidence.actionableAddOn || 'practical move: map one workflow, choose one metric, and review it after two weeks.')
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/[.?!]+$/, '') + '?';
+    .replace(/[.?!]+$/, '');
 
   const text = [
     `${authorFirstName}, your point about ${anchor} is the part most teams underestimate.`,
     statSentence.endsWith('.') ? statSentence : `${statSentence}.`,
     angleLineMap[commentIntent],
-    question,
+    actionLine.endsWith('.') ? actionLine : `${actionLine}.`,
   ].join('\n\n');
 
   return ensureReadableCommentLayout(cleanDraftText(text));
@@ -522,6 +713,9 @@ function parseResearchEvidence(rawResearch: string, fallbackIntent: ResearchEvid
     sources: [],
     implication: '',
     followUpQuestion: '',
+    stanceBasis: 'logical_gap',
+    actionableAddOn: '',
+    fullPostWordCount: 0,
     postIntent: fallbackIntent,
     confidence: 'low',
   };
@@ -543,6 +737,15 @@ function parseResearchEvidence(rawResearch: string, fallbackIntent: ResearchEvid
       ? postIntentRaw
       : fallbackIntent;
 
+  const stanceBasisRaw = String(parsed.stance_basis || '').toLowerCase().replace(/\s+/g, '_');
+  const stanceBasis: StanceBasis =
+    stanceBasisRaw === 'contradiction'
+    || stanceBasisRaw === 'missing_piece'
+    || stanceBasisRaw === 'lived_experience'
+    || stanceBasisRaw === 'logical_gap'
+      ? stanceBasisRaw
+      : 'logical_gap';
+
   const sources: Array<{ name: string; url: string }> = [];
   const source1 = String(parsed.source_1 || parsed.source || '').trim();
   const sourceUrl1 = String(parsed.source_url_1 || parsed.source_url || '').trim();
@@ -551,6 +754,11 @@ function parseResearchEvidence(rawResearch: string, fallbackIntent: ResearchEvid
   if (source1) sources.push({ name: source1, url: sourceUrl1 });
   if (source2) sources.push({ name: source2, url: sourceUrl2 });
 
+  const fullPostWordCountRaw = Number.parseInt(String(parsed.full_post_word_count || '0'), 10);
+  const fullPostWordCount = Number.isFinite(fullPostWordCountRaw) && fullPostWordCountRaw > 0
+    ? fullPostWordCountRaw
+    : 0;
+
   return {
     postSummary: String(parsed.post_summary || '').trim(),
     keyPoint: String(parsed.key_point || '').trim(),
@@ -558,6 +766,9 @@ function parseResearchEvidence(rawResearch: string, fallbackIntent: ResearchEvid
     sources,
     implication: String(parsed.implication || '').trim(),
     followUpQuestion: String(parsed.follow_up_question || '').trim(),
+    stanceBasis,
+    actionableAddOn: String(parsed.actionable_add_on || '').trim(),
+    fullPostWordCount,
     postIntent,
     confidence,
   };
@@ -573,7 +784,10 @@ function evidenceToBrief(evidence: ResearchEvidence): string {
     evidence.keyPoint ? `Key point: ${evidence.keyPoint}` : '',
     evidence.statistic ? `Background insight (paraphrase loosely, do NOT cite source names or exact numbers): ${evidence.statistic}` : '',
     sourceLines,
+    evidence.fullPostWordCount > 0 ? `Full post word count from WebFetch: ${evidence.fullPostWordCount}` : '',
     evidence.implication ? `Implication: ${evidence.implication}` : '',
+    `Two-cents basis selected from research: ${evidence.stanceBasis}`,
+    evidence.actionableAddOn ? `Actionable follow-through to include: ${evidence.actionableAddOn}` : '',
     `Post intent: ${evidence.postIntent}`,
     `Evidence confidence: ${evidence.confidence}`,
   ].filter(Boolean);
@@ -581,7 +795,7 @@ function evidenceToBrief(evidence: ResearchEvidence): string {
 }
 
 function hasMinimumEvidence(evidence: ResearchEvidence, requireTwoSources: boolean): boolean {
-  if (!evidence.keyPoint || !evidence.statistic) return false;
+  if (!evidence.keyPoint || !evidence.statistic || !evidence.actionableAddOn) return false;
   if (requireTwoSources) return evidence.sources.length >= 2;
   return evidence.sources.length >= 1;
 }
@@ -650,6 +864,9 @@ Rules:
 - FIRST: Use WebFetch on the post URL to read the FULL post content. The preview below is truncated.
 - Then use at most ${config.maxSearchQueries} WebSearch calls to find one recent concrete fact.
 - Gather one practical implication grounded in real data.
+- Derive the two-cents basis in this priority order: contradiction > missing_piece > lived_experience > logical_gap.
+- Provide one actionable add-on (mini tutorial step, practical suggestion, or researched discovery) so the comment adds value, not just criticism.
+- Use ONLY evidence from this run's WebFetch/WebSearch. Do not rely on model memory.
 - Use grounded sources only. No made-up stats.
 - Do not write the final comment.
 - Return ONLY strict JSON.`;
@@ -663,8 +880,11 @@ STEP 2: Research the exact topic with WebSearch.
 STEP 3: Return STRICT JSON:
 {
   "post_summary": "one-line summary of what the author is saying",
+  "full_post_word_count": "integer word count from the WebFetch full post text",
   "key_point": "most specific point from the post to reference",
   "statistic": "one loose fact or trend you found (paraphrase casually, no exact numbers or source names needed)",
+  "stance_basis": "contradiction|missing_piece|lived_experience|logical_gap",
+  "actionable_add_on": "one concrete next step or mini-tutorial tip that helps the reader act",
   "source_1": "publication/org name for your reference only",
   "source_url_1": "url if found, else empty string",
   "source_2": "secondary source name (optional)",
@@ -689,7 +909,7 @@ STEP 3: Return STRICT JSON:
   const evidence = parseResearchEvidence(rawResearch, fallbackIntent);
   if (!hasMinimumEvidence(evidence, config.requireTwoSources)) {
     const required = config.requireTwoSources ? '2 sources' : '1 source';
-    throw new Error(`Research evidence insufficient (needs key point, statistic, and ${required})`);
+    throw new Error(`Research evidence insufficient (needs key point, statistic, actionable add-on, and ${required})`);
   }
   return evidence;
 }
@@ -699,14 +919,18 @@ async function runWritePass(
   post: DraftPost,
   styleGuide: string,
   evidence: ResearchEvidence,
-  commentIntent: 'tradeoff' | 'new_data_point' | 'execution_caveat' | 'sharp_question',
+  commentIntent: CommentIntent,
   model: string,
   config: LinkedInDraftConfig,
   abortController: AbortController,
   env: Record<string, string | undefined>,
+  diversity?: DraftDiversityContext,
 ): Promise<string> {
   const researchBrief = evidenceToBrief(evidence);
   const authorFirstName = getAuthorFirstName(post.author);
+  const lengthPlan = getLengthPlan(post.text_preview, evidence, commentIntent);
+  const avoidOpenings = diversity ? Array.from(diversity.usedOpeningSignatures).filter(Boolean).slice(-6) : [];
+  const avoidLeadIns = diversity ? Array.from(diversity.usedLeadInSignatures).filter(Boolean).slice(-8) : [];
   const challengeInstruction = evidence.postIntent === 'promotional' || evidence.postIntent === 'mixed'
     ? 'The post has promotional intent. Do not default to agreement. Constructively challenge assumptions and add a practical tradeoff.'
     : 'Be constructive and add practical value beyond agreement.';
@@ -721,24 +945,29 @@ async function runWritePass(
   const writingSystemPrompt = `You are writing a high-quality LinkedIn reply comment. Sound like someone who genuinely knows their stuff typing a quick reply, not a conference talk or blog post.
 
 RESPONSE REQUIREMENTS:
-- YOU decide the length based on the topic. Quick take: 3-5 sentences (~300-500 chars). Real discussion: 5-8 sentences (~500-900 chars). Deep argument: 8-10 sentences (~800-1400 chars). Never pad for length. Let the content decide.
+- Automatic length target for this post: around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords} acceptable). Content decides where it lands, never pad.
 - Sentence 1 must start with "${authorFirstName}," and reference a specific point from the post.
 - Weave in ONE insight from the research naturally. Do NOT cite source names, publication names, or exact statistics. Paraphrase loosely like you already knew it. Say "the market is roughly doubling" not "according to Mordor Intelligence the market will grow from $75B to $149B by 2031".
 - Do NOT end with a question. End with a statement, a take, or an incomplete thought. Questions at the end feel like interview prompts, not real comments.
+- Include one clear "two-cents moment": a direct stance, pushback, or "this part is bs" claim tied to what the author said. No fence-sitting.
+- The two-cents moment must come from the selected research basis (${evidence.stanceBasis}) and stay close to the author's topic.
+- After pushback, add actionable continuation. Leave a practical next step, mini tutorial step, or specific discovery so readers learn something.
 
 VOICE (critical - this is what makes it sound human):
 - Vary paragraph length: mix short punchy lines with longer thoughts. Never uniform blocks.
-- Lowercase generic acronyms casually: "seo", "ctr", "aio", "llm" (not SEO, CTR). Brand names stay capitalized: Google, Ahrefs, ChatGPT.
+- Lowercase generic acronyms casually: "seo", "ctr", "aio", "llm" (not SEO, CTR). Brand capitalization does not need to be perfect every time, but never use ALL CAPS brand names.
 - Mix sentence-start casing: ~50% capitalized, ~50% not.
 - Use one casual connector per comment max: "honestly", "the thing is", "tbh".
-- Incomplete thoughts OK: "but yeah." or trailing "..." or starting with "and".
+- Leave 1-2 rough edges on purpose: lowercase starts, sentence fragment, or abrupt connector. Keep it readable, not polished.
 - Round numbers casually sometimes: "around 60%" not "61%", "3-4x" not "3.7x".
 - Let some thoughts run naturally into each other. Don't perfectly structure every paragraph.
+- Rhythm guidance is soft, not rigid: prefer mixed sentence lengths and occasional punctuation texture ("...", ";", inline "?"), but do not force weird punctuation if it hurts flow.
 - NO metaphors or analogies. Never "it's like X", "the way Y works", "think of it as Z". Just say the thing directly. Metaphors are the #1 AI tell.
 - NO intro-body-conclusion structure. The comment should read like one continuous thought that could have kept going but you stopped typing. Real comments don't wrap up neatly.
 - Don't overuse personal experience framing ("I've seen", "we had a client", "happened to us"). Use it once max and only when it genuinely adds weight. Most of the time just state your take directly without qualifying where it comes from.
 - Kill filler and hedge words: never use "and yeah", "I mean", "to be fair", "maybe but", "nobody's arguing that", "sure but". Every sentence must carry a point. If removing a sentence changes nothing, delete it.
 - Format as 2-4 short chunks separated by single line breaks. Break after a thought shift, not after every sentence. Never one giant wall of text, never 5+ separate paragraphs. Think text message energy — short blocks, not essay paragraphs.
+- Batch diversity: avoid repeating opening patterns or lead-ins used in recent drafts from this same run.${avoidOpenings.length ? `\n  Avoid these opening signatures: ${avoidOpenings.join(' | ')}` : ''}${avoidLeadIns.length ? `\n  Avoid these lead-ins: ${avoidLeadIns.join(' | ')}` : ''}
 
 HARD RULES:
 - No emojis, no hashtags, no em dashes, no en dashes.
@@ -764,6 +993,8 @@ ${researchBrief}
 Narrative guidance:
 - ${challengeInstruction}
 - Comment intent: ${commentIntent} (${intentInstructionMap[commentIntent]})
+- Two-cents basis from research: ${evidence.stanceBasis}
+- Actionable continuation to include after your stance: ${evidence.actionableAddOn || 'provide one practical next step tied to the claim'}
 - Start the first sentence with "${authorFirstName}," and reference the key point from the original post.
 
 Write the final comment now.`;
@@ -779,7 +1010,8 @@ Write the final comment now.`;
 
   let draft = ensureReadableCommentLayout(cleanDraftText(await generateDraftFromSdk(queryFn, writePrompt, writeOptions)));
   for (let repairAttempt = 0; repairAttempt < 2; repairAttempt++) {
-    const issues = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName);
+    const quality = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName, lengthPlan, diversity);
+    const issues = quality.hardIssues;
     if (issues.length === 0) break;
     const repairPrompt = `${writePrompt}
 
@@ -791,8 +1023,12 @@ Rewrite with strict compliance:
 - reference the post's key point explicitly
 - include one numeric/date detail from research notes
 - include source cue wording
+- include one direct two-cents stance tied to the specific claim in the post
+- include actionable follow-through right after the stance (specific next step or mini tutorial)
+- keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
 - format as short paragraphs with line breaks, not one dense block
-- avoid hype/jargon and generic agreement`;
+- avoid hype/jargon and generic agreement
+- keep text human-imperfect: allow lowercase sentence starts, but avoid ALL CAPS`;
     draft = ensureReadableCommentLayout(cleanDraftText(await generateDraftFromSdk(queryFn, repairPrompt, writeOptions)));
   }
 
@@ -800,19 +1036,22 @@ Rewrite with strict compliance:
     throw new Error('Write pass returned empty output');
   }
 
-  const finalIssues = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName);
-  if (finalIssues.length > 0) {
+  const finalQuality = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName, lengthPlan, diversity);
+  if (finalQuality.hardIssues.length > 0) {
     const salvagePrompt = `${writePrompt}
 
 The latest draft still failed checks for:
-- ${finalIssues.join('\n- ')}
+- ${finalQuality.hardIssues.join('\n- ')}
 
 Final rewrite requirements:
-- Exactly 4 or 5 sentences
+- Keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
 - Sentence 1 must start with "${authorFirstName},"
 - Include one specific number/date from research notes
 - Include one source cue phrase like "According to" or "In [source] data"
+- Include one clear two-cents stance, direct and specific
+- Include actionable follow-through after the stance, concrete and useful
 - Keep natural human tone and short paragraph formatting with line breaks
+- Keep slight human messiness (lowercase starts/fragments allowed), no ALL CAPS brand words
 - No generic praise and no jargon
 
 Return only the final comment text.`;
@@ -822,18 +1061,22 @@ Return only the final comment text.`;
     );
     if (salvaged) draft = salvaged;
 
-    const salvageIssues = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName);
-    if (salvageIssues.length > 0) {
-      if (hasCriticalQualityIssue(salvageIssues)) {
+    const salvageQuality = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName, lengthPlan, diversity);
+    if (salvageQuality.hardIssues.length > 0) {
+      if (hasCriticalQualityIssue(salvageQuality.hardIssues)) {
         const fallbackDraft = buildDeterministicFallbackDraft(post, evidence, authorFirstName, commentIntent);
-        const fallbackIssues = evaluateDraftQuality(fallbackDraft, evidence, post.text_preview, authorFirstName);
-        if (fallbackIssues.length > 0) {
-          console.warn(`[LinkedInDrafter] Fallback draft has remaining warnings: ${fallbackIssues.join('; ')}`);
+        const fallbackQuality = evaluateDraftQuality(fallbackDraft, evidence, post.text_preview, authorFirstName, lengthPlan, diversity);
+        if (fallbackQuality.hardIssues.length > 0 || fallbackQuality.softWarnings.length > 0) {
+          console.warn(`[LinkedInDrafter] Fallback draft warnings: ${[...fallbackQuality.hardIssues, ...fallbackQuality.softWarnings].join('; ')}`);
         }
         return fallbackDraft;
       }
-      console.warn(`[LinkedInDrafter] Accepting draft with non-critical quality warnings: ${salvageIssues.join('; ')}`);
+      console.warn(`[LinkedInDrafter] Accepting draft with non-critical quality warnings: ${salvageQuality.hardIssues.join('; ')}`);
+    } else if (salvageQuality.softWarnings.length > 0) {
+      console.warn(`[LinkedInDrafter] Style warnings (soft): ${salvageQuality.softWarnings.join('; ')}`);
     }
+  } else if (finalQuality.softWarnings.length > 0) {
+    console.warn(`[LinkedInDrafter] Style warnings (soft): ${finalQuality.softWarnings.join('; ')}`);
   }
 
   return draft;
@@ -847,13 +1090,15 @@ async function generateDraftForModel(
   config: LinkedInDraftConfig,
   parentAbortController: AbortController,
   remainingMs: number,
-): Promise<string> {
+  diversity?: DraftDiversityContext,
+): Promise<DraftGenerationResult> {
   const env = await buildProviderEnv(model);
   const attempt = createAttemptAbortController(parentAbortController, remainingMs);
   try {
     const evidence = await runResearchPass(queryFn, post, model, config, attempt.controller, env);
     const commentIntent = chooseCommentIntent(post.id);
-    return await runWritePass(queryFn, post, styleGuide, evidence, commentIntent, model, config, attempt.controller, env);
+    const draft = await runWritePass(queryFn, post, styleGuide, evidence, commentIntent, model, config, attempt.controller, env, diversity);
+    return { draft, evidence, commentIntent, model };
   } catch (err) {
     const abortReason = parentAbortController.signal.reason;
     if (parentAbortController.signal.aborted && abortReason === 'timeout') {
@@ -999,6 +1244,45 @@ function logDraftActivity(
   }
 }
 
+function saveDraftEvidence(
+  db: Database.Database,
+  postId: number,
+  postUrl: string,
+  generation: DraftGenerationResult,
+): void {
+  const ev = generation.evidence;
+  const s1 = ev.sources[0] || { name: '', url: '' };
+  const s2 = ev.sources[1] || { name: '', url: '' };
+
+  db.prepare(`
+    INSERT INTO linkedin_draft_evidence (
+      post_id, post_url, model, comment_intent,
+      post_summary, key_point, statistic, implication, follow_up_question,
+      stance_basis, actionable_add_on, post_intent, confidence, full_post_word_count,
+      source_1_name, source_1_url, source_2_name, source_2_url
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    postId,
+    postUrl,
+    generation.model || null,
+    generation.commentIntent || null,
+    ev.postSummary || null,
+    ev.keyPoint || null,
+    ev.statistic || null,
+    ev.implication || null,
+    ev.followUpQuestion || null,
+    ev.stanceBasis || null,
+    ev.actionableAddOn || null,
+    ev.postIntent || null,
+    ev.confidence || null,
+    Number.isFinite(ev.fullPostWordCount) ? ev.fullPostWordCount : null,
+    s1.name || null,
+    s1.url || null,
+    s2.name || null,
+    s2.url || null,
+  );
+}
+
 interface VoicePreset {
   name: string;
   prompt: string;
@@ -1043,6 +1327,7 @@ async function draftOnePost(
   styleGuide: string,
   abortController: AbortController,
   model: string,
+  diversity?: DraftDiversityContext,
 ): Promise<DraftResult> {
   const queryFn = await loadSDK();
   if (!queryFn) throw new Error('Failed to load SDK');
@@ -1063,6 +1348,7 @@ async function draftOnePost(
   const deadline = Date.now() + (effectiveTimeoutSec * 1000);
 
   let draft = '';
+  let generation: DraftGenerationResult | null = null;
   const attemptErrors: string[] = [];
 
   for (const attemptModel of attemptModels) {
@@ -1073,7 +1359,7 @@ async function draftOnePost(
       break;
     }
     try {
-      draft = await generateDraftForModel(
+      generation = await generateDraftForModel(
         queryFn,
         post,
         styleGuide,
@@ -1081,7 +1367,9 @@ async function draftOnePost(
         config,
         abortController,
         remainingMs,
+        diversity,
       );
+      draft = generation.draft;
       break;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1145,9 +1433,18 @@ async function draftOnePost(
       `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text)
        VALUES (?, ?, 'drafted', 'draft:ok', ?)`
     ).run(post.id, post.post_url, draft);
+    if (generation) {
+      saveDraftEvidence(db, post.id, post.post_url, generation);
+    }
 
     if (abortController.signal.aborted) {
       throw new Error('Draft timed out before finalize');
+    }
+
+    if (diversity) {
+      const opening = getOpeningSignature(draft);
+      if (opening) diversity.usedOpeningSignatures.add(opening);
+      for (const lead of getLeadInSignatures(draft)) diversity.usedLeadInSignatures.add(lead);
     }
 
     setDraftState(post.id, 'success');
@@ -1234,6 +1531,10 @@ export async function draftBatch(
       results: [],
       errors: [],
     };
+    const diversity: DraftDiversityContext = {
+      usedOpeningSignatures: new Set<string>(),
+      usedLeadInSignatures: new Set<string>(),
+    };
 
     draftEvents.emit('start', { total: posts.length });
 
@@ -1273,7 +1574,7 @@ export async function draftBatch(
 
         const runDraft = (async () => {
           try {
-            return await draftOnePost(post, postStyleGuide, postAbort, draftModel);
+            return await draftOnePost(post, postStyleGuide, postAbort, draftModel, diversity);
           } finally {
             jobAbort.signal.removeEventListener('abort', onJobAbort);
           }
