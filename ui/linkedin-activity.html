@@ -1689,8 +1689,19 @@
 
     function formatScheduleTime(iso) {
       if (!iso) return '';
-      const d = new Date(iso + 'Z');
+      const d = new Date(iso + (iso.includes('Z') ? '' : 'Z'));
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatShortDateTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso + (iso.includes('Z') ? '' : 'Z'));
+      const now = new Date();
+      const h = d.getHours(), m = String(d.getMinutes()).padStart(2, '0');
+      const time = `${h}:${m}`;
+      if (d.toDateString() === now.toDateString()) return time;
+      const day = d.getDate(), mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+      return `${day} ${mon} ${time}`;
     }
 
     async function hidePost(postId) {
@@ -1840,8 +1851,8 @@
 
       return posts.filter(p => {
         const lastAction = String(p.last_activity_action || '').toLowerCase();
-        const hasPostingFail = (lastAction === 'failed' || lastAction === 'error') && !p.scheduled_at;
-        const hasFailed = Number(p.failed_attempts || 0) > 0 && !p.scheduled_at || hasPostingFail;
+        const hasPostingFail = !p.commented && (lastAction === 'failed' || lastAction === 'error') && !p.scheduled_at;
+        const hasFailed = !p.commented && (Number(p.failed_attempts || 0) > 0 && !p.scheduled_at || hasPostingFail);
         const needsAttention = !!(p.approved && !p.commented && (!p.scheduled_at || hasFailed));
 
         const isScheduled = !!(p.approved && p.scheduled_at && !p.commented);
@@ -1884,6 +1895,7 @@
         const queueCount = posts.filter(p => !p.commented && !(p.approved && p.scheduled_at)).length;
         const publishedCount = posts.filter(p => !!p.commented).length + scheduledCount;
         const failedCount = posts.filter(p => {
+          if (p.commented) return false;
           const la = String(p.last_activity_action || '').toLowerCase();
           return (Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error') && !p.scheduled_at;
         }).length;
@@ -2035,11 +2047,14 @@
       else if (isQueued) statusBadges.push('<span class="badge badge-queued">Queued</span>');
       if (isDraftCancelled) statusBadges.push('<span class="badge badge-rejected">Cancelled</span>');
       const isScheduled = !!(p.approved && p.scheduled_at && !p.commented);
-      if (p.commented) statusBadges.push('<span class="badge badge-commented">Published</span>');
-      else if (isScheduled) statusBadges.push(`<span class="badge badge-scheduled">Scheduled ${formatScheduleTime(p.scheduled_at)}</span>`);
-      else if (p.approved || approvedIds.has(p.id)) statusBadges.push('<span class="badge badge-approved">Approved</span>');
-      else if (rejectedIds.has(p.id)) statusBadges.push('<span class="badge badge-rejected">Rejected</span>');
-      else if (p.comment_draft) statusBadges.push('<span class="badge badge-draft">Draft</span>');
+      const activityTime = p.last_activity_at ? formatShortDateTime(p.last_activity_at) : '';
+      const tsSuffix = activityTime ? ` <span style="opacity:0.7;font-size:10px">${activityTime}</span>` : '';
+      const schTime = formatShortDateTime(p.scheduled_at);
+      if (p.commented) statusBadges.push(`<span class="badge badge-commented">Published${tsSuffix}</span>`);
+      else if (isScheduled) statusBadges.push(`<span class="badge badge-scheduled">Scheduled <span style="opacity:0.7;font-size:10px">${schTime}</span></span>`);
+      else if (p.approved || approvedIds.has(p.id)) statusBadges.push(`<span class="badge badge-approved">Approved${tsSuffix}</span>`);
+      else if (rejectedIds.has(p.id)) statusBadges.push(`<span class="badge badge-rejected">Rejected${tsSuffix}</span>`);
+      else if (p.comment_draft) statusBadges.push(`<span class="badge badge-draft">Draft${tsSuffix}</span>`);
       if (!p.commented && p.approved && !p.scheduled_at) {
         statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)">Awaiting schedule</span>');
       }

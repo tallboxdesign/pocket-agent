@@ -417,6 +417,24 @@ function evaluateDraftQuality(
       issues.push('numeric claim not grounded in research evidence');
     }
   }
+
+  // Metaphors and analogies — instant AI tell
+  if (/\b(it'?s like|the way .{5,30} is the same|think of it as|imagine a|picture a|it'?s the equivalent)\b/i.test(draft)) {
+    issues.push('contains metaphor or analogy');
+  }
+
+  // Audience-lecturing: talking to "anyone" or "people" instead of the author
+  if (/\b(anyone considering|people need to|everyone should|people who|those who are)\b/i.test(draft)) {
+    issues.push('lectures the audience instead of talking to the author');
+  }
+
+  // Too many paragraphs = essay structure
+  const paragraphs = draft.split(/\n\s*\n|\n/).filter(p => p.trim().length > 20);
+  if (paragraphs.length > 5) issues.push('too many paragraphs, sounds like an essay');
+
+  // Too long overall
+  if (draft.length > 1400) issues.push('comment too long, trim to under 1400 chars');
+
   return issues;
 }
 
@@ -430,6 +448,10 @@ function hasCriticalQualityIssue(issues: string[]): boolean {
     'ends with a question',
     'cites source by name',
     'references named study or report',
+    'lectures the audience',
+    'too many paragraphs',
+    'comment too long',
+    'contains metaphor',
   ];
   return issues.some(issue => criticalSnippets.some(snippet => issue.includes(snippet)));
 }
@@ -712,14 +734,22 @@ VOICE (critical - this is what makes it sound human):
 - Incomplete thoughts OK: "but yeah." or trailing "..." or starting with "and".
 - Round numbers casually sometimes: "around 60%" not "61%", "3-4x" not "3.7x".
 - Let some thoughts run naturally into each other. Don't perfectly structure every paragraph.
+- NO metaphors or analogies. Never "it's like X", "the way Y works", "think of it as Z". Just say the thing directly. Metaphors are the #1 AI tell.
+- NO intro-body-conclusion structure. The comment should read like one continuous thought that could have kept going but you stopped typing. Real comments don't wrap up neatly.
+- Don't overuse personal experience framing ("I've seen", "we had a client", "happened to us"). Use it once max and only when it genuinely adds weight. Most of the time just state your take directly without qualifying where it comes from.
+- Kill filler and hedge words: never use "and yeah", "I mean", "to be fair", "maybe but", "nobody's arguing that", "sure but". Every sentence must carry a point. If removing a sentence changes nothing, delete it.
+- Format as 2-4 short chunks separated by single line breaks. Break after a thought shift, not after every sentence. Never one giant wall of text, never 5+ separate paragraphs. Think text message energy — short blocks, not essay paragraphs.
 
 HARD RULES:
 - No emojis, no hashtags, no em dashes, no en dashes.
 - No generic praise ("great post", "thanks for sharing", "love this", "spot on").
 - No AI jargon ("landscape", "leverage", "robust", "holistic", "transformative", "game-changing", "trajectory", "institutionalizing", "decoupling", "paradigm", "ecosystem", "scalable", "actionable", "double down").
-- Challenge marketing stunts. If the post pushes a tool too hard, point out limitations or what it omits.
-- Never be a yes-man. Call out self-promotion with data and real perspective.
-- Use only straight quotes and apostrophes, no curly/smart quotes.${styleGuide ? `\n\nADDITIONAL STYLE GUIDE:\n${styleGuide}` : ''}
+- Use only straight quotes and apostrophes, no curly/smart quotes.
+- NEVER invent statistics or data. No "3x higher", "roughly doubling", "60% of companies" unless the research notes contain that exact figure. If you don't have a number, don't make one up. Use your own experience framing instead: "from what I've seen", "in my experience", "the teams I've worked with".
+- NEVER lecture the audience. Don't say "anyone considering X should..." or "people need to understand...". You're talking to the author, not giving a TED talk.
+- Promotional posts: you can push back, but be specific to what the author actually said. Don't default to generic contrarian takes. Challenge the specific claim, not the category. And acknowledge what's actually good before you push back.
+- Keep the tone of someone who respects the author but disagrees on specifics. Not hostile, not preachy. Think bar conversation, not debate podium.
+- Max 3-4 short paragraphs for a pushback comment. If you need more than that, you're over-explaining.${styleGuide ? `\n\nADDITIONAL STYLE GUIDE:\n${styleGuide}` : ''}
 
 OUTPUT FORMAT:
 Return ONLY the final comment text.`;
