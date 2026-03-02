@@ -45,7 +45,8 @@ export function registerCommandHandlers(deps: CommandHandlerDeps): void {
       `/status - Show agent status\n` +
       `/restart - Stop stuck query\n` +
       `/facts [query] - Search stored facts\n` +
-      `/workflow - List available workflows` +
+      `/workflow - List available workflows\n` +
+      `Mode switching is automatic in Telegram (manager/coder by intent).` +
       (isGroup ? `\n/link <session> - Link this group to a session\n/unlink - Unlink this group` : '')
     );
   });
@@ -72,6 +73,7 @@ Workflows are reusable command templates. Use /workflow to see what's available,
 <b>Tips</b>
 * Send text, photos, or voice messages
 * I remember context across sessions
+* Telegram auto-switches between manager and coder mode based on intent
 * Use /new to reset without losing memories`;
 
     await ctx.reply(helpText, { parse_mode: 'HTML' });

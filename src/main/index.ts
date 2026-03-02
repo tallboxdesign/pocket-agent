@@ -1653,8 +1653,9 @@ function setupIPC(): void {
 
   // Agent mode (global default for new sessions)
   ipcMain.handle('agent:setMode', async (_, mode: string) => {
-    const normalized = String(mode || '').trim().toLowerCase();
-    if (!['general', 'coder', 'manager'].includes(normalized)) {
+    const requested = String(mode || '').trim().toLowerCase();
+    const normalized = requested === 'general' ? 'manager' : requested;
+    if (!['coder', 'manager'].includes(normalized)) {
       return { success: false, error: 'Invalid mode' };
     }
     AgentManager.setMode(normalized);
@@ -1669,24 +1670,24 @@ function setupIPC(): void {
     return AgentManager.getMode();
   });
 
-  // Per-session mode (locked after first message)
+  // Per-session mode (can be changed at any time; applies to future turns)
   ipcMain.handle('agent:getSessionMode', async (_, sessionId: string) => {
     return memory?.getSessionMode(sessionId) || 'coder';
   });
 
   ipcMain.handle('agent:setSessionMode', async (_, sessionId: string, mode: string) => {
-    const normalized = String(mode || '').trim().toLowerCase();
-    if (!['general', 'coder', 'manager'].includes(normalized)) {
+    const requested = String(mode || '').trim().toLowerCase();
+    const normalized = requested === 'general' ? 'manager' : requested;
+    if (!['coder', 'manager'].includes(normalized)) {
       return { success: false, error: 'Invalid mode' };
     }
     if (!memory) return { success: false, error: 'Memory not initialized' };
 
-    // Only allow mode change if session has no messages
-    const msgCount = memory.getSessionMessageCount(sessionId);
-    if (msgCount > 0) {
-      return { success: false, error: 'Cannot change mode after messages have been sent' };
+    const success = memory.setSessionMode(sessionId, normalized as 'coder' | 'manager');
+    if (success) {
+      // Recreate the persistent SDK session so the next turn picks up the new mode prompt/tool set.
+      AgentManager.clearSdkSessionMapping(sessionId);
     }
-    const success = memory.setSessionMode(sessionId, normalized as 'general' | 'coder' | 'manager');
     return { success };
   });
 
@@ -1821,6 +1822,15 @@ function setupIPC(): void {
         : '';
       const posts = db.prepare(
         `SELECT lp.*, lp.draft_state, lp.draft_error${evidenceSelect}
+           CASE
+             WHEN lp.commented = 1 THEN 1
+             WHEN EXISTS (
+               SELECT 1 FROM linkedin_activity_log pl
+               WHERE pl.action = 'posted' AND pl.post_url = lp.post_url
+               LIMIT 1
+             ) THEN 1
+             ELSE 0
+           END AS posted_logged,
            (COALESCE(lp.reactions, 0) - COALESCE(lp.first_seen_reactions, COALESCE(lp.reactions, 0))) AS reactions_gain_since_first,
            (COALESCE(lp.comments, 0) - COALESCE(lp.first_seen_comments, COALESCE(lp.comments, 0))) AS comments_gain_since_first,
            CAST(COALESCE((julianday('now') - julianday(COALESCE(lp.first_seen_at, lp.created_at))), 0) AS INTEGER) AS days_since_first_seen,
@@ -1849,7 +1859,7 @@ function setupIPC(): void {
            al.last_activity_reason,
            al.last_activity_at,
            (SELECT COUNT(*) FROM linkedin_activity_log af
-            WHERE af.post_id = lp.id AND af.action IN ('failed', 'failed_quality', 'failed_timeout', 'failed_provider', 'error')) AS failed_attempts,
+            WHERE af.post_id = lp.id AND af.action IN ('failed', 'failed_quality', 'failed_timeout', 'failed_provider', 'error', 'verify_needed')) AS failed_attempts,
            ec.reactions_delta, ec.comments_delta,
            (SELECT COUNT(*) FROM linkedin_activity_log alw
             WHERE alw.action = 'posted' AND alw.post_url IN (SELECT p2.post_url FROM linkedin_posts p2 WHERE p2.author = lp.author)
@@ -2436,8 +2446,9 @@ function setupIPC(): void {
       SettingsManager.set(key, value);
 
       if (key === 'agent.mode') {
-        const normalized = (value || '').trim().toLowerCase();
-        const mode = (normalized === 'general' || normalized === 'manager') ? normalized : 'coder';
+        const raw = (value || '').trim().toLowerCase();
+        const normalized = raw === 'general' ? 'manager' : raw;
+        const mode = normalized === 'manager' ? 'manager' : 'coder';
         AgentManager.setMode(mode);
         if (chatWindow && !chatWindow.isDestroyed()) {
           chatWindow.webContents.send('agent:modeChanged', mode);
@@ -3909,7 +3920,7 @@ async function initializeAgent(): Promise<void> {
     workspace,  // Isolated working directory for agent file operations
     dataDir: app.getPath('userData'),
     model: selectedModel,
-    mode: (selectedMode === 'general' || selectedMode === 'manager') ? selectedMode : 'coder',
+    mode: (selectedMode === 'general' || selectedMode === 'manager') ? 'manager' : 'coder',
     tools: toolsConfig,
   });
 

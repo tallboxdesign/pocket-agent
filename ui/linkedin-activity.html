@@ -1802,6 +1802,14 @@
       return Number.isFinite(ts) ? ts : NaN;
     }
 
+    function isPublishedPost(post) {
+      if (!post || typeof post !== 'object') return false;
+      if (Number(post.commented || 0) === 1) return true;
+      if (Number(post.posted_logged || 0) === 1) return true;
+      const lastAction = String(post.last_activity_action || '').toLowerCase();
+      return lastAction === 'posted';
+    }
+
     async function hidePost(postId) {
       try {
         await window.pocketAgent.hideLinkedInPost(postId);
@@ -1890,7 +1898,7 @@
         const delayStr = await window.pocketAgent.getSetting('linkedin.commentDelay') || '3';
         const delayMin = Math.max(1, parseInt(delayStr, 10) || 3);
         // Find approved, unscheduled, uncommented posts with drafts
-        const eligible = currentPosts.filter(p => p.approved && !p.commented && p.comment_draft && !p.scheduled_at);
+        const eligible = currentPosts.filter(p => p.approved && !isPublishedPost(p) && p.comment_draft && !p.scheduled_at);
         if (eligible.length === 0) { showToast('No approved drafts to schedule', 'info'); return; }
         // Sort by priority: urgent > high > normal > low
         const priOrder = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -1935,8 +1943,8 @@
           case 'priority': va = PRIO_ORDER[a.priority] ?? 2; vb = PRIO_ORDER[b.priority] ?? 2; break;
           case 'type': va = a.post_type || ''; vb = b.post_type || ''; break;
           case 'status':
-            va = a.commented ? 3 : a.approved ? 2 : a.comment_draft ? 1 : 0;
-            vb = b.commented ? 3 : b.approved ? 2 : b.comment_draft ? 1 : 0;
+            va = isPublishedPost(a) ? 3 : a.approved ? 2 : a.comment_draft ? 1 : 0;
+            vb = isPublishedPost(b) ? 3 : b.approved ? 2 : b.comment_draft ? 1 : 0;
             break;
           default: return 0;
         }
@@ -1953,21 +1961,21 @@
 
       return posts.filter(p => {
         const lastAction = String(p.last_activity_action || '').toLowerCase();
-        const hasPostingFail = !p.commented && (lastAction === 'failed' || lastAction === 'error') && !p.scheduled_at;
-        const hasFailed = !p.commented && (Number(p.failed_attempts || 0) > 0 && !p.scheduled_at || hasPostingFail);
-        const recheckCandidate = !p.commented && Number(p.recheck_candidate || 0) === 1;
-        const needsAttention = !!(p.approved && !p.commented && (!p.scheduled_at || hasFailed)) || recheckCandidate;
+        const isPublished = isPublishedPost(p);
+        const hasPostingFail = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
+        const hasFailed = !isPublished && (Number(p.failed_attempts || 0) > 0 && !p.scheduled_at || hasPostingFail);
+        const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
+        const needsAttention = !!(p.approved && !isPublished && (!p.scheduled_at || hasFailed)) || recheckCandidate;
 
-        const isScheduled = !!(p.approved && p.scheduled_at && !p.commented);
-        if (activePanel === 'queue' && (p.commented || isScheduled)) return false;
-        if (activePanel === 'published' && !p.commented && !isScheduled) return false;
+        if (activePanel === 'queue' && isPublished) return false;
+        if (activePanel === 'published' && !isPublished) return false;
         if (activePanel === 'attention' && !needsAttention) return false;
         if (activePanel === 'failed' && !hasFailed) return false;
 
-        if (status === 'undrafted' && (p.comment_draft || p.commented)) return false;
-        if (status === 'draft' && (!p.comment_draft || p.commented)) return false;
-        if (status === 'approved' && (!p.approved || p.commented)) return false;
-        if (status === 'commented' && !p.commented) return false;
+        if (status === 'undrafted' && (p.comment_draft || isPublished)) return false;
+        if (status === 'draft' && (!p.comment_draft || isPublished)) return false;
+        if (status === 'approved' && (!p.approved || isPublished)) return false;
+        if (status === 'commented' && !isPublished) return false;
         if (status === 'failed' && !hasFailed) return false;
         if (priority && (p.priority || 'normal') !== priority) return false;
         if (type && p.post_type !== type) return false;
@@ -1994,19 +2002,19 @@
         const snoozed = Array.isArray(result) ? [] : (result.snoozed || []);
         currentPosts = posts;
         currentSnoozed = snoozed;
-        const scheduledCount = posts.filter(p => !!(p.approved && p.scheduled_at && !p.commented)).length;
-        const queueCount = posts.filter(p => !p.commented && !(p.approved && p.scheduled_at)).length;
-        const publishedCount = posts.filter(p => !!p.commented).length + scheduledCount;
+        const queueCount = posts.filter(p => !isPublishedPost(p)).length;
+        const publishedCount = posts.filter(p => isPublishedPost(p)).length;
         const failedCount = posts.filter(p => {
-          if (p.commented) return false;
+          if (isPublishedPost(p)) return false;
           const la = String(p.last_activity_action || '').toLowerCase();
-          return (Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error') && !p.scheduled_at;
+          return (Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at;
         }).length;
         const attentionCount = posts.filter(p => {
+          const isPublished = isPublishedPost(p);
           const la = String(p.last_activity_action || '').toLowerCase();
-          const hf = ((Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error') && !p.scheduled_at);
-          const recheckCandidate = !p.commented && Number(p.recheck_candidate || 0) === 1;
-          return !!(p.approved && !p.commented && (!p.scheduled_at || hf)) || recheckCandidate;
+          const hf = ((Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at);
+          const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
+          return !!(p.approved && !isPublished && (!p.scheduled_at || hf)) || recheckCandidate;
         }).length;
         const tabQueue = document.getElementById('tab-queue');
         const tabAttention = document.getElementById('tab-attention');
@@ -2023,9 +2031,9 @@
         const content = document.getElementById('content');
         const countEl = document.getElementById('post-count');
 
-        const drafted = posts.filter(p => p.comment_draft && !p.commented).length;
-        const commented = posts.filter(p => p.commented).length;
-        const approvedPending = posts.filter(p => p.approved && !p.commented).length;
+        const drafted = posts.filter(p => p.comment_draft && !isPublishedPost(p)).length;
+        const commented = posts.filter(p => isPublishedPost(p)).length;
+        const approvedPending = posts.filter(p => p.approved && !isPublishedPost(p)).length;
         const parts = [`${posts.length} posts`];
         if (drafted) parts.push(`${drafted} drafted`);
         if (approvedPending) parts.push(`${approvedPending} approved`);
@@ -2183,12 +2191,13 @@
       const isWriting = ds === 'writing';
       const isDraftFailed = ds.startsWith('failed_');
       const isDraftCancelled = ds.startsWith('cancelled_');
-      const recheckCandidate = !p.commented && Number(p.recheck_candidate || 0) === 1;
+      const isPublished = isPublishedPost(p);
+      const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
       const gainReactions = Number(p.reactions_gain_since_first || 0);
       const gainComments = Number(p.comments_gain_since_first || 0);
       const seenDays = Number(p.days_since_first_seen || 0);
       const lastAction = String(p.last_activity_action || '').toLowerCase();
-      const hasPostingFailure = (lastAction === 'failed' || lastAction === 'error') && !p.scheduled_at;
+      const hasPostingFailure = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
       const hasFailed = isDraftFailed || hasPostingFailure;
       const statusBadges = [];
       if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
@@ -2199,28 +2208,36 @@
         statusBadges.push(`<span class="badge" style="background:rgba(59,130,246,0.14);color:#60a5fa;border:1px solid rgba(96,165,250,0.32)" title="This post gained engagement since first seen and is worth re-checking">Recheck +${Math.max(0, gainReactions)}r +${Math.max(0, gainComments)}c${ageHint}</span>`);
       }
       if (isDraftCancelled) statusBadges.push('<span class="badge badge-rejected">Cancelled</span>');
-      const isScheduled = !!(p.approved && p.scheduled_at && !p.commented);
+      const isScheduled = !!(p.approved && p.scheduled_at && !isPublished);
       const scheduledAtMs = parseUtcDateMs(p.scheduled_at);
       const isDueScheduled = isScheduled && Number.isFinite(scheduledAtMs) && scheduledAtMs <= Date.now();
       const activityTime = p.last_activity_at ? formatShortDateTime(p.last_activity_at) : '';
       const tsSuffix = activityTime ? ` <span style="opacity:0.7;font-size:10px">${activityTime}</span>` : '';
       const schTime = formatShortDateTime(p.scheduled_at);
-      if (p.commented) statusBadges.push(`<span class="badge badge-commented">Published${tsSuffix}</span>`);
+      if (isPublished) statusBadges.push(`<span class="badge badge-commented">Published${tsSuffix}</span>`);
       else if (isDueScheduled) statusBadges.push(`<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)" title="Scheduled time passed; waiting for auto-poster window/slot">Due <span style="opacity:0.7;font-size:10px">${schTime}</span></span>`);
       else if (isScheduled) statusBadges.push(`<span class="badge badge-scheduled">Scheduled <span style="opacity:0.7;font-size:10px">${schTime}</span></span>`);
       else if (p.approved || approvedIds.has(p.id)) statusBadges.push(`<span class="badge badge-approved">Approved${tsSuffix}</span>`);
       else if (rejectedIds.has(p.id)) statusBadges.push(`<span class="badge badge-rejected">Rejected${tsSuffix}</span>`);
       else if (p.comment_draft) statusBadges.push(`<span class="badge badge-draft">Draft${tsSuffix}</span>`);
-      if (!p.commented && p.approved && !p.scheduled_at) {
+      if (!isPublished && p.approved && !p.scheduled_at) {
         statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)">Awaiting schedule</span>');
       }
-      if (!p.commented && hasFailed) {
+      if (!isPublished && hasFailed) {
         const failReason = String(p.draft_error || p.last_activity_reason || 'Recent failure')
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;');
-        const failLabel = ds === 'failed_timeout' ? 'Timed out' : ds === 'failed_quality' ? 'Quality fail' : ds === 'failed_provider' ? 'Provider error' : 'Failed';
+        const failLabel = lastAction === 'verify_needed'
+          ? 'Verify'
+          : ds === 'failed_timeout'
+            ? 'Timed out'
+            : ds === 'failed_quality'
+              ? 'Quality fail'
+              : ds === 'failed_provider'
+                ? 'Provider error'
+                : 'Failed';
         statusBadges.push(`<span class="badge badge-rejected" title="${failReason}">${failLabel}</span>`);
       }
 
@@ -2251,13 +2268,13 @@
         : isWriting
         ? '<div class="draft-inflight"><span class="mini-spinner"></span>Writing draft now...</div>'
         : (isQueued ? '<div class="draft-inflight"><span class="mini-spinner"></span>Queued for research and drafting...</div>' : '');
-      const failureNote = (!p.commented && hasFailed && p.last_activity_reason)
+      const failureNote = (!isPublished && hasFailed && p.last_activity_reason)
         ? `<div style="margin-top:6px;font-size:11px;color:#f87171;line-height:1.4">Last error: ${escapeHtml(String(p.last_activity_reason).slice(0, 220))}</div>`
         : '';
       const evidenceBlock = renderEvidenceBlock(p);
 
       return `
-        <tr class="${p.commented ? 'commented' : ''}" data-post-id="${p.id}">
+        <tr class="${isPublished ? 'commented' : ''}" data-post-id="${p.id}">
           <td class="col-check"><input type="checkbox" value="${p.id}" onchange="updateSelection()" /></td>
           <td class="col-num">${idx}</td>
           <td class="col-priority">${priorityDot(p.id, p.priority)}</td>
@@ -2269,7 +2286,7 @@
             ${p.comment_draft ? `
               <div class="draft-actions" style="margin-top:6px">
                 <span class="draft-toggle" onclick="toggleDraft(${p.id}, this)" style="margin:0">${expandedDraftId === p.id ? 'Hide draft' : 'Show draft'}</span>
-                ${!p.commented && !isScheduled ? `
+                ${!isPublished && !isScheduled ? `
                   <button class="btn-approve" onclick="approveDraft(${p.id})">Approve</button>
                   <button class="btn-approve" onclick="postNow(${p.id})" style="background:rgba(34,197,94,0.18);color:#4ade80;border-color:rgba(34,197,94,0.4)">Post Now</button>
                   <button class="btn-reject" onclick="rejectDraft(${p.id})">Reject</button>
@@ -2366,7 +2383,7 @@
         const delayStr = await window.pocketAgent.getSetting('linkedin.commentDelay') || '3';
         const delayMin = Math.max(1, parseInt(delayStr, 10) || 3);
         const scheduledTimes = currentPosts
-          .filter(p => p.scheduled_at && !p.commented && p.id !== postId)
+          .filter(p => p.scheduled_at && !isPublishedPost(p) && p.id !== postId)
           .map(p => new Date(p.scheduled_at + (p.scheduled_at.includes('Z') ? '' : 'Z')).getTime())
           .filter(t => !isNaN(t));
         const latestScheduled = scheduledTimes.length > 0 ? Math.max(...scheduledTimes) : 0;
@@ -2407,7 +2424,7 @@
     async function postNowSelected() {
       const ids = getSelectedIds().filter(id => {
         const p = currentPosts.find(pp => pp.id === id);
-        return p && p.comment_draft && !p.commented;
+        return p && p.comment_draft && !isPublishedPost(p);
       });
       if (ids.length === 0) { showToast('No eligible posts selected', 'error'); return; }
       try {

@@ -383,7 +383,7 @@ export interface AgentConfig {
   workspace?: string;  // Isolated working directory for agent file operations
   dataDir?: string;    // App data directory (e.g. ~/Library/Application Support/pocket-agent)
   model?: string;
-  mode?: 'general' | 'coder' | 'manager';
+  mode?: 'coder' | 'manager';
   tools?: ToolsConfig;
 }
 
@@ -412,7 +412,7 @@ class AgentManagerClass extends EventEmitter {
   private projectRoot: string = process.cwd();
   private workspace: string = process.cwd();  // Isolated working directory for agent
   private model: string = 'claude-opus-4-6';
-  private mode: 'general' | 'coder' | 'manager' = 'coder';
+  private mode: 'coder' | 'manager' = 'coder';
   private toolsConfig: ToolsConfig | null = null;
   private initialized: boolean = false;
   private identity: string = '';
@@ -527,14 +527,61 @@ class AgentManagerClass extends EventEmitter {
     return this.model;
   }
 
-  getMode(): 'general' | 'coder' | 'manager' {
+  getMode(): 'coder' | 'manager' {
     return this.mode;
   }
 
-  private normalizeMode(mode: string): 'general' | 'coder' | 'manager' {
+  private normalizeMode(mode: string): 'coder' | 'manager' {
     const normalized = String(mode || '').trim().toLowerCase();
-    if (normalized === 'general' || normalized === 'manager') return normalized;
+    if (normalized === 'general' || normalized === 'manager') return 'manager';
     return 'coder';
+  }
+
+  private inferTelegramDesiredMode(
+    userMessage: string,
+    attachmentInfo?: AttachmentInfo
+  ): 'coder' | 'manager' | null {
+    const text = String(userMessage || '').toLowerCase();
+
+    // Explicit user overrides
+    const explicitCoder = /\b(coder|coding)\s+mode\b|\b(switch|set|use)\s+(to\s+)?coder\b/.test(text);
+    const explicitManager = /\bmanager\s+mode\b|\b(switch|set|use)\s+(to\s+)?manager\b/.test(text);
+    if (explicitCoder && !explicitManager) return 'coder';
+    if (explicitManager && !explicitCoder) return 'manager';
+
+    let coderScore = 0;
+    let managerScore = 0;
+
+    // Strong coder intent signals
+    if (/\b(code|coding|debug|bug|fix|refactor|implement|terminal|shell|bash|git|commit|push|pull request|pr|npm|pnpm|yarn|tsc)\b/.test(text)) {
+      coderScore += 2;
+    }
+    // Supporting coder intent
+    if (/\b(file|files|folder|repository|repo|branch|function|class|typescript|javascript|python|sql|migration|build|tests?)\b/.test(text)) {
+      coderScore += 1;
+    }
+    if (/`[^`]+`/.test(text)) {
+      coderScore += 1;
+    }
+
+    // Strong manager intent signals
+    if (/\b(linkedin|inbox|email|emails|newsletter|prospect|lead|engagement|impressions)\b/.test(text)) {
+      managerScore += 2;
+    }
+    // Supporting manager intent
+    if (/\b(post|posts|comment|comments|draft|drafts|schedule|scheduled|calendar|meeting|strategy|plan|planning|outreach)\b/.test(text)) {
+      managerScore += 1;
+    }
+
+    // Most Telegram attachments in this product map to manager workflows.
+    if (attachmentInfo?.attachmentType && attachmentInfo.attachmentType !== 'document') {
+      managerScore += 1;
+    }
+
+    if (coderScore === 0 && managerScore === 0) return null;
+    if (coderScore >= 2 && coderScore > managerScore) return 'coder';
+    if (managerScore >= 2 && managerScore > coderScore) return 'manager';
+    return null;
   }
 
   setModel(model: string): void {
@@ -666,7 +713,20 @@ class AgentManagerClass extends EventEmitter {
     }
 
     const memory = this.memory; // Local reference for TypeScript narrowing
-    const sessionMode = memory.getSessionMode(sessionId);
+    let sessionMode = memory.getSessionMode(sessionId);
+
+    // Telegram convenience: auto-switch session mode by intent so users don't need /mode commands.
+    if (channel === 'telegram') {
+      const desiredMode = this.inferTelegramDesiredMode(userMessage, attachmentInfo);
+      if (desiredMode && desiredMode !== sessionMode) {
+        const switched = memory.setSessionMode(sessionId, desiredMode);
+        if (switched) {
+          this.clearSdkSessionMapping(sessionId);
+          sessionMode = desiredMode;
+          console.log(`[AgentManager] Auto-switched Telegram session ${sessionId} to ${desiredMode} mode`);
+        }
+      }
+    }
 
     this.processingBySession.set(sessionId, true);
     this.stoppedByUserSession.delete(sessionId);
@@ -1318,7 +1378,7 @@ class AgentManagerClass extends EventEmitter {
   private async buildPersistentOptions(
     memory: MemoryManager,
     sessionId: string,
-    sessionMode: 'general' | 'coder' | 'manager',
+    sessionMode: 'coder' | 'manager',
     sdkSessionId?: string,
   ): Promise<SDKOptions> {
     // === Static context (set once at session creation) ===
@@ -1356,18 +1416,11 @@ class AgentManagerClass extends EventEmitter {
       staticParts.push(capabilities);
     }
 
-    if (sessionMode === 'general') {
-      staticParts.push(
-        `## Active Mode: General\n` +
-        `You are in General mode for this session.\n` +
-        `Focus on clear answers, planning, and practical guidance.\n` +
-        `Do NOT perform coding/file-editing/shell actions in this mode.\n` +
-        `If the user asks for coding changes, ask them to switch this session to Coder mode.`
-      );
-    } else if (sessionMode === 'manager') {
+    if (sessionMode === 'manager') {
       staticParts.push(
         `## Active Mode: Manager\n` +
         `You are in Manager mode for this session.\n` +
+        `This mode also includes the former General behavior: clear answers, planning, and practical guidance.\n` +
         `Prioritize business execution: LinkedIn strategy, email operations, planning, delegation, and concise decisions.\n` +
         `When critiquing ideas, be direct but always include a constructive next action.\n` +
         `Avoid coding/file-editing/shell actions in this mode unless explicitly required.`

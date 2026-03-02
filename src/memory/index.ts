@@ -12,7 +12,7 @@ import {
 export interface Session {
   id: string;
   name: string;
-  mode?: 'general' | 'coder' | 'manager';
+  mode?: 'coder' | 'manager';
   created_at: string;
   updated_at: string;
   telegram_linked?: boolean;
@@ -154,6 +154,11 @@ function estimateTokens(text: string): number {
 export class MemoryManager {
   private db: Database.Database;
   private summarizer?: SummarizerFn;
+  private normalizeSessionMode(mode: string | null | undefined): 'coder' | 'manager' {
+    const normalized = String(mode || '').trim().toLowerCase();
+    if (normalized === 'general' || normalized === 'manager') return 'manager';
+    return 'coder';
+  }
 
   /** Expose raw db for direct queries (e.g. calendar IPC handlers) */
   getDatabase(): Database.Database {
@@ -534,6 +539,9 @@ export class MemoryManager {
       this.db.exec(`UPDATE sessions SET mode = 'coder' WHERE mode IS NULL OR trim(mode) = ''`);
       console.log('[Memory] Migrated sessions table: added mode column');
     }
+    // Mode cleanup: "general" has been merged into "manager"
+    this.db.exec(`UPDATE sessions SET mode = 'manager' WHERE lower(trim(mode)) = 'general'`);
+    this.db.exec(`UPDATE sessions SET mode = 'coder' WHERE mode IS NULL OR lower(trim(mode)) NOT IN ('coder', 'manager')`);
   }
 
   /**
@@ -878,7 +886,7 @@ export class MemoryManager {
    * Create a new session
    * @throws Error if session name already exists
    */
-  createSession(name: string, mode: 'general' | 'coder' | 'manager' = 'coder'): Session {
+  createSession(name: string, mode: 'coder' | 'manager' = 'coder'): Session {
     // Check for duplicate name
     const existing = this.getSessionByName(name);
     if (existing) {
@@ -905,7 +913,7 @@ export class MemoryManager {
     `).get(name) as Session | undefined;
 
     if (!row) return null;
-    row.mode = (row.mode as 'general' | 'coder' | 'manager') || 'coder';
+    row.mode = this.normalizeSessionMode(row.mode || null);
     return row;
   }
 
@@ -920,7 +928,7 @@ export class MemoryManager {
     `).get(id) as Session | undefined;
 
     if (!row) return null;
-    row.mode = (row.mode as 'general' | 'coder' | 'manager') || 'coder';
+    row.mode = this.normalizeSessionMode(row.mode || null);
     return row;
   }
 
@@ -954,7 +962,7 @@ export class MemoryManager {
     return rows.map(row => ({
       id: row.id,
       name: row.name,
-      mode: (row.mode as 'general' | 'coder' | 'manager') || 'coder',
+      mode: this.normalizeSessionMode(row.mode),
       created_at: row.created_at,
       updated_at: row.updated_at,
       telegram_linked: !!row.telegram_linked,
@@ -965,21 +973,20 @@ export class MemoryManager {
   /**
    * Get the mode for a session (defaults to coder for legacy sessions)
    */
-  getSessionMode(sessionId: string): 'general' | 'coder' | 'manager' {
+  getSessionMode(sessionId: string): 'coder' | 'manager' {
     const row = this.db.prepare('SELECT mode FROM sessions WHERE id = ?').get(sessionId) as { mode: string | null } | undefined;
-    const mode = (row?.mode || 'coder').trim().toLowerCase();
-    if (mode === 'general' || mode === 'manager') return mode;
-    return 'coder';
+    return this.normalizeSessionMode(row?.mode);
   }
 
   /**
    * Set the mode for a session.
    */
-  setSessionMode(sessionId: string, mode: 'general' | 'coder' | 'manager'): boolean {
+  setSessionMode(sessionId: string, mode: 'coder' | 'manager'): boolean {
+    const normalized = this.normalizeSessionMode(mode);
     const result = this.db.prepare(`
       UPDATE sessions SET mode = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ'))
       WHERE id = ?
-    `).run(mode, sessionId);
+    `).run(normalized, sessionId);
     return result.changes > 0;
   }
 

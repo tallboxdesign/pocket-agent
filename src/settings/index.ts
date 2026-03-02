@@ -175,7 +175,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     encrypted: false,
     category: 'agent',
     label: 'Default Agent Mode',
-    description: 'Default mode for new sessions: general, coder, or manager',
+    description: 'Default mode for new sessions: coder or manager',
     type: 'string',
   },
   // DEPRECATED: SDK handles compaction natively via persistSession + resume

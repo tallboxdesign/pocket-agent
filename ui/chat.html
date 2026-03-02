@@ -148,6 +148,31 @@
       max-width: 120px;
     }
 
+    .tab-mode {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      flex-shrink: 0;
+    }
+
+    .tab-mode.coder {
+      background: rgba(16, 185, 129, 0.18);
+      border-color: rgba(52, 211, 153, 0.35);
+      color: #6ee7b7;
+    }
+
+    .tab-mode.manager {
+      background: rgba(245, 158, 11, 0.18);
+      border-color: rgba(251, 191, 36, 0.35);
+      color: #fcd34d;
+    }
+
     .tab-name-input {
       background: transparent;
       border: 1px solid var(--accent);
@@ -1651,12 +1676,12 @@
     }
 
     .mode-toggle.locked {
-      opacity: 0.55;
-      filter: grayscale(40%);
+      opacity: 1;
+      filter: none;
     }
 
     .mode-toggle.locked .mode-btn {
-      cursor: not-allowed;
+      cursor: pointer;
     }
 
     /* Workflows Area */
@@ -2505,7 +2530,6 @@
   <div id="toolbar-row">
     <div id="mode-toggle-area">
       <div class="mode-toggle" id="mode-toggle">
-        <button class="mode-btn" id="mode-btn-general" onclick="setAgentMode('general')">General</button>
         <button class="mode-btn active" id="mode-btn-coder" onclick="setAgentMode('coder')">Coder</button>
         <button class="mode-btn" id="mode-btn-manager" onclick="setAgentMode('manager')">Manager</button>
       </div>
@@ -3179,11 +3203,9 @@
     }
 
     function updateModeButtons(mode) {
-      const generalBtn = document.getElementById('mode-btn-general');
       const coderBtn = document.getElementById('mode-btn-coder');
       const managerBtn = document.getElementById('mode-btn-manager');
-      if (!generalBtn || !coderBtn || !managerBtn) return;
-      generalBtn.classList.toggle('active', mode === 'general');
+      if (!coderBtn || !managerBtn) return;
       coderBtn.classList.toggle('active', mode === 'coder');
       managerBtn.classList.toggle('active', mode === 'manager');
     }
@@ -3195,11 +3217,9 @@
         currentAgentMode = mode || 'coder';
         updateModeButtons(currentAgentMode);
 
-        const stats = await window.pocketAgent.getStats(sessionId);
-        const locked = !!(stats && Number(stats.messageCount || 0) > 0);
         const toggle = document.getElementById('mode-toggle');
         if (toggle) {
-          toggle.classList.toggle('locked', locked);
+          toggle.classList.remove('locked');
         }
       } catch (err) {
         console.error('Failed to update mode UI for session:', err);
@@ -3207,15 +3227,10 @@
     }
 
     async function setAgentMode(mode) {
-      const normalized = String(mode || '').toLowerCase();
-      if (!['general', 'coder', 'manager'].includes(normalized)) return;
+      const raw = String(mode || '').toLowerCase();
+      const normalized = raw === 'general' ? 'manager' : raw;
+      if (!['coder', 'manager'].includes(normalized)) return;
       if (!window.pocketAgent.setSessionMode) return;
-
-      const toggle = document.getElementById('mode-toggle');
-      if (toggle && toggle.classList.contains('locked')) {
-        addMessage('system', 'Mode is locked for this chat after first message. Create a new chat to switch mode.');
-        return;
-      }
 
       const previous = currentAgentMode;
       currentAgentMode = normalized;

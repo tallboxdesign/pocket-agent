@@ -308,7 +308,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
 interface Session {
   id: string;
   name: string;
-  mode?: 'general' | 'coder' | 'manager';
+  mode?: 'coder' | 'manager';
   created_at: string;
   updated_at: string;
   telegram_linked?: boolean;
@@ -322,8 +322,8 @@ declare global {
       send: (message: string, sessionId?: string) => Promise<{ success: boolean; response?: string; error?: string; tokensUsed?: number; suggestedPrompt?: string; media?: Array<{ type: string; filePath: string; mimeType: string }> }>;
       stop: (sessionId?: string) => Promise<{ success: boolean }>;
       setMode: (mode: string) => Promise<{ success: boolean; error?: string }>;
-      getMode: () => Promise<'general' | 'coder' | 'manager'>;
-      getSessionMode: (sessionId: string) => Promise<'general' | 'coder' | 'manager'>;
+      getMode: () => Promise<'coder' | 'manager'>;
+      getSessionMode: (sessionId: string) => Promise<'coder' | 'manager'>;
       setSessionMode: (sessionId: string, mode: string) => Promise<{ success: boolean; error?: string }>;
       onModeChanged: (callback: (mode: string) => void) => () => void;
       onStatus: (callback: (status: { type: string; toolName?: string; toolInput?: string; message?: string }) => void) => () => void;
@@ -364,7 +364,7 @@ declare global {
       openCustomize: () => Promise<void>;
       openRoutines: () => Promise<void>;
       openLinkedInActivity: () => Promise<void>;
-      listLinkedInPosts: (date: string) => Promise<{ posts: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string; priority: string; scheduled_at: string | null; snoozed_until: string | null; hidden: number }>; snoozed: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; snoozed_until: string; priority: string }> }>;
+      listLinkedInPosts: (date: string) => Promise<{ posts: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; posted_logged?: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string; priority: string; scheduled_at: string | null; snoozed_until: string | null; hidden: number }>; snoozed: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; snoozed_until: string; priority: string }> }>;
       approveLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string; postUrl?: string; draft?: string }>;
       rejectLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string }>;
       updateLinkedInDraft: (id: number, text: string) => Promise<{ success: boolean; error?: string }>;

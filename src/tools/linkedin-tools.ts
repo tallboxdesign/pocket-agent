@@ -240,8 +240,10 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       const refreshedPostsByUrl = new Map<string, unknown>();
       const tx = db.transaction(() => {
         for (const post of posts) {
-          if (post.post_url) {
-            const existing = check.get(post.post_url) as ExistingLinkedInPostRow | undefined;
+          const normalizedPostUrl = post.post_url ? normalizeLinkedInPostUrl(post.post_url) : '';
+          if (normalizedPostUrl) {
+            post.post_url = normalizedPostUrl;
+            const existing = check.get(normalizedPostUrl) as ExistingLinkedInPostRow | undefined;
             const nextAuthor = post.author || 'Unknown';
             const nextPreview = (post.text_preview || '').slice(0, 500);
             const nextReactions = post.reactions || 0;
@@ -249,7 +251,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
             const nextType = post.type || null;
 
             if (existing) {
-              existingUrls.add(post.post_url);
+              existingUrls.add(normalizedPostUrl);
               const changed =
                 existing.author !== nextAuthor ||
                 existing.text_preview !== nextPreview ||
@@ -258,13 +260,13 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
                 (existing.post_type || null) !== nextType ||
                 existing.scraped_date !== today;
               if (changed) {
-                refreshedUrls.add(post.post_url);
-                refreshedPostsByUrl.set(post.post_url, post);
+                refreshedUrls.add(normalizedPostUrl);
+                refreshedPostsByUrl.set(normalizedPostUrl, post);
               }
             }
 
             upsert.run(
-              post.post_url,
+              normalizedPostUrl,
               nextAuthor,
               nextPreview,
               nextReactions,
@@ -379,6 +381,7 @@ Examples:
 
 // Rate limiter: track last comment time to space them out with randomized delays
 let _lastCommentTime = 0;
+const ATTEMPT_GUARD_HOURS = 6;
 function getCommentDelayMs(): number {
   const baseMins = parseFloat(SettingsManager.get('linkedin.commentDelay') || '3');
   // Keep at or above configured baseline, but still humanized.
@@ -392,12 +395,41 @@ function parseDbTsMs(value: string | null | undefined): number {
   return Number.isFinite(ts) ? ts : 0;
 }
 
+function normalizeLinkedInPostUrl(raw: string): string {
+  const input = String(raw || '').trim();
+  if (!input) return '';
+  const activityMatch = input.match(/urn:li:activity:\d+/i);
+  if (activityMatch) {
+    return `https://www.linkedin.com/feed/update/${activityMatch[0].toLowerCase()}/`;
+  }
+  try {
+    const u = new URL(input);
+    u.hash = '';
+    u.search = '';
+    u.hostname = 'www.linkedin.com';
+    let pathname = u.pathname || '/';
+    if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);
+    u.pathname = `${pathname}/`;
+    return u.toString();
+  } catch {
+    return input;
+  }
+}
+
+function extractActivityId(url: string): string | null {
+  const m = String(url || '').match(/activity:(\d+)/i);
+  return m ? m[1] : null;
+}
+
 async function handleCommentTool(input: unknown): Promise<string> {
   const err = checkEnabled();
   if (err) return err;
 
   const p = input as { url: string; comment: string };
   if (!p.url || !p.comment) return JSON.stringify({ error: 'url and comment are required' });
+  const normalizedUrl = normalizeLinkedInPostUrl(p.url);
+  if (!normalizedUrl) return JSON.stringify({ error: 'url and comment are required' });
+  const activityId = extractActivityId(normalizedUrl);
 
   const db = getDb();
   const dbLastPostedMs = db
@@ -418,9 +450,16 @@ async function handleCommentTool(input: unknown): Promise<string> {
 
     let scheduledAt: string | null = null;
     if (db) {
-      const post = db.prepare(
-        `SELECT id, approved, commented FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
-      ).get(p.url) as { id: number; approved: number; commented: number } | undefined;
+      const post = activityId
+        ? db.prepare(
+          `SELECT id, approved, commented
+           FROM linkedin_posts
+           WHERE post_url = ? OR post_url LIKE ?
+           ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl, `%activity:${activityId}%`) as { id: number; approved: number; commented: number } | undefined
+        : db.prepare(
+          `SELECT id, approved, commented FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl) as { id: number; approved: number; commented: number } | undefined;
       if (post && post.approved === 1 && post.commented === 0) {
         scheduledAt = new Date(lastPostedMs + requiredDelayMs).toISOString().replace('T', ' ').slice(0, 19);
         db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(scheduledAt, post.id);
@@ -440,18 +479,72 @@ async function handleCommentTool(input: unknown): Promise<string> {
   try {
     // Double-post guard: check if already commented or already logged as posted
     if (db) {
-      const check = db.prepare(
-        `SELECT 1 as ok FROM linkedin_posts
-         WHERE post_url = ? AND commented = 1
-         LIMIT 1`
-      ).get(p.url) as { ok: number } | undefined;
-      const postedLog = db.prepare(
-        `SELECT 1 as ok FROM linkedin_activity_log
-         WHERE post_url = ? AND action = 'posted'
-         LIMIT 1`
-      ).get(p.url) as { ok: number } | undefined;
+      const check = activityId
+        ? db.prepare(
+          `SELECT 1 as ok FROM linkedin_posts
+           WHERE (post_url = ? OR post_url LIKE ?) AND commented = 1
+           LIMIT 1`
+        ).get(normalizedUrl, `%activity:${activityId}%`) as { ok: number } | undefined
+        : db.prepare(
+          `SELECT 1 as ok FROM linkedin_posts
+           WHERE post_url = ? AND commented = 1
+           LIMIT 1`
+        ).get(normalizedUrl) as { ok: number } | undefined;
+      const postedLog = activityId
+        ? db.prepare(
+          `SELECT 1 as ok FROM linkedin_activity_log
+           WHERE (post_url = ? OR post_url LIKE ?) AND action = 'posted'
+           LIMIT 1`
+        ).get(normalizedUrl, `%activity:${activityId}%`) as { ok: number } | undefined
+        : db.prepare(
+          `SELECT 1 as ok FROM linkedin_activity_log
+           WHERE post_url = ? AND action = 'posted'
+           LIMIT 1`
+        ).get(normalizedUrl) as { ok: number } | undefined;
       if (check?.ok || postedLog?.ok) {
         return JSON.stringify({ success: false, error: 'Already posted on this post' });
+      }
+
+      const recentAttempt = activityId
+        ? db.prepare(
+          `SELECT created_at FROM linkedin_activity_log
+           WHERE action IN ('posting_attempt', 'verify_needed')
+             AND (post_url = ? OR post_url LIKE ?)
+           ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl, `%activity:${activityId}%`) as { created_at: string } | undefined
+        : db.prepare(
+          `SELECT created_at FROM linkedin_activity_log
+           WHERE action IN ('posting_attempt', 'verify_needed')
+             AND post_url = ?
+           ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl) as { created_at: string } | undefined;
+      if (recentAttempt?.created_at) {
+        const guardTs = parseDbTsMs(recentAttempt.created_at);
+        if (!guardTs || (Date.now() - guardTs) < ATTEMPT_GUARD_HOURS * 60 * 60 * 1000) {
+          return JSON.stringify({
+            success: false,
+            needs_verification: true,
+            error: 'Recent uncertain posting attempt detected. Verify on LinkedIn before retrying.',
+          });
+        }
+      }
+
+      const postForAttempt = activityId
+        ? db.prepare(
+          `SELECT id FROM linkedin_posts
+           WHERE post_url = ? OR post_url LIKE ?
+           ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl, `%activity:${activityId}%`) as { id: number } | undefined
+        : db.prepare(
+          `SELECT id FROM linkedin_posts
+           WHERE post_url = ?
+           ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl) as { id: number } | undefined;
+      if (postForAttempt) {
+        db.prepare(
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
+           VALUES (?, ?, 'posting_attempt', ?)`
+        ).run(postForAttempt.id, normalizedUrl, 'manual');
       }
     }
 
@@ -459,7 +552,7 @@ async function handleCommentTool(input: unknown): Promise<string> {
     // the first submit but response times out.
     let posted = false;
     try {
-      await linkedinExec('reply', ['--url', p.url, '--comment', p.comment, '--no-confirm'], 120000);
+      await linkedinExec('reply', ['--url', normalizedUrl, '--comment', p.comment, '--no-confirm'], 120000);
       posted = true;
     } catch (err) {
       const maybeStdout = String((err as Error & { stdout?: string }).stdout || '');
@@ -474,16 +567,28 @@ async function handleCommentTool(input: unknown): Promise<string> {
     _lastCommentTime = Date.now();
 
     if (db) {
-      const post = db.prepare(
-        `SELECT id, author, kanban_task_id FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
-      ).get(p.url) as { id: number; author: string; kanban_task_id: number | null } | undefined;
+      const post = activityId
+        ? db.prepare(
+          `SELECT id, author, kanban_task_id
+           FROM linkedin_posts
+           WHERE post_url = ? OR post_url LIKE ?
+           ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl, `%activity:${activityId}%`) as { id: number; author: string; kanban_task_id: number | null } | undefined
+        : db.prepare(
+          `SELECT id, author, kanban_task_id FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl) as { id: number; author: string; kanban_task_id: number | null } | undefined;
 
       if (post) {
-        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(p.url);
+        if (activityId) {
+          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ? OR post_url LIKE ?')
+            .run(normalizedUrl, `%activity:${activityId}%`);
+        } else {
+          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(normalizedUrl);
+        }
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, comment_text)
            VALUES (?, ?, 'posted', ?)`
-        ).run(post.id, p.url, p.comment);
+        ).run(post.id, normalizedUrl, p.comment);
 
         if (post.kanban_task_id) {
           try {
@@ -495,22 +600,32 @@ async function handleCommentTool(input: unknown): Promise<string> {
       }
     }
 
-    return JSON.stringify({ success: true, message: 'Comment posted', post_url: p.url });
+    return JSON.stringify({ success: true, message: 'Comment posted', post_url: normalizedUrl });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error('[LinkedIn] comment failed:', msg);
     if (db) {
-      const post = db.prepare(
-        `SELECT id FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
-      ).get(p.url) as { id: number } | undefined;
+      const post = activityId
+        ? db.prepare(
+          `SELECT id FROM linkedin_posts
+           WHERE post_url = ? OR post_url LIKE ?
+           ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl, `%activity:${activityId}%`) as { id: number } | undefined
+        : db.prepare(
+          `SELECT id FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
+        ).get(normalizedUrl) as { id: number } | undefined;
       if (post) {
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
-           VALUES (?, ?, 'failed', ?)`
-        ).run(post.id, p.url, msg);
+           VALUES (?, ?, 'verify_needed', ?)`
+        ).run(post.id, normalizedUrl, msg.slice(0, 500));
       }
     }
-    return JSON.stringify({ success: false, error: msg });
+    return JSON.stringify({
+      success: false,
+      needs_verification: true,
+      error: `Comment outcome is uncertain. Verify on LinkedIn before retrying. ${msg}`,
+    });
   }
 }
 

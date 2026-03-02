@@ -19,6 +19,7 @@ let telegramBot: TelegramBot | null = null;
 let cachedDailyLimit: number | null = null;
 let cachedLimitDay: string | null = null;
 let autoPosterRunInFlight = false;
+const ATTEMPT_GUARD_HOURS = 6;
 
 export function setLinkedInTelegramBot(bot: TelegramBot | null): void {
   telegramBot = bot;
@@ -123,6 +124,81 @@ function parseDbDateTime(value: string | null | undefined): number {
   const normalized = raw.includes('Z') ? raw : `${raw}Z`;
   const ts = Date.parse(normalized);
   return Number.isFinite(ts) ? ts : NaN;
+}
+
+function normalizeLinkedInPostUrl(raw: string): string {
+  const input = String(raw || '').trim();
+  if (!input) return '';
+  const activityMatch = input.match(/urn:li:activity:\d+/i);
+  if (activityMatch) {
+    return `https://www.linkedin.com/feed/update/${activityMatch[0].toLowerCase()}/`;
+  }
+  try {
+    const u = new URL(input);
+    u.hash = '';
+    u.search = '';
+    u.hostname = 'www.linkedin.com';
+    let pathname = u.pathname || '/';
+    if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);
+    u.pathname = `${pathname}/`;
+    return u.toString();
+  } catch {
+    return input;
+  }
+}
+
+function extractActivityId(url: string): string | null {
+  const m = String(url || '').match(/activity:(\d+)/i);
+  return m ? m[1] : null;
+}
+
+function hasPostedActivity(db: Database.Database, postUrl: string): boolean {
+  const activityId = extractActivityId(postUrl);
+  if (activityId) {
+    const row = db.prepare(
+      `SELECT 1 as ok
+       FROM linkedin_activity_log
+       WHERE action = 'posted'
+         AND (post_url = ? OR post_url LIKE ?)
+       LIMIT 1`
+    ).get(postUrl, `%activity:${activityId}%`) as { ok: number } | undefined;
+    return !!row?.ok;
+  }
+  const row = db.prepare(
+    `SELECT 1 as ok
+     FROM linkedin_activity_log
+     WHERE action = 'posted' AND post_url = ?
+     LIMIT 1`
+  ).get(postUrl) as { ok: number } | undefined;
+  return !!row?.ok;
+}
+
+function hasRecentAttemptGuard(db: Database.Database, postUrl: string): boolean {
+  const activityId = extractActivityId(postUrl);
+  let row: { created_at: string } | undefined;
+  if (activityId) {
+    row = db.prepare(
+      `SELECT created_at
+       FROM linkedin_activity_log
+       WHERE action IN ('posting_attempt', 'verify_needed')
+         AND (post_url = ? OR post_url LIKE ?)
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(postUrl, `%activity:${activityId}%`) as { created_at: string } | undefined;
+  } else {
+    row = db.prepare(
+      `SELECT created_at
+       FROM linkedin_activity_log
+       WHERE action IN ('posting_attempt', 'verify_needed')
+         AND post_url = ?
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(postUrl) as { created_at: string } | undefined;
+  }
+  if (!row?.created_at) return false;
+  const ts = parseDbDateTime(row.created_at);
+  if (!Number.isFinite(ts)) return true;
+  return (Date.now() - ts) < ATTEMPT_GUARD_HOURS * 60 * 60 * 1000;
 }
 
 type PostingWindows = {
@@ -398,6 +474,39 @@ export async function checkAndPostNext(): Promise<void> {
       if (elapsed < requiredDelay) return;
     }
 
+    // Safety quarantine: posts with repeated timeout retries are treated as uncertain.
+    // We stop auto-posting them until manually verified.
+    const retryStorm = db.prepare(
+      `SELECT p.id, p.post_url, p.author, COUNT(al.id) as retry_count
+       FROM linkedin_posts p
+       JOIN linkedin_activity_log al ON al.post_id = p.id
+       WHERE p.approved = 1
+         AND p.commented = 0
+         AND p.comment_draft IS NOT NULL
+         AND p.scheduled_at IS NOT NULL
+         AND p.hidden = 0
+         AND al.action = 'retry_scheduled'
+         AND al.created_at >= datetime('now', '-2 days')
+       GROUP BY p.id
+       HAVING retry_count >= 3`
+    ).all() as Array<{ id: number; post_url: string; author: string; retry_count: number }>;
+    if (retryStorm.length > 0) {
+      const markStorm = db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?');
+      const logStorm = db.prepare(
+        `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+         VALUES (?, ?, 'verify_needed', ?, ?, ?)`
+      );
+      const tx = db.transaction(() => {
+        for (const item of retryStorm) {
+          const url = normalizeLinkedInPostUrl(item.post_url);
+          markStorm.run(item.id);
+          logStorm.run(item.id, url, `retry_storm_${item.retry_count}`, dailyLimit, todayCount);
+        }
+      });
+      tx();
+      await notifyTelegram(`LinkedIn: Quarantined ${retryStorm.length} repeatedly timed-out posts for manual verification.`);
+    }
+
     // Find next eligible post
     const priorityOrder = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
     const candidates = db.prepare(
@@ -414,20 +523,34 @@ export async function checkAndPostNext(): Promise<void> {
     const maxPerWeek = parseInt(SettingsManager.get('linkedin.authorMaxCommentsPerWeek') || '2', 10) || 2;
 
     for (const post of candidates) {
+      const postUrl = normalizeLinkedInPostUrl(post.post_url);
+      if (!postUrl) continue;
+
       // URL-level duplicate guard across legacy duplicate rows / failed previous updates.
       // If we ever posted this URL before, mark all matching rows as commented and skip.
-      const alreadyPosted = db.prepare(
-        `SELECT 1 as ok FROM linkedin_activity_log
-         WHERE action = 'posted' AND post_url = ?
-         LIMIT 1`
-      ).get(post.post_url) as { ok: number } | undefined;
-      if (alreadyPosted?.ok) {
-        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(post.post_url);
+      if (hasPostedActivity(db, postUrl)) {
+        const activityId = extractActivityId(postUrl);
+        if (activityId) {
+          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ? OR post_url LIKE ?')
+            .run(postUrl, `%activity:${activityId}%`);
+        } else {
+          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(postUrl);
+        }
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
            VALUES (?, ?, 'skipped', 'duplicate_post_guard', ?, ?)`
-        ).run(post.id, post.post_url, dailyLimit, todayCount);
-        console.log(`[AutoPoster] Duplicate guard skipped already-posted URL: ${post.post_url}`);
+        ).run(post.id, postUrl, dailyLimit, todayCount);
+        console.log(`[AutoPoster] Duplicate guard skipped already-posted URL: ${postUrl}`);
+        continue;
+      }
+
+      if (hasRecentAttemptGuard(db, postUrl)) {
+        db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?').run(post.id);
+        db.prepare(
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+           VALUES (?, ?, 'skipped', 'recent_attempt_guard', ?, ?)`
+        ).run(post.id, postUrl, dailyLimit, todayCount);
+        await notifyTelegram(`LinkedIn: Guarded ${post.author}'s post after uncertain attempt. Verify manually before retrying.`);
         continue;
       }
 
@@ -442,7 +565,7 @@ export async function checkAndPostNext(): Promise<void> {
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
            VALUES (?, ?, 'skipped', 'author_limit', ?, ?)`
-        ).run(post.id, post.post_url, dailyLimit, todayCount);
+        ).run(post.id, postUrl, dailyLimit, todayCount);
         continue;
       }
 
@@ -463,28 +586,44 @@ export async function checkAndPostNext(): Promise<void> {
 
       // Post the comment — single attempt, no blind retry (prevents double-posting)
       let posted = false;
+      let failureReason = '';
+      db.prepare(
+        `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+         VALUES (?, ?, 'posting_attempt', ?, ?, ?)`
+      ).run(post.id, postUrl, `window:${window.name}`, dailyLimit, todayCount);
       try {
-        await linkedinExec('reply', ['--url', post.post_url, '--comment', post.comment_draft, '--no-confirm'], 120000);
+        await linkedinExec('reply', ['--url', postUrl, '--comment', post.comment_draft, '--no-confirm'], 120000);
         posted = true;
       } catch (err) {
         console.error(`[AutoPoster] Posting failed for ${post.author}:`, err);
         // Check if "Comment posted successfully" appears in stdout (timeout after submit)
-        const errMsg = String((err as Error & { stdout?: string }).stdout || '');
+        const stdout = String((err as Error & { stdout?: string }).stdout || '');
+        const stderr = String((err as Error & { stderr?: string }).stderr || '');
+        const msg = String((err as Error).message || '');
+        const errMsg = `${stdout}\n${stderr}\n${msg}`;
         if (errMsg.includes('Comment posted successfully')) {
           console.log(`[AutoPoster] Comment was actually posted despite timeout for ${post.author}`);
           posted = true;
+        } else {
+          failureReason = errMsg.replace(/\s+/g, ' ').trim().slice(0, 500);
         }
       }
 
       if (posted) {
-        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(post.post_url);
+        const activityId = extractActivityId(postUrl);
+        if (activityId) {
+          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ? OR post_url LIKE ?')
+            .run(postUrl, `%activity:${activityId}%`);
+        } else {
+          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(postUrl);
+        }
 
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text, daily_limit, daily_count)
            VALUES (?, ?, 'posted', ?, ?, ?, ?)`
-        ).run(post.id, post.post_url, `window:${window.name}`, post.comment_draft, dailyLimit, todayCount + 1);
+        ).run(post.id, postUrl, `window:${window.name}`, post.comment_draft, dailyLimit, todayCount + 1);
 
-        scheduleEngagementCheck(db, post.id, post.post_url, post.reactions, post.comments);
+        scheduleEngagementCheck(db, post.id, postUrl, post.reactions, post.comments);
 
         if (post.kanban_task_id) {
           try {
@@ -495,18 +634,15 @@ export async function checkAndPostNext(): Promise<void> {
         await notifyTelegram(`LinkedIn: Posted on ${post.author}'s post (${todayCount + 1}/${dailyLimit} today)`);
         console.log(`[AutoPoster] Posted comment on ${post.author}'s post (${todayCount + 1}/${dailyLimit})`);
       } else {
-        // Reschedule 5-10 min later instead of giving up
-        const retryMin = 5 + Math.floor(Math.random() * 6); // 5-10 min
-        const retryAt = new Date(Date.now() + retryMin * 60000).toISOString().replace('T', ' ').slice(0, 19);
-        db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(retryAt, post.id);
-
+        // Safety first: do not auto-retry uncertain outcomes to avoid duplicate posts.
+        db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?').run(post.id);
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
-           VALUES (?, ?, 'retry_scheduled', ?, ?, ?)`
-        ).run(post.id, post.post_url, `timeout_retry_at_${retryAt}`, dailyLimit, todayCount);
+           VALUES (?, ?, 'verify_needed', ?, ?, ?)`
+        ).run(post.id, postUrl, failureReason || 'unknown_post_result', dailyLimit, todayCount);
 
-        await notifyTelegram(`LinkedIn: Posting on ${post.author}'s post timed out. Auto-retrying at ${retryAt.slice(11, 16)}.`);
-        console.log(`[AutoPoster] Timed out on ${post.author}, rescheduled to ${retryAt}`);
+        await notifyTelegram(`LinkedIn: Posting on ${post.author}'s post is uncertain. Auto-retry disabled to prevent duplicates. Please verify manually.`);
+        console.log(`[AutoPoster] Uncertain result on ${post.author}; moved to manual verification`);
       }
       return; // One post per tick
     }
