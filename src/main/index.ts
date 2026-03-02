@@ -3,11 +3,12 @@ import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { fileURLToPath } from 'url';
 import { AgentManager } from '../agent';
 import { MemoryManager } from '../memory';
 import { createScheduler, CronScheduler } from '../scheduler';
 import { createTelegramBot, TelegramBot } from '../channels/telegram';
-import { SettingsManager } from '../settings';
+import { SettingsManager, SETTINGS_SCHEMA } from '../settings';
 import { loadIdentity, saveIdentity, getIdentityPath, DEFAULT_IDENTITY } from '../config/identity';
 import { loadInstructions, saveInstructions, getInstructionsPath, DEFAULT_INSTRUCTIONS } from '../config/instructions';
 import { DEFAULT_COMMANDS } from '../config/commands';
@@ -2209,7 +2210,9 @@ function setupIPC(): void {
     // Security: only allow opening paths within the Pocket-agent documents directory
     const allowedDir = path.join(app.getPath('documents'), 'Pocket-agent');
     const resolvedPath = path.resolve(filePath);
-    if (!resolvedPath.startsWith(allowedDir)) {
+    const rel = path.relative(path.resolve(allowedDir), resolvedPath);
+    const isAllowed = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    if (!isAllowed) {
       console.warn('[Main] Blocked openPath outside allowed directory:', filePath);
       return;
     }
@@ -2223,9 +2226,9 @@ function setupIPC(): void {
   // Open an image in the default viewer — handles both local paths and URLs
   ipcMain.handle('app:openImage', async (_, src: string) => {
     try {
+      const mediaDir = path.join(app.getPath('documents'), 'Pocket-agent', 'media');
       if (src.startsWith('http://') || src.startsWith('https://')) {
         // Remote URL — download to media dir first
-        const mediaDir = path.join(app.getPath('documents'), 'Pocket-agent', 'media');
         if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
 
         const res = await fetch(src);
@@ -2242,8 +2245,26 @@ function setupIPC(): void {
         fs.writeFileSync(filePath, buf);
         await shell.openPath(filePath);
       } else {
-        // Local file path
-        await shell.openPath(src);
+        // Local file path — only allow opening files from known app directories
+        if (src.startsWith('data:')) {
+          console.warn('[Main] Blocked openImage for data URL');
+          return;
+        }
+        const localPath = src.startsWith('file://') ? fileURLToPath(src) : src;
+        const resolvedPath = path.resolve(localPath);
+        const allowedDirs = [
+          path.join(app.getPath('documents'), 'Pocket-agent'),
+          path.join(app.getPath('userData'), 'attachments'),
+        ].map(dir => path.resolve(dir));
+        const isAllowed = allowedDirs.some(dir => {
+          const rel = path.relative(dir, resolvedPath);
+          return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+        });
+        if (!isAllowed) {
+          console.warn('[Main] Blocked openImage outside allowed directories:', src);
+          return;
+        }
+        await shell.openPath(resolvedPath);
       }
     } catch (err) {
       console.error('[Main] Failed to open image:', err);
@@ -2362,6 +2383,11 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('settings:get', async (_, key: string) => {
+    const def = SETTINGS_SCHEMA.find(s => s.key === key);
+    if (def?.encrypted) {
+      const value = SettingsManager.get(key);
+      return value ? '••••••••' : '';
+    }
     return SettingsManager.get(key);
   });
 
@@ -3242,6 +3268,22 @@ Respond with ONLY valid JSON, no markdown, no explanation:
       console.warn('[IPC] Blocked shell:runCommand from non-local origin:', senderUrl);
       throw new Error('Shell commands only allowed from local UI');
     }
+    const allowedPrefixes = IS_WINDOWS
+      ? [
+          '(Get-Command pocket',
+          'Invoke-RestMethod https://api.github.com/repos/KenKaiii/pocket-agent-cli/releases/latest',
+          '$installDir = Join-Path',
+        ]
+      : [
+          'which pocket',
+          'strings ',
+          'curl -fsSL https://api.github.com/repos/KenKaiii/pocket-agent-cli/releases/latest',
+          'curl -fsSL https://raw.githubusercontent.com/KenKaiii/pocket-agent-cli/main/scripts/install.sh | sed ',
+        ];
+    if (!allowedPrefixes.some(prefix => command.startsWith(prefix))) {
+      console.warn('[IPC] Blocked shell:runCommand outside allowlist:', command.slice(0, 120));
+      throw new Error('Command not allowed');
+    }
     const execAsync = promisify(exec);
     const shellOpts: Record<string, unknown> = IS_WINDOWS
       ? { shell: 'powershell.exe', env: process.env }
@@ -3702,12 +3744,14 @@ Respond with ONLY valid JSON, no markdown, no explanation:
   ipcMain.handle('attachment:extract-text', async (_, filePath: string) => {
     const attachmentsDir = path.join(app.getPath('documents'), 'Pocket-agent', 'attachments');
     const resolvedPath = path.resolve(filePath);
-    if (!resolvedPath.startsWith(attachmentsDir)) {
+    const rel = path.relative(path.resolve(attachmentsDir), resolvedPath);
+    const isAllowed = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    if (!isAllowed) {
       console.warn('[IPC] Blocked attachment:extract-text outside attachments dir:', resolvedPath);
       throw new Error('File path must be within attachments directory');
     }
     const { parseOffice } = await import('officeparser');
-    const ast = await parseOffice(filePath);
+    const ast = await parseOffice(resolvedPath);
     return ast.toText();
   });
 }
