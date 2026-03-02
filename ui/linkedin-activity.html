@@ -1577,7 +1577,35 @@
 
     // Draft state is now persisted in DB (draft_state column) — no transient JS tracking needed
 
-    async function runBatchDraft(ids, successLabel, failureLabel) {
+    const draftRequestQueue = [];
+    let draftQueueProcessing = false;
+    let draftQueueStartedCount = 0;
+
+    function normalizeDraftIds(ids) {
+      if (!Array.isArray(ids)) return [];
+      return [...new Set(ids.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0))];
+    }
+
+    async function processDraftQueue() {
+      if (draftQueueProcessing) return;
+      draftQueueProcessing = true;
+      while (draftRequestQueue.length > 0) {
+        const next = draftRequestQueue.shift();
+        if (!next) continue;
+        try {
+          draftQueueStartedCount++;
+          const value = await runBatchDraftNow(next.ids, next.successLabel, next.failureLabel);
+          next.resolve(value);
+        } catch (err) {
+          next.reject(err);
+        } finally {
+          draftQueueStartedCount = Math.max(0, draftQueueStartedCount - 1);
+        }
+      }
+      draftQueueProcessing = false;
+    }
+
+    async function runBatchDraftNow(ids, successLabel, failureLabel) {
       const batchFn = window.pocketAgent && window.pocketAgent.draftLinkedInBatch;
       if (typeof batchFn !== 'function') {
         throw new Error('Batch draft API unavailable in this build. Run npm run build and restart the app.');
@@ -1612,6 +1640,21 @@
       await loadPosts();
       const errText = result.error || (Array.isArray(result.errors) ? result.errors[0] : 'Unknown error');
       showToast(`${failureLabel}: ${shortError(errText)}`, 'error');
+    }
+
+    async function runBatchDraft(ids, successLabel, failureLabel) {
+      const cleanIds = normalizeDraftIds(ids);
+      if (cleanIds.length === 0) throw new Error('No valid post IDs selected');
+
+      return new Promise((resolve, reject) => {
+        const queuedBehindActive = draftQueueProcessing || draftRequestQueue.length > 0 || draftQueueStartedCount > 0;
+        draftRequestQueue.push({ ids: cleanIds, successLabel, failureLabel, resolve, reject });
+        if (queuedBehindActive) {
+          const count = cleanIds.length;
+          showToast(`Queued ${count} post${count === 1 ? '' : 's'} for drafting`, 'success');
+        }
+        void processDraftQueue();
+      });
     }
 
     async function redoSelected() {
