@@ -1578,6 +1578,7 @@
     // Draft state is now persisted in DB (draft_state column) — no transient JS tracking needed
 
     const draftRequestQueue = [];
+    const locallyQueuedDraftPostIds = new Set();
     let draftQueueProcessing = false;
     let draftQueueStartedCount = 0;
 
@@ -1594,6 +1595,8 @@
         if (!next) continue;
         try {
           draftQueueStartedCount++;
+          for (const id of next.ids) locallyQueuedDraftPostIds.delete(id);
+          void loadPosts();
           const value = await runBatchDraftNow(next.ids, next.successLabel, next.failureLabel);
           next.resolve(value);
         } catch (err) {
@@ -1650,6 +1653,8 @@
         const queuedBehindActive = draftQueueProcessing || draftRequestQueue.length > 0 || draftQueueStartedCount > 0;
         draftRequestQueue.push({ ids: cleanIds, successLabel, failureLabel, resolve, reject });
         if (queuedBehindActive) {
+          for (const id of cleanIds) locallyQueuedDraftPostIds.add(id);
+          void loadPosts();
           const count = cleanIds.length;
           showToast(`Queued ${count} post${count === 1 ? '' : 's'} for drafting`, 'success');
         }
@@ -1863,8 +1868,11 @@
       const dt = new Date(input.value);
       const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
       try {
-        await window.pocketAgent.scheduleLinkedInPost(postId, iso);
-        showToast('Comment scheduled', 'success');
+        const result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        if (result?.warning) showToast(result.warning, 'error');
+        const finalAt = result?.scheduledAt || iso;
+        const shifted = Number(result?.adjustedOthers || 0);
+        showToast(`Comment scheduled (${formatShortDateTime(finalAt)})${shifted > 0 ? `, shifted ${shifted} nearby` : ''}`, 'success');
         loadPosts();
       } catch (err) {
         showToast('Failed to schedule', 'error');
@@ -1896,6 +1904,7 @@
           const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
           const result = await window.pocketAgent.scheduleLinkedInPost(eligible[i].id, iso);
           if (result.success) scheduled++;
+          if (result?.warning) showToast(result.warning, 'error');
         }
         showToast(`Scheduled ${scheduled} posts (~${delayMin}min apart)`, 'success');
         loadPosts();
@@ -2167,7 +2176,7 @@
       };
 
       const ds = p.draft_state || '';
-      const isQueued = ds === 'queued';
+      const isQueued = ds === 'queued' || locallyQueuedDraftPostIds.has(p.id);
       const isResearching = ds === 'researching';
       const isWriting = ds === 'writing';
       const isDraftFailed = ds.startsWith('failed_');
@@ -2354,8 +2363,11 @@
         const earliest = Math.max(Date.now() + 60000, latestScheduled + delayMin * 60000);
         const dt = new Date(earliest + jitterMs(0));
         const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
-        await window.pocketAgent.scheduleLinkedInPost(postId, iso);
-        showToast(`Approved, scheduled ${dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`, 'success');
+        const result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        if (result?.warning) showToast(result.warning, 'error');
+        const finalAt = result?.scheduledAt || iso;
+        const shifted = Number(result?.adjustedOthers || 0);
+        showToast(`Approved, scheduled ${formatShortDateTime(finalAt)}${shifted > 0 ? `, shifted ${shifted} nearby` : ''}`, 'success');
         loadPosts();
       } catch (err) {
         console.error('Failed to approve draft:', err);
@@ -2370,8 +2382,11 @@
         if (!post.approved) await window.pocketAgent.approveLinkedInDraft(postId);
         approvedIds.add(postId);
         const iso = new Date(Date.now() + 5000).toISOString().replace('T', ' ').slice(0, 19);
-        await window.pocketAgent.scheduleLinkedInPost(postId, iso);
-        showToast('Scheduled for immediate posting', 'success');
+        const result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        if (result?.warning) showToast(result.warning, 'error');
+        const finalAt = result?.scheduledAt || iso;
+        const shifted = Number(result?.adjustedOthers || 0);
+        showToast(`Priority scheduled (${formatShortDateTime(finalAt)})${shifted > 0 ? `, shifted ${shifted} nearby` : ''}`, 'success');
         loadPosts();
       } catch (err) {
         console.error('Failed to post now:', err);
@@ -2398,7 +2413,8 @@
           }
           const dt = new Date(Date.now() + cumulativeMs);
           const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
-          await window.pocketAgent.scheduleLinkedInPost(ids[i], iso);
+          const result = await window.pocketAgent.scheduleLinkedInPost(ids[i], iso);
+          if (result?.warning) showToast(result.warning, 'error');
         }
         showToast(`${ids.length} posts scheduled for immediate posting`, 'success');
         loadPosts();

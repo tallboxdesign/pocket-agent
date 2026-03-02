@@ -13,7 +13,7 @@ import { loadInstructions, saveInstructions, getInstructionsPath, DEFAULT_INSTRU
 import { DEFAULT_COMMANDS } from '../config/commands';
 import { loadWorkflowCommands } from '../config/commands-loader';
 import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
-import { setLinkedInTelegramBot, notifyTelegram, rescheduleStalePosts } from '../tools/linkedin-autoposter';
+import { setLinkedInTelegramBot, notifyTelegram, rescheduleStalePosts, rebalancePendingSchedules } from '../tools/linkedin-autoposter';
 import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
 import { getBrowserManager } from '../browser';
 import { WAQManager } from '../queue/processor';
@@ -2049,7 +2049,20 @@ function setupIPC(): void {
       db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(datetime, postId);
       // No cron job needed — the autoposter daemon picks up posts where scheduled_at <= now
       db.close();
-      return { success: true };
+      let scheduledAt = datetime;
+      let adjustedOthers = 0;
+      let warning: string | undefined;
+      try {
+        const { rebalancePendingSchedules } = await import('../tools/linkedin-autoposter');
+        const rebalance = rebalancePendingSchedules({ priorityPostId: postId, preferredAt: datetime });
+        if (rebalance.priorityScheduledAt) scheduledAt = rebalance.priorityScheduledAt;
+        adjustedOthers = rebalance.adjustedOthers || 0;
+        warning = rebalance.warning;
+      } catch (rebalanceErr) {
+        console.warn('[LinkedIn] schedule rebalance failed:', rebalanceErr);
+        warning = 'Scheduled, but could not rebalance nearby posts.';
+      }
+      return { success: true, scheduledAt, adjustedOthers, warning };
     } catch (err) {
       console.error('[LinkedIn] Failed to schedule post:', err);
       return { success: false, error: String(err) };
@@ -4020,10 +4033,18 @@ app.whenReady().then(async () => {
       scheduler?.catchUpMissedJobs().catch((err) => {
         console.error('[Power] Failed to catch up missed jobs:', err);
       });
-      // Reschedule any LinkedIn posts that went stale during sleep
-      const rescheduled = rescheduleStalePosts();
-      if (rescheduled > 0) {
-        notifyTelegram(`LinkedIn: Rescheduled ${rescheduled} stale posts after wake`).catch(() => {});
+      // Recalculate LinkedIn queue timing after sleep/offline drift
+      const rebalance = rebalancePendingSchedules();
+      if (rebalance.adjusted > 0) {
+        notifyTelegram(`LinkedIn: Rebalanced ${rebalance.adjusted}/${rebalance.total} scheduled posts after wake`).catch(() => {});
+      } else {
+        const rescheduled = rescheduleStalePosts();
+        if (rescheduled > 0) {
+          notifyTelegram(`LinkedIn: Rescheduled ${rescheduled} stale posts after wake`).catch(() => {});
+        }
+      }
+      if (rebalance.warning) {
+        notifyTelegram(`LinkedIn warning: ${rebalance.warning}`).catch(() => {});
       }
     });
 
@@ -4142,10 +4163,18 @@ app.whenReady().then(async () => {
     } else {
       console.log('[Main] Initializing agent...');
       await initializeAgent();
-      // Reschedule any LinkedIn posts that went stale while app was off
-      const staleCount = rescheduleStalePosts();
-      if (staleCount > 0) {
-        notifyTelegram(`LinkedIn: Rescheduled ${staleCount} stale posts on launch`).catch(() => {});
+      // Recalculate LinkedIn queue when app starts after downtime
+      const startupRebalance = rebalancePendingSchedules();
+      if (startupRebalance.adjusted > 0) {
+        notifyTelegram(`LinkedIn: Rebalanced ${startupRebalance.adjusted}/${startupRebalance.total} scheduled posts on launch`).catch(() => {});
+      } else {
+        const staleCount = rescheduleStalePosts();
+        if (staleCount > 0) {
+          notifyTelegram(`LinkedIn: Rescheduled ${staleCount} stale posts on launch`).catch(() => {});
+        }
+      }
+      if (startupRebalance.warning) {
+        notifyTelegram(`LinkedIn warning: ${startupRebalance.warning}`).catch(() => {});
       }
       // Open chat window on launch so users see the app
       openChatWindow();

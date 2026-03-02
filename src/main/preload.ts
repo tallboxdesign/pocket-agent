@@ -356,7 +356,7 @@ declare global {
       hideLinkedInPost: (id: number) => Promise<{ success: boolean; error?: string }>;
       snoozeLinkedInPost: (id: number, days: number) => Promise<{ success: boolean; error?: string }>;
       setLinkedInPriority: (id: number, priority: string) => Promise<{ success: boolean; error?: string }>;
-      scheduleLinkedInPost: (id: number, datetime: string) => Promise<{ success: boolean; error?: string }>;
+      scheduleLinkedInPost: (id: number, datetime: string) => Promise<{ success: boolean; error?: string; scheduledAt?: string; adjustedOthers?: number; warning?: string }>;
       draftLinkedInBatch: (postIds: number[], batchSize?: number) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
       cancelLinkedInDraftJob: () => Promise<{ success: boolean }>;
       getLinkedInDailyStats: () => Promise<{ postedToday: number; dailyLimit: number; pendingApproved: number }>;

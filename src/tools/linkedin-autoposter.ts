@@ -106,6 +106,194 @@ function getCommentDelayMs(): number {
   return baseMin * 60 * 1000 * jitter;
 }
 
+function getBaseCommentDelayMs(): number {
+  const baseMin = parseFloat(SettingsManager.get('linkedin.commentDelay') || '3') || 3;
+  return Math.max(60_000, Math.round(baseMin * 60_000));
+}
+
+function toDbDateTime(ms: number): string {
+  return new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+}
+
+function parseDbDateTime(value: string | null | undefined): number {
+  if (!value) return NaN;
+  const raw = String(value).trim();
+  if (!raw) return NaN;
+  const normalized = raw.includes('Z') ? raw : `${raw}Z`;
+  const ts = Date.parse(normalized);
+  return Number.isFinite(ts) ? ts : NaN;
+}
+
+type PostingWindows = {
+  dayEnabled: boolean;
+  nightEnabled: boolean;
+  dayStart: number;
+  dayEnd: number;
+  nightStart: number;
+  nightEnd: number;
+};
+
+function getPostingWindows(): PostingWindows {
+  return {
+    dayEnabled: SettingsManager.get('linkedin.dayWindowEnabled') !== 'false',
+    nightEnabled: SettingsManager.get('linkedin.nightWindowEnabled') === 'true',
+    dayStart: parseHm(SettingsManager.get('linkedin.dayWindowStart') || '09:00', 9 * 60),
+    dayEnd: parseHm(SettingsManager.get('linkedin.dayWindowEnd') || '18:00', 18 * 60),
+    nightStart: parseHm(SettingsManager.get('linkedin.nightWindowStart') || '22:00', 22 * 60),
+    nightEnd: parseHm(SettingsManager.get('linkedin.nightWindowEnd') || '06:00', 6 * 60),
+  };
+}
+
+function hasAnyPostingWindow(windows: PostingWindows): boolean {
+  return windows.dayEnabled || windows.nightEnabled;
+}
+
+function isWithinPostingWindowMs(tsMs: number, windows: PostingWindows): boolean {
+  const d = new Date(tsMs);
+  const minutes = d.getHours() * 60 + d.getMinutes();
+  if (windows.dayEnabled && isInWindow(minutes, windows.dayStart, windows.dayEnd)) return true;
+  if (windows.nightEnabled && isInWindow(minutes, windows.nightStart, windows.nightEnd)) return true;
+  return false;
+}
+
+function alignToPostingWindowMs(tsMs: number, windows: PostingWindows): number | null {
+  if (!hasAnyPostingWindow(windows)) return tsMs;
+  const roundedStart = Math.max(0, Math.ceil(tsMs / 60000) * 60000);
+  const maxMinutesToScan = 14 * 24 * 60; // two weeks safety cap
+  for (let i = 0; i <= maxMinutesToScan; i++) {
+    const candidate = roundedStart + i * 60000;
+    if (isWithinPostingWindowMs(candidate, windows)) return candidate;
+  }
+  return null;
+}
+
+export interface RebalanceScheduleResult {
+  adjusted: number;
+  total: number;
+  adjustedOthers: number;
+  priorityScheduledAt: string | null;
+  warning?: string;
+}
+
+export function rebalancePendingSchedules(options: { priorityPostId?: number; preferredAt?: string } = {}): RebalanceScheduleResult {
+  const db = getDb();
+  if (!db) {
+    return {
+      adjusted: 0,
+      total: 0,
+      adjustedOthers: 0,
+      priorityScheduledAt: null,
+      warning: 'Database not available for schedule rebalance',
+    };
+  }
+
+  try {
+    const windows = getPostingWindows();
+    if (!hasAnyPostingWindow(windows)) {
+      return {
+        adjusted: 0,
+        total: 0,
+        adjustedOthers: 0,
+        priorityScheduledAt: null,
+        warning: 'Both posting windows are disabled. Enable day and/or night window.',
+      };
+    }
+
+    const rows = db.prepare(
+      `SELECT id, scheduled_at
+       FROM linkedin_posts
+       WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL
+         AND scheduled_at IS NOT NULL AND hidden = 0
+       ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, datetime(scheduled_at) ASC`
+    ).all(options.priorityPostId || 0) as Array<{ id: number; scheduled_at: string | null }>;
+
+    if (rows.length === 0) {
+      return {
+        adjusted: 0,
+        total: 0,
+        adjustedOthers: 0,
+        priorityScheduledAt: null,
+      };
+    }
+
+    const nowFloorMs = Math.max(0, Date.now() + 60_000);
+    const minSpacingMs = getBaseCommentDelayMs();
+    const preferredMsRaw = parseDbDateTime(options.preferredAt);
+    const preferredMs = Number.isFinite(preferredMsRaw) ? preferredMsRaw : NaN;
+
+    const updates: Array<{ id: number; at: string; changed: boolean }> = [];
+    let cursorMs = nowFloorMs;
+    let warning: string | undefined;
+
+    for (const row of rows) {
+      const currentMsRaw = parseDbDateTime(row.scheduled_at);
+      const hasCurrent = Number.isFinite(currentMsRaw);
+      let candidateMs = hasCurrent ? currentMsRaw : cursorMs;
+
+      if (options.priorityPostId && row.id === options.priorityPostId && Number.isFinite(preferredMs)) {
+        candidateMs = Math.max(preferredMs, nowFloorMs);
+      }
+
+      if (candidateMs < cursorMs) candidateMs = cursorMs;
+
+      let alignedMs = alignToPostingWindowMs(candidateMs, windows);
+      if (alignedMs === null) {
+        warning = 'Could not find an allowed posting window for pending posts.';
+        break;
+      }
+
+      if (alignedMs < cursorMs) {
+        const alignedCursor = alignToPostingWindowMs(cursorMs, windows);
+        if (alignedCursor === null) {
+          warning = 'Could not align pending posts into enabled posting windows.';
+          break;
+        }
+        alignedMs = alignedCursor;
+      }
+
+      const nextCursor = alignToPostingWindowMs(alignedMs + minSpacingMs, windows);
+      if (nextCursor === null) {
+        warning = 'Could not compute safe spacing in posting windows.';
+        break;
+      }
+
+      const changed = !hasCurrent || Math.abs(alignedMs - currentMsRaw) >= 30_000;
+      updates.push({ id: row.id, at: toDbDateTime(alignedMs), changed });
+      cursorMs = nextCursor;
+    }
+
+    const updateStmt = db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?');
+    const tx = db.transaction(() => {
+      for (const u of updates) {
+        if (u.changed) updateStmt.run(u.at, u.id);
+      }
+    });
+    tx();
+
+    let priorityScheduledAt: string | null = null;
+    if (options.priorityPostId) {
+      const row = db.prepare('SELECT scheduled_at FROM linkedin_posts WHERE id = ?')
+        .get(options.priorityPostId) as { scheduled_at: string | null } | undefined;
+      priorityScheduledAt = row?.scheduled_at || null;
+    }
+
+    const adjusted = updates.filter(u => u.changed).length;
+    const adjustedOthers = options.priorityPostId
+      ? updates.filter(u => u.changed && u.id !== options.priorityPostId).length
+      : adjusted;
+
+    return {
+      adjusted,
+      total: rows.length,
+      adjustedOthers,
+      priorityScheduledAt,
+      warning,
+    };
+  } finally {
+    db.close();
+  }
+}
+
 function getLastPostedAtMs(db: Database.Database): number {
   const row = db.prepare(
     `SELECT created_at FROM linkedin_activity_log
