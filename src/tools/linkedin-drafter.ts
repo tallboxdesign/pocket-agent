@@ -1105,13 +1105,22 @@ async function generateDraftForModel(
 ): Promise<DraftGenerationResult> {
   const env = await buildProviderEnv(model);
   const attempt = createAttemptAbortController(parentAbortController, remainingMs);
+  let evidence: ResearchEvidence | null = null;
+  let commentIntent: CommentIntent | null = null;
   try {
-    const evidence = await runResearchPass(queryFn, post, model, config, attempt.controller, env);
-    const commentIntent = chooseCommentIntent(post.id);
+    evidence = await runResearchPass(queryFn, post, model, config, attempt.controller, env);
+    commentIntent = chooseCommentIntent(post.id);
     const draft = await runWritePass(queryFn, post, styleGuide, evidence, commentIntent, model, config, attempt.controller, env, diversity);
     return { draft, evidence, commentIntent, model };
   } catch (err) {
     const abortReason = parentAbortController.signal.reason;
+    // If research already succeeded but writing timed out, salvage with deterministic fallback.
+    if (attempt.timedOut() && evidence && commentIntent) {
+      const authorFirstName = getAuthorFirstName(post.author);
+      const fallbackDraft = buildDeterministicFallbackDraft(post, evidence, authorFirstName, commentIntent);
+      console.warn(`[LinkedInDrafter] Write pass timed out for ${post.author} on ${model}; using deterministic fallback draft`);
+      return { draft: fallbackDraft, evidence, commentIntent, model };
+    }
     if (parentAbortController.signal.aborted && abortReason === 'timeout') {
       throw new Error(`Timed out while drafting with ${model}`);
     }
@@ -1355,7 +1364,8 @@ async function draftOnePost(
 
   const config = getLinkedInDraftConfig();
   const attemptModels = getAttemptModels(model, config.fallbackModel);
-  const effectiveTimeoutSec = computeEffectiveTimeoutSec(config.perPostTimeoutSec, model, post.text_preview);
+  // Keep internal deadline aligned with outer batch timeout window (+20s grace).
+  const effectiveTimeoutSec = computeEffectiveTimeoutSec(config.perPostTimeoutSec, model, post.text_preview) + 20;
   const deadline = Date.now() + (effectiveTimeoutSec * 1000);
 
   let draft = '';

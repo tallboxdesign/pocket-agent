@@ -233,7 +233,7 @@ function formatAgentError(error: string): string {
 
 // Status event types
 export type AgentStatus = {
-  type: 'thinking' | 'tool_start' | 'tool_end' | 'tool_blocked' | 'responding' | 'done' | 'subagent_start' | 'subagent_update' | 'subagent_end' | 'queued' | 'queue_processing' | 'teammate_start' | 'teammate_idle' | 'teammate_message' | 'task_completed' | 'background_task_start' | 'background_task_output' | 'background_task_end' | 'partial_text';
+  type: 'thinking' | 'tool_start' | 'tool_end' | 'tool_blocked' | 'responding' | 'done' | 'subagent_start' | 'subagent_update' | 'subagent_end' | 'queued' | 'queue_processing' | 'teammate_start' | 'teammate_idle' | 'teammate_message' | 'task_completed' | 'background_task_start' | 'background_task_output' | 'background_task_end' | 'partial_text' | 'mode_switched';
   sessionId?: string;
   toolName?: string;
   toolInput?: string;
@@ -537,51 +537,21 @@ class AgentManagerClass extends EventEmitter {
     return 'coder';
   }
 
-  private inferTelegramDesiredMode(
-    userMessage: string,
-    attachmentInfo?: AttachmentInfo
-  ): 'coder' | 'manager' | null {
+  private inferCoderIntent(userMessage: string): boolean {
     const text = String(userMessage || '').toLowerCase();
 
-    // Explicit user overrides
-    const explicitCoder = /\b(coder|coding)\s+mode\b|\b(switch|set|use)\s+(to\s+)?coder\b/.test(text);
-    const explicitManager = /\bmanager\s+mode\b|\b(switch|set|use)\s+(to\s+)?manager\b/.test(text);
-    if (explicitCoder && !explicitManager) return 'coder';
-    if (explicitManager && !explicitCoder) return 'manager';
-
-    let coderScore = 0;
-    let managerScore = 0;
-
-    // Strong coder intent signals
+    // Strong coder intent
     if (/\b(code|coding|debug|bug|fix|refactor|implement|terminal|shell|bash|git|commit|push|pull request|pr|npm|pnpm|yarn|tsc)\b/.test(text)) {
-      coderScore += 2;
+      return true;
     }
     // Supporting coder intent
     if (/\b(file|files|folder|repository|repo|branch|function|class|typescript|javascript|python|sql|migration|build|tests?)\b/.test(text)) {
-      coderScore += 1;
+      return true;
     }
     if (/`[^`]+`/.test(text)) {
-      coderScore += 1;
+      return true;
     }
-
-    // Strong manager intent signals
-    if (/\b(linkedin|inbox|email|emails|newsletter|prospect|lead|engagement|impressions)\b/.test(text)) {
-      managerScore += 2;
-    }
-    // Supporting manager intent
-    if (/\b(post|posts|comment|comments|draft|drafts|schedule|scheduled|calendar|meeting|strategy|plan|planning|outreach)\b/.test(text)) {
-      managerScore += 1;
-    }
-
-    // Most Telegram attachments in this product map to manager workflows.
-    if (attachmentInfo?.attachmentType && attachmentInfo.attachmentType !== 'document') {
-      managerScore += 1;
-    }
-
-    if (coderScore === 0 && managerScore === 0) return null;
-    if (coderScore >= 2 && coderScore > managerScore) return 'coder';
-    if (managerScore >= 2 && managerScore > coderScore) return 'manager';
-    return null;
+    return false;
   }
 
   setModel(model: string): void {
@@ -714,16 +684,23 @@ class AgentManagerClass extends EventEmitter {
 
     const memory = this.memory; // Local reference for TypeScript narrowing
     let sessionMode = memory.getSessionMode(sessionId);
+    let autoSwitchNotice: string | null = null;
 
-    // Telegram convenience: auto-switch session mode by intent so users don't need /mode commands.
-    if (channel === 'telegram') {
-      const desiredMode = this.inferTelegramDesiredMode(userMessage, attachmentInfo);
-      if (desiredMode && desiredMode !== sessionMode) {
-        const switched = memory.setSessionMode(sessionId, desiredMode);
+    // Convenience: if chat is in Manager and request clearly needs coding, auto-switch to Coder.
+    if ((channel === 'telegram' || channel === 'desktop') && sessionMode === 'manager') {
+      const needsCoder = this.inferCoderIntent(userMessage);
+      if (needsCoder) {
+        const switched = memory.setSessionMode(sessionId, 'coder');
         if (switched) {
           this.clearSdkSessionMapping(sessionId);
-          sessionMode = desiredMode;
-          console.log(`[AgentManager] Auto-switched Telegram session ${sessionId} to ${desiredMode} mode`);
+          sessionMode = 'coder';
+          autoSwitchNotice = 'Auto-switched to Coder mode for this request.';
+          this.emitStatus({
+            type: 'mode_switched',
+            sessionId,
+            message: autoSwitchNotice,
+          });
+          console.log(`[AgentManager] Auto-switched session ${sessionId} to coder mode (channel=${channel})`);
         }
       }
     }
@@ -1090,6 +1067,11 @@ class AgentManagerClass extends EventEmitter {
           console.warn('[AgentManager] Session not alive for summary -session may have crashed');
           throw new Error(reportable('Agent session ended unexpectedly. Send another message to start a new session.'));
         }
+      }
+
+      // Telegram has no live desktop status indicator, so include a concise note in the reply.
+      if (autoSwitchNotice && channel === 'telegram' && response) {
+        response = `ℹ️ ${autoSwitchNotice}\n\n${response}`;
       }
 
       {
