@@ -12,6 +12,7 @@ import {
 export interface Session {
   id: string;
   name: string;
+  mode?: 'general' | 'coder' | 'manager';
   created_at: string;
   updated_at: string;
   telegram_linked?: boolean;
@@ -181,6 +182,7 @@ export class MemoryManager {
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        mode TEXT DEFAULT 'coder',
         created_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ'))),
         updated_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ')))
       );
@@ -527,6 +529,11 @@ export class MemoryManager {
       this.db.exec('ALTER TABLE sessions ADD COLUMN sdk_session_id TEXT');
       console.log('[Memory] Migrated sessions table: added sdk_session_id column');
     }
+    if (!sessColumns.some(c => c.name === 'mode')) {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT 'coder'`);
+      this.db.exec(`UPDATE sessions SET mode = 'coder' WHERE mode IS NULL OR trim(mode) = ''`);
+      console.log('[Memory] Migrated sessions table: added mode column');
+    }
   }
 
   /**
@@ -871,7 +878,7 @@ export class MemoryManager {
    * Create a new session
    * @throws Error if session name already exists
    */
-  createSession(name: string): Session {
+  createSession(name: string, mode: 'general' | 'coder' | 'manager' = 'coder'): Session {
     // Check for duplicate name
     const existing = this.getSessionByName(name);
     if (existing) {
@@ -880,9 +887,9 @@ export class MemoryManager {
 
     const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     this.db.prepare(`
-      INSERT INTO sessions (id, name, created_at, updated_at)
-      VALUES (?, ?, (strftime('%Y-%m-%dT%H:%M:%fZ')), (strftime('%Y-%m-%dT%H:%M:%fZ')))
-    `).run(id, name);
+      INSERT INTO sessions (id, name, mode, created_at, updated_at)
+      VALUES (?, ?, ?, (strftime('%Y-%m-%dT%H:%M:%fZ')), (strftime('%Y-%m-%dT%H:%M:%fZ')))
+    `).run(id, name, mode);
 
     return this.getSession(id)!;
   }
@@ -892,12 +899,14 @@ export class MemoryManager {
    */
   getSessionByName(name: string): Session | null {
     const row = this.db.prepare(`
-      SELECT id, name, created_at, updated_at
+      SELECT id, name, mode, created_at, updated_at
       FROM sessions
       WHERE name = ?
     `).get(name) as Session | undefined;
 
-    return row || null;
+    if (!row) return null;
+    row.mode = (row.mode as 'general' | 'coder' | 'manager') || 'coder';
+    return row;
   }
 
   /**
@@ -905,12 +914,14 @@ export class MemoryManager {
    */
   getSession(id: string): Session | null {
     const row = this.db.prepare(`
-      SELECT id, name, created_at, updated_at
+      SELECT id, name, mode, created_at, updated_at
       FROM sessions
       WHERE id = ?
     `).get(id) as Session | undefined;
 
-    return row || null;
+    if (!row) return null;
+    row.mode = (row.mode as 'general' | 'coder' | 'manager') || 'coder';
+    return row;
   }
 
   /**
@@ -921,6 +932,7 @@ export class MemoryManager {
     interface SessionRow {
       id: string;
       name: string;
+      mode: string | null;
       created_at: string;
       updated_at: string;
       telegram_linked: number;
@@ -930,6 +942,7 @@ export class MemoryManager {
       SELECT
         s.id,
         s.name,
+        s.mode,
         s.created_at,
         s.updated_at,
         CASE WHEN t.chat_id IS NOT NULL THEN 1 ELSE 0 END as telegram_linked,
@@ -941,11 +954,33 @@ export class MemoryManager {
     return rows.map(row => ({
       id: row.id,
       name: row.name,
+      mode: (row.mode as 'general' | 'coder' | 'manager') || 'coder',
       created_at: row.created_at,
       updated_at: row.updated_at,
       telegram_linked: !!row.telegram_linked,
       telegram_group_name: row.telegram_group_name,
     }));
+  }
+
+  /**
+   * Get the mode for a session (defaults to coder for legacy sessions)
+   */
+  getSessionMode(sessionId: string): 'general' | 'coder' | 'manager' {
+    const row = this.db.prepare('SELECT mode FROM sessions WHERE id = ?').get(sessionId) as { mode: string | null } | undefined;
+    const mode = (row?.mode || 'coder').trim().toLowerCase();
+    if (mode === 'general' || mode === 'manager') return mode;
+    return 'coder';
+  }
+
+  /**
+   * Set the mode for a session.
+   */
+  setSessionMode(sessionId: string, mode: 'general' | 'coder' | 'manager'): boolean {
+    const result = this.db.prepare(`
+      UPDATE sessions SET mode = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ'))
+      WHERE id = ?
+    `).run(mode, sessionId);
+    return result.changes > 0;
   }
 
   /**

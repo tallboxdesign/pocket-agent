@@ -169,6 +169,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: 'Claude model to use for conversations',
     type: 'string',
   },
+  {
+    key: 'agent.mode',
+    defaultValue: 'coder',
+    encrypted: false,
+    category: 'agent',
+    label: 'Default Agent Mode',
+    description: 'Default mode for new sessions: general, coder, or manager',
+    type: 'string',
+  },
   // DEPRECATED: SDK handles compaction natively via persistSession + resume
   {
     key: 'agent.fallbackModel',

@@ -5,6 +5,15 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   // Chat
   send: (message: string, sessionId?: string) => ipcRenderer.invoke('agent:send', message, sessionId),
   stop: (sessionId?: string) => ipcRenderer.invoke('agent:stop', sessionId),
+  setMode: (mode: string) => ipcRenderer.invoke('agent:setMode', mode),
+  getMode: () => ipcRenderer.invoke('agent:getMode'),
+  getSessionMode: (sessionId: string) => ipcRenderer.invoke('agent:getSessionMode', sessionId),
+  setSessionMode: (sessionId: string, mode: string) => ipcRenderer.invoke('agent:setSessionMode', sessionId, mode),
+  onModeChanged: (callback: (mode: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, mode: string) => callback(mode);
+    ipcRenderer.on('agent:modeChanged', listener);
+    return () => ipcRenderer.removeListener('agent:modeChanged', listener);
+  },
   onStatus: (callback: (status: { type: string; toolName?: string; toolInput?: string; message?: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, status: { type: string; toolName?: string; toolInput?: string; message?: string }) => callback(status);
     ipcRenderer.on('agent:status', listener);
@@ -299,6 +308,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
 interface Session {
   id: string;
   name: string;
+  mode?: 'general' | 'coder' | 'manager';
   created_at: string;
   updated_at: string;
   telegram_linked?: boolean;
@@ -311,6 +321,11 @@ declare global {
     pocketAgent: {
       send: (message: string, sessionId?: string) => Promise<{ success: boolean; response?: string; error?: string; tokensUsed?: number; suggestedPrompt?: string; media?: Array<{ type: string; filePath: string; mimeType: string }> }>;
       stop: (sessionId?: string) => Promise<{ success: boolean }>;
+      setMode: (mode: string) => Promise<{ success: boolean; error?: string }>;
+      getMode: () => Promise<'general' | 'coder' | 'manager'>;
+      getSessionMode: (sessionId: string) => Promise<'general' | 'coder' | 'manager'>;
+      setSessionMode: (sessionId: string, mode: string) => Promise<{ success: boolean; error?: string }>;
+      onModeChanged: (callback: (mode: string) => void) => () => void;
       onStatus: (callback: (status: { type: string; toolName?: string; toolInput?: string; message?: string }) => void) => () => void;
       saveAttachment: (name: string, dataUrl: string) => Promise<string>;
       extractText: (filePath: string) => Promise<string>;

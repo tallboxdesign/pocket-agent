@@ -383,6 +383,7 @@ export interface AgentConfig {
   workspace?: string;  // Isolated working directory for agent file operations
   dataDir?: string;    // App data directory (e.g. ~/Library/Application Support/pocket-agent)
   model?: string;
+  mode?: 'general' | 'coder' | 'manager';
   tools?: ToolsConfig;
 }
 
@@ -411,6 +412,7 @@ class AgentManagerClass extends EventEmitter {
   private projectRoot: string = process.cwd();
   private workspace: string = process.cwd();  // Isolated working directory for agent
   private model: string = 'claude-opus-4-6';
+  private mode: 'general' | 'coder' | 'manager' = 'coder';
   private toolsConfig: ToolsConfig | null = null;
   private initialized: boolean = false;
   private identity: string = '';
@@ -456,6 +458,7 @@ class AgentManagerClass extends EventEmitter {
     this.projectRoot = config.projectRoot || process.cwd();
     this.workspace = config.workspace || this.projectRoot;
     this.model = config.model || 'claude-opus-4-6';
+    this.mode = this.normalizeMode(config.mode || SettingsManager.get('agent.mode') || 'coder');
     this.toolsConfig = config.tools || null;
     this.initialized = true;
 
@@ -478,6 +481,7 @@ class AgentManagerClass extends EventEmitter {
     console.log('[AgentManager] Project root:', this.projectRoot);
     console.log('[AgentManager] Workspace:', this.workspace);
     console.log('[AgentManager] Model:', this.model);
+    console.log('[AgentManager] Mode:', this.mode);
     console.log('[AgentManager] Identity loaded:', this.identity.length, 'chars');
     console.log('[AgentManager] Instructions loaded:', this.instructions.length, 'chars');
 
@@ -523,6 +527,16 @@ class AgentManagerClass extends EventEmitter {
     return this.model;
   }
 
+  getMode(): 'general' | 'coder' | 'manager' {
+    return this.mode;
+  }
+
+  private normalizeMode(mode: string): 'general' | 'coder' | 'manager' {
+    const normalized = String(mode || '').trim().toLowerCase();
+    if (normalized === 'general' || normalized === 'manager') return normalized;
+    return 'coder';
+  }
+
   setModel(model: string): void {
     this.model = model;
     SettingsManager.set('agent.model', model);
@@ -538,6 +552,14 @@ class AgentManagerClass extends EventEmitter {
     }
 
     this.emit('model:changed', model);
+  }
+
+  setMode(mode: string): void {
+    const normalized = this.normalizeMode(mode);
+    this.mode = normalized;
+    SettingsManager.set('agent.mode', normalized);
+    console.log('[AgentManager] Mode changed to:', normalized);
+    this.emit('mode:changed', normalized);
   }
 
   async processMessage(
@@ -644,6 +666,7 @@ class AgentManagerClass extends EventEmitter {
     }
 
     const memory = this.memory; // Local reference for TypeScript narrowing
+    const sessionMode = memory.getSessionMode(sessionId);
 
     this.processingBySession.set(sessionId, true);
     this.stoppedByUserSession.delete(sessionId);
@@ -699,7 +722,7 @@ class AgentManagerClass extends EventEmitter {
         if (!queryFn) throw new Error('Failed to load SDK');
 
         // Build options with dynamic context
-        const options = await this.buildPersistentOptions(memory, sessionId, sdkSessionId);
+        const options = await this.buildPersistentOptions(memory, sessionId, sessionMode, sdkSessionId);
 
         console.log('[AgentManager] Calling query() with model:', options.model, 'thinking:', JSON.stringify(options.thinking) || 'default', 'effort:', options.effort || 'default');
         this.emitStatus({ type: 'thinking', sessionId, message: '*stretches paws* thinking...' });
@@ -772,7 +795,7 @@ class AgentManagerClass extends EventEmitter {
             this.persistentSessions.delete(sessionId);
 
             // Create new session without resume
-            const freshOptions = await this.buildPersistentOptions(memory, sessionId, undefined);
+            const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, undefined);
             const freshSession = new PersistentSDKSession(
               sessionId,
               (msg) => this.processStatusFromMessage(msg),
@@ -856,7 +879,7 @@ class AgentManagerClass extends EventEmitter {
         if (!queryFn) throw new Error('Failed to load SDK');
 
         const resumeId = isAuthFailed ? staleId : undefined;
-        const freshOptions = await this.buildPersistentOptions(memory, sessionId, resumeId);
+        const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, resumeId);
         const freshSession = new PersistentSDKSession(
           sessionId,
           (msg) => this.processStatusFromMessage(msg),
@@ -1292,7 +1315,12 @@ class AgentManagerClass extends EventEmitter {
    * Dynamic context (temporal, facts, soul, daily logs) is injected per-message via
    * the UserPromptSubmit hook's additionalContext, so it's fresh for each turn.
    */
-  private async buildPersistentOptions(memory: MemoryManager, sessionId: string, sdkSessionId?: string): Promise<SDKOptions> {
+  private async buildPersistentOptions(
+    memory: MemoryManager,
+    sessionId: string,
+    sessionMode: 'general' | 'coder' | 'manager',
+    sdkSessionId?: string,
+  ): Promise<SDKOptions> {
     // === Static context (set once at session creation) ===
     // NOTE: CLAUDE.md (this.instructions) is NOT included here because the SDK
     // already reads it from the workspace via cwd + settingSources: ['project'].
@@ -1328,6 +1356,30 @@ class AgentManagerClass extends EventEmitter {
       staticParts.push(capabilities);
     }
 
+    if (sessionMode === 'general') {
+      staticParts.push(
+        `## Active Mode: General\n` +
+        `You are in General mode for this session.\n` +
+        `Focus on clear answers, planning, and practical guidance.\n` +
+        `Do NOT perform coding/file-editing/shell actions in this mode.\n` +
+        `If the user asks for coding changes, ask them to switch this session to Coder mode.`
+      );
+    } else if (sessionMode === 'manager') {
+      staticParts.push(
+        `## Active Mode: Manager\n` +
+        `You are in Manager mode for this session.\n` +
+        `Prioritize business execution: LinkedIn strategy, email operations, planning, delegation, and concise decisions.\n` +
+        `When critiquing ideas, be direct but always include a constructive next action.\n` +
+        `Avoid coding/file-editing/shell actions in this mode unless explicitly required.`
+      );
+    } else {
+      staticParts.push(
+        `## Active Mode: Coder\n` +
+        `You are in Coder mode for this session.\n` +
+        `You may use code and shell tools directly when needed, with safe and minimal changes.`
+      );
+    }
+
     // Acknowledgment-first behavior: respond quickly, then execute
     // Only for user-initiated messages -scheduled routines should execute silently
     staticParts.push(
@@ -1354,11 +1406,58 @@ class AgentManagerClass extends EventEmitter {
     await configureProviderEnvironment(this.model);
     const env: Record<string, string | undefined> = {
       ...process.env,
-      CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
     };
     delete env.CLAUDE_CONFIG_DIR;
     // Prevent "nested session" detection in Claude Code 2.1.42+
     delete env.CLAUDECODE;
+
+    const fullAllowedTools = [
+      // Built-in SDK tools
+      'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch',
+      // Background task tools (persist across turns with persistent sessions)
+      'TaskOutput', 'TaskStop', 'BashOutput', 'KillBash',
+      // Custom MCP tools - browser & system
+      'mcp__pocket-agent__browser',
+      'mcp__pocket-agent__notify',
+      // Custom MCP tools - memory
+      'mcp__pocket-agent__remember',
+      'mcp__pocket-agent__forget',
+      'mcp__pocket-agent__list_facts',
+      'mcp__pocket-agent__memory_search',
+      'mcp__pocket-agent__daily_log',
+      // Custom MCP tools - soul
+      'mcp__pocket-agent__soul_set',
+      'mcp__pocket-agent__soul_get',
+      'mcp__pocket-agent__soul_list',
+      'mcp__pocket-agent__soul_delete',
+      // Custom MCP tools - scheduler
+      'mcp__pocket-agent__schedule_task',
+      'mcp__pocket-agent__create_reminder',
+      'mcp__pocket-agent__list_scheduled_tasks',
+      'mcp__pocket-agent__delete_scheduled_task',
+      // Custom MCP tools - calendar
+      'mcp__pocket-agent__calendar_add',
+      'mcp__pocket-agent__calendar_list',
+      'mcp__pocket-agent__calendar_upcoming',
+      'mcp__pocket-agent__calendar_delete',
+      // Custom MCP tools - tasks
+      'mcp__pocket-agent__task_add',
+      'mcp__pocket-agent__task_list',
+      'mcp__pocket-agent__task_complete',
+      'mcp__pocket-agent__task_delete',
+      'mcp__pocket-agent__task_due',
+      // Custom MCP tools - project
+      'mcp__pocket-agent__set_project',
+      'mcp__pocket-agent__get_project',
+      'mcp__pocket-agent__clear_project',
+      // Custom MCP tools - research (multi-agent)
+      'mcp__pocket-agent__research',
+      'mcp__pocket-agent__research_status',
+    ];
+    const noCodeTools = new Set(['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Task', 'TaskOutput', 'TaskStop', 'BashOutput', 'KillBash']);
+    const allowedTools = sessionMode === 'coder'
+      ? fullAllowedTools
+      : fullAllowedTools.filter(tool => !noCodeTools.has(tool));
 
     const options: SDKOptions = {
       model: this.model,
@@ -1445,51 +1544,7 @@ class AgentManagerClass extends EventEmitter {
           }],
         }],
       },
-      allowedTools: [
-        // Built-in SDK tools
-        'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch',
-        // Agent Teams tools
-        'TeammateTool', 'TeamCreate', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList',
-        // Background task tools (persist across turns with persistent sessions)
-        'TaskOutput', 'TaskStop', 'BashOutput', 'KillBash',
-        // Custom MCP tools - browser & system
-        'mcp__pocket-agent__browser',
-        'mcp__pocket-agent__notify',
-        // Custom MCP tools - memory
-        'mcp__pocket-agent__remember',
-        'mcp__pocket-agent__forget',
-        'mcp__pocket-agent__list_facts',
-        'mcp__pocket-agent__memory_search',
-        'mcp__pocket-agent__daily_log',
-        // Custom MCP tools - soul
-        'mcp__pocket-agent__soul_set',
-        'mcp__pocket-agent__soul_get',
-        'mcp__pocket-agent__soul_list',
-        'mcp__pocket-agent__soul_delete',
-        // Custom MCP tools - scheduler
-        'mcp__pocket-agent__schedule_task',
-        'mcp__pocket-agent__create_reminder',
-        'mcp__pocket-agent__list_scheduled_tasks',
-        'mcp__pocket-agent__delete_scheduled_task',
-        // Custom MCP tools - calendar
-        'mcp__pocket-agent__calendar_add',
-        'mcp__pocket-agent__calendar_list',
-        'mcp__pocket-agent__calendar_upcoming',
-        'mcp__pocket-agent__calendar_delete',
-        // Custom MCP tools - tasks
-        'mcp__pocket-agent__task_add',
-        'mcp__pocket-agent__task_list',
-        'mcp__pocket-agent__task_complete',
-        'mcp__pocket-agent__task_delete',
-        'mcp__pocket-agent__task_due',
-        // Custom MCP tools - project
-        'mcp__pocket-agent__set_project',
-        'mcp__pocket-agent__get_project',
-        'mcp__pocket-agent__clear_project',
-        // Custom MCP tools - research (multi-agent)
-        'mcp__pocket-agent__research',
-        'mcp__pocket-agent__research_status',
-      ],
+      allowedTools,
       persistSession: false,
       ...(sdkSessionId && { resume: sdkSessionId }),
     };

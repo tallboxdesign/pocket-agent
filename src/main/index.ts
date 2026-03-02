@@ -1625,7 +1625,8 @@ function setupIPC(): void {
 
   ipcMain.handle('sessions:create', async (_, name: string) => {
     try {
-      return { success: true, session: memory?.createSession(name) };
+      const mode = AgentManager.getMode();
+      return { success: true, session: memory?.createSession(name, mode) };
     } catch (err) {
       return { success: false, error: (err as Error).message };
     }
@@ -1647,6 +1648,45 @@ function setupIPC(): void {
     AgentManager.clearQueue(id);
     AgentManager.clearSdkSessionMapping(id);  // Also closes persistent session
     const success = memory?.deleteSession(id) ?? false;
+    return { success };
+  });
+
+  // Agent mode (global default for new sessions)
+  ipcMain.handle('agent:setMode', async (_, mode: string) => {
+    const normalized = String(mode || '').trim().toLowerCase();
+    if (!['general', 'coder', 'manager'].includes(normalized)) {
+      return { success: false, error: 'Invalid mode' };
+    }
+    AgentManager.setMode(normalized);
+    SettingsManager.set('agent.mode', normalized);
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.webContents.send('agent:modeChanged', normalized);
+    }
+    return { success: true };
+  });
+
+  ipcMain.handle('agent:getMode', async () => {
+    return AgentManager.getMode();
+  });
+
+  // Per-session mode (locked after first message)
+  ipcMain.handle('agent:getSessionMode', async (_, sessionId: string) => {
+    return memory?.getSessionMode(sessionId) || 'coder';
+  });
+
+  ipcMain.handle('agent:setSessionMode', async (_, sessionId: string, mode: string) => {
+    const normalized = String(mode || '').trim().toLowerCase();
+    if (!['general', 'coder', 'manager'].includes(normalized)) {
+      return { success: false, error: 'Invalid mode' };
+    }
+    if (!memory) return { success: false, error: 'Memory not initialized' };
+
+    // Only allow mode change if session has no messages
+    const msgCount = memory.getSessionMessageCount(sessionId);
+    if (msgCount > 0) {
+      return { success: false, error: 'Cannot change mode after messages have been sent' };
+    }
+    const success = memory.setSessionMode(sessionId, normalized as 'general' | 'coder' | 'manager');
     return { success };
   });
 
@@ -2394,6 +2434,15 @@ function setupIPC(): void {
   ipcMain.handle('settings:set', async (_, key: string, value: string) => {
     try {
       SettingsManager.set(key, value);
+
+      if (key === 'agent.mode') {
+        const normalized = (value || '').trim().toLowerCase();
+        const mode = (normalized === 'general' || normalized === 'manager') ? normalized : 'coder';
+        AgentManager.setMode(mode);
+        if (chatWindow && !chatWindow.isDestroyed()) {
+          chatWindow.webContents.send('agent:modeChanged', mode);
+        }
+      }
 
       // Auto-setup birthday cron jobs when birthday is set
       if (key === 'profile.birthday') {
@@ -3853,12 +3902,14 @@ async function initializeAgent(): Promise<void> {
   }
 
   // Initialize agent with tools config
+  const selectedMode = (SettingsManager.get('agent.mode') || 'coder').trim().toLowerCase();
   AgentManager.initialize({
     memory,
     projectRoot,
     workspace,  // Isolated working directory for agent file operations
     dataDir: app.getPath('userData'),
     model: selectedModel,
+    mode: (selectedMode === 'general' || selectedMode === 'manager') ? selectedMode : 'coder',
     tools: toolsConfig,
   });
 

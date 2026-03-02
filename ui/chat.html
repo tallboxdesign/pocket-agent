@@ -1613,6 +1613,52 @@
       flex-wrap: wrap;
     }
 
+    #mode-toggle-area {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .mode-toggle {
+      display: inline-flex;
+      align-items: center;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      overflow: hidden;
+      min-height: 30px;
+    }
+
+    .mode-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 6px 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .mode-btn:hover {
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .mode-btn.active {
+      color: #ffffff;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    }
+
+    .mode-toggle.locked {
+      opacity: 0.55;
+      filter: grayscale(40%);
+    }
+
+    .mode-toggle.locked .mode-btn {
+      cursor: not-allowed;
+    }
+
     /* Workflows Area */
     #workflows-area {
       flex-shrink: 0;
@@ -2371,7 +2417,7 @@
             </svg>
             Daily Logs
           </button>
-          <button class="menu-item" onclick="showSoul(); closeMenu();
+          <button class="menu-item" onclick="showSoul(); closeMenu();">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
             </svg>
@@ -2457,6 +2503,14 @@
 
   <!-- Toolbar Row (Search + Workflows) -->
   <div id="toolbar-row">
+    <div id="mode-toggle-area">
+      <div class="mode-toggle" id="mode-toggle">
+        <button class="mode-btn" id="mode-btn-general" onclick="setAgentMode('general')">General</button>
+        <button class="mode-btn active" id="mode-btn-coder" onclick="setAgentMode('coder')">Coder</button>
+        <button class="mode-btn" id="mode-btn-manager" onclick="setAgentMode('manager')">Manager</button>
+      </div>
+    </div>
+
     <div id="search-area">
       <!-- Toggle Button (shown by default) -->
       <button class="search-toggle" id="search-toggle-btn" onclick="playNormalClick(); toggleSearch()">
@@ -2990,6 +3044,8 @@
     const MAX_TABS = 5;
     let sessions = [];
     let currentSessionId = 'default';
+    let currentAgentMode = 'coder';
+    let modeListenerCleanup = null;
     const tabsContainer = document.getElementById('tabs-container');
 
     // Allowed file types
@@ -3037,6 +3093,7 @@
 
       // Load sessions first, then load history for active session
       await loadSessions();
+      await initAgentMode();
       await loadHistory();
       updateStats();
       input.focus();
@@ -3104,6 +3161,85 @@
         renderTabs();
       } catch (err) {
         console.error('Failed to load sessions:', err);
+      }
+    }
+
+    async function initAgentMode() {
+      try {
+        await updateModeUIForSession(currentSessionId);
+      } catch (err) {
+        console.error('Failed to initialize mode UI:', err);
+      }
+
+      if (!modeListenerCleanup && window.pocketAgent.onModeChanged) {
+        modeListenerCleanup = window.pocketAgent.onModeChanged((mode) => {
+          console.log('[Chat] Global mode changed:', mode);
+        });
+      }
+    }
+
+    function updateModeButtons(mode) {
+      const generalBtn = document.getElementById('mode-btn-general');
+      const coderBtn = document.getElementById('mode-btn-coder');
+      const managerBtn = document.getElementById('mode-btn-manager');
+      if (!generalBtn || !coderBtn || !managerBtn) return;
+      generalBtn.classList.toggle('active', mode === 'general');
+      coderBtn.classList.toggle('active', mode === 'coder');
+      managerBtn.classList.toggle('active', mode === 'manager');
+    }
+
+    async function updateModeUIForSession(sessionId) {
+      if (!window.pocketAgent.getSessionMode) return;
+      try {
+        const mode = await window.pocketAgent.getSessionMode(sessionId);
+        currentAgentMode = mode || 'coder';
+        updateModeButtons(currentAgentMode);
+
+        const stats = await window.pocketAgent.getStats(sessionId);
+        const locked = !!(stats && Number(stats.messageCount || 0) > 0);
+        const toggle = document.getElementById('mode-toggle');
+        if (toggle) {
+          toggle.classList.toggle('locked', locked);
+        }
+      } catch (err) {
+        console.error('Failed to update mode UI for session:', err);
+      }
+    }
+
+    async function setAgentMode(mode) {
+      const normalized = String(mode || '').toLowerCase();
+      if (!['general', 'coder', 'manager'].includes(normalized)) return;
+      if (!window.pocketAgent.setSessionMode) return;
+
+      const toggle = document.getElementById('mode-toggle');
+      if (toggle && toggle.classList.contains('locked')) {
+        addMessage('system', 'Mode is locked for this chat after first message. Create a new chat to switch mode.');
+        return;
+      }
+
+      const previous = currentAgentMode;
+      currentAgentMode = normalized;
+      updateModeButtons(normalized);
+
+      try {
+        const result = await window.pocketAgent.setSessionMode(currentSessionId, normalized);
+        if (!result?.success) {
+          currentAgentMode = previous;
+          updateModeButtons(previous);
+          addMessage('system', result?.error || 'Could not change mode for this chat');
+          await updateModeUIForSession(currentSessionId);
+          return;
+        }
+
+        if (window.pocketAgent.setMode) {
+          window.pocketAgent.setMode(normalized).catch(err => {
+            console.warn('Failed to update default mode:', err);
+          });
+        }
+      } catch (err) {
+        currentAgentMode = previous;
+        updateModeButtons(previous);
+        console.error('Failed to set mode:', err);
       }
     }
 
@@ -3238,6 +3374,7 @@
       currentSessionId = sessionId;
       localStorage.setItem('currentSessionId', currentSessionId);
       renderTabs();
+      await updateModeUIForSession(sessionId);
       messagesDiv.innerHTML = '';
       // Clear stale streaming bubble reference — the DOM element was just destroyed.
       // A fresh bubble will be created when partial_text events arrive for this session.
@@ -3332,6 +3469,7 @@
         currentSessionId = result.session.id;
         localStorage.setItem('currentSessionId', currentSessionId);
         renderTabs();
+        await updateModeUIForSession(result.session.id);
         messagesDiv.innerHTML = '';
         showEmptyState();
         updateStats();
@@ -3864,6 +4002,7 @@
         // Remove from pending user messages (message is now saved to history)
         const pendingMsgs = pendingUserMessagesBySession.get(sessionId);
         if (pendingMsgs) pendingMsgs.delete(messageId);
+        await updateModeUIForSession(sessionId);
 
         // Clean up loading state regardless of which tab is active
         // (otherwise indicators persist if user switched tabs mid-query)
