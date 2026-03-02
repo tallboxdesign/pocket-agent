@@ -199,29 +199,66 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       });
     }
 
-    // Persist scraped posts to DB, track which are new
+    // Persist scraped posts to DB and refresh existing rows on re-scrape
     const db = getDb();
     let newPosts = posts;
     if (db) {
-      const insert = db.prepare(
-        `INSERT OR IGNORE INTO linkedin_posts (post_url, author, text_preview, reactions, comments, post_type, scraped_date)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      const upsert = db.prepare(
+        `INSERT INTO linkedin_posts (post_url, author, text_preview, reactions, comments, post_type, scraped_date)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(post_url) DO UPDATE SET
+           author = excluded.author,
+           text_preview = excluded.text_preview,
+           reactions = excluded.reactions,
+           comments = excluded.comments,
+           post_type = excluded.post_type,
+           scraped_date = excluded.scraped_date`
       );
-      const check = db.prepare('SELECT id FROM linkedin_posts WHERE post_url = ?');
+      const check = db.prepare(
+        `SELECT id, author, text_preview, reactions, comments, post_type, scraped_date
+         FROM linkedin_posts WHERE post_url = ?`
+      );
+      type ExistingLinkedInPostRow = {
+        id: number;
+        author: string;
+        text_preview: string;
+        reactions: number;
+        comments: number;
+        post_type: string | null;
+        scraped_date: string;
+      };
       const today = todayDate();
       const existingUrls = new Set<string>();
+      const refreshedUrls = new Set<string>();
       const tx = db.transaction(() => {
         for (const post of posts) {
           if (post.post_url) {
-            const existing = check.get(post.post_url);
-            if (existing) existingUrls.add(post.post_url);
-            insert.run(
+            const existing = check.get(post.post_url) as ExistingLinkedInPostRow | undefined;
+            const nextAuthor = post.author || 'Unknown';
+            const nextPreview = (post.text_preview || '').slice(0, 500);
+            const nextReactions = post.reactions || 0;
+            const nextComments = post.comments || 0;
+            const nextType = post.type || null;
+
+            if (existing) {
+              existingUrls.add(post.post_url);
+              const changed =
+                existing.author !== nextAuthor ||
+                existing.text_preview !== nextPreview ||
+                Number(existing.reactions || 0) !== nextReactions ||
+                Number(existing.comments || 0) !== nextComments ||
+                (existing.post_type || null) !== nextType ||
+                existing.scraped_date !== today;
+              if (changed) refreshedUrls.add(post.post_url);
+            }
+
+            upsert.run(
               post.post_url,
-              post.author || 'Unknown',
-              (post.text_preview || '').slice(0, 500),
-              post.reactions || 0,
-              post.comments || 0,
-              post.type || null,
+              nextAuthor,
+              nextPreview,
+              nextReactions,
+              nextComments,
+              nextType,
               today,
             );
           }
@@ -230,9 +267,24 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       tx();
       // Only return posts that were actually new
       newPosts = posts.filter((p: { post_url?: string }) => p.post_url && !existingUrls.has(p.post_url));
+      const refreshedCount = refreshedUrls.size;
+      return JSON.stringify({
+        success: true,
+        count: newPosts.length,
+        total_scraped: posts.length,
+        skipped_existing: posts.length - newPosts.length,
+        updated_existing: refreshedCount,
+        posts: newPosts,
+      });
     }
-
-    return JSON.stringify({ success: true, count: newPosts.length, total_scraped: posts.length, skipped_existing: posts.length - newPosts.length, posts: newPosts });
+    return JSON.stringify({
+      success: true,
+      count: newPosts.length,
+      total_scraped: posts.length,
+      skipped_existing: posts.length - newPosts.length,
+      updated_existing: 0,
+      posts: newPosts,
+    });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error('[LinkedIn] feed failed:', msg);
