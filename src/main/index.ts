@@ -2568,9 +2568,111 @@ function setupIPC(): void {
     return SettingsManager.validateMinimaxKey(key);
   });
 
+  ipcMain.handle('settings:validateQwen', async (_, key: string) => {
+    return SettingsManager.validateQwenKey(key);
+  });
+
+  ipcMain.handle('settings:validateOpenRouter', async (_, key: string) => {
+    return SettingsManager.validateOpenRouterKey(key);
+  });
+
   // Get available models based on configured API keys
   ipcMain.handle('settings:getAvailableModels', async () => {
     const models: Array<{ id: string; name: string; provider: string }> = [];
+    const parseFavoriteModelIds = (raw: string): Set<string> => {
+      const text = String(raw || '').trim();
+      if (!text) return new Set<string>();
+      try {
+        if (text.startsWith('[')) {
+          const parsed = JSON.parse(text);
+          if (Array.isArray(parsed)) {
+            return new Set(
+              parsed
+                .map((v: unknown) => String(v || '').trim().toLowerCase())
+                .filter(Boolean)
+            );
+          }
+        }
+      } catch {
+        // Fall back to plain-text parsing below.
+      }
+      return new Set(
+        text
+          .split(/[\n,]+/)
+          .map(v => v.trim().toLowerCase())
+          .filter(Boolean)
+      );
+    };
+
+    const fetchOpenRouterModels = async (
+      apiKey: string,
+      favoriteIds: Set<string>
+    ): Promise<Array<{ id: string; name: string; provider: string }>> => {
+      const fallback = [
+        { id: 'openrouter/auto', name: 'OpenRouter Auto', provider: favoriteIds.has('openrouter/auto') ? 'openrouter_fav' : 'openrouter' },
+      ];
+      const fetchRows = async (url: string): Promise<Array<Record<string, unknown>>> => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              Accept: 'application/json',
+            },
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            throw new Error(`OpenRouter models API failed (${response.status})`);
+          }
+          const payload = await response.json() as { data?: Array<Record<string, unknown>> };
+          return Array.isArray(payload?.data) ? payload.data : [];
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      try {
+        // Only use user-scoped list to avoid showing models the current key cannot use.
+        const rows = await fetchRows('https://openrouter.ai/api/v1/models/user');
+
+        const mapped = rows
+          .map((row) => {
+            const id = String(row.id || '').trim();
+            if (!id) return null;
+            const nameRaw = String(row.name || '').trim();
+            const isFav = favoriteIds.has(id.toLowerCase());
+            const promptPrice = Number((row as { pricing?: { prompt?: string | number } }).pricing?.prompt);
+            const completionPrice = Number((row as { pricing?: { completion?: string | number } }).pricing?.completion);
+            const isFree = Number.isFinite(promptPrice)
+              && Number.isFinite(completionPrice)
+              && promptPrice === 0
+              && completionPrice === 0;
+
+            const name = nameRaw && nameRaw.toLowerCase() !== id.toLowerCase() ? nameRaw : id;
+            return {
+              id,
+              name: `${name}${isFree ? ' [free]' : ''}`,
+              provider: isFav ? 'openrouter_fav' : 'openrouter',
+            };
+          })
+          .filter((item): item is { id: string; name: string; provider: string } => !!item);
+
+        const dedupedById = new Map<string, { id: string; name: string; provider: string }>();
+        for (const item of mapped) {
+          dedupedById.set(item.id.toLowerCase(), item);
+        }
+        const deduped = Array.from(dedupedById.values());
+
+        const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+        const favorites = deduped.filter(m => m.provider === 'openrouter_fav').sort(byName);
+        const rest = deduped.filter(m => m.provider === 'openrouter').sort(byName);
+        return [...favorites, ...rest];
+      } catch (err) {
+        console.warn('[Main] Failed to fetch OpenRouter user models, using safe fallback list:', err);
+        return fallback;
+      }
+    };
 
     // Check for Anthropic keys (OAuth or API key)
     const authMethod = SettingsManager.get('auth.method');
@@ -2608,6 +2710,22 @@ function setupIPC(): void {
         { id: 'MiniMax-M2.5', name: 'MiniMax M2.5', provider: 'minimax' },
         { id: 'MiniMax-M2.5-Lightning', name: 'M2.5 Lightning', provider: 'minimax' }
       );
+    }
+
+    // Check for direct Qwen key (DashScope Anthropic-compatible endpoint)
+    const hasQwenKey = SettingsManager.get('qwen.apiKey');
+    if (hasQwenKey) {
+      models.push(
+        { id: 'qwen3.5-plus-2026-02-15', name: 'Qwen 3.5 Plus', provider: 'qwen' }
+      );
+    }
+
+    // Check for OpenRouter key
+    const hasOpenRouterKey = SettingsManager.get('openrouter.apiKey');
+    if (hasOpenRouterKey) {
+      const favoriteIds = parseFavoriteModelIds(SettingsManager.get('openrouter.favoriteModels') || '');
+      const openRouterModels = await fetchOpenRouterModels(hasOpenRouterKey, favoriteIds);
+      models.push(...openRouterModels);
     }
 
     return models;
@@ -3871,6 +3989,8 @@ async function initializeAgent(): Promise<void> {
     moonshot: 'moonshot.apiKey',
     glm: 'glm.apiKey',
     minimax: 'minimax.apiKey',
+    qwen: 'qwen.apiKey',
+    openrouter: 'openrouter.apiKey',
   };
   const modelProviderMap: Record<string, string> = {
     'claude-opus-4-6': 'anthropic',
@@ -3880,8 +4000,14 @@ async function initializeAgent(): Promise<void> {
     'glm-5': 'glm',
     'MiniMax-M2.5': 'minimax',
     'MiniMax-M2.5-Lightning': 'minimax',
+    'qwen3.5-plus-2026-02-15': 'qwen',
+    'qwen/qwen3.5-plus-02-15': 'openrouter',
+    'qwen/qwen3.5-flash': 'openrouter',
   };
-  const selectedProvider = modelProviderMap[selectedModel] || 'anthropic';
+  const selectedProvider = modelProviderMap[selectedModel]
+    || (String(selectedModel || '').includes('/') ? 'openrouter' : '')
+    || (/^qwen/i.test(String(selectedModel || '')) ? 'qwen' : '')
+    || 'anthropic';
   const hasOAuth = !!SettingsManager.get('auth.oauthToken');
   const hasSelectedKey = selectedProvider === 'anthropic'
     ? !!(SettingsManager.get('anthropic.apiKey') || hasOAuth)
@@ -3889,7 +4015,7 @@ async function initializeAgent(): Promise<void> {
 
   if (!hasSelectedKey) {
     // Find a provider that has a key
-    const fallbackOrder = ['anthropic', 'moonshot', 'glm', 'minimax'];
+    const fallbackOrder = ['anthropic', 'moonshot', 'glm', 'minimax', 'qwen', 'openrouter'];
     let fallbackModel = '';
     for (const provider of fallbackOrder) {
       const hasKey = provider === 'anthropic'
@@ -3901,6 +4027,8 @@ async function initializeAgent(): Promise<void> {
           moonshot: 'kimi-k2.5',
           glm: 'glm-5',
           minimax: 'MiniMax-M2.5',
+          qwen: 'qwen3.5-plus-2026-02-15',
+          openrouter: 'openrouter/auto',
         };
         fallbackModel = defaultModels[provider] || '';
         console.warn(`[Main] Model "${selectedModel}" has no API key for provider "${selectedProvider}". Falling back to "${fallbackModel}" (${provider})`);

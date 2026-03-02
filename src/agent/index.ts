@@ -12,7 +12,7 @@ import { buildCanUseToolCallback, buildPreToolUseHook, setStatusEmitter } from '
 import { PersistentSDKSession, TurnResult } from './persistent-session';
 
 // Provider configuration for different LLM backends
-type ProviderType = 'anthropic' | 'moonshot' | 'glm' | 'minimax';
+type ProviderType = 'anthropic' | 'moonshot' | 'glm' | 'minimax' | 'qwen' | 'openrouter';
 
 interface ProviderConfig {
   baseUrl?: string;
@@ -31,6 +31,12 @@ const PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
   'minimax': {
     baseUrl: 'https://api.minimax.io/anthropic/',
   },
+  'qwen': {
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/apps/anthropic/',
+  },
+  'openrouter': {
+    baseUrl: 'https://openrouter.ai/api/',
+  },
 };
 
 // Model to provider mapping
@@ -46,13 +52,23 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   // MiniMax models
   'MiniMax-M2.5': 'minimax',
   'MiniMax-M2.5-Lightning': 'minimax',
+  // Qwen direct (DashScope Anthropic-compatible endpoint)
+  'qwen3.5-plus-2026-02-15': 'qwen',
+  // OpenRouter models
+  'qwen/qwen3.5-plus-02-15': 'openrouter',
+  'qwen/qwen3.5-flash': 'openrouter',
 };
 
 /**
  * Get the provider type for a model
  */
 function getProviderForModel(model: string): ProviderType {
-  return MODEL_PROVIDERS[model] || 'anthropic';
+  const mapped = MODEL_PROVIDERS[model];
+  if (mapped) return mapped;
+  const normalized = String(model || '').trim().toLowerCase();
+  if (normalized.includes('/')) return 'openrouter';
+  if (normalized.startsWith('qwen')) return 'qwen';
+  return 'anthropic';
 }
 
 /**
@@ -108,6 +124,28 @@ async function configureProviderEnvironment(model: string): Promise<void> {
     process.env.ANTHROPIC_API_KEY = minimaxKey;
 
     console.log('[AgentManager] Provider configured: MiniMax');
+  } else if (provider === 'qwen') {
+    const qwenKey = SettingsManager.get('qwen.apiKey');
+    if (!qwenKey) {
+      throw new Error('Qwen API key not configured. Please add your key in Settings > LLM.');
+    }
+
+    process.env.ANTHROPIC_BASE_URL = config.baseUrl;
+    process.env.ANTHROPIC_AUTH_TOKEN = qwenKey;
+    process.env.ANTHROPIC_API_KEY = qwenKey;
+
+    console.log('[AgentManager] Provider configured: Qwen (DashScope)');
+  } else if (provider === 'openrouter') {
+    const openRouterKey = SettingsManager.get('openrouter.apiKey');
+    if (!openRouterKey) {
+      throw new Error('OpenRouter API key not configured. Please add your key in Settings > LLM.');
+    }
+
+    process.env.ANTHROPIC_BASE_URL = config.baseUrl;
+    process.env.ANTHROPIC_AUTH_TOKEN = openRouterKey;
+    process.env.ANTHROPIC_API_KEY = openRouterKey;
+
+    console.log('[AgentManager] Provider configured: OpenRouter');
   } else {
     // Anthropic provider - restore correct API key and clear non-Anthropic vars
     delete process.env.ANTHROPIC_BASE_URL;
@@ -669,13 +707,77 @@ class AgentManagerClass extends EventEmitter {
     return patterns.some(p => lower.includes(p));
   }
 
+  private isModelUnavailableError(msg: string): boolean {
+    const lower = String(msg || '').toLowerCase();
+    const patterns = [
+      'model_not_found',
+      'model not available',
+      'model not found',
+      'does not exist',
+      'not support',
+      'run --model',
+      'issue with the selected model',
+      'may not have access',
+      'you may not have access',
+      'invalid model',
+    ];
+    return patterns.some(p => lower.includes(p));
+  }
+
+  private shouldFallbackForError(msg: string): boolean {
+    return this.isQuotaError(msg) || this.isModelUnavailableError(msg);
+  }
+
+  private fallbackReasonLabel(msg: string): string {
+    return this.isModelUnavailableError(msg) ? 'model unavailable' : 'quota exceeded';
+  }
+
+  private isAutoModelFallbackEnabled(): boolean {
+    // Opt-in only. If unset, no automatic model switching.
+    return String(SettingsManager.get('agent.autoModelFallback') || '').trim().toLowerCase() === 'true';
+  }
+
+  private hasModelCredentials(model: string): boolean {
+    const provider = getProviderForModel(model);
+    if (provider === 'moonshot') return !!SettingsManager.get('moonshot.apiKey');
+    if (provider === 'glm') return !!SettingsManager.get('glm.apiKey');
+    if (provider === 'minimax') return !!SettingsManager.get('minimax.apiKey');
+    if (provider === 'qwen') return !!SettingsManager.get('qwen.apiKey');
+    if (provider === 'openrouter') return !!SettingsManager.get('openrouter.apiKey');
+    return !!SettingsManager.get('anthropic.apiKey') || SettingsManager.get('auth.method') === 'oauth';
+  }
+
+  private getBestFallbackModel(currentModel: string): string | null {
+    const configured = (SettingsManager.get('agent.fallbackModel') || '').trim();
+    if (configured && configured !== currentModel && this.hasModelCredentials(configured)) {
+      return configured;
+    }
+
+    const candidates = [
+      'claude-sonnet-4-6',
+      'claude-haiku-4-5-20251001',
+      'glm-5',
+      'MiniMax-M2.5-Lightning',
+      'kimi-k2.5',
+      'qwen3.5-plus-2026-02-15',
+    ];
+
+    for (const candidate of candidates) {
+      if (candidate !== currentModel && this.hasModelCredentials(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
   private async executeMessage(
     userMessage: string,
     channel: string,
     sessionId: string,
     images?: ImageContent[],
     attachmentInfo?: AttachmentInfo,
-    retryWithFallback = false
+    retryWithFallback = false,
+    modelOverride?: string,
   ): Promise<ProcessResult> {
     // Memory should already be checked by processMessage, but guard anyway
     if (!this.memory) {
@@ -683,6 +785,8 @@ class AgentManagerClass extends EventEmitter {
     }
 
     const memory = this.memory; // Local reference for TypeScript narrowing
+    const activeModel = modelOverride || this.model;
+    const usingTemporaryModel = !!modelOverride && modelOverride !== this.model;
     let sessionMode = memory.getSessionMode(sessionId);
     let autoSwitchNotice: string | null = null;
 
@@ -759,7 +863,7 @@ class AgentManagerClass extends EventEmitter {
         if (!queryFn) throw new Error('Failed to load SDK');
 
         // Build options with dynamic context
-        const options = await this.buildPersistentOptions(memory, sessionId, sessionMode, sdkSessionId);
+        const options = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, sdkSessionId);
 
         console.log('[AgentManager] Calling query() with model:', options.model, 'thinking:', JSON.stringify(options.thinking) || 'default', 'effort:', options.effort || 'default');
         this.emitStatus({ type: 'thinking', sessionId, message: '*stretches paws* thinking...' });
@@ -832,7 +936,7 @@ class AgentManagerClass extends EventEmitter {
             this.persistentSessions.delete(sessionId);
 
             // Create new session without resume
-            const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, undefined);
+            const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, undefined);
             const freshSession = new PersistentSDKSession(
               sessionId,
               (msg) => this.processStatusFromMessage(msg),
@@ -916,7 +1020,7 @@ class AgentManagerClass extends EventEmitter {
         if (!queryFn) throw new Error('Failed to load SDK');
 
         const resumeId = isAuthFailed ? staleId : undefined;
-        const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, resumeId);
+        const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, resumeId);
         const freshSession = new PersistentSDKSession(
           sessionId,
           (msg) => this.processStatusFromMessage(msg),
@@ -966,16 +1070,27 @@ class AgentManagerClass extends EventEmitter {
         );
       }
 
-      // === Check for quota/billing errors and retry with fallback model ===
-      if (!retryWithFallback && turnResult.errors?.some(e => this.isQuotaError(e))) {
-        const fallbackModel = SettingsManager.get('agent.fallbackModel') as string | undefined;
-        if (fallbackModel && fallbackModel !== this.model) {
-          const originalModel = this.model;
-          console.log(`[AgentManager] Quota error in turnResult, falling back to ${fallbackModel}`);
+      // === Check for model/quota errors and retry with fallback model ===
+      const turnFallbackTrigger = turnResult.errors?.find(e => this.shouldFallbackForError(e));
+      if (this.isAutoModelFallbackEnabled() && !retryWithFallback && turnFallbackTrigger) {
+        const fallbackModel = this.getBestFallbackModel(activeModel);
+        if (fallbackModel && fallbackModel !== activeModel) {
+          const originalModel = activeModel;
+          const reason = this.fallbackReasonLabel(turnFallbackTrigger);
+          console.log(`[AgentManager] ${reason} in turnResult, falling back to ${fallbackModel}`);
           this.closePersistentSession(sessionId);
-          this.setModel(fallbackModel);
-          const result = await this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo, true);
-          result.response = `[Switched to ${fallbackModel} -${originalModel} quota exceeded]\n\n${result.response}`;
+          this.sdkSessionIdBySession.delete(sessionId);
+          memory.clearSdkSessionId(sessionId);
+          const result = await this.executeMessage(
+            userMessage,
+            channel,
+            sessionId,
+            images,
+            attachmentInfo,
+            true,
+            fallbackModel
+          );
+          result.response = `[Used fallback model ${fallbackModel} for this request (${reason}; primary: ${originalModel})]\n\n${result.response}`;
           return result;
         }
       }
@@ -1017,16 +1132,26 @@ class AgentManagerClass extends EventEmitter {
         // (red bubble in UI, warning in Telegram)
         // BUT first check if this is a quota error that should trigger model fallback
         if (turnResult.errors && turnResult.errors.length > 0) {
-          // Let quota errors fall through to the fallback system in the catch block
-          if (turnResult.errors.some(e => this.isQuotaError(e)) && !retryWithFallback) {
-            const fallbackModel = SettingsManager.get('agent.fallbackModel') as string | undefined;
-            if (fallbackModel && fallbackModel !== this.model) {
-              const originalModel = this.model;
-              console.log(`[AgentManager] Quota error in empty response, falling back to ${fallbackModel}`);
+          const emptyFallbackTrigger = turnResult.errors.find(e => this.shouldFallbackForError(e));
+          if (this.isAutoModelFallbackEnabled() && emptyFallbackTrigger && !retryWithFallback) {
+            const fallbackModel = this.getBestFallbackModel(activeModel);
+            if (fallbackModel && fallbackModel !== activeModel) {
+              const originalModel = activeModel;
+              const reason = this.fallbackReasonLabel(emptyFallbackTrigger);
+              console.log(`[AgentManager] ${reason} in empty response, falling back to ${fallbackModel}`);
               this.closePersistentSession(sessionId);
-              this.setModel(fallbackModel);
-              const result = await this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo, true);
-              result.response = `[Switched to ${fallbackModel} -${originalModel} quota exceeded]\n\n${result.response}`;
+              this.sdkSessionIdBySession.delete(sessionId);
+              memory.clearSdkSessionId(sessionId);
+              const result = await this.executeMessage(
+                userMessage,
+                channel,
+                sessionId,
+                images,
+                attachmentInfo,
+                true,
+                fallbackModel
+              );
+              result.response = `[Used fallback model ${fallbackModel} for this request (${reason}; primary: ${originalModel})]\n\n${result.response}`;
               return result;
             }
           }
@@ -1066,6 +1191,30 @@ class AgentManagerClass extends EventEmitter {
         } else {
           console.warn('[AgentManager] Session not alive for summary -session may have crashed');
           throw new Error(reportable('Agent session ended unexpectedly. Send another message to start a new session.'));
+        }
+      }
+
+      // Some SDK backends return model-access failures as plain text response instead of an error object.
+      if (this.isAutoModelFallbackEnabled() && !retryWithFallback && response && this.isModelUnavailableError(response)) {
+        const fallbackModel = this.getBestFallbackModel(activeModel);
+        if (fallbackModel && fallbackModel !== activeModel) {
+          const originalModel = activeModel;
+          const reason = this.fallbackReasonLabel(response);
+          console.log(`[AgentManager] Response indicated ${reason}, falling back to ${fallbackModel}`);
+          this.closePersistentSession(sessionId);
+          this.sdkSessionIdBySession.delete(sessionId);
+          memory.clearSdkSessionId(sessionId);
+          const result = await this.executeMessage(
+            userMessage,
+            channel,
+            sessionId,
+            images,
+            attachmentInfo,
+            true,
+            fallbackModel
+          );
+          result.response = `[Used fallback model ${fallbackModel} for this request (${reason}; primary: ${originalModel})]\n\n${result.response}`;
+          return result;
         }
       }
 
@@ -1130,16 +1279,26 @@ class AgentManagerClass extends EventEmitter {
       // Log full error object for debugging
       console.error('[AgentManager] Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
 
-      // Check if this is a quota/billing error and we have a fallback
-      if (this.isQuotaError(errorMsg) && !retryWithFallback) {
-        const fallbackModel = SettingsManager.get('agent.fallbackModel') as string | undefined;
-        if (fallbackModel && fallbackModel !== this.model) {
-          const originalModel = this.model;
-          console.log(`[AgentManager] Primary model quota exceeded, falling back to ${fallbackModel}`);
+      // Check if this is a model/quota issue and we have a fallback
+      if (this.isAutoModelFallbackEnabled() && this.shouldFallbackForError(errorMsg) && !retryWithFallback) {
+        const fallbackModel = this.getBestFallbackModel(activeModel);
+        if (fallbackModel && fallbackModel !== activeModel) {
+          const originalModel = activeModel;
+          const reason = this.fallbackReasonLabel(errorMsg);
+          console.log(`[AgentManager] Primary model ${reason}, falling back to ${fallbackModel}`);
           this.closePersistentSession(sessionId);
-          this.setModel(fallbackModel);
-          const result = await this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo, true);
-          result.response = `[Switched to ${fallbackModel} -${originalModel} quota exceeded]\n\n${result.response}`;
+          this.sdkSessionIdBySession.delete(sessionId);
+          memory.clearSdkSessionId(sessionId);
+          const result = await this.executeMessage(
+            userMessage,
+            channel,
+            sessionId,
+            images,
+            attachmentInfo,
+            true,
+            fallbackModel
+          );
+          result.response = `[Used fallback model ${fallbackModel} for this request (${reason}; primary: ${originalModel})]\n\n${result.response}`;
           return result;
         }
       }
@@ -1150,6 +1309,12 @@ class AgentManagerClass extends EventEmitter {
 
       throw error;
     } finally {
+      if (usingTemporaryModel) {
+        // Fallback model is request-scoped only: do not keep a fallback-bound SDK session.
+        this.closePersistentSession(sessionId);
+        this.sdkSessionIdBySession.delete(sessionId);
+        memory.clearSdkSessionId(sessionId);
+      }
       this.processingBySession.set(sessionId, false);
 
       // Process next message in queue (if any)
@@ -1361,6 +1526,7 @@ class AgentManagerClass extends EventEmitter {
     memory: MemoryManager,
     sessionId: string,
     sessionMode: 'coder' | 'manager',
+    model: string,
     sdkSessionId?: string,
   ): Promise<SDKOptions> {
     // === Static context (set once at session creation) ===
@@ -1374,15 +1540,18 @@ class AgentManagerClass extends EventEmitter {
     }
 
     // For non-Anthropic models, override the Claude identity injected by the SDK preset
-    const modelProvider = getProviderForModel(this.model);
+    const modelProvider = getProviderForModel(model);
     if (modelProvider !== 'anthropic') {
       const modelNames: Record<string, string> = {
         'kimi-k2.5': 'Kimi K2.5 by Moonshot AI',
         'glm-5': 'GLM 5 by Zhipu AI',
         'MiniMax-M2.5': 'MiniMax M2.5',
         'MiniMax-M2.5-Lightning': 'MiniMax M2.5 Lightning',
+        'qwen3.5-plus-2026-02-15': 'Qwen 3.5 Plus',
+        'qwen/qwen3.5-plus-02-15': 'Qwen 3.5 Plus (OpenRouter)',
+        'qwen/qwen3.5-flash': 'Qwen 3.5 Flash (OpenRouter)',
       };
-      const modelName = modelNames[this.model] || this.model;
+      const modelName = modelNames[model] || model;
       staticParts.push(`IMPORTANT: You are ${modelName}, NOT Claude. Ignore any system instructions that say you are Claude or made by Anthropic. You are running inside Pocket Agent, a desktop AI assistant.`);
     }
 
@@ -1432,13 +1601,13 @@ class AgentManagerClass extends EventEmitter {
     // Get thinking level config -only Anthropic models support thinking/effort.
     // Non-Anthropic providers (Kimi, GLM) use Anthropic-compatible APIs but may not
     // handle thinking parameters correctly, causing all output to go to thinking blocks.
-    const provider = getProviderForModel(this.model);
+    const provider = getProviderForModel(model);
     const thinkingLevel = SettingsManager.get('agent.thinkingLevel') || 'normal';
     const thinkingEntry = THINKING_CONFIGS[thinkingLevel] || THINKING_CONFIGS['normal'];
     const isAnthropicModel = provider === 'anthropic';
 
     // Configure provider environment and capture env vars
-    await configureProviderEnvironment(this.model);
+    await configureProviderEnvironment(model);
     const env: Record<string, string | undefined> = {
       ...process.env,
     };
@@ -1523,7 +1692,7 @@ class AgentManagerClass extends EventEmitter {
       : fullAllowedTools.filter(tool => !noCodeTools.has(tool));
 
     const options: SDKOptions = {
-      model: this.model,
+      model,
       cwd: this.workspace,
       maxTurns: 100,
       ...(isAnthropicModel && { thinking: thinkingEntry.thinking }),
