@@ -278,6 +278,13 @@ function isWeakDraft(draft: string): boolean {
   return !hasConcreteSignal;
 }
 
+function normalizeHumanTechnicalCasing(input: string): string {
+  let text = String(input || '');
+  text = text.replace(/\b(ChatGPT|Perplexity|Claude|Gemini)\b/gi, (m) => m.toLowerCase());
+  text = text.replace(/\b(LLMs?|AIs?|SEOs?|CTR|CPC|AIOs?|SERPs?|GEO)\b/g, (m) => m.toLowerCase());
+  return text;
+}
+
 function cleanDraftText(draft: string): string {
   let text = draft.trim()
     .replace(/\s*—\s*/g, ', ')
@@ -294,7 +301,7 @@ function cleanDraftText(draft: string): string {
     }
     text = lines.join('\n');
   }
-  return text.trim();
+  return normalizeHumanTechnicalCasing(text.trim());
 }
 
 function ensureReadableCommentLayout(draft: string): string {
@@ -364,10 +371,6 @@ function chooseCommentIntent(postId: number): CommentIntent {
   return intents[idx];
 }
 
-function hasSourceCue(text: string): boolean {
-  return /\b(according to|in .* data|in .* report|research from|study from|survey by)\b/i.test(text);
-}
-
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -396,6 +399,28 @@ function getMeaningfulTokens(input: string): string[] {
   return (input.toLowerCase().match(/[a-z0-9]{4,}/g) || [])
     .filter(t => !stop.has(t))
     .slice(0, 12);
+}
+
+function getNormalizedWordStream(input: string): string[] {
+  return (String(input || '').toLowerCase().match(/[a-z0-9]{3,}/g) || []);
+}
+
+function hasHeavyPhraseOverlap(source: string, candidate: string): boolean {
+  const sourceWords = getNormalizedWordStream(source);
+  const candidateWords = getNormalizedWordStream(candidate);
+  if (sourceWords.length < 14 || candidateWords.length < 14) return false;
+
+  for (const n of [10, 9, 8]) {
+    const candidateNgrams = new Set<string>();
+    for (let i = 0; i <= candidateWords.length - n; i++) {
+      candidateNgrams.add(candidateWords.slice(i, i + n).join(' '));
+    }
+    for (let i = 0; i <= sourceWords.length - n; i++) {
+      const ngram = sourceWords.slice(i, i + n).join(' ');
+      if (candidateNgrams.has(ngram)) return true;
+    }
+  }
+  return false;
 }
 
 function hasRelevanceAnchor(draft: string, keyPoint: string, preview: string): boolean {
@@ -488,8 +513,11 @@ function getLeadInSignatures(draft: string): string[] {
 function hasTwoCentsMoment(text: string): boolean {
   const low = text.toLowerCase();
   const stancePatterns = [
-    /\bmy two cents\b/,
     /\bi (?:disagree|don't buy|would push back|would challenge|think)\b/,
+    /\bwhere i'd push back\b/,
+    /\bthe part i don't buy\b/,
+    /\bwhat gets missed here\b/,
+    /\bthis is true up to the point where\b/,
     /\bthe miss is\b/,
     /\bthe gap is\b/,
     /\bthe problem is\b/,
@@ -502,6 +530,10 @@ function hasTwoCentsMoment(text: string): boolean {
   ];
   if (stancePatterns.some(re => re.test(low))) return true;
   return /\bbut\b/.test(low) && /\b(not|isn't|doesn't|won't|can't|miss|wrong)\b/.test(low);
+}
+
+function hasBannedTemplatePhrases(text: string): boolean {
+  return /\b(my two cents|practical move)\b/i.test(text);
 }
 
 function getSentenceWordLengths(text: string): number[] {
@@ -573,27 +605,31 @@ function evaluateDraftQuality(
   if (isWeakDraft(draft)) hardIssues.push('too generic or too short');
   if (!startsWithAuthorName(draft, authorFirstName)) hardIssues.push('opening does not start with the author name');
   if (!hasRelevanceAnchor(draft, evidence.keyPoint, preview)) hardIssues.push('missing concrete anchor from original post');
+  if (hasHeavyPhraseOverlap(preview, draft)) hardIssues.push('too close to the post wording');
   if (!draft.includes('\n') && draft.length > 350) hardIssues.push('single dense paragraph, needs line breaks');
   if (hasAISlopWords(draft)) hardIssues.push('contains AI-sounding jargon');
   if (/\?\s*$/.test(draft.trim())) hardIssues.push('ends with a question');
-  if (/\b(according to|study by|data from|research by|report by)\b/i.test(draft)) hardIssues.push('cites source by name');
-  if (/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Study|Report|Research|Survey|Data|Index)\b/.test(draft)) hardIssues.push('references named study or report');
+  if (/\bhttps?:\/\/|www\./i.test(draft)) hardIssues.push('contains source url in comment');
   const allCapsWords = draft.match(/\b[A-Z]{4,}\b/g) || [];
   if (allCapsWords.length > 2) hardIssues.push('contains unnatural all-caps wording');
   if (!hasTwoCentsMoment(draft)) hardIssues.push('missing clear two-cents stance');
   if (!hasActionableFollowThrough(draft)) hardIssues.push('missing actionable follow-through');
+  if (hasBannedTemplatePhrases(draft)) hardIssues.push('contains canned template phrase');
 
   const words = countWords(draft);
   if (words < lengthPlan.minWords) hardIssues.push(`too short for auto-length target (${words} words, need ${lengthPlan.minWords}-${lengthPlan.maxWords})`);
   if (words > lengthPlan.maxWords) hardIssues.push(`too long for auto-length target (${words} words, need ${lengthPlan.minWords}-${lengthPlan.maxWords})`);
 
   const draftNums = getNumbers(draft);
-  if (draftNums.length > 0) {
-    if (!hasSourceCue(draft)) hardIssues.push('numeric claim lacks source cue');
-    const evidenceNums = getNumbers(evidence.statistic);
-    if (evidenceNums.length > 0 && !draftNums.some(n => evidenceNums.includes(n))) {
-      hardIssues.push('numeric claim not grounded in research evidence');
-    }
+  if (draftNums.length >= 3) hardIssues.push('too many numeric claims, sounds report-like');
+  const percentCount = (draft.match(/%/g) || []).length;
+  if (percentCount >= 2) hardIssues.push('too many percentages, sounds robotic');
+  if (/\b\d+\.\d+\b/.test(draft)) softWarnings.push('decimal precision reads robotic; round numbers casually');
+  if (/\b(according to|study by|data from|research by|report by)\b/i.test(draft)) {
+    softWarnings.push('source citation phrasing is formal; keep it casual ("recently saw in...")');
+  }
+  if (/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Study|Report|Research|Survey|Data|Index)\b/.test(draft)) {
+    softWarnings.push('named report title reads formal; keep source mention lighter');
   }
 
   // Metaphors and analogies — instant AI tell
@@ -638,18 +674,19 @@ function hasCriticalQualityIssue(issues: string[]): boolean {
   const criticalSnippets = [
     'opening does not start',
     'missing concrete anchor',
-    'numeric claim lacks source cue',
-    'numeric claim not grounded',
+    'too close to the post wording',
+    'too many numeric claims',
+    'too many percentages',
     'too generic or too short',
     'ends with a question',
-    'cites source by name',
-    'references named study or report',
+    'contains source url',
     'lectures the audience',
     'too many paragraphs',
     'comment too long',
     'contains metaphor',
     'missing clear two-cents stance',
     'missing actionable follow-through',
+    'contains canned template phrase',
     'too short for auto-length target',
     'too long for auto-length target',
     'opening pattern repeated',
@@ -670,20 +707,35 @@ function buildDeterministicFallbackDraft(
     .replace(/[.?!]+$/, '')
     .slice(0, 160);
 
-  const sourceName = (evidence.sources[0]?.name || 'recent industry').trim();
   const rawStat = (evidence.statistic || '').replace(/\s+/g, ' ').trim();
   const statSentence = rawStat
-    ? (hasSourceCue(rawStat) ? rawStat : `in recent ${sourceName.toLowerCase()} data, ${rawStat}`)
+    ? rawStat
+      .replace(/\baccording to\b[^,]*,\s*/ig, '')
+      .replace(/\b(in|from)\s+[a-z0-9&.\- ]{2,40}\s+(data|report|study)\b[:,]?/ig, 'in recent data')
     : 'in recent market data, search behavior is fragmenting faster than most teams plan for.';
 
-  const angleLineMap: Record<typeof commentIntent, string> = {
-    tradeoff: 'my two cents, the tradeoff is speed versus trust; teams chasing volume usually pay for it later.',
-    new_data_point: 'my two cents, the trend only matters if it changes one concrete execution choice this week...',
-    execution_caveat: 'my two cents, execution consistency is the real bottleneck because most teams pivot before signals settle.',
-    sharp_question: 'my two cents, this is worth stress-testing with one hard metric instead of broad assumptions.',
+  const angleLineMap: Record<typeof commentIntent, string[]> = {
+    tradeoff: [
+      "where i'd push back is the tradeoff between speed and trust, volume-first usually backfires later.",
+      "the part people skip is the trust cost of moving too fast, that's where results fall apart.",
+    ],
+    new_data_point: [
+      "what gets missed here is the trend only matters if it changes one concrete decision this week.",
+      "this is useful only when it changes execution, otherwise it's just interesting commentary.",
+    ],
+    execution_caveat: [
+      "the real bottleneck is execution consistency, most teams pivot before signals settle.",
+      "this works until teams break rhythm after week two, then the signal disappears.",
+    ],
+    sharp_question: [
+      "i'd pressure-test this with one hard metric before scaling it across channels.",
+      "this is true up to the point where you can tie it to one measurable outcome.",
+    ],
   };
+  const angleVariants = angleLineMap[commentIntent];
+  const angleLine = angleVariants[Math.abs(post.id) % angleVariants.length];
 
-  const actionLine = (evidence.actionableAddOn || 'practical move: map one workflow, choose one metric, and review it after two weeks.')
+  const actionLine = (evidence.actionableAddOn || 'start with one workflow, choose one metric, and review it after two weeks.')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/[.?!]+$/, '');
@@ -691,7 +743,7 @@ function buildDeterministicFallbackDraft(
   const text = [
     `${authorFirstName}, your point about ${anchor} is the part most teams underestimate.`,
     statSentence.endsWith('.') ? statSentence : `${statSentence}.`,
-    angleLineMap[commentIntent],
+    angleLine,
     actionLine.endsWith('.') ? actionLine : `${actionLine}.`,
   ].join('\n\n');
 
@@ -793,7 +845,7 @@ function evidenceToBrief(evidence: ResearchEvidence): string {
   const lines = [
     evidence.postSummary ? `Post summary: ${evidence.postSummary}` : '',
     evidence.keyPoint ? `Key point: ${evidence.keyPoint}` : '',
-    evidence.statistic ? `Background insight (paraphrase loosely, do NOT cite source names or exact numbers): ${evidence.statistic}` : '',
+    evidence.statistic ? `Background insight (paraphrase loosely; optional light source mention, but no URLs and no exact numbers): ${evidence.statistic}` : '',
     sourceLines,
     evidence.fullPostWordCount > 0 ? `Full post word count from WebFetch: ${evidence.fullPostWordCount}` : '',
     evidence.implication ? `Implication: ${evidence.implication}` : '',
@@ -893,7 +945,7 @@ STEP 3: Return STRICT JSON:
   "post_summary": "one-line summary of what the author is saying",
   "full_post_word_count": "integer word count from the WebFetch full post text",
   "key_point": "most specific point from the post to reference",
-  "statistic": "one loose fact or trend you found (paraphrase casually, no exact numbers or source names needed)",
+  "statistic": "one loose fact or trend you found (paraphrase casually; optional light source mention, no exact numbers)",
   "stance_basis": "contradiction|missing_piece|lived_experience|logical_gap",
   "actionable_add_on": "one concrete next step or mini-tutorial tip that helps the reader act",
   "source_1": "publication/org name for your reference only",
@@ -958,11 +1010,14 @@ async function runWritePass(
 RESPONSE REQUIREMENTS:
 - Automatic length target for this post: around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords} acceptable). Content decides where it lands, never pad.
 - Sentence 1 must start with "${authorFirstName}," and reference a specific point from the post.
-- Weave in ONE insight from the research naturally. Do NOT cite source names, publication names, or exact statistics. Paraphrase loosely like you already knew it. Say "the market is roughly doubling" not "according to Mordor Intelligence the market will grow from $75B to $149B by 2031".
+- Weave in ONE insight from the research naturally. Optional: one light source mention ("recently saw in [source]..."). No URLs or exact statistics.
+- Use your own wording. Do not mirror long phrases from the author's original post.
+- Numbers are optional. If you use one, keep it rough and single (no stacked percentages).
 - Do NOT end with a question. End with a statement, a take, or an incomplete thought. Questions at the end feel like interview prompts, not real comments.
 - Include one clear "two-cents moment": a direct stance, pushback, or "this part is bs" claim tied to what the author said. No fence-sitting.
 - The two-cents moment must come from the selected research basis (${evidence.stanceBasis}) and stay close to the author's topic.
 - After pushback, add actionable continuation. Leave a practical next step, mini tutorial step, or specific discovery so readers learn something.
+- Do not label sections with canned phrases. Never write "my two cents" or "practical move".
 
 VOICE (critical - this is what makes it sound human):
 - Vary paragraph length: mix short punchy lines with longer thoughts. Never uniform blocks.
@@ -970,7 +1025,7 @@ VOICE (critical - this is what makes it sound human):
 - Mix sentence-start casing: ~50% capitalized, ~50% not.
 - Use one casual connector per comment max: "honestly", "the thing is", "tbh".
 - Leave 1-2 rough edges on purpose: lowercase starts, sentence fragment, or abrupt connector. Keep it readable, not polished.
-- Round numbers casually sometimes: "around 60%" not "61%", "3-4x" not "3.7x".
+- If you use numbers, round casually: "around 60%" not "61%", "3-4x" not "3.7x".
 - Let some thoughts run naturally into each other. Don't perfectly structure every paragraph.
 - Rhythm guidance is soft, not rigid: prefer mixed sentence lengths and occasional punctuation texture ("...", ";", inline "?"), but do not force weird punctuation if it hurts flow.
 - NO metaphors or analogies. Never "it's like X", "the way Y works", "think of it as Z". Just say the thing directly. Metaphors are the #1 AI tell.
@@ -985,7 +1040,7 @@ HARD RULES:
 - No generic praise ("great post", "thanks for sharing", "love this", "spot on").
 - No AI jargon ("landscape", "leverage", "robust", "holistic", "transformative", "game-changing", "trajectory", "institutionalizing", "decoupling", "paradigm", "ecosystem", "scalable", "actionable", "double down").
 - Use only straight quotes and apostrophes, no curly/smart quotes.
-- NEVER invent statistics or data. No "3x higher", "roughly doubling", "60% of companies" unless the research notes contain that exact figure. If you don't have a number, don't make one up. Use your own experience framing instead: "from what I've seen", "in my experience", "the teams I've worked with".
+- NEVER invent statistics or data. Numbers are optional; if unsure, skip numbers and keep it practical.
 - NEVER lecture the audience. Don't say "anyone considering X should..." or "people need to understand...". You're talking to the author, not giving a TED talk.
 - Promotional posts: you can push back, but be specific to what the author actually said. Don't default to generic contrarian takes. Challenge the specific claim, not the category. And acknowledge what's actually good before you push back.
 - Keep the tone of someone who respects the author but disagrees on specifics. Not hostile, not preachy. Think bar conversation, not debate podium.
@@ -1005,7 +1060,7 @@ Narrative guidance:
 - ${challengeInstruction}
 - Comment intent: ${commentIntent} (${intentInstructionMap[commentIntent]})
 - Two-cents basis from research: ${evidence.stanceBasis}
-- Actionable continuation to include after your stance: ${evidence.actionableAddOn || 'provide one practical next step tied to the claim'}
+- Actionable continuation to include after your stance: ${evidence.actionableAddOn || 'provide one concrete next step tied to the claim'}
 - Start the first sentence with "${authorFirstName}," and reference the key point from the original post.
 
 Write the final comment now.`;
@@ -1032,14 +1087,15 @@ The previous draft failed quality checks for:
 Rewrite with strict compliance:
 - start sentence 1 with "${authorFirstName},"
 - reference the post's key point explicitly
-- include one numeric/date detail from research notes
-- include source cue wording
+- do not copy long phrases from the post; rephrase in your own words
 - include one direct two-cents stance tied to the specific claim in the post
 - include actionable follow-through right after the stance (specific next step or mini tutorial)
 - keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
 - format as short paragraphs with line breaks, not one dense block
+- avoid stacked numbers/percentages (0-1 rough number max)
 - avoid hype/jargon and generic agreement
-- keep text human-imperfect: allow lowercase sentence starts, but avoid ALL CAPS`;
+- keep text human-imperfect: allow lowercase sentence starts, but avoid ALL CAPS
+- never use canned labels like "my two cents" or "practical move"`;
     draft = ensureReadableCommentLayout(cleanDraftText(await generateDraftFromSdk(queryFn, repairPrompt, writeOptions)));
   }
 
@@ -1057,12 +1113,13 @@ The latest draft still failed checks for:
 Final rewrite requirements:
 - Keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
 - Sentence 1 must start with "${authorFirstName},"
-- Include one specific number/date from research notes
-- Include one source cue phrase like "According to" or "In [source] data"
+- Use different phrasing from the original post (no close paraphrase)
 - Include one clear two-cents stance, direct and specific
 - Include actionable follow-through after the stance, concrete and useful
 - Keep natural human tone and short paragraph formatting with line breaks
+- Source mention is optional and light; avoid URLs and stacked percentages
 - Keep slight human messiness (lowercase starts/fragments allowed), no ALL CAPS brand words
+- Never use the literal phrases "my two cents" or "practical move"
 - No generic praise and no jargon
 
 Return only the final comment text.`;
