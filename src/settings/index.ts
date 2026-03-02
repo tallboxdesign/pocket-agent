@@ -653,6 +653,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     type: 'string',
   },
   {
+    key: 'linkedin.postModel',
+    defaultValue: '',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Primary Draft Model',
+    description: 'Primary model for LinkedIn drafting. Empty uses the active chat model.',
+    type: 'string',
+  },
+  {
     key: 'linkedin.draftTimeoutSec',
     defaultValue: '95',
     encrypted: false,

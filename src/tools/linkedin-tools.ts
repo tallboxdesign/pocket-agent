@@ -438,28 +438,39 @@ async function handleCommentTool(input: unknown): Promise<string> {
   }
 
   try {
-    // Double-post guard: check if already commented
+    // Double-post guard: check if already commented or already logged as posted
     if (db) {
-      const check = db.prepare('SELECT commented FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1').get(p.url) as { commented: number } | undefined;
-      if (check && check.commented === 1) {
+      const check = db.prepare(
+        `SELECT 1 as ok FROM linkedin_posts
+         WHERE post_url = ? AND commented = 1
+         LIMIT 1`
+      ).get(p.url) as { ok: number } | undefined;
+      const postedLog = db.prepare(
+        `SELECT 1 as ok FROM linkedin_activity_log
+         WHERE post_url = ? AND action = 'posted'
+         LIMIT 1`
+      ).get(p.url) as { ok: number } | undefined;
+      if (check?.ok || postedLog?.ok) {
         return JSON.stringify({ success: false, error: 'Already posted on this post' });
       }
     }
 
-    // Retry once with longer timeout if first attempt fails
+    // Single attempt only; retry can create duplicate comments if LinkedIn accepts
+    // the first submit but response times out.
     let posted = false;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const timeout = attempt === 1 ? 120000 : 150000;
-        await linkedinExec('reply', ['--url', p.url, '--comment', p.comment, '--no-confirm'], timeout);
+    try {
+      await linkedinExec('reply', ['--url', p.url, '--comment', p.comment, '--no-confirm'], 120000);
+      posted = true;
+    } catch (err) {
+      const maybeStdout = String((err as Error & { stdout?: string }).stdout || '');
+      if (maybeStdout.includes('Comment posted successfully')) {
+        console.log('[LinkedIn] Comment appears posted despite timeout/error');
         posted = true;
-        break;
-      } catch (retryErr) {
-        console.error(`[LinkedIn] comment attempt ${attempt}/2 failed:`, retryErr);
-        if (attempt < 2) await new Promise(r => setTimeout(r, 10000));
+      } else {
+        throw err;
       }
     }
-    if (!posted) throw new Error('Comment posting failed after 2 attempts');
+    if (!posted) throw new Error('Comment posting failed');
     _lastCommentTime = Date.now();
 
     if (db) {
@@ -468,7 +479,7 @@ async function handleCommentTool(input: unknown): Promise<string> {
       ).get(p.url) as { id: number; author: string; kanban_task_id: number | null } | undefined;
 
       if (post) {
-        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
+        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(p.url);
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, comment_text)
            VALUES (?, ?, 'posted', ?)`

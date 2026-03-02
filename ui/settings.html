@@ -2584,6 +2584,15 @@
               </div>
             </div>
             <div class="setting-row">
+              <label title="Primary model used for LinkedIn research + draft runs. Leave empty to follow the active chat model.">Primary Draft Model</label>
+              <div class="key-input" style="flex:1;">
+                <select id="linkedin-post-model" style="flex:1;" title="Primary model for LinkedIn drafting">
+                  <option value="">Use chat model</option>
+                </select>
+                <button onclick="saveLinkedInSetting('linkedin.postModel', 'linkedin-post-model')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
               <label title="Hard per-post time budget for research + writing. If exceeded, the run aborts and may fall back to another model.">Draft Timeout (sec)</label>
               <div class="key-input" style="width: 140px;">
                 <input type="number" id="linkedin-draft-timeout" min="30" max="240" placeholder="95" style="width: 70px; text-align: center;" title="Recommended 75-120 seconds per post.">
@@ -3025,6 +3034,24 @@
           }
           if (savedFallback) fallbackDropdown.value = savedFallback;
         }
+
+        // Populate LinkedIn primary model dropdown
+        const linkedinPostModelDropdown = document.getElementById('linkedin-post-model');
+        if (linkedinPostModelDropdown) {
+          const savedLinkedInModel = settings['linkedin.postModel'] || await window.pocketAgent.getSetting('linkedin.postModel');
+          linkedinPostModelDropdown.innerHTML = '<option value="">Use chat model</option>';
+          for (const model of models) {
+            const opt = document.createElement('option');
+            opt.value = model.id;
+            opt.textContent = model.name + ' (' + model.provider + ')';
+            linkedinPostModelDropdown.appendChild(opt);
+          }
+          if (savedLinkedInModel && models.some(m => m.id === savedLinkedInModel)) {
+            linkedinPostModelDropdown.value = savedLinkedInModel;
+          } else {
+            linkedinPostModelDropdown.value = '';
+          }
+        }
       } catch (err) {
         console.error('Failed to refresh model dropdown:', err);
       }
@@ -3111,6 +3138,8 @@
       if (linkedinNightInterval) linkedinNightInterval.value = settings['linkedin.nightWindowIntervalMin'] || '120';
       const linkedinDraftMode = document.getElementById('linkedin-draft-mode');
       if (linkedinDraftMode) linkedinDraftMode.value = settings['linkedin.draftMode'] || 'balanced';
+      const linkedinPostModel = document.getElementById('linkedin-post-model');
+      if (linkedinPostModel && settings['linkedin.postModel']) linkedinPostModel.value = settings['linkedin.postModel'];
       const linkedinDraftTimeout = document.getElementById('linkedin-draft-timeout');
       if (linkedinDraftTimeout) linkedinDraftTimeout.value = settings['linkedin.draftTimeoutSec'] || '95';
       const linkedinResearchTurns = document.getElementById('linkedin-research-turns');
@@ -3218,7 +3247,7 @@
         'ep-enabled', 'ep-interval', 'ep-processed-label', 'ep-review-label',
         'ep-max-emails', 'ep-lookback', 'ep-gmail-conc', 'ep-glm-conc',
         'linkedin-feed-keywords', 'linkedin-feed-scroll', 'linkedin-feed-limit', 'linkedin-comment-delay',
-        'linkedin-draft-mode', 'linkedin-draft-timeout', 'linkedin-research-turns', 'linkedin-write-turns',
+        'linkedin-draft-mode', 'linkedin-post-model', 'linkedin-draft-timeout', 'linkedin-research-turns', 'linkedin-write-turns',
         'linkedin-research-queries', 'linkedin-research-fallback-model',
         'linkedin-voice-style', 'linkedin-writing-rules', 'linkedin-content-direction'
       ];

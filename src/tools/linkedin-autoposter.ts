@@ -18,6 +18,7 @@ import type { TelegramBot } from '../channels/telegram';
 let telegramBot: TelegramBot | null = null;
 let cachedDailyLimit: number | null = null;
 let cachedLimitDay: string | null = null;
+let autoPosterRunInFlight = false;
 
 export function setLinkedInTelegramBot(bot: TelegramBot | null): void {
   telegramBot = bot;
@@ -322,9 +323,14 @@ export async function checkAndPostNext(): Promise<void> {
   if (SettingsManager.get('linkedin.autoPosterEnabled') !== 'true') return;
   const window = activePostingWindow();
   if (!window) return;
+  if (autoPosterRunInFlight) {
+    console.log('[AutoPoster] Skip tick: previous run still in progress');
+    return;
+  }
 
   const db = getDb();
   if (!db) return;
+  autoPosterRunInFlight = true;
 
   try {
     const dailyLimit = getDailyLimit();
@@ -408,6 +414,23 @@ export async function checkAndPostNext(): Promise<void> {
     const maxPerWeek = parseInt(SettingsManager.get('linkedin.authorMaxCommentsPerWeek') || '2', 10) || 2;
 
     for (const post of candidates) {
+      // URL-level duplicate guard across legacy duplicate rows / failed previous updates.
+      // If we ever posted this URL before, mark all matching rows as commented and skip.
+      const alreadyPosted = db.prepare(
+        `SELECT 1 as ok FROM linkedin_activity_log
+         WHERE action = 'posted' AND post_url = ?
+         LIMIT 1`
+      ).get(post.post_url) as { ok: number } | undefined;
+      if (alreadyPosted?.ok) {
+        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(post.post_url);
+        db.prepare(
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+           VALUES (?, ?, 'skipped', 'duplicate_post_guard', ?, ?)`
+        ).run(post.id, post.post_url, dailyLimit, todayCount);
+        console.log(`[AutoPoster] Duplicate guard skipped already-posted URL: ${post.post_url}`);
+        continue;
+      }
+
       // Author limit check
       const authorCount = db.prepare(
         `SELECT COUNT(*) as c FROM linkedin_activity_log
@@ -423,8 +446,20 @@ export async function checkAndPostNext(): Promise<void> {
         continue;
       }
 
-      // Claim the post by clearing scheduled_at to prevent double-posting
-      db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?').run(post.id);
+      // Claim atomically: only one runner should be able to claim this scheduled row.
+      const claim = db.prepare(
+        `UPDATE linkedin_posts
+         SET scheduled_at = NULL
+         WHERE id = ?
+           AND approved = 1
+           AND commented = 0
+           AND comment_draft IS NOT NULL
+           AND scheduled_at IS NOT NULL
+           AND hidden = 0`
+      ).run(post.id);
+      if (claim.changes === 0) {
+        continue;
+      }
 
       // Post the comment — single attempt, no blind retry (prevents double-posting)
       let posted = false;
@@ -442,7 +477,7 @@ export async function checkAndPostNext(): Promise<void> {
       }
 
       if (posted) {
-        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
+        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(post.post_url);
 
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text, daily_limit, daily_count)
@@ -477,6 +512,7 @@ export async function checkAndPostNext(): Promise<void> {
     }
   } finally {
     db.close();
+    autoPosterRunInFlight = false;
   }
 }
 

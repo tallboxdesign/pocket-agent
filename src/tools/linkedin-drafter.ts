@@ -94,14 +94,25 @@ const PROVIDER_BASE_URLS: Record<Exclude<ProviderType, 'anthropic'>, string> = {
 };
 
 function getDraftModel(): string {
-  const runtimeModel = AgentManager.getModel();
-  if (typeof runtimeModel === 'string' && runtimeModel.trim()) return runtimeModel.trim();
+  const explicit = (SettingsManager.get('linkedin.postModel') || '').trim();
+  if (explicit && hasModelCredentials(explicit)) return explicit;
 
-  const configured = SettingsManager.get('agent.model');
-  if (typeof configured === 'string' && configured.trim()) {
+  const runtimeModel = AgentManager.getModel();
+  if (typeof runtimeModel === 'string' && runtimeModel.trim() && hasModelCredentials(runtimeModel.trim())) {
+    return runtimeModel.trim();
+  }
+
+  const configured = (SettingsManager.get('agent.model') || '').trim();
+  if (configured && hasModelCredentials(configured)) {
     return configured.trim();
   }
-  return 'claude-sonnet-4-6';
+
+  const fallbacks = ['claude-sonnet-4-6', 'glm-5', 'MiniMax-M2.5-Lightning', 'kimi-k2.5'];
+  const firstAvailable = fallbacks.find(model => hasModelCredentials(model));
+  if (firstAvailable) return firstAvailable;
+
+  // Last resort: keep a deterministic default even if credentials are currently missing.
+  return explicit || configured || 'claude-sonnet-4-6';
 }
 
 function getProviderForModel(model: string): ProviderType {
