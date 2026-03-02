@@ -406,6 +406,10 @@ export class MemoryManager {
         comments INTEGER DEFAULT 0,
         post_type TEXT,
         scraped_date TEXT NOT NULL,
+        first_seen_at TEXT DEFAULT (datetime('now')),
+        first_seen_reactions INTEGER,
+        first_seen_comments INTEGER,
+        last_seen_at TEXT DEFAULT (datetime('now')),
         commented INTEGER DEFAULT 0,
         comment_draft TEXT,
         kanban_task_id INTEGER,
@@ -648,6 +652,26 @@ export class MemoryManager {
     if (!hasColumn('linkedin_posts', 'engagement_checked')) {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN engagement_checked INTEGER DEFAULT 0`);
       console.log('[Memory] Migrated linkedin_posts: added engagement_checked column');
+    }
+    if (!hasColumn('linkedin_posts', 'first_seen_at')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN first_seen_at TEXT`);
+      this.db.prepare(`UPDATE linkedin_posts SET first_seen_at = COALESCE(created_at, datetime('now')) WHERE first_seen_at IS NULL`).run();
+      console.log('[Memory] Migrated linkedin_posts: added first_seen_at column');
+    }
+    if (!hasColumn('linkedin_posts', 'first_seen_reactions')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN first_seen_reactions INTEGER`);
+      this.db.prepare(`UPDATE linkedin_posts SET first_seen_reactions = COALESCE(reactions, 0) WHERE first_seen_reactions IS NULL`).run();
+      console.log('[Memory] Migrated linkedin_posts: added first_seen_reactions column');
+    }
+    if (!hasColumn('linkedin_posts', 'first_seen_comments')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN first_seen_comments INTEGER`);
+      this.db.prepare(`UPDATE linkedin_posts SET first_seen_comments = COALESCE(comments, 0) WHERE first_seen_comments IS NULL`).run();
+      console.log('[Memory] Migrated linkedin_posts: added first_seen_comments column');
+    }
+    if (!hasColumn('linkedin_posts', 'last_seen_at')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN last_seen_at TEXT`);
+      this.db.prepare(`UPDATE linkedin_posts SET last_seen_at = datetime('now') WHERE last_seen_at IS NULL`).run();
+      console.log('[Memory] Migrated linkedin_posts: added last_seen_at column');
     }
     if (!hasColumn('linkedin_posts', 'draft_state')) {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN draft_state TEXT`);

@@ -1780,6 +1780,28 @@ function setupIPC(): void {
         : '';
       const posts = db.prepare(
         `SELECT lp.*, lp.draft_state, lp.draft_error${evidenceSelect}
+           (COALESCE(lp.reactions, 0) - COALESCE(lp.first_seen_reactions, COALESCE(lp.reactions, 0))) AS reactions_gain_since_first,
+           (COALESCE(lp.comments, 0) - COALESCE(lp.first_seen_comments, COALESCE(lp.comments, 0))) AS comments_gain_since_first,
+           CAST(COALESCE((julianday('now') - julianday(COALESCE(lp.first_seen_at, lp.created_at))), 0) AS INTEGER) AS days_since_first_seen,
+           CASE
+             WHEN lp.commented = 0
+              AND datetime(COALESCE(lp.first_seen_at, lp.created_at)) <= datetime('now', '-2 days')
+              AND (
+                (COALESCE(lp.reactions, 0) - COALESCE(lp.first_seen_reactions, COALESCE(lp.reactions, 0)) >= 10)
+                OR (COALESCE(lp.comments, 0) - COALESCE(lp.first_seen_comments, COALESCE(lp.comments, 0)) >= 3)
+                OR (
+                  COALESCE(lp.first_seen_reactions, 0) > 0
+                  AND (1.0 * COALESCE(lp.reactions, 0) / COALESCE(lp.first_seen_reactions, 1)) >= 1.4
+                  AND (COALESCE(lp.reactions, 0) - COALESCE(lp.first_seen_reactions, 0)) >= 5
+                )
+                OR (
+                  COALESCE(lp.first_seen_comments, 0) > 0
+                  AND (1.0 * COALESCE(lp.comments, 0) / COALESCE(lp.first_seen_comments, 1)) >= 1.4
+                  AND (COALESCE(lp.comments, 0) - COALESCE(lp.first_seen_comments, 0)) >= 2
+                )
+              )
+             THEN 1 ELSE 0
+           END AS recheck_candidate,
            aa.total_comments_by_me AS author_total_comments,
            aa.last_commented_date AS author_last_commented,
            al.last_activity_action,

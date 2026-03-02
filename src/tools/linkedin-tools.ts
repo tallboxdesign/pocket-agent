@@ -204,15 +204,22 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
     let newPosts = posts;
     if (db) {
       const upsert = db.prepare(
-        `INSERT INTO linkedin_posts (post_url, author, text_preview, reactions, comments, post_type, scraped_date)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO linkedin_posts (
+           post_url, author, text_preview, reactions, comments, post_type, scraped_date,
+           first_seen_reactions, first_seen_comments, last_seen_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(post_url) DO UPDATE SET
            author = excluded.author,
            text_preview = excluded.text_preview,
            reactions = excluded.reactions,
            comments = excluded.comments,
            post_type = excluded.post_type,
-           scraped_date = excluded.scraped_date`
+           scraped_date = excluded.scraped_date,
+           last_seen_at = datetime('now'),
+           first_seen_at = COALESCE(linkedin_posts.first_seen_at, datetime('now')),
+           first_seen_reactions = COALESCE(linkedin_posts.first_seen_reactions, excluded.first_seen_reactions),
+           first_seen_comments = COALESCE(linkedin_posts.first_seen_comments, excluded.first_seen_comments)`
       );
       const check = db.prepare(
         `SELECT id, author, text_preview, reactions, comments, post_type, scraped_date
@@ -230,6 +237,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       const today = todayDate();
       const existingUrls = new Set<string>();
       const refreshedUrls = new Set<string>();
+      const refreshedPostsByUrl = new Map<string, unknown>();
       const tx = db.transaction(() => {
         for (const post of posts) {
           if (post.post_url) {
@@ -249,7 +257,10 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
                 Number(existing.comments || 0) !== nextComments ||
                 (existing.post_type || null) !== nextType ||
                 existing.scraped_date !== today;
-              if (changed) refreshedUrls.add(post.post_url);
+              if (changed) {
+                refreshedUrls.add(post.post_url);
+                refreshedPostsByUrl.set(post.post_url, post);
+              }
             }
 
             upsert.run(
@@ -260,6 +271,8 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
               nextComments,
               nextType,
               today,
+              nextReactions,
+              nextComments,
             );
           }
         }
@@ -268,12 +281,15 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       // Only return posts that were actually new
       newPosts = posts.filter((p: { post_url?: string }) => p.post_url && !existingUrls.has(p.post_url));
       const refreshedCount = refreshedUrls.size;
+      const refreshedPosts = posts.filter((p: { post_url?: string }) => p.post_url && refreshedPostsByUrl.has(p.post_url));
       return JSON.stringify({
         success: true,
         count: newPosts.length,
         total_scraped: posts.length,
         skipped_existing: posts.length - newPosts.length,
         updated_existing: refreshedCount,
+        updated_posts: refreshedPosts,
+        all_posts: posts,
         posts: newPosts,
       });
     }
@@ -283,6 +299,8 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       total_scraped: posts.length,
       skipped_existing: posts.length - newPosts.length,
       updated_existing: 0,
+      updated_posts: [],
+      all_posts: posts,
       posts: newPosts,
     });
   } catch (error) {

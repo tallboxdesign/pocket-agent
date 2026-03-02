@@ -1955,7 +1955,8 @@
         const lastAction = String(p.last_activity_action || '').toLowerCase();
         const hasPostingFail = !p.commented && (lastAction === 'failed' || lastAction === 'error') && !p.scheduled_at;
         const hasFailed = !p.commented && (Number(p.failed_attempts || 0) > 0 && !p.scheduled_at || hasPostingFail);
-        const needsAttention = !!(p.approved && !p.commented && (!p.scheduled_at || hasFailed));
+        const recheckCandidate = !p.commented && Number(p.recheck_candidate || 0) === 1;
+        const needsAttention = !!(p.approved && !p.commented && (!p.scheduled_at || hasFailed)) || recheckCandidate;
 
         const isScheduled = !!(p.approved && p.scheduled_at && !p.commented);
         if (activePanel === 'queue' && (p.commented || isScheduled)) return false;
@@ -2004,7 +2005,8 @@
         const attentionCount = posts.filter(p => {
           const la = String(p.last_activity_action || '').toLowerCase();
           const hf = ((Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error') && !p.scheduled_at);
-          return !!(p.approved && !p.commented && (!p.scheduled_at || hf));
+          const recheckCandidate = !p.commented && Number(p.recheck_candidate || 0) === 1;
+          return !!(p.approved && !p.commented && (!p.scheduled_at || hf)) || recheckCandidate;
         }).length;
         const tabQueue = document.getElementById('tab-queue');
         const tabAttention = document.getElementById('tab-attention');
@@ -2181,6 +2183,10 @@
       const isWriting = ds === 'writing';
       const isDraftFailed = ds.startsWith('failed_');
       const isDraftCancelled = ds.startsWith('cancelled_');
+      const recheckCandidate = !p.commented && Number(p.recheck_candidate || 0) === 1;
+      const gainReactions = Number(p.reactions_gain_since_first || 0);
+      const gainComments = Number(p.comments_gain_since_first || 0);
+      const seenDays = Number(p.days_since_first_seen || 0);
       const lastAction = String(p.last_activity_action || '').toLowerCase();
       const hasPostingFailure = (lastAction === 'failed' || lastAction === 'error') && !p.scheduled_at;
       const hasFailed = isDraftFailed || hasPostingFailure;
@@ -2188,6 +2194,10 @@
       if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
       else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
       else if (isQueued) statusBadges.push('<span class="badge badge-queued">Queued</span>');
+      if (recheckCandidate) {
+        const ageHint = seenDays > 0 ? ` (${seenDays}d)` : '';
+        statusBadges.push(`<span class="badge" style="background:rgba(59,130,246,0.14);color:#60a5fa;border:1px solid rgba(96,165,250,0.32)" title="This post gained engagement since first seen and is worth re-checking">Recheck +${Math.max(0, gainReactions)}r +${Math.max(0, gainComments)}c${ageHint}</span>`);
+      }
       if (isDraftCancelled) statusBadges.push('<span class="badge badge-rejected">Cancelled</span>');
       const isScheduled = !!(p.approved && p.scheduled_at && !p.commented);
       const scheduledAtMs = parseUtcDateMs(p.scheduled_at);
