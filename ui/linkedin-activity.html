@@ -374,8 +374,11 @@
       word-break: break-word;
     }
     .post-preview-overview {
-      color: var(--text-secondary);
-      font-weight: 500;
+      color: #cfe0f8;
+      font-weight: 600;
+      margin-bottom: 6px;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     .preview-label {
       color: #cbd5e1;
@@ -2930,27 +2933,35 @@
       const hasFullPostText = getPostFullText(p).length > 0;
       const loadingFullPost = fullPostLoadInFlight.has(Number(p.id));
       const fetchedAt = p.full_post_updated_at ? formatShortDateTime(p.full_post_updated_at) : '';
+      const aiSummaryText = normalizePreviewText(p.evidence_post_summary || '');
       const summaryText = getPostSummary(p);
       const fullText = getPostFullText(p);
       const draftText = normalizePreviewText(p.comment_draft || '');
       const draftLead = truncate(draftText.replace(/\s+/g, ' ').trim(), 170);
       const sourceText = fullText || summaryText;
       const isQueueLikePanel = activePanel === 'queue' || activePanel === 'failed';
+      const isAdvancedLifecycle = hasDraft && (activePanel === 'drafted' || activePanel === 'scheduled' || activePanel === 'published' || isScheduled || isPublished);
       const fullPostExpanded = isQueueLikePanel && expandedFullPostIds.has(Number(p.id));
       let previewMainHtml = '';
-      if (activePanel === 'drafted' && draftLead) {
+      if (isAdvancedLifecycle && draftLead) {
         previewMainHtml = `<div class="post-preview-draft"><span class="preview-label">Draft:</span>${escapeHtml(draftLead).replace(/\n/g, '<br>')}</div>`;
+        const overviewLabel = aiSummaryText ? 'AI Overview:' : 'Overview:';
+        const overviewBase = aiSummaryText || summaryText || normalizePreviewText(p.text_preview || '');
+        if (overviewBase) {
+          previewMainHtml += `<div class="post-preview-overview"><span class="preview-label">${overviewLabel}</span>${escapeHtml(truncate(overviewBase, 190)).replace(/\n/g, '<br>')}</div>`;
+        }
         if (sourceText) {
           previewMainHtml += `<div class="post-preview-source"><span class="preview-label">Post:</span>${escapeHtml(truncate(sourceText, 220)).replace(/\n/g, '<br>')}</div>`;
         }
       } else if (isQueueLikePanel) {
         const feedOverview = normalizePreviewText(p.text_preview || '');
-        let overviewBase = summaryText || feedOverview;
-        if (fullText && isNearDuplicateText(overviewBase, fullText) && feedOverview) {
+        const hasAiOverview = !!aiSummaryText;
+        let overviewBase = aiSummaryText || summaryText || feedOverview;
+        if (!hasAiOverview && fullText && isNearDuplicateText(overviewBase, fullText) && feedOverview) {
           overviewBase = feedOverview;
         }
         const overview = truncate(overviewBase || 'Overview pending while full post loads...', 180);
-        previewMainHtml = `<div class="post-preview-overview"><span class="preview-label">Overview:</span>${escapeHtml(overview).replace(/\n/g, '<br>')}</div>`;
+        previewMainHtml = `<div class="post-preview-overview"><span class="preview-label">${hasAiOverview ? 'AI Overview:' : 'Overview:'}</span>${escapeHtml(overview).replace(/\n/g, '<br>')}</div>`;
         if (fullPostExpanded) {
           if (fullText) {
             const fullPostHtml = escapeHtml(fullText).replace(/\n/g, '<br>');
@@ -2973,7 +2984,7 @@
               ${loadingFullPost ? 'Loading full post...' : (fullPostExpanded ? 'Hide full post' : 'Show full post')}
             </span>
             <span class="preview-meta" style="cursor:pointer" onclick="fetchFullPost(${p.id}, true, true)">${hasFullPostText ? 'Refresh from LinkedIn' : 'Fetch from LinkedIn'}</span>
-            ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">Overview shown until full post is fetched</span>'}
+            ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">AI overview shown until full post is fetched</span>'}
           </div>`
         : previewMode === 'full'
         ? `<div class="preview-tools">
