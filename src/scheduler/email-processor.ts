@@ -26,7 +26,7 @@ import { logEvent } from '../memory/event-log';
 
 type Confidence = 'high' | 'medium' | 'low' | 'invalid';
 
-type FailReason = 'empty_content' | 'json_parse_fail' | 'label_mismatch' | 'missing_msgid' | 'batch_429' | 'batch_error' | null;
+type FailReason = 'empty_content' | 'json_parse_fail' | 'label_mismatch' | 'missing_msgid' | 'batch_429' | 'batch_error' | 'junk_guard' | null;
 
 type LabelConfig = Record<string, {
   notify?: boolean;
@@ -174,6 +174,24 @@ function toInternalDateMs(item: EmailListItem): number {
   return Number.isFinite(t) ? t : 0;
 }
 
+function extractSenderEmail(from: string): string {
+  const raw = String(from || '').toLowerCase();
+  const bracketed = raw.match(/<([^>]+@[^>]+)>/);
+  if (bracketed && bracketed[1]) return bracketed[1].trim();
+  const direct = raw.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
+  return direct?.[0]?.trim() || '';
+}
+
+function extractSenderDomain(from: string): string {
+  const email = extractSenderEmail(from);
+  const parts = email.split('@');
+  return parts.length === 2 ? parts[1].trim() : '';
+}
+
+function isLikelyJunkLabelName(label: string): boolean {
+  return /(junk|spam|trash|garbage|unsolicited)/i.test(String(label || ''));
+}
+
 // ============================================================================
 // Email Parsing
 // ============================================================================
@@ -243,6 +261,7 @@ function buildGlmPrompt(
   examplesByLabel: Record<string, FullEmail[]>,
   batch: FullEmail[],
   reviewLabel: string,
+  senderHintsByMessageId: Record<string, string> = {},
 ): string {
   const lines: string[] = [];
 
@@ -254,6 +273,8 @@ function buildGlmPrompt(
   lines.push('- Use the messageId provided for each email.');
   lines.push(`- If unsure, set confidence to "low" and label to "${reviewLabel}".`);
   lines.push('- Negative guidance takes priority. If an email matches a label\'s negative guidance, do NOT assign that label.');
+  lines.push('- Treat sender history hints as soft priors: useful context, but not absolute truth.');
+  lines.push('- Be conservative with junk/spam-style labels: if legitimacy is unclear, route to review with low confidence.');
   lines.push('');
   lines.push('AVAILABLE LABELS:');
   lines.push('');
@@ -275,6 +296,15 @@ function buildGlmPrompt(
         lines.push('');
       }
     }
+  }
+
+  const hinted = batch.filter((e) => senderHintsByMessageId[e.id]);
+  if (hinted.length > 0) {
+    lines.push('SENDER HISTORY HINTS (soft priors):');
+    for (const e of hinted) {
+      lines.push(`[messageId: ${e.id}] ${senderHintsByMessageId[e.id]}`);
+    }
+    lines.push('');
   }
 
   lines.push('CLASSIFY THESE EMAILS:');
@@ -756,6 +786,134 @@ export class EmailProcessor {
     return result;
   }
 
+  private buildSenderHistoryHints(
+    account: string,
+    emails: FullEmail[],
+  ): Record<string, string> {
+    const hints: Record<string, string> = {};
+
+    for (const email of emails) {
+      const senderEmail = extractSenderEmail(email.from || '');
+      const senderDomain = extractSenderDomain(email.from || '');
+      if (!senderEmail && !senderDomain) continue;
+
+      const where: string[] = ['account = ?', 'message_id != ?'];
+      const params: unknown[] = [account, email.id];
+      if (senderEmail) {
+        where.push('lower(sender) LIKE ?');
+        params.push(`%${senderEmail}%`);
+      } else if (senderDomain) {
+        where.push('lower(sender) LIKE ?');
+        params.push(`%@${senderDomain}%`);
+      }
+
+      const rows = this.db.prepare(
+        `SELECT COALESCE(corrected_label, label_applied) AS label, COUNT(*) AS count
+         FROM email_processing_state
+         WHERE ${where.join(' AND ')}
+         GROUP BY COALESCE(corrected_label, label_applied)
+         ORDER BY count DESC
+         LIMIT 3`,
+      ).all(...params) as Array<{ label: string; count: number }>;
+
+      if (!rows || rows.length === 0) continue;
+      const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+      const top = rows
+        .map((row) => `${String(row.label || '').trim()} (${Number(row.count || 0)})`)
+        .filter(Boolean)
+        .join(', ');
+      const senderTag = senderEmail || `*@${senderDomain}`;
+      hints[email.id] = `${senderTag}; seen ${total} similar emails; top labels: ${top}`;
+    }
+
+    return hints;
+  }
+
+  private async applyJunkSanityGuard(
+    results: ClassificationResult[],
+    emailsById: Map<string, FullEmail>,
+    reviewLabel: string,
+  ): Promise<ClassificationResult[]> {
+    const candidates = results.filter(
+      (r) => isLikelyJunkLabelName(r.label) && r.confidence !== 'low' && r.confidence !== 'invalid',
+    );
+    if (candidates.length === 0) return results;
+
+    const lines: string[] = [];
+    lines.push('You are validating potentially destructive junk/spam classifications.');
+    lines.push('For each email below, decide whether the junk label should be kept.');
+    lines.push(`If there is reasonable chance the email is legitimate (transactional, account-related, travel, receipt/invoice, support, security, or direct communication), return keepJunk=false.`);
+    lines.push('If uncertain, prefer keepJunk=false.');
+    lines.push('Return JSON array only: [{"messageId":"...","keepJunk":true|false,"reason":"..."}]');
+    lines.push('');
+    lines.push('EMAILS:');
+    lines.push('');
+    for (const c of candidates) {
+      const email = emailsById.get(c.messageId);
+      if (!email) continue;
+      lines.push(`[messageId: ${email.id}] CurrentLabel: ${c.label} | From: ${email.from} | Subject: ${email.subject}`);
+      lines.push(`Body: ${(email.body || '').slice(0, 1400)}`);
+      lines.push('');
+    }
+
+    let decisions = new Map<string, { keepJunk: boolean; reason: string }>();
+    try {
+      const guardRes = await withRetry(async () => {
+        const res = await glmBulk({
+          messages: [{ role: 'user', content: lines.join('\n') }],
+          maxTokens: 2500,
+          temperature: 0,
+          disableThinking: true,
+        });
+        if (!res.success) throw new Error(res.error || 'Junk guard validation failed');
+        return res;
+      }, 1, 1500);
+
+      let jsonStr = String(guardRes.content || '').trim();
+      const match = jsonStr.match(/\[[\s\S]*\]/);
+      if (match) jsonStr = match[0];
+      const parsed = safeJsonParse<unknown[]>(jsonStr, []);
+      if (Array.isArray(parsed)) {
+        decisions = new Map(
+          parsed
+            .map((item) => {
+              const row = item as Record<string, unknown>;
+              const messageId = String(row.messageId || '').trim();
+              if (!messageId) return null;
+              const keepJunk = Boolean(row.keepJunk);
+              const reason = String(row.reason || '').trim();
+              return [messageId, { keepJunk, reason }] as [string, { keepJunk: boolean; reason: string }];
+            })
+            .filter((x): x is [string, { keepJunk: boolean; reason: string }] => x !== null),
+        );
+      }
+    } catch (err) {
+      console.warn('[EmailProcessor] Junk sanity guard failed, keeping original labels:', err);
+      return results;
+    }
+
+    let rewired = 0;
+    const guarded = results.map((r) => {
+      const d = decisions.get(r.messageId);
+      if (!d) return r;
+      if (d.keepJunk) return r;
+      rewired += 1;
+      const guardNote = d.reason ? `[junk_guard] ${d.reason}` : '[junk_guard] downgraded to review due to ambiguity';
+      return {
+        ...r,
+        label: reviewLabel,
+        confidence: 'low' as Confidence,
+        failReason: 'junk_guard' as FailReason,
+        glmRaw: `${(r.glmRaw || '').slice(0, 1500)}\n${guardNote}`.slice(0, 2000),
+      };
+    });
+
+    if (rewired > 0) {
+      console.log(`[EmailProcessor] Junk sanity guard rerouted ${rewired} email(s) to ${reviewLabel}`);
+    }
+    return guarded;
+  }
+
   // ---------- Main Processing Loop ----------
 
   async processEmails(onDemand = false): Promise<void> {
@@ -889,6 +1047,7 @@ export class EmailProcessor {
 
         // 9. Fetch few-shot examples
         const examplesByLabel = await this.fetchFewShotExamples(account, labelConfig);
+        const senderHintsByMessageId = this.buildSenderHistoryHints(account, fullEmails);
 
         // 10. Classify in batches (concurrency limited)
         const batches = chunk(fullEmails, 5);
@@ -899,7 +1058,12 @@ export class EmailProcessor {
           async (batch) => {
             batchIdx += 1;
             const currentBatch = batchIdx;
-            const prompt = buildGlmPrompt(promptLabels, examplesByLabel, batch, reviewLabel);
+            const batchHints: Record<string, string> = {};
+            for (const email of batch) {
+              const hint = senderHintsByMessageId[email.id];
+              if (hint) batchHints[email.id] = hint;
+            }
+            const prompt = buildGlmPrompt(promptLabels, examplesByLabel, batch, reviewLabel, batchHints);
             stats.glmCalls += 1;
 
             console.log(`[EmailProcessor] Batch ${currentBatch}/${batches.length} (prompt: ${prompt.length} chars): classifying ${batch.map(e => e.subject || '(no subject)').join(' | ')}`);
@@ -951,10 +1115,12 @@ export class EmailProcessor {
         );
 
         const flat = batchResults.flat();
-        stats.emailsClassified = flat.length;
+        const emailsById = new Map(fullEmails.map((e) => [e.id, e] as const));
+        const guardedFlat = await this.applyJunkSanityGuard(flat, emailsById, reviewLabel);
+        stats.emailsClassified = guardedFlat.length;
 
         // 11. Apply labels
-        for (const r of flat) {
+        for (const r of guardedFlat) {
           const email = fullEmails.find((e) => e.id === r.messageId);
           if (!email) continue;
 
@@ -1040,7 +1206,7 @@ export class EmailProcessor {
         this.emitProgress(`Done! ${stats.emailsClassified} classified, ${Object.keys(stats.labelsApplied).length} labels used`, { account, ...stats });
 
         // 14. Send notifications
-        await this.sendNotifications(flat, labelConfig, reviewLabel, account);
+        await this.sendNotifications(guardedFlat, labelConfig, reviewLabel, account);
 
       } catch (err) {
         const errorText = err instanceof Error ? err.message : String(err);
@@ -1383,11 +1549,17 @@ export class EmailProcessor {
 
     // 3. Fetch few-shot examples
     const examplesByLabel = await this.fetchFewShotExamples(account, labelConfig);
+    const senderHintsByMessageId = this.buildSenderHistoryHints(account, fullEmails);
 
     // 4. Classify in batches
     const batches = chunk(fullEmails, 5);
     const batchResults = await withConcurrency(batches, effectiveGlmConc, async (batch) => {
-      const prompt = buildGlmPrompt(promptLabels, examplesByLabel, batch, reviewLabel);
+      const batchHints: Record<string, string> = {};
+      for (const email of batch) {
+        const hint = senderHintsByMessageId[email.id];
+        if (hint) batchHints[email.id] = hint;
+      }
+      const prompt = buildGlmPrompt(promptLabels, examplesByLabel, batch, reviewLabel, batchHints);
       if (isBulkModelZhipu()) await sleep(2000);
 
       try {
@@ -1421,9 +1593,11 @@ export class EmailProcessor {
     });
 
     const flat = batchResults.flat();
+    const emailsById = new Map(fullEmails.map((e) => [e.id, e] as const));
+    const guardedFlat = await this.applyJunkSanityGuard(flat, emailsById, reviewLabel);
 
     // 5. Update DB + Gmail labels + routing for each result
-    for (const r of flat) {
+    for (const r of guardedFlat) {
       const email = fullEmails.find(e => e.id === r.messageId);
       if (!email) continue;
 

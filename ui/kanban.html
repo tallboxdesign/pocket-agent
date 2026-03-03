@@ -2178,6 +2178,7 @@
       setupModalListeners();
       setupSearch();
       updateMuteButton();
+      void clearActiveTaskContext();
       await loadProjects();
 
       // Auto-refresh: poll for changes every 10 seconds
@@ -2845,6 +2846,51 @@
       }
     }
 
+    function normalizeTaskTags(tags) {
+      if (!tags) return [];
+      if (Array.isArray(tags)) {
+        return tags.map(function(t) { return String(t || '').trim(); }).filter(Boolean);
+      }
+      return String(tags)
+        .split(',')
+        .map(function(t) { return t.trim(); })
+        .filter(Boolean);
+    }
+
+    function getProjectNameById(projectId) {
+      const project = projects.find(function(p) { return p.id === projectId; });
+      return project ? String(project.name || '').trim() : '';
+    }
+
+    async function syncActiveTaskContext(task) {
+      try {
+        if (!task || !window.pocketAgent || typeof window.pocketAgent.setSetting !== 'function') return;
+        const payload = {
+          id: Number(task.id) || undefined,
+          title: String(task.title || ''),
+          description: String(task.description || ''),
+          tags: normalizeTaskTags(task.tags),
+          project: getProjectNameById(task.project_id),
+          status: String(task.status || ''),
+          priority: String(task.priority || ''),
+          updated_at: String(task.updated_at || ''),
+        };
+        if (!payload.title && !payload.description) return;
+        await window.pocketAgent.setSetting('kanban.activeTaskContext', JSON.stringify(payload));
+      } catch {
+        // Non-critical context hint; ignore sync errors.
+      }
+    }
+
+    async function clearActiveTaskContext() {
+      try {
+        if (!window.pocketAgent || typeof window.pocketAgent.setSetting !== 'function') return;
+        await window.pocketAgent.setSetting('kanban.activeTaskContext', '');
+      } catch {
+        // Non-critical context hint; ignore clear errors.
+      }
+    }
+
     async function openDetail(taskId) {
       stopDetailTTS();
       currentDetailTaskId = taskId;
@@ -2855,6 +2901,7 @@
           return;
         }
         detailTaskProjectId = task.project_id;
+        await syncActiveTaskContext(task);
         renderDetail(task);
         applyPanelSide();
         document.getElementById('detail-overlay').classList.add('open');
@@ -2880,6 +2927,7 @@
       }
       stopDetailTTS();
       currentDetailTaskId = null;
+      void clearActiveTaskContext();
     }
 
     function renderDetail(task) {
@@ -3058,6 +3106,12 @@
           title, description, status, priority, assignee_model, tags
         });
         if (result && result.success) {
+          try {
+            const refreshedTask = await window.pocketAgent.kanbanGetTask(currentDetailTaskId);
+            if (refreshedTask) await syncActiveTaskContext(refreshedTask);
+          } catch {
+            // Ignore context refresh failures.
+          }
           showToast('Task updated', 'success');
           await loadProjects();
           await loadBoard();

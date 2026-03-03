@@ -12,7 +12,7 @@ import { buildCanUseToolCallback, buildPreToolUseHook, setStatusEmitter } from '
 import { PersistentSDKSession, TurnResult } from './persistent-session';
 
 // Provider configuration for different LLM backends
-type ProviderType = 'anthropic' | 'moonshot' | 'glm' | 'minimax' | 'qwen' | 'openrouter';
+type ProviderType = 'anthropic' | 'moonshot' | 'glm' | 'minimax' | 'qwen' | 'openrouter' | 'gemini';
 
 interface ProviderConfig {
   baseUrl?: string;
@@ -23,19 +23,23 @@ const PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     // No baseUrl = uses default Anthropic endpoint
   },
   'moonshot': {
-    baseUrl: 'https://api.moonshot.ai/anthropic/',
+    baseUrl: 'https://api.moonshot.ai/anthropic',
   },
   'glm': {
-    baseUrl: 'https://api.z.ai/api/anthropic/',
+    baseUrl: 'https://api.z.ai/api/anthropic',
   },
   'minimax': {
-    baseUrl: 'https://api.minimax.io/anthropic/',
+    baseUrl: 'https://api.minimax.io/anthropic',
   },
   'qwen': {
-    baseUrl: 'https://dashscope-intl.aliyuncs.com/apps/anthropic/',
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/apps/anthropic',
   },
   'openrouter': {
-    baseUrl: 'https://openrouter.ai/api/',
+    baseUrl: 'https://openrouter.ai/api',
+  },
+  'gemini': {
+    // Main chat agent currently depends on Anthropic-compatible Messages API.
+    // Gemini direct is OpenAI-compatible and is handled in non-SDK flows.
   },
 };
 
@@ -52,6 +56,10 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   // MiniMax models
   'MiniMax-M2.5': 'minimax',
   'MiniMax-M2.5-Lightning': 'minimax',
+  // Gemini direct models (visible in picker, guarded in main SDK flow)
+  'gemini-2.5-pro': 'gemini',
+  'gemini-2.5-flash': 'gemini',
+  'gemini-2.5-flash-lite': 'gemini',
   // Qwen direct (DashScope Anthropic-compatible endpoint)
   'qwen3.5-plus-2026-02-15': 'qwen',
   // OpenRouter models
@@ -66,6 +74,7 @@ function getProviderForModel(model: string): ProviderType {
   const mapped = MODEL_PROVIDERS[model];
   if (mapped) return mapped;
   const normalized = String(model || '').trim().toLowerCase();
+  if (normalized.startsWith('gemini-')) return 'gemini';
   if (normalized.includes('/')) return 'openrouter';
   if (normalized.startsWith('qwen')) return 'qwen';
   return 'anthropic';
@@ -120,8 +129,8 @@ async function configureProviderEnvironment(model: string): Promise<void> {
     }
 
     process.env.ANTHROPIC_BASE_URL = config.baseUrl;
-    process.env.ANTHROPIC_AUTH_TOKEN = minimaxKey;
-    process.env.ANTHROPIC_API_KEY = minimaxKey;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = minimaxKey;
+    delete process.env.ANTHROPIC_API_KEY;
 
     console.log('[AgentManager] Provider configured: MiniMax');
   } else if (provider === 'qwen') {
@@ -131,8 +140,8 @@ async function configureProviderEnvironment(model: string): Promise<void> {
     }
 
     process.env.ANTHROPIC_BASE_URL = config.baseUrl;
-    process.env.ANTHROPIC_AUTH_TOKEN = qwenKey;
-    process.env.ANTHROPIC_API_KEY = qwenKey;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = qwenKey;
+    delete process.env.ANTHROPIC_API_KEY;
 
     console.log('[AgentManager] Provider configured: Qwen (DashScope)');
   } else if (provider === 'openrouter') {
@@ -142,10 +151,15 @@ async function configureProviderEnvironment(model: string): Promise<void> {
     }
 
     process.env.ANTHROPIC_BASE_URL = config.baseUrl;
-    process.env.ANTHROPIC_AUTH_TOKEN = openRouterKey;
-    process.env.ANTHROPIC_API_KEY = openRouterKey;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = openRouterKey;
+    delete process.env.ANTHROPIC_API_KEY;
+    // OpenRouter recommended headers
+    process.env.HTTP_REFERER = 'https://github.com/google-gemini/pocket-agent';
+    process.env.X_TITLE = 'Pocket Agent';
 
     console.log('[AgentManager] Provider configured: OpenRouter');
+  } else if (provider === 'gemini') {
+    throw new Error('Gemini direct is available for LinkedIn drafting. Main chat currently requires Anthropic-compatible providers.');
   } else {
     // Anthropic provider - restore correct API key and clear non-Anthropic vars
     delete process.env.ANTHROPIC_BASE_URL;
@@ -593,16 +607,26 @@ class AgentManagerClass extends EventEmitter {
   }
 
   setModel(model: string): void {
+    const oldProvider = getProviderForModel(this.model);
+    const newProvider = getProviderForModel(model);
+
     this.model = model;
     SettingsManager.set('agent.model', model);
     console.log('[AgentManager] Model changed to:', model);
 
-    // Update model on all live persistent sessions
-    for (const [sid, session] of this.persistentSessions.entries()) {
-      if (session.isAlive()) {
-        session.setModel(model).catch(err => {
-          console.error(`[AgentManager] Failed to set model on session ${sid}:`, err);
-        });
+    // If provider changed, we must close existing sessions because SDK client config (baseURL, keys) 
+    // is tied to the client instance created at session start.
+    if (oldProvider !== newProvider) {
+      console.log(`[AgentManager] Provider changed (${oldProvider} -> ${newProvider}), closing all persistent sessions`);
+      this.closeAllPersistentSessions();
+    } else {
+      // Update model on all live persistent sessions (within same provider)
+      for (const [sid, session] of this.persistentSessions.entries()) {
+        if (session.isAlive()) {
+          session.setModel(model).catch(err => {
+            console.error(`[AgentManager] Failed to set model on session ${sid}:`, err);
+          });
+        }
       }
     }
 
@@ -1574,7 +1598,11 @@ class AgentManagerClass extends EventEmitter {
         `This mode also includes the former General behavior: clear answers, planning, and practical guidance.\n` +
         `Prioritize business execution: LinkedIn strategy, email operations, planning, delegation, and concise decisions.\n` +
         `When critiquing ideas, be direct but always include a constructive next action.\n` +
-        `Avoid coding/file-editing/shell actions in this mode unless explicitly required.`
+        `Avoid coding/file-editing/shell actions in this mode unless explicitly required.\n` +
+        `For factual lookup questions, keep searching until you can answer confidently, but do it with progressive strategy changes (narrow, broaden, cross-check) rather than repeating near-identical queries.\n` +
+        `Do not narrate repeated "I am searching" updates. Run tools silently, then return one consolidated answer with what was found and what remains uncertain.\n` +
+        `If still blocked, ask one concise follow-up question that unblocks retrieval.\n` +
+        `If an Active Kanban Task Context is present, use it first before broad project-file searches.`
       );
     } else {
       staticParts.push(
@@ -1730,6 +1758,43 @@ class AgentManagerClass extends EventEmitter {
             const dailyLogsContext = memory.getDailyLogsContext(3);
             if (dailyLogsContext) {
               dynamicParts.push(dailyLogsContext);
+            }
+
+            // Active kanban task context (when user has a task detail open in Kanban UI)
+            const activeTaskRaw = String(SettingsManager.get('kanban.activeTaskContext') || '').trim();
+            if (activeTaskRaw) {
+              try {
+                const task = JSON.parse(activeTaskRaw) as {
+                  id?: number;
+                  title?: string;
+                  description?: string;
+                  tags?: string[];
+                  project?: string;
+                  status?: string;
+                  priority?: string;
+                  updated_at?: string;
+                };
+                const title = String(task.title || '').trim();
+                const desc = String(task.description || '').trim();
+                const tags = Array.isArray(task.tags) ? task.tags.map(t => String(t || '').trim()).filter(Boolean) : [];
+                if (title || desc) {
+                  const metaBits: string[] = [];
+                  if (task.id) metaBits.push(`id: ${task.id}`);
+                  if (task.project) metaBits.push(`project: ${task.project}`);
+                  if (task.status) metaBits.push(`status: ${task.status}`);
+                  if (task.priority) metaBits.push(`priority: ${task.priority}`);
+                  if (task.updated_at) metaBits.push(`updated: ${task.updated_at}`);
+                  if (tags.length > 0) metaBits.push(`tags: ${tags.join(', ')}`);
+                  dynamicParts.push(
+                    `## Active Kanban Task Context\n` +
+                    `${metaBits.join(' | ')}\n` +
+                    `Title: ${title || '(untitled)'}\n` +
+                    `Description:\n${desc.slice(0, 3200)}`
+                  );
+                }
+              } catch {
+                // Ignore malformed task context payload.
+              }
             }
 
             // Recent conversation history (critical for context after session restarts)
