@@ -1457,26 +1457,39 @@
       const text = normalizePreviewText(raw);
       if (!text) return '';
       const flat = text.replace(/\s+/g, ' ').trim();
+      const clampWords = (input, maxWords) => {
+        const words = String(input || '').trim().split(/\s+/).filter(Boolean);
+        if (words.length <= maxWords) return words.join(' ');
+        return `${words.slice(0, maxWords).join(' ')}...`;
+      };
+      const cleanSentence = (input, maxWords) => {
+        const short = clampWords(input, maxWords).replace(/^[\-\u2022•]+\s*/, '').trim();
+        return short.replace(/\s+([,.;!?])/g, '$1');
+      };
       const sentences = flat
         .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
         .map(s => s.trim())
         .filter(Boolean);
-      const picked = [];
-      for (const sentence of sentences) {
-        if ((sentence.split(/\s+/).length || 0) < 5) continue;
-        picked.push(sentence);
-        if (picked.length >= 2) break;
+
+      const meaningful = sentences.filter(s => (s.split(/\s+/).length || 0) >= 5);
+      if (meaningful.length >= 2) {
+        const line1 = cleanSentence(meaningful[0], 14);
+        const line2 = cleanSentence(meaningful[1], 14);
+        return line2 && line2 !== line1 ? `${line1}\n${line2}` : line1;
       }
-      if (picked.length >= 2) return picked.join(' ');
-      if (picked.length === 1) {
-        const words = flat.split(/\s+/);
-        const firstCount = picked[0].split(/\s+/).length;
-        const tail = words.slice(firstCount, firstCount + 18).join(' ');
-        if (!tail) return picked[0];
-        return `${picked[0]} ${words.length > firstCount + 18 ? `${tail}...` : tail}`;
+      if (meaningful.length === 1) {
+        const line1 = cleanSentence(meaningful[0], 14);
+        const words = flat.split(/\s+/).filter(Boolean);
+        const used = meaningful[0].split(/\s+/).filter(Boolean).length;
+        const remainder = words.slice(Math.min(used, words.length)).join(' ');
+        const line2 = cleanSentence(remainder || words.slice(14).join(' '), 14);
+        return line2 && line2 !== line1 ? `${line1}\n${line2}` : line1;
       }
-      const words = flat.split(/\s+/);
-      return words.slice(0, 32).join(' ') + (words.length > 32 ? '...' : '');
+
+      const words = flat.split(/\s+/).filter(Boolean);
+      const line1 = cleanSentence(words.slice(0, 14).join(' '), 14);
+      const line2 = cleanSentence(words.slice(14, 28).join(' '), 14);
+      return line2 ? `${line1}\n${line2}` : line1;
     }
 
     function getPostSummary(post) {
@@ -2734,7 +2747,7 @@
       const previewTextRaw = getDisplayPreviewText(p);
       const previewText = previewMode === 'full'
         ? previewTextRaw
-        : truncate(previewTextRaw, previewMode === 'summary' ? 260 : 120);
+        : truncate(previewTextRaw, previewMode === 'summary' ? 170 : 120);
       const previewHtml = escapeHtml(previewText || '').replace(/\n/g, '<br>');
       const hasFullPostText = getPostFullText(p).length > 0;
       const loadingFullPost = fullPostLoadInFlight.has(Number(p.id));
@@ -2746,7 +2759,12 @@
             </span>
             ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">Summary shown until full text is fetched</span>'}
           </div>`
-        : '';
+        : `<div class="preview-tools">
+            <span class="draft-toggle" onclick="viewFullPost(${p.id})" style="margin:0">
+              ${loadingFullPost ? 'Loading full post...' : 'View full post'}
+            </span>
+            ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">Shows real post text on click</span>'}
+          </div>`;
       const typeKey = normalizePostType(p.post_type);
       const typeBadge = typeKey
         ? `<span class="badge badge-type" title="Post type">${escapeHtml(postTypeLabel(typeKey))}</span>`
@@ -2832,6 +2850,14 @@
         fullPostLoadInFlight.delete(id);
         loadPosts();
       }
+    }
+
+    async function viewFullPost(postId) {
+      const previewSelect = document.getElementById('preview-mode');
+      previewMode = 'full';
+      localStorage.setItem('linkedin-preview-mode', 'full');
+      if (previewSelect) previewSelect.value = 'full';
+      await fetchFullPost(postId, true);
     }
 
     function openPostUrl(postId) {

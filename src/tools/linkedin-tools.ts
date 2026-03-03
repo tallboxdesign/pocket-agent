@@ -114,6 +114,51 @@ function normalizeLinkedInPostType(raw: unknown): string | null {
   return v;
 }
 
+function normalizeLinkedInText(raw: string): string {
+  return String(raw || '')
+    .replace(/\r/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function buildQuickOverviewSummary(raw: string): string {
+  const text = normalizeLinkedInText(raw);
+  if (!text) return '';
+
+  const flat = text.replace(/\s+/g, ' ').trim();
+  const words = flat.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+
+  const clampWords = (input: string, maxWords: number): string => {
+    const w = String(input || '').trim().split(/\s+/).filter(Boolean);
+    if (w.length <= maxWords) return w.join(' ');
+    return `${w.slice(0, maxWords).join(' ')}...`;
+  };
+
+  const sentences = flat
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  const meaningful = sentences.filter(s => (s.split(/\s+/).length || 0) >= 5);
+
+  if (meaningful.length >= 2) {
+    return `${clampWords(meaningful[0], 14)}\n${clampWords(meaningful[1], 14)}`.trim();
+  }
+  if (meaningful.length === 1) {
+    const first = clampWords(meaningful[0], 14);
+    const used = meaningful[0].split(/\s+/).filter(Boolean).length;
+    const tail = words.slice(Math.min(used, words.length), Math.min(used + 14, words.length)).join(' ');
+    if (tail) return `${first}\n${clampWords(tail, 14)}`.trim();
+    return first;
+  }
+
+  const first = words.slice(0, 14).join(' ');
+  const second = words.slice(14, 28).join(' ');
+  return second ? `${clampWords(first, 14)}\n${clampWords(second, 14)}`.trim() : clampWords(first, 14);
+}
+
 function checkEnabled(): string | null {
   if (!SettingsManager.getBoolean('linkedin.enabled')) {
     // Auto-enable if auth profile exists (settings may have been reset)
@@ -214,6 +259,18 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
     const db = getDb();
     let newPosts = posts;
     if (db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS linkedin_post_content (
+          post_id INTEGER PRIMARY KEY REFERENCES linkedin_posts(id) ON DELETE CASCADE,
+          post_url TEXT NOT NULL,
+          full_text TEXT NOT NULL,
+          summary_text TEXT,
+          source TEXT DEFAULT 'linkedin_read_post',
+          updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_linkedin_post_content_url ON linkedin_post_content(post_url);
+      `);
+
       const upsert = db.prepare(
         `INSERT INTO linkedin_posts (
            post_url, author, text_preview, reactions, comments, post_type, scraped_date,
@@ -235,6 +292,28 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       const check = db.prepare(
         `SELECT id, author, text_preview, reactions, comments, post_type, scraped_date
          FROM linkedin_posts WHERE post_url = ?`
+      );
+      const upsertQuickSummary = db.prepare(
+        `INSERT INTO linkedin_post_content (post_id, post_url, full_text, summary_text, source, updated_at)
+         VALUES (?, ?, '', ?, 'feed_quick_summary', datetime('now'))
+         ON CONFLICT(post_id) DO UPDATE SET
+           post_url = excluded.post_url,
+           full_text = CASE
+             WHEN linkedin_post_content.source = 'linkedin_read_post' AND COALESCE(linkedin_post_content.full_text, '') != ''
+             THEN linkedin_post_content.full_text
+             ELSE linkedin_post_content.full_text
+           END,
+           summary_text = CASE
+             WHEN linkedin_post_content.source = 'linkedin_read_post' AND COALESCE(linkedin_post_content.summary_text, '') != ''
+             THEN linkedin_post_content.summary_text
+             ELSE excluded.summary_text
+           END,
+           source = CASE
+             WHEN linkedin_post_content.source = 'linkedin_read_post'
+             THEN linkedin_post_content.source
+             ELSE 'feed_quick_summary'
+           END,
+           updated_at = datetime('now')`
       );
       type ExistingLinkedInPostRow = {
         id: number;
@@ -287,6 +366,14 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
               nextReactions,
               nextComments,
             );
+
+            const persisted = check.get(normalizedPostUrl) as ExistingLinkedInPostRow | undefined;
+            if (persisted?.id) {
+              const quickSummary = buildQuickOverviewSummary(nextPreview);
+              if (quickSummary) {
+                upsertQuickSummary.run(persisted.id, normalizedPostUrl, quickSummary);
+              }
+            }
           }
         }
       });
