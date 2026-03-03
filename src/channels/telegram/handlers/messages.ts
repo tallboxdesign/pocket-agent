@@ -9,10 +9,26 @@ import { withTyping } from '../utils/typing';
 import { setTelegramMessageContext } from '../../../tools/session-context';
 import { setActiveChannel } from '../../../tools/voice-tools';
 import { findWorkflowCommand } from '../../../config/commands-loader';
+import { tryHandleLinkedInNaturalAction } from './linkedin';
+import { getTelegramSavedReaction, isTelegramAckReactionEnabled, shouldUseSavedReaction } from '../utils/reaction-policy';
 
 export interface MessageHandlerDeps {
   onMessageCallback: MessageCallback | null;
   sendResponse: (ctx: Context, text: string) => Promise<void>;
+}
+
+function isLikelyFollowUpAcknowledgement(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.length > 120) return false;
+  if (normalized.includes('?')) return false;
+  return /(good|great|nice|thanks|thank you|perfect|awesome|cool|got it|understood|makes sense|found what i needed|you managed)/i.test(normalized);
+}
+
+function isRecentContextReference(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return /(earlier|previous|before|ago|you forgot|you said|you found|remember|what did you just)/i.test(normalized);
 }
 
 /**
@@ -32,6 +48,7 @@ export async function handleTextMessage(
     console.log('[Telegram:Text] No message or chatId, returning early');
     return;
   }
+  const originalMessage = message;
 
   // Include quoted reply context so agent sees what the user is responding to
   const replyTo = ctx.message?.reply_to_message;
@@ -60,6 +77,8 @@ export async function handleTextMessage(
       'start', 'help', 'status', 'mychatid', 'new', 'facts', 'workflow',
       'model', 'limode', 'voice', 'restart', 'unanswered', 'approve', 'reject',
       'link', 'unlink',
+      'li', 'lidraft', 'liapprove', 'lischedule', 'lireject',
+      'linkedin', 'linkedin_draft', 'linkedin_approve', 'linkedin_schedule', 'linkedin_reject',
     ]);
     if (builtInCommands.has(cmdName)) {
       console.log(`[Telegram:Text] Built-in command /${cmdName} fell through to text handler, ignoring`);
@@ -69,6 +88,14 @@ export async function handleTextMessage(
 
   // Check if this is a workflow slash command (e.g., /create-workflow some context)
   let fullMessage = message;
+
+  // Natural LinkedIn selection actions from Telegram list context.
+  // Example: "draft one, two and five".
+  const handledNaturalLinkedIn = await tryHandleLinkedInNaturalAction(ctx, message, sendResponse);
+  if (handledNaturalLinkedIn) {
+    return;
+  }
+
   if (message.startsWith('/')) {
     const spaceIdx = message.indexOf(' ');
     const commandName = (spaceIdx !== -1 ? message.substring(1, spaceIdx) : message.substring(1))
@@ -91,6 +118,18 @@ export async function handleTextMessage(
     }
   }
 
+  if (isLikelyFollowUpAcknowledgement(originalMessage)) {
+    fullMessage =
+      '[Context note: this is a follow-up acknowledgement to your previous answer. ' +
+      'Keep continuity and respond briefly without restarting discovery or asking them to restate context.]\n' +
+      fullMessage;
+  } else if (isRecentContextReference(originalMessage)) {
+    fullMessage =
+      '[Context note: the user is referring to recent turns in this same chat. ' +
+      'Use immediate conversation context first and do not switch to broad file/tool discovery unless they explicitly ask you to search.]\n' +
+      fullMessage;
+  }
+
   console.log('[Telegram:Text] Starting withTyping...');
   try {
     const result = await withTyping(ctx, async () => {
@@ -106,6 +145,15 @@ export async function handleTextMessage(
     console.log('[Telegram:Text] withTyping completed successfully');
 
     await sendResponse(ctx, result.response);
+
+    // If this turn saved/logged something, promote reaction from ack -> saved.
+    if (chatId && messageId && isTelegramAckReactionEnabled() && shouldUseSavedReaction(originalMessage, result.response)) {
+      const { getTelegramBot } = await import('../index');
+      const bot = getTelegramBot();
+      if (bot) {
+        await bot.reactToMessage(chatId, messageId, getTelegramSavedReaction());
+      }
+    }
 
     // Send media photos if present
     if (result.media && result.media.length > 0 && ctx.chat?.id) {

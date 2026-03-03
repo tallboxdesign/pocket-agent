@@ -1980,6 +1980,24 @@
             <label>Voice Replies</label>
             <div class="toggle" id="telegram.voiceReplies-toggle" onclick="toggleSetting('telegram.voiceReplies')"></div>
           </div>
+          <div class="setting-row">
+            <label>Auto Reactions</label>
+            <div class="toggle" id="telegram.reactionAckEnabled-toggle" onclick="toggleSetting('telegram.reactionAckEnabled')"></div>
+          </div>
+          <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+            <label>Ack Emoji</label>
+            <div class="key-input">
+              <input type="text" id="telegram.reactionAckEmoji" placeholder="👍" maxlength="8">
+              <button onclick="saveTelegramSetting('telegram.reactionAckEmoji')">Save</button>
+            </div>
+          </div>
+          <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+            <label>Saved Emoji</label>
+            <div class="key-input">
+              <input type="text" id="telegram.reactionSavedEmoji" placeholder="❤️" maxlength="8">
+              <button onclick="saveTelegramSetting('telegram.reactionSavedEmoji')">Save</button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -3710,6 +3728,11 @@
         const voiceEnabled = settings['telegram.voiceReplies'] === 'true';
         voiceToggle.classList.toggle('active', voiceEnabled);
       }
+      const reactionToggle = document.getElementById('telegram.reactionAckEnabled-toggle');
+      if (reactionToggle) {
+        const reactionsEnabled = settings['telegram.reactionAckEnabled'] !== 'false';
+        reactionToggle.classList.toggle('active', reactionsEnabled);
+      }
 
       // Pocket CLI auto-check toggle (defaults to true)
       const pocketCliToggle = document.getElementById('pocketCli.autoCheck-toggle');
@@ -3792,7 +3815,7 @@
         'openrouter.favoriteModels', 'openrouter.favoritePicker',
         'trello.token', 'elevenlabs.apiKey', 'auth-api-key', 'oauth-code',
         'agent.openrouterModelPicker',
-        'telegram.allowedUserIds', 'telegram.defaultChatId',
+        'telegram.allowedUserIds', 'telegram.defaultChatId', 'telegram.reactionAckEmoji', 'telegram.reactionSavedEmoji',
         'gmail-user-email', 'gmail-default-recipient',
         'ep-enabled', 'ep-interval', 'ep-processed-label', 'ep-review-label',
         'ep-max-emails', 'ep-lookback', 'ep-gmail-conc', 'ep-glm-conc',
@@ -3987,6 +4010,14 @@
     async function saveTelegramSetting(inputId) {
       const input = document.getElementById(inputId);
       const value = input.value.trim();
+
+      if (
+        (inputId === 'telegram.reactionAckEmoji' || inputId === 'telegram.reactionSavedEmoji')
+        && !value
+      ) {
+        showToast('Please enter an emoji', 'error');
+        return;
+      }
 
       try {
         await window.pocketAgent.setSetting(inputId, value);

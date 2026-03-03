@@ -49,9 +49,9 @@ import {
   createReactionHandler,
   registerReactionHandler,
   sendReaction,
-  AgentReactions,
   sendVoiceReply,
 } from './features';
+import { getTelegramAckReaction, isTelegramAckReactionEnabled } from './utils/reaction-policy';
 
 // Re-export types
 export type { MessageCallback, SessionLinkCallback, AttachmentType };
@@ -248,11 +248,12 @@ export class TelegramBot extends BaseChannel {
    */
   private async acknowledgeIncomingMessage(ctx: Context): Promise<void> {
     try {
+      if (!isTelegramAckReactionEnabled()) return;
       const chatId = ctx.chat?.id;
       const messageId = ctx.message?.message_id
         || ctx.editedMessage?.message_id;
       if (!chatId || !messageId) return;
-      await sendReaction(this.bot.api, chatId, messageId, AgentReactions.love);
+      await sendReaction(this.bot.api, chatId, messageId, getTelegramAckReaction());
     } catch {
       // Best-effort UX hint; ignore reaction failures.
     }

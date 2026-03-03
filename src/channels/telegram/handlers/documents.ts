@@ -12,6 +12,7 @@ import { scheduleFileCleanup } from './media';
 import { SettingsManager } from '../../../settings';
 import { MessageCallback } from '../types';
 import { withTyping } from '../utils/typing';
+import { getTelegramSavedReaction, isTelegramAckReactionEnabled, shouldUseSavedReaction } from '../utils/reaction-policy';
 
 export interface DocumentHandlerDeps {
   onMessageCallback: MessageCallback | null;
@@ -118,6 +119,7 @@ export async function handleDocumentMessage(
 ): Promise<void> {
   console.log('[Telegram] Document handler called');
   const chatId = ctx.chat?.id;
+  const messageId = ctx.message?.message_id;
   const document = ctx.message?.document;
   const caption = ctx.message?.caption || '';
 
@@ -240,6 +242,14 @@ export async function handleDocumentMessage(
 
     // Send response
     await sendResponse(ctx, result.response);
+
+    if (chatId && messageId && isTelegramAckReactionEnabled() && shouldUseSavedReaction(caption, result.response)) {
+      const { getTelegramBot } = await import('../index');
+      const bot = getTelegramBot();
+      if (bot) {
+        await bot.reactToMessage(chatId, messageId, getTelegramSavedReaction());
+      }
+    }
 
     // Send media photos if present
     if (result.media && result.media.length > 0 && ctx.chat?.id) {

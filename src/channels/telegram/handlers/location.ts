@@ -8,6 +8,7 @@ import { AgentManager } from '../../../agent';
 import { MessageCallback, LocationData, GeocodingResult, LocationQuickAction } from '../types';
 import { withTyping } from '../utils/typing';
 import { InlineKeyboardBuilder } from '../keyboards/inline';
+import { getTelegramSavedReaction, isTelegramAckReactionEnabled, shouldUseSavedReaction } from '../utils/reaction-policy';
 
 export interface LocationHandlerDeps {
   onMessageCallback: MessageCallback | null;
@@ -91,6 +92,7 @@ export async function handleLocationMessage(
 ): Promise<void> {
   console.log('[Telegram] Location handler called');
   const chatId = ctx.chat?.id;
+  const messageId = ctx.message?.message_id;
   const location = ctx.message?.location;
 
   console.log('[Telegram] Location data:', { chatId, hasLocation: !!location, location });
@@ -177,6 +179,19 @@ export async function handleLocationMessage(
 
     // Send response with inline keyboard
     await sendResponse(ctx, result.agentResult.response);
+
+    if (
+      chatId
+      && messageId
+      && isTelegramAckReactionEnabled()
+      && shouldUseSavedReaction('shared location', result.agentResult.response)
+    ) {
+      const { getTelegramBot } = await import('../index');
+      const bot = getTelegramBot();
+      if (bot) {
+        await bot.reactToMessage(chatId, messageId, getTelegramSavedReaction());
+      }
+    }
 
     // Send quick actions as a separate message (optional, only if keyboard has buttons)
     if (quickActions.length > 0) {

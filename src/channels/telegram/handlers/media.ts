@@ -15,6 +15,7 @@ import { MessageCallback } from '../types';
 import { withTyping } from '../utils/typing';
 import { setTelegramMessageContext } from '../../../tools/session-context';
 import { setActiveChannel } from '../../../tools/voice-tools';
+import { getTelegramSavedReaction, isTelegramAckReactionEnabled, shouldUseSavedReaction } from '../utils/reaction-policy';
 
 export interface MediaHandlerDeps {
   onMessageCallback: MessageCallback | null;
@@ -135,6 +136,14 @@ export async function handlePhotoMessage(
 
     // Send response
     await sendResponse(ctx, result.response);
+
+    if (chatId && messageId && isTelegramAckReactionEnabled() && shouldUseSavedReaction(caption, result.response)) {
+      const { getTelegramBot } = await import('../index');
+      const bot = getTelegramBot();
+      if (bot) {
+        await bot.reactToMessage(chatId, messageId, getTelegramSavedReaction());
+      }
+    }
 
     // Send media photos if present
     if (result.media && result.media.length > 0 && ctx.chat?.id) {
@@ -265,6 +274,14 @@ export async function handleVoiceMessage(
 
     // Send response
     await sendResponse(ctx, result.result.response);
+
+    if (chatId && messageId && isTelegramAckReactionEnabled() && shouldUseSavedReaction(caption, result.result.response)) {
+      const { getTelegramBot } = await import('../index');
+      const bot = getTelegramBot();
+      if (bot) {
+        await bot.reactToMessage(chatId, messageId, getTelegramSavedReaction());
+      }
+    }
 
     // Send media photos if present
     if (result.result.media && result.result.media.length > 0 && ctx.chat?.id) {
@@ -407,6 +424,14 @@ export async function handleAudioMessage(
 
     // Send response
     await sendResponse(ctx, result.result.response);
+
+    if (chatId && messageId && isTelegramAckReactionEnabled() && shouldUseSavedReaction(caption, result.result.response)) {
+      const { getTelegramBot } = await import('../index');
+      const bot = getTelegramBot();
+      if (bot) {
+        await bot.reactToMessage(chatId, messageId, getTelegramSavedReaction());
+      }
+    }
 
     // Send media photos if present
     if (result.result.media && result.result.media.length > 0 && ctx.chat?.id) {
