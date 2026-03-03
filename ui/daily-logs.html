@@ -175,7 +175,54 @@
     .logs-table .content-cell {
       color: var(--text-secondary);
       line-height: 1.6;
-      white-space: pre-line;
+      white-space: normal;
+    }
+
+    .day-meta {
+      margin-top: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      color: var(--text-muted);
+      -webkit-text-fill-color: var(--text-muted);
+    }
+
+    .entry-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .entry-item {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.01);
+    }
+
+    .entry-time {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+      min-width: 62px;
+    }
+
+    .entry-text {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
+
+    .entry-empty {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-style: italic;
     }
 
     .today-badge {
@@ -382,6 +429,19 @@
       return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
     }
 
+    function splitEntries(content) {
+      return String(content || '')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+    }
+
+    function parseEntry(line) {
+      const m = String(line || '').match(/^\[([^\]]+)\]\s*(.*)$/);
+      if (m) return { time: m[1], text: m[2] || '' };
+      return { time: '', text: String(line || '') };
+    }
+
     async function loadLogs() {
       try {
         const logs = await window.pocketAgent.listDailyLogs();
@@ -421,8 +481,21 @@
                 <tr>
                   <td class="date-cell">
                     ${escapeHtml(formatDate(log.date))}${log.date === today ? '<span class="today-badge">now</span>' : ''}
+                    <div class="day-meta">${splitEntries(log.content).length} entr${splitEntries(log.content).length === 1 ? 'y' : 'ies'}</div>
                   </td>
-                  <td class="content-cell">${escapeHtml(log.content)}</td>
+                  <td class="content-cell">
+                    <div class="entry-list">
+                      ${splitEntries(log.content).map(raw => {
+                        const e = parseEntry(raw);
+                        return `
+                          <div class="entry-item">
+                            <div class="entry-time">${e.time ? escapeHtml(e.time) : '&nbsp;'}</div>
+                            <div class="entry-text">${escapeHtml(e.text || raw)}</div>
+                          </div>
+                        `;
+                      }).join('') || '<div class="entry-empty">No entries.</div>'}
+                    </div>
+                  </td>
                 </tr>
               `).join('')}
             </tbody>
