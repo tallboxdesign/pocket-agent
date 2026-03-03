@@ -769,6 +769,107 @@ export async function handleKanbanAddAttachmentTool(input: unknown): Promise<str
 }
 
 // ============================================================================
+// kanban_get_all_tasks
+// ============================================================================
+
+export function getKanbanGetAllTasksToolDefinition() {
+  return {
+    name: 'kanban_get_all_tasks',
+    description: `List tasks across all active projects, optionally filtered by status.
+
+Useful when you only remember a title fragment and need to locate tasks globally.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        status_filter: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional status filter array: backlog, todo, in_progress, review, done',
+        },
+      },
+      required: [],
+    },
+  };
+}
+
+export async function handleKanbanGetAllTasksTool(input: unknown): Promise<string> {
+  const params = (input || {}) as { status_filter?: string[] };
+  const validStatuses: KanbanStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
+  const filter = Array.isArray(params.status_filter)
+    ? params.status_filter.filter((s): s is KanbanStatus => validStatuses.includes(s as KanbanStatus))
+    : undefined;
+
+  try {
+    const tasks = KanbanService.getAllTasks(filter);
+    return JSON.stringify({
+      success: true,
+      count: tasks.length,
+      tasks: tasks.map(t => ({
+        id: t.id,
+        project_id: t.project_id,
+        project_name: t.project_name,
+        title: t.title,
+        description: t.description || '',
+        status: t.status,
+        priority: t.priority,
+        tags: t.tags || '',
+        updated_at: t.updated_at,
+      })),
+    });
+  } catch (error) {
+    return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to list tasks' });
+  }
+}
+
+// ============================================================================
+// kanban_search_tasks
+// ============================================================================
+
+export function getKanbanSearchTasksToolDefinition() {
+  return {
+    name: 'kanban_search_tasks',
+    description: `Search Kanban tasks by title/description/tags.
+
+Use this when user references a remembered task title and you need to find it quickly.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Search text (title, description, tags)' },
+        project_id: { type: 'number', description: 'Optional project ID to scope search' },
+      },
+      required: ['query'],
+    },
+  };
+}
+
+export async function handleKanbanSearchTasksTool(input: unknown): Promise<string> {
+  const params = input as { query: string; project_id?: number };
+  if (!params.query || !String(params.query).trim()) {
+    return JSON.stringify({ error: 'query is required' });
+  }
+
+  try {
+    const tasks = KanbanService.searchTasks(String(params.query), params.project_id);
+    return JSON.stringify({
+      success: true,
+      count: tasks.length,
+      tasks: tasks.map(t => ({
+        id: t.id,
+        project_id: t.project_id,
+        title: t.title,
+        description: t.description || '',
+        status: t.status,
+        priority: t.priority,
+        tags: t.tags || '',
+        updated_at: t.updated_at,
+      })),
+    });
+  } catch (error) {
+    return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to search tasks' });
+  }
+}
+
+// ============================================================================
 // Export all kanban tools
 // ============================================================================
 
@@ -787,5 +888,7 @@ export function getKanbanTools() {
     { ...getKanbanReviewTaskToolDefinition(), handler: handleKanbanReviewTaskTool },
     { ...getKanbanLogResearchToolDefinition(), handler: handleKanbanLogResearchTool },
     { ...getKanbanAddAttachmentToolDefinition(), handler: handleKanbanAddAttachmentTool },
+    { ...getKanbanGetAllTasksToolDefinition(), handler: handleKanbanGetAllTasksTool },
+    { ...getKanbanSearchTasksToolDefinition(), handler: handleKanbanSearchTasksTool },
   ];
 }

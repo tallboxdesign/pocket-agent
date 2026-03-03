@@ -48,6 +48,8 @@ import { registerCallbackHandler, CallbackHandlerDeps } from './handlers/callbac
 import {
   createReactionHandler,
   registerReactionHandler,
+  sendReaction,
+  AgentReactions,
   sendVoiceReply,
 } from './features';
 
@@ -169,6 +171,7 @@ export class TelegramBot extends BaseChannel {
     // Document messages - register BEFORE text to ensure proper handling
     this.bot.on('message:document', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();  // Update on any message
+      void this.acknowledgeIncomingMessage(ctx);
       await handleDocumentMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -178,6 +181,7 @@ export class TelegramBot extends BaseChannel {
     // Location messages
     this.bot.on('message:location', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
+      void this.acknowledgeIncomingMessage(ctx);
       await handleLocationMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -186,6 +190,7 @@ export class TelegramBot extends BaseChannel {
 
     this.bot.on('edited_message:location', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
+      void this.acknowledgeIncomingMessage(ctx);
       await handleEditedLocation(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -195,6 +200,7 @@ export class TelegramBot extends BaseChannel {
     // Photo messages
     this.bot.on('message:photo', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
+      void this.acknowledgeIncomingMessage(ctx);
       await handlePhotoMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -204,6 +210,7 @@ export class TelegramBot extends BaseChannel {
     // Voice messages
     this.bot.on('message:voice', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
+      void this.acknowledgeIncomingMessage(ctx);
       await handleVoiceMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -213,6 +220,7 @@ export class TelegramBot extends BaseChannel {
     // Audio files
     this.bot.on('message:audio', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
+      void this.acknowledgeIncomingMessage(ctx);
       await handleAudioMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -222,6 +230,7 @@ export class TelegramBot extends BaseChannel {
     // Text messages - register LAST as fallback
     this.bot.on('message:text', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
+      void this.acknowledgeIncomingMessage(ctx);
       await handleTextMessage(ctx, {
         onMessageCallback: this.onMessageCallback,
         sendResponse: this.sendResponse.bind(this),
@@ -231,6 +240,22 @@ export class TelegramBot extends BaseChannel {
     this.bot.catch((err) => {
       console.error('[Telegram] Bot error:', err);
     });
+  }
+
+  /**
+   * Lightweight visual acknowledgment for inbound user messages.
+   * Runs fire-and-forget and never blocks message processing.
+   */
+  private async acknowledgeIncomingMessage(ctx: Context): Promise<void> {
+    try {
+      const chatId = ctx.chat?.id;
+      const messageId = ctx.message?.message_id
+        || ctx.editedMessage?.message_id;
+      if (!chatId || !messageId) return;
+      await sendReaction(this.bot.api, chatId, messageId, AgentReactions.love);
+    } catch {
+      // Best-effort UX hint; ignore reaction failures.
+    }
   }
 
   /**

@@ -1601,6 +1601,7 @@ class AgentManagerClass extends EventEmitter {
         `Avoid coding/file-editing/shell actions in this mode unless explicitly required.\n` +
         `No conversational filler or banter (e.g., "haha", "fair enough", "let me check"). Use direct professional language.\n` +
         `If the user asks for implementation that requires writing files, editing code, or running shell commands, explicitly state a mode handoff first: "This needs Coder mode. Switch to Coder and I will execute it." Then stop and wait for mode switch.\n` +
+        `Do not say "let me pull/check/search" as a standalone response. Execute retrieval first, then answer with findings in the same message.\n` +
         `For factual lookup questions, keep searching until you can answer confidently, but do it with progressive strategy changes (narrow, broaden, cross-check) rather than repeating near-identical queries.\n` +
         `Default retrieval order: (1) memory/facts/session context, (2) local workspace read/search, (3) web search. If local evidence is insufficient, proceed to web search automatically.\n` +
         `Do not ask whether to search; do it. Ask a follow-up only when the request is ambiguous or missing key constraints.\n` +
@@ -1671,6 +1672,7 @@ class AgentManagerClass extends EventEmitter {
       'mcp__pocket-agent__create_reminder',
       'mcp__pocket-agent__list_scheduled_tasks',
       'mcp__pocket-agent__delete_scheduled_task',
+      'mcp__pocket-agent__acknowledge_reminder',
       // Custom MCP tools - calendar
       'mcp__pocket-agent__calendar_add',
       'mcp__pocket-agent__calendar_list',
@@ -1700,6 +1702,32 @@ class AgentManagerClass extends EventEmitter {
       'mcp__pocket-agent__kanban_review_task',
       'mcp__pocket-agent__kanban_log_research',
       'mcp__pocket-agent__kanban_add_attachment',
+      'mcp__pocket-agent__kanban_get_all_tasks',
+      'mcp__pocket-agent__kanban_search_tasks',
+      // Custom MCP tools - Gmail
+      'mcp__pocket-agent__send_email',
+      'mcp__pocket-agent__read_emails',
+      'mcp__pocket-agent__get_email',
+      'mcp__pocket-agent__get_thread',
+      'mcp__pocket-agent__list_email_labels',
+      'mcp__pocket-agent__create_email_label',
+      'mcp__pocket-agent__modify_email_labels',
+      'mcp__pocket-agent__create_email_draft',
+      'mcp__pocket-agent__list_email_drafts',
+      // Custom MCP tools - GLM worker helpers
+      'mcp__pocket-agent__summarize_text',
+      'mcp__pocket-agent__classify_content',
+      'mcp__pocket-agent__extract_info',
+      'mcp__pocket-agent__bulk_process',
+      // Custom MCP tools - Voice
+      'mcp__pocket-agent__speak',
+      'mcp__pocket-agent__voice_status',
+      'mcp__pocket-agent__voice_toggle',
+      'mcp__pocket-agent__voice_config',
+      // Custom MCP tools - Telegram ops
+      'mcp__pocket-agent__send_telegram_photo',
+      'mcp__pocket-agent__telegram_react',
+      'mcp__pocket-agent__restart_telegram',
       // Custom MCP tools - LinkedIn
       'mcp__pocket-agent__linkedin_feed',
       'mcp__pocket-agent__linkedin_read_post',
