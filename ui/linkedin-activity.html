@@ -3016,6 +3016,7 @@
           <td class="col-priority">${priorityDot(p.id, p.priority)}</td>
           <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}<br>${relationBadge} ${weeklyWarn} ${reconnectHint}</td>
           <td class="col-preview">
+            <div style="margin:0 0 8px 0">${previewTools}</div>
             ${p.comment_draft ? `
               <div class="draft-actions" style="margin:0 0 8px 0">
                 <span class="draft-toggle" onclick="toggleDraft(${p.id}, this)" style="margin:0">${expandedDraftId === p.id ? 'Hide draft' : 'Show draft'}</span>
@@ -3030,7 +3031,6 @@
               </div>
             ` : ''}
             ${previewMainHtml}
-            ${previewTools}
             ${inflightHint}
             ${failureNote}
             ${p.comment_draft ? `
