@@ -355,6 +355,11 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
     const db = getDb();
     let newPosts = posts;
     if (db) {
+      try {
+        db.exec(`ALTER TABLE linkedin_posts ADD COLUMN source_tag TEXT DEFAULT 'feed:home'`);
+      } catch {
+        // Column already exists.
+      }
       db.exec(`
         CREATE TABLE IF NOT EXISTS linkedin_post_content (
           post_id INTEGER PRIMARY KEY REFERENCES linkedin_posts(id) ON DELETE CASCADE,
@@ -370,9 +375,9 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       const upsert = db.prepare(
         `INSERT INTO linkedin_posts (
            post_url, author, text_preview, reactions, comments, post_type, scraped_date,
-           first_seen_reactions, first_seen_comments, last_seen_at
+           first_seen_reactions, first_seen_comments, last_seen_at, source_tag
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
          ON CONFLICT(post_url) DO UPDATE SET
            author = excluded.author,
            text_preview = excluded.text_preview,
@@ -380,6 +385,11 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
            comments = excluded.comments,
            post_type = excluded.post_type,
            scraped_date = excluded.scraped_date,
+           source_tag = CASE
+             WHEN excluded.source_tag IS NOT NULL AND TRIM(excluded.source_tag) != ''
+             THEN excluded.source_tag
+             ELSE COALESCE(linkedin_posts.source_tag, 'feed:home')
+           END,
            last_seen_at = datetime('now'),
            first_seen_at = COALESCE(linkedin_posts.first_seen_at, datetime('now')),
            first_seen_reactions = COALESCE(linkedin_posts.first_seen_reactions, excluded.first_seen_reactions),
@@ -450,6 +460,9 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
             const nextReactions = post.reactions || 0;
             const nextComments = post.comments || 0;
             const nextType = normalizeLinkedInPostType(post.type);
+            const nextSourceTag = String((post as { source?: string }).source || (p.search_query ? `search:${p.search_query}` : 'feed:home'))
+              .trim()
+              .slice(0, 120) || 'feed:home';
 
             if (existing) {
               existingUrls.add(normalizedPostUrl);
@@ -476,6 +489,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
               today,
               nextReactions,
               nextComments,
+              nextSourceTag,
             );
 
             const persisted = check.get(normalizedPostUrl) as ExistingLinkedInPostRow | undefined;

@@ -412,6 +412,7 @@ export class MemoryManager {
         reactions INTEGER DEFAULT 0,
         comments INTEGER DEFAULT 0,
         post_type TEXT,
+        source_tag TEXT DEFAULT 'feed:home',
         scraped_date TEXT NOT NULL,
         first_seen_at TEXT DEFAULT (datetime('now')),
         first_seen_reactions INTEGER,
@@ -688,6 +689,11 @@ export class MemoryManager {
       this.db.prepare(`UPDATE linkedin_posts SET last_seen_at = datetime('now') WHERE last_seen_at IS NULL`).run();
       console.log('[Memory] Migrated linkedin_posts: added last_seen_at column');
     }
+    if (!hasColumn('linkedin_posts', 'source_tag')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN source_tag TEXT DEFAULT 'feed:home'`);
+      this.db.prepare(`UPDATE linkedin_posts SET source_tag = 'feed:home' WHERE source_tag IS NULL OR TRIM(source_tag) = ''`).run();
+      console.log('[Memory] Migrated linkedin_posts: added source_tag column');
+    }
     if (!hasColumn('linkedin_posts', 'draft_state')) {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN draft_state TEXT`);
       console.log('[Memory] Migrated linkedin_posts: added draft_state column');
@@ -703,6 +709,22 @@ export class MemoryManager {
     if (!hasColumn('linkedin_posts', 'draft_finished_at')) {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN draft_finished_at TEXT`);
       console.log('[Memory] Migrated linkedin_posts: added draft_finished_at column');
+    }
+    if (!hasColumn('linkedin_posts', 'image_count')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN image_count INTEGER DEFAULT 0`);
+      console.log('[Memory] Migrated linkedin_posts: added image_count column');
+    }
+    if (!hasColumn('linkedin_posts', 'image_analysis_status')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN image_analysis_status TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added image_analysis_status column');
+    }
+    if (!hasColumn('linkedin_posts', 'image_analysis_note')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN image_analysis_note TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added image_analysis_note column');
+    }
+    if (!hasColumn('linkedin_posts', 'image_analyzed_at')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN image_analyzed_at TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added image_analyzed_at column');
     }
 
     // LinkedIn activity log (auto-poster audit trail)

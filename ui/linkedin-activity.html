@@ -177,6 +177,11 @@
       background: rgba(96, 165, 250, 0.06);
     }
     .li-quick-group.group-research .li-quick-group-title { color: #93c5fd; }
+    .li-quick-group.group-scrape {
+      border-color: rgba(251, 146, 60, 0.34);
+      background: rgba(251, 146, 60, 0.055);
+    }
+    .li-quick-group.group-scrape .li-quick-group-title { color: #fdba74; }
     .li-quick-group.group-posting {
       border-color: rgba(34, 197, 94, 0.34);
       background: rgba(34, 197, 94, 0.055);
@@ -1151,6 +1156,61 @@
         </div>
       </div>
 
+      <div class="li-quick-group group-scrape">
+        <div class="li-quick-group-title">Scraping and Discovery</div>
+        <div class="li-quick-grid">
+          <div class="li-quick-field">
+            <label title="How deep a manual 'Scrape Feed' run scrolls the feed.">Feed Scroll</label>
+            <input type="number" id="qs-feed-scroll" min="1" max="24" step="1" title="Default depth for normal feed scrape">
+          </div>
+          <div class="li-quick-field">
+            <label title="Automatically scrape and surface high-engagement posts every interval.">Auto-Scrape</label>
+            <select id="qs-auto-scrape-enabled">
+              <option value="false">Off</option>
+              <option value="true">On</option>
+            </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Auto-scrape interval in minutes.">Auto Interval</label>
+            <select id="qs-auto-scrape-interval">
+              <option value="30">30 min</option>
+              <option value="60">60 min</option>
+            </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="How deep each auto-scrape cycle scrolls.">Auto Scroll</label>
+            <input type="number" id="qs-auto-scrape-scroll" min="1" max="24" step="1" title="Depth per auto-scrape cycle">
+          </div>
+          <div class="li-quick-field">
+            <label title="Minimum reactions for auto-flagging a post for drafting.">Min Reactions</label>
+            <input type="number" id="qs-auto-min-reactions" min="0" max="200" step="1">
+          </div>
+          <div class="li-quick-field">
+            <label title="Minimum comments for auto-flagging a post for drafting.">Min Comments</label>
+            <input type="number" id="qs-auto-min-comments" min="0" max="200" step="1">
+          </div>
+          <div class="li-quick-field">
+            <label title="Run LinkedIn content-search discovery in each auto cycle.">Discovery Mode</label>
+            <select id="qs-discovery-enabled">
+              <option value="false">Off</option>
+              <option value="true">On</option>
+            </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Scroll depth per discovery query.">Discovery Scroll</label>
+            <input type="number" id="qs-discovery-scroll" min="1" max="24" step="1">
+          </div>
+          <div class="li-quick-field">
+            <label title="Max posts per discovery query.">Discovery Limit</label>
+            <input type="number" id="qs-discovery-limit" min="5" max="120" step="1">
+          </div>
+          <div class="li-quick-field span-all">
+            <label title="Comma-separated discovery searches used by auto-scrape (keywords/hashtags).">Discovery Queries</label>
+            <input type="text" id="qs-discovery-queries" placeholder="ai seo, #geo, semantic seo">
+          </div>
+        </div>
+      </div>
+
       <div class="li-quick-group group-posting">
         <div class="li-quick-group-title">Posting and Safety</div>
         <div class="li-quick-grid">
@@ -1230,7 +1290,7 @@
   </div>
 
   <div class="action-bar">
-    <button class="action-btn primary" onclick="sendToAgent('Browse my LinkedIn feed, classify posts, filter out irrelevant ones, and present the results')" title="Scrape and classify your feed">
+    <button class="action-btn primary" onclick="scrapeFeedNow()" title="Scrape and classify feed (and discovery queries if enabled)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16l-8-4-8 4V4z"/></svg>
       Scrape Feed
     </button>
@@ -1653,6 +1713,22 @@
       return k ? k.replace(/-/g, ' ') : '';
     }
 
+    function normalizeSourceTag(raw) {
+      const v = String(raw || '').trim();
+      if (!v) return 'feed:home';
+      return v.slice(0, 120);
+    }
+
+    function sourceTagBadge(raw) {
+      const source = normalizeSourceTag(raw);
+      if (source.startsWith('search:')) {
+        const q = source.slice('search:'.length).trim();
+        const label = q ? `Search: ${q}` : 'Search';
+        return `<span class="badge" style="background:rgba(251,146,60,0.14);color:#fdba74;border-color:rgba(251,146,60,0.34)" title="Discovered from LinkedIn search">${escapeHtml(truncate(label, 30))}</span>`;
+      }
+      return '<span class="badge" style="background:rgba(56,189,248,0.12);color:#7dd3fc;border-color:rgba(56,189,248,0.32)" title="Discovered from LinkedIn home feed">Home feed</span>';
+    }
+
     function getContentIntentKey(post) {
       const evidenceIntent = String(post?.evidence_post_intent || '').trim().toLowerCase();
       if (evidenceIntent === 'educational' || evidenceIntent === 'promotional' || evidenceIntent === 'mixed') {
@@ -1852,6 +1928,16 @@
           nightWindowStart,
           nightWindowEnd,
           nightWindowInterval,
+          feedScroll,
+          autoScrapeEnabled,
+          autoScrapeInterval,
+          autoScrapeScroll,
+          autoMinReactions,
+          autoMinComments,
+          discoveryEnabled,
+          discoveryQueries,
+          discoveryScroll,
+          discoveryLimit,
         ] = await Promise.all([
           window.pocketAgent.getSetting('linkedin.draftMode'),
           window.pocketAgent.getSetting('linkedin.draftTimeoutSec'),
@@ -1872,6 +1958,16 @@
           window.pocketAgent.getSetting('linkedin.nightWindowStart'),
           window.pocketAgent.getSetting('linkedin.nightWindowEnd'),
           window.pocketAgent.getSetting('linkedin.nightWindowIntervalMin'),
+          window.pocketAgent.getSetting('linkedin.feedScroll'),
+          window.pocketAgent.getSetting('linkedin.autoScrapeEnabled'),
+          window.pocketAgent.getSetting('linkedin.autoScrapeIntervalMin'),
+          window.pocketAgent.getSetting('linkedin.autoScrapeScroll'),
+          window.pocketAgent.getSetting('linkedin.autoScrapeMinReactions'),
+          window.pocketAgent.getSetting('linkedin.autoScrapeMinComments'),
+          window.pocketAgent.getSetting('linkedin.discoveryModeEnabled'),
+          window.pocketAgent.getSetting('linkedin.discoveryQueries'),
+          window.pocketAgent.getSetting('linkedin.discoveryScroll'),
+          window.pocketAgent.getSetting('linkedin.discoveryLimit'),
         ]);
 
         const normalizedMode = normalizeDraftMode(mode || 'balanced');
@@ -1895,6 +1991,16 @@
         setInputValue('qs-night-window-start', String(nightWindowStart || '22:00'));
         setInputValue('qs-night-window-end', String(nightWindowEnd || '06:00'));
         setInputValue('qs-night-window-interval', String(clampInt(nightWindowInterval || '120', 120, 1, 360)));
+        setInputValue('qs-feed-scroll', String(clampInt(feedScroll || '12', 12, 1, 24)));
+        setInputValue('qs-auto-scrape-enabled', autoScrapeEnabled === 'true' ? 'true' : 'false');
+        setInputValue('qs-auto-scrape-interval', String(clampInt(autoScrapeInterval || '60', 60, 30, 60)));
+        setInputValue('qs-auto-scrape-scroll', String(clampInt(autoScrapeScroll || '12', 12, 1, 24)));
+        setInputValue('qs-auto-min-reactions', String(clampInt(autoMinReactions || '5', 5, 0, 200)));
+        setInputValue('qs-auto-min-comments', String(clampInt(autoMinComments || '1', 1, 0, 200)));
+        setInputValue('qs-discovery-enabled', discoveryEnabled === 'true' ? 'true' : 'false');
+        setInputValue('qs-discovery-queries', String(discoveryQueries || ''));
+        setInputValue('qs-discovery-scroll', String(clampInt(discoveryScroll || '10', 10, 1, 24)));
+        setInputValue('qs-discovery-limit', String(clampInt(discoveryLimit || '35', 35, 5, 120)));
       } catch (err) {
         showToast(`Failed to load settings: ${shortError(err)}`, 'error');
       }
@@ -1922,6 +2028,22 @@
         const nightWindowStart = getInputValue('qs-night-window-start') || '22:00';
         const nightWindowEnd = getInputValue('qs-night-window-end') || '06:00';
         const nightWindowInterval = String(clampInt(getInputValue('qs-night-window-interval'), 120, 1, 360));
+        const feedScroll = String(clampInt(getInputValue('qs-feed-scroll'), 12, 1, 24));
+        const autoScrapeEnabled = getInputValue('qs-auto-scrape-enabled') === 'true' ? 'true' : 'false';
+        const autoScrapeIntervalRaw = clampInt(getInputValue('qs-auto-scrape-interval'), 60, 30, 60);
+        const autoScrapeInterval = String(autoScrapeIntervalRaw <= 45 ? 30 : 60);
+        const autoScrapeScroll = String(clampInt(getInputValue('qs-auto-scrape-scroll'), 12, 1, 24));
+        const autoMinReactions = String(clampInt(getInputValue('qs-auto-min-reactions'), 5, 0, 200));
+        const autoMinComments = String(clampInt(getInputValue('qs-auto-min-comments'), 1, 0, 200));
+        const discoveryEnabled = getInputValue('qs-discovery-enabled') === 'true' ? 'true' : 'false';
+        const discoveryQueries = getInputValue('qs-discovery-queries')
+          .split(',')
+          .map(v => v.trim())
+          .filter(Boolean)
+          .slice(0, 12)
+          .join(', ');
+        const discoveryScroll = String(clampInt(getInputValue('qs-discovery-scroll'), 10, 1, 24));
+        const discoveryLimit = String(clampInt(getInputValue('qs-discovery-limit'), 35, 5, 120));
 
         await Promise.all([
           window.pocketAgent.setSetting('linkedin.draftMode', mode),
@@ -1945,6 +2067,16 @@
           window.pocketAgent.setSetting('linkedin.nightWindowStart', nightWindowStart),
           window.pocketAgent.setSetting('linkedin.nightWindowEnd', nightWindowEnd),
           window.pocketAgent.setSetting('linkedin.nightWindowIntervalMin', nightWindowInterval),
+          window.pocketAgent.setSetting('linkedin.feedScroll', feedScroll),
+          window.pocketAgent.setSetting('linkedin.autoScrapeEnabled', autoScrapeEnabled),
+          window.pocketAgent.setSetting('linkedin.autoScrapeIntervalMin', autoScrapeInterval),
+          window.pocketAgent.setSetting('linkedin.autoScrapeScroll', autoScrapeScroll),
+          window.pocketAgent.setSetting('linkedin.autoScrapeMinReactions', autoMinReactions),
+          window.pocketAgent.setSetting('linkedin.autoScrapeMinComments', autoMinComments),
+          window.pocketAgent.setSetting('linkedin.discoveryModeEnabled', discoveryEnabled),
+          window.pocketAgent.setSetting('linkedin.discoveryQueries', discoveryQueries),
+          window.pocketAgent.setSetting('linkedin.discoveryScroll', discoveryScroll),
+          window.pocketAgent.setSetting('linkedin.discoveryLimit', discoveryLimit),
         ]);
 
         setInputValue('qs-draft-mode', mode);
@@ -1967,6 +2099,16 @@
         setInputValue('qs-night-window-start', nightWindowStart);
         setInputValue('qs-night-window-end', nightWindowEnd);
         setInputValue('qs-night-window-interval', nightWindowInterval);
+        setInputValue('qs-feed-scroll', feedScroll);
+        setInputValue('qs-auto-scrape-enabled', autoScrapeEnabled);
+        setInputValue('qs-auto-scrape-interval', autoScrapeInterval);
+        setInputValue('qs-auto-scrape-scroll', autoScrapeScroll);
+        setInputValue('qs-auto-min-reactions', autoMinReactions);
+        setInputValue('qs-auto-min-comments', autoMinComments);
+        setInputValue('qs-discovery-enabled', discoveryEnabled);
+        setInputValue('qs-discovery-queries', discoveryQueries);
+        setInputValue('qs-discovery-scroll', discoveryScroll);
+        setInputValue('qs-discovery-limit', discoveryLimit);
         setInputValue('draft-mode', mode);
 
         showToast('LinkedIn settings saved', 'success');
@@ -3024,6 +3166,7 @@
         : '<span class="badge" style="background:rgba(107,114,128,0.12);color:#9ca3af;border-color:rgba(107,114,128,0.25)" title="No type classification yet">Unclassified</span>';
       const intentKey = getContentIntentKey(p);
       const intentBadge = contentIntentBadge(intentKey);
+      const sourceBadge = sourceTagBadge(p.source_tag);
       const imageTag = imageCount > 0
         ? `<span class="badge" style="background:rgba(96,165,250,0.14);color:#93c5fd;border:1px solid rgba(96,165,250,0.32)" title="Post includes image/media">${imageCount === 1 ? 'Image' : `Images ${imageCount}`}</span>`
         : '';
@@ -3062,7 +3205,7 @@
           </td>
           <td class="col-stats">${p.reactions || 0}</td>
           <td class="col-stats">${p.comments || 0}</td>
-          <td class="col-type">${typeBadge} ${intentBadge} ${imageTag}</td>
+          <td class="col-type">${typeBadge} ${intentBadge} ${sourceBadge} ${imageTag}</td>
           <td class="col-status"><div class="status-badges">${statusBadges.join(' ')} ${engagementBadge}</div></td>
           <td class="col-scheduled">${scheduledCell}</td>
           <td class="col-actions">
@@ -3174,6 +3317,29 @@
       const count = document.getElementById('draft-count').value;
       const n = count === 'all' ? 'all relevant' : `the top ${count} most relevant`;
       sendToAgent(`Draft comments for ${n} LinkedIn posts from today. Use my configured voice and style. Create kanban tasks for each draft.`);
+    }
+
+    async function scrapeFeedNow() {
+      let prompt = 'Browse my LinkedIn feed, classify posts, filter out irrelevant ones, and present the results.';
+      try {
+        if (window.pocketAgent?.getSetting) {
+          const [discoveryEnabled, discoveryQueries] = await Promise.all([
+            window.pocketAgent.getSetting('linkedin.discoveryModeEnabled'),
+            window.pocketAgent.getSetting('linkedin.discoveryQueries'),
+          ]);
+          const queries = String(discoveryQueries || '')
+            .split(',')
+            .map(v => v.trim())
+            .filter(Boolean)
+            .slice(0, 12);
+          if (discoveryEnabled === 'true' && queries.length > 0) {
+            prompt += ` Also run discovery searches for: ${queries.join(', ')}. Merge and deduplicate results by post URL.`;
+          }
+        }
+      } catch {
+        // Keep base prompt when settings are unavailable.
+      }
+      sendToAgent(prompt);
     }
 
     function fullPipeline() {
