@@ -384,6 +384,13 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
         `SELECT id, author, text_preview, reactions, comments, post_type, scraped_date
          FROM linkedin_posts WHERE post_url = ?`
       );
+      const checkByActivity = db.prepare(
+        `SELECT post_url
+         FROM linkedin_posts
+         WHERE post_url LIKE ?
+         ORDER BY id DESC
+         LIMIT 1`
+      );
       const upsertQuickSummary = db.prepare(
         `INSERT INTO linkedin_post_content (post_id, post_url, full_text, summary_text, source, updated_at)
          VALUES (?, ?, '', ?, 'feed_quick_summary', datetime('now'))
@@ -423,8 +430,14 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       const summaryCandidates: SummaryCandidate[] = [];
       const tx = db.transaction(() => {
         for (const post of posts) {
-          const normalizedPostUrl = post.post_url ? normalizeLinkedInPostUrl(post.post_url) : '';
+          let normalizedPostUrl = post.post_url ? normalizeLinkedInPostUrl(post.post_url) : '';
           if (normalizedPostUrl) {
+            const activityId = extractActivityId(normalizedPostUrl);
+            if (activityId) {
+              const existingByActivity = checkByActivity.get(`%activity:${activityId}%`) as { post_url?: string } | undefined;
+              const canonicalExisting = normalizeLinkedInPostUrl(String(existingByActivity?.post_url || ''));
+              if (canonicalExisting) normalizedPostUrl = canonicalExisting;
+            }
             post.post_url = normalizedPostUrl;
             const existing = check.get(normalizedPostUrl) as ExistingLinkedInPostRow | undefined;
             const nextAuthor = post.author || 'Unknown';
@@ -763,6 +776,13 @@ async function handleCommentTool(input: unknown): Promise<string> {
         } else {
           scheduledAt = new Date(lastPostedMs + requiredDelayMs).toISOString().replace('T', ' ').slice(0, 19);
           db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(scheduledAt, post.id);
+          try {
+            const { rebalancePendingSchedules } = await import('./linkedin-autoposter');
+            const rebalance = rebalancePendingSchedules({ priorityPostId: post.id, preferredAt: scheduledAt });
+            if (rebalance.priorityScheduledAt) scheduledAt = rebalance.priorityScheduledAt;
+          } catch (rebalanceErr) {
+            console.warn('[LinkedIn] Rate-limit retry schedule rebalance failed:', rebalanceErr);
+          }
         }
       }
     }
@@ -1871,11 +1891,25 @@ async function handleScheduleApprovedLinkedInTool(input: unknown): Promise<strin
     });
     tx();
 
+    let rebalanceAdjusted = 0;
+    let rebalanceWarning: string | undefined;
+    try {
+      const { rebalancePendingSchedules } = await import('./linkedin-autoposter');
+      const rebalance = rebalancePendingSchedules();
+      rebalanceAdjusted = rebalance.adjusted;
+      if (rebalance.warning) rebalanceWarning = rebalance.warning;
+    } catch (rebalanceErr) {
+      console.warn('[LinkedIn] schedule_approved rebalance failed:', rebalanceErr);
+      rebalanceWarning = 'Scheduled, but could not rebalance pending posts.';
+    }
+
+    const getScheduledAt = db.prepare('SELECT scheduled_at FROM linkedin_posts WHERE id = ?');
     const scheduledItems = eligible.map((c, i) => ({
       id: c.id,
       author: c.author,
       priority: c.priority,
-      scheduled_at: new Date(baseMs + i * stepMs).toISOString().replace('T', ' ').slice(0, 19),
+      scheduled_at: ((getScheduledAt.get(c.id) as { scheduled_at?: string } | undefined)?.scheduled_at)
+        || new Date(baseMs + i * stepMs).toISOString().replace('T', ' ').slice(0, 19),
       post_url: c.post_url,
     }));
 
@@ -1890,6 +1924,8 @@ async function handleScheduleApprovedLinkedInTool(input: unknown): Promise<strin
       blocked_duplicates: blockedDuplicates,
       window_minutes: windowMinutes,
       start_in_minutes: startInMinutes,
+      rebalance_adjusted: rebalanceAdjusted,
+      warning: rebalanceWarning,
       items: scheduledItems,
       remaining_approved: Math.max(0, remaining - scheduledItems.length),
     });

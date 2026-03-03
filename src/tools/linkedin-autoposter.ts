@@ -203,6 +203,16 @@ function getDailyLimit(): number {
   return cachedDailyLimit;
 }
 
+function getScheduleDayCap(): number {
+  const hardCap = 50;
+  const explicit = parseInt(SettingsManager.get('linkedin.dailyLimit') || '', 10);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return Math.min(hardCap, Math.max(1, explicit));
+  }
+  const fallbackMax = Math.max(1, parseInt(SettingsManager.get('linkedin.dailyLimitMax') || '15', 10) || 15);
+  return Math.min(hardCap, fallbackMax);
+}
+
 function getCommentDelayMs(): number {
   const baseMin = parseFloat(SettingsManager.get('linkedin.commentDelay') || '3') || 3;
   const jitter = 1.0 + Math.random() * 0.4; // 1.0-1.4
@@ -225,6 +235,19 @@ function parseDbDateTime(value: string | null | undefined): number {
   const normalized = raw.includes('Z') ? raw : `${raw}Z`;
   const ts = Date.parse(normalized);
   return Number.isFinite(ts) ? ts : NaN;
+}
+
+function localDayKeyFromMs(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function nextLocalDayStartMs(ms: number): number {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 1, 0, 0).getTime();
 }
 
 function normalizeLinkedInPostUrl(raw: string): string {
@@ -513,6 +536,19 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
     const minSpacingMs = getBaseCommentDelayMs();
     const preferredMsRaw = parseDbDateTime(options.preferredAt);
     const preferredMs = Number.isFinite(preferredMsRaw) ? preferredMsRaw : NaN;
+    const dayCap = getScheduleDayCap();
+    const postedPerDayRows = db.prepare(
+      `SELECT date(created_at, 'localtime') AS day, COUNT(*) AS c
+       FROM linkedin_activity_log
+       WHERE action = 'posted'
+       GROUP BY day`
+    ).all() as Array<{ day: string; c: number }>;
+    const dayUsage = new Map<string, number>();
+    for (const row of postedPerDayRows) {
+      const key = String(row.day || '').trim();
+      if (!key) continue;
+      dayUsage.set(key, Math.max(0, Number(row.c || 0)));
+    }
 
     const updates: Array<{ id: number; at: string; changed: boolean }> = [];
     let cursorMs = nowFloorMs;
@@ -529,7 +565,7 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
 
       if (candidateMs < cursorMs) candidateMs = cursorMs;
 
-      let alignedMs = alignToPostingWindowMs(candidateMs, windows);
+      let alignedMs: number | null = alignToPostingWindowMs(candidateMs, windows);
       if (alignedMs === null) {
         warning = 'Could not find an allowed posting window for pending posts.';
         break;
@@ -544,6 +580,25 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
         alignedMs = alignedCursor;
       }
 
+      // Enforce per-day cap (posted + scheduled). Spill to next local day if needed.
+      let aligned: number | null = alignedMs;
+      let capacityShifted = 0;
+      while (aligned !== null) {
+        const key = localDayKeyFromMs(aligned);
+        const used = dayUsage.get(key) || 0;
+        if (used < dayCap) break;
+        capacityShifted += 1;
+        if (capacityShifted > 60) {
+          warning = `Could not find a day with available capacity under daily limit (${dayCap}).`;
+          aligned = null;
+          break;
+        }
+        const nextStart = nextLocalDayStartMs(aligned);
+        aligned = alignToPostingWindowMs(nextStart, windows);
+      }
+      if (aligned === null) break;
+      alignedMs = aligned;
+
       const nextCursor = alignToPostingWindowMs(alignedMs + minSpacingMs, windows);
       if (nextCursor === null) {
         warning = 'Could not compute safe spacing in posting windows.';
@@ -552,6 +607,8 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
 
       const changed = !hasCurrent || Math.abs(alignedMs - currentMsRaw) >= 30_000;
       updates.push({ id: row.id, at: toDbDateTime(alignedMs), changed });
+      const dayKey = localDayKeyFromMs(alignedMs);
+      dayUsage.set(dayKey, (dayUsage.get(dayKey) || 0) + 1);
       cursorMs = nextCursor;
     }
 
@@ -675,6 +732,14 @@ export async function checkAndPostNext(): Promise<void> {
           }
         });
         tx();
+        try {
+          const rebalance = rebalancePendingSchedules();
+          if (rebalance.warning) {
+            console.warn('[AutoPoster] Daily-limit rebalance warning:', rebalance.warning);
+          }
+        } catch (rebalanceErr) {
+          console.warn('[AutoPoster] Daily-limit rebalance failed:', rebalanceErr);
+        }
 
         const target = nightEnabled ? `tonight's night window (${nightStart})` : 'tomorrow 09:00';
         notifyTelegram(`LinkedIn: Daily limit reached (${todayCount}/${dailyLimit}). ${remaining.length} posts moved to ${target}.`).catch(() => {});
