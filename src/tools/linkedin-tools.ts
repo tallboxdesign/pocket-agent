@@ -220,6 +220,173 @@ function buildQuickOverviewSummary(raw: string): string {
   return second ? `${clampWords(first, 14)}\n${clampWords(second, 14)}`.trim() : clampWords(first, 14);
 }
 
+type DiscoveryQueryLeaderboardEntry = {
+  query: string;
+  normalized_query: string;
+  run_count: number;
+  success_count: number;
+  failure_count: number;
+  scraped_total: number;
+  new_total: number;
+  refreshed_total: number;
+  last_used_at: string;
+  last_success_at: string;
+  last_error: string;
+  last_source: string;
+  last_scroll: number;
+  last_limit: number;
+  score: number;
+};
+
+function normalizeDiscoveryQuery(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .slice(0, 120);
+}
+
+function computeDiscoveryScore(entry: DiscoveryQueryLeaderboardEntry): number {
+  const scraped = Math.max(1, Number(entry.scraped_total || 0));
+  const successRuns = Math.max(0, Number(entry.success_count || 0));
+  const failureRuns = Math.max(0, Number(entry.failure_count || 0));
+  const runs = Math.max(1, Number(entry.run_count || 0));
+  const hitRate = (Math.max(0, Number(entry.new_total || 0)) + (0.35 * Math.max(0, Number(entry.refreshed_total || 0)))) / scraped;
+  const reliability = successRuns / Math.max(1, successRuns + failureRuns);
+  const confidenceBoost = 1 + Math.log1p(runs);
+  const score = hitRate * reliability * confidenceBoost;
+  return Number(score.toFixed(6));
+}
+
+function loadDiscoveryQueryLeaderboard(): DiscoveryQueryLeaderboardEntry[] {
+  const raw = String(SettingsManager.get('linkedin.discoveryQueryLeaderboard') || '[]').trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        const query = String(item?.query || '').trim();
+        const normalized = normalizeDiscoveryQuery(String(item?.normalized_query || query));
+        if (!query || !normalized) return null;
+        const row: DiscoveryQueryLeaderboardEntry = {
+          query: query.slice(0, 120),
+          normalized_query: normalized,
+          run_count: Math.max(0, Number(item?.run_count || 0)),
+          success_count: Math.max(0, Number(item?.success_count || 0)),
+          failure_count: Math.max(0, Number(item?.failure_count || 0)),
+          scraped_total: Math.max(0, Number(item?.scraped_total || 0)),
+          new_total: Math.max(0, Number(item?.new_total || 0)),
+          refreshed_total: Math.max(0, Number(item?.refreshed_total || 0)),
+          last_used_at: String(item?.last_used_at || ''),
+          last_success_at: String(item?.last_success_at || ''),
+          last_error: String(item?.last_error || ''),
+          last_source: String(item?.last_source || ''),
+          last_scroll: Math.max(0, Number(item?.last_scroll || 0)),
+          last_limit: Math.max(0, Number(item?.last_limit || 0)),
+          score: Number(item?.score || 0),
+        };
+        row.score = computeDiscoveryScore(row);
+        return row;
+      })
+      .filter((item): item is DiscoveryQueryLeaderboardEntry => !!item)
+      .sort((a, b) => b.score - a.score || b.run_count - a.run_count)
+      .slice(0, 80);
+  } catch {
+    return [];
+  }
+}
+
+function saveDiscoveryQueryLeaderboard(rows: DiscoveryQueryLeaderboardEntry[]): void {
+  const compact = rows
+    .map((row) => ({
+      query: String(row.query || '').slice(0, 120),
+      normalized_query: normalizeDiscoveryQuery(row.normalized_query || row.query),
+      run_count: Math.max(0, Number(row.run_count || 0)),
+      success_count: Math.max(0, Number(row.success_count || 0)),
+      failure_count: Math.max(0, Number(row.failure_count || 0)),
+      scraped_total: Math.max(0, Number(row.scraped_total || 0)),
+      new_total: Math.max(0, Number(row.new_total || 0)),
+      refreshed_total: Math.max(0, Number(row.refreshed_total || 0)),
+      last_used_at: String(row.last_used_at || ''),
+      last_success_at: String(row.last_success_at || ''),
+      last_error: String(row.last_error || ''),
+      last_source: String(row.last_source || ''),
+      last_scroll: Math.max(0, Number(row.last_scroll || 0)),
+      last_limit: Math.max(0, Number(row.last_limit || 0)),
+      score: Number(computeDiscoveryScore(row).toFixed(6)),
+    }))
+    .filter((row) => row.query && row.normalized_query)
+    .sort((a, b) => b.score - a.score || b.run_count - a.run_count)
+    .slice(0, 80);
+  SettingsManager.set('linkedin.discoveryQueryLeaderboard', JSON.stringify(compact));
+}
+
+function recordDiscoveryQueryRun(input: {
+  query: string;
+  scraped: number;
+  newPosts: number;
+  refreshedPosts: number;
+  success: boolean;
+  source?: string;
+  scroll?: number;
+  limit?: number;
+  error?: string;
+}): void {
+  const normalized = normalizeDiscoveryQuery(input.query);
+  const query = String(input.query || '').trim().slice(0, 120);
+  if (!normalized || !query) return;
+
+  const rows = loadDiscoveryQueryLeaderboard();
+  const map = new Map<string, DiscoveryQueryLeaderboardEntry>();
+  for (const row of rows) {
+    if (!row.normalized_query) continue;
+    map.set(row.normalized_query, row);
+  }
+  const existing = map.get(normalized);
+  const now = new Date().toISOString();
+  const next: DiscoveryQueryLeaderboardEntry = existing || {
+    query,
+    normalized_query: normalized,
+    run_count: 0,
+    success_count: 0,
+    failure_count: 0,
+    scraped_total: 0,
+    new_total: 0,
+    refreshed_total: 0,
+    last_used_at: '',
+    last_success_at: '',
+    last_error: '',
+    last_source: '',
+    last_scroll: 0,
+    last_limit: 0,
+    score: 0,
+  };
+
+  next.query = query;
+  next.normalized_query = normalized;
+  next.run_count += 1;
+  if (input.success) {
+    next.success_count += 1;
+    next.scraped_total += Math.max(0, Math.floor(input.scraped || 0));
+    next.new_total += Math.max(0, Math.floor(input.newPosts || 0));
+    next.refreshed_total += Math.max(0, Math.floor(input.refreshedPosts || 0));
+    next.last_success_at = now;
+    next.last_error = '';
+  } else {
+    next.failure_count += 1;
+    next.last_error = String(input.error || '').slice(0, 240);
+  }
+  next.last_used_at = now;
+  next.last_source = String(input.source || '').slice(0, 60);
+  next.last_scroll = Math.max(0, Math.floor(input.scroll || 0));
+  next.last_limit = Math.max(0, Math.floor(input.limit || 0));
+  next.score = computeDiscoveryScore(next);
+
+  map.set(normalized, next);
+  saveDiscoveryQueryLeaderboard(Array.from(map.values()));
+}
+
 async function buildAiOverviewSummary(raw: string): Promise<string> {
   const fallback = buildQuickOverviewSummary(raw);
   const text = normalizeLinkedInText(raw);
@@ -294,6 +461,7 @@ Examples:
         min_engagement: { type: 'number', description: 'Minimum reactions+comments (default: 0)' },
         limit: { type: 'number', description: 'Max posts to return (default: 20)' },
         skip_ai_summary: { type: 'boolean', description: 'Skip AI summary promotion pass (useful for background scraping)' },
+        scrape_source: { type: 'string', description: 'Internal label for telemetry (manual, auto, profile name)' },
       },
       required: [],
     },
@@ -307,21 +475,25 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   const p = input as {
     scroll?: number; person?: string; keyword?: string;
     min_engagement?: number; limit?: number;
-    search_query?: string; skip_ai_summary?: boolean;
+    search_query?: string; skip_ai_summary?: boolean; scrape_source?: string;
   };
 
   const args: string[] = [];
   const defaultScroll = parseInt(SettingsManager.get('linkedin.feedScroll') || '12', 10);
   const defaultLimit = parseInt(SettingsManager.get('linkedin.feedLimit') || '20', 10);
-  args.push('--scroll', String(p.scroll || defaultScroll));
-  args.push('--limit', String(p.limit || defaultLimit));
+  const effectiveScroll = Math.max(1, Math.min(24, Number.isFinite(Number(p.scroll)) ? Number(p.scroll) : defaultScroll));
+  const effectiveLimit = Math.max(5, Math.min(120, Number.isFinite(Number(p.limit)) ? Number(p.limit) : defaultLimit));
+  const searchQuery = String(p.search_query || '').trim();
+  const scrapeSource = String(p.scrape_source || '').trim() || (searchQuery ? 'manual:discovery' : 'manual:feed');
+  args.push('--scroll', String(effectiveScroll));
+  args.push('--limit', String(effectiveLimit));
   if (p.min_engagement) args.push('--min-engagement', String(p.min_engagement));
 
   // Apply explicit filters or fall back to settings defaults
-  const keyword = (p.search_query && !p.keyword) ? '' : (p.keyword || SettingsManager.get('linkedin.feedKeywords'));
+  const keyword = (searchQuery && !p.keyword) ? '' : (p.keyword || SettingsManager.get('linkedin.feedKeywords'));
   if (p.person) args.push('--person', p.person);
   if (keyword) args.push('--keyword', keyword);
-  if (p.search_query) args.push('--search-query', p.search_query);
+  if (searchQuery) args.push('--search-query', searchQuery);
 
   // Always dump HTML for diagnostics when feed is empty
   const dumpPath = path.join(os.homedir(), '.pocket-agent', 'linkedin', 'data', 'debug_feed.html');
@@ -332,6 +504,18 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
     const posts = JSON.parse(stdout);
 
     if (posts.length === 0) {
+      if (searchQuery) {
+        recordDiscoveryQueryRun({
+          query: searchQuery,
+          scraped: 0,
+          newPosts: 0,
+          refreshedPosts: 0,
+          success: true,
+          source: scrapeSource,
+          scroll: effectiveScroll,
+          limit: effectiveLimit,
+        });
+      }
       // Check what page we actually loaded
       let hint = '';
       try {
@@ -541,6 +725,18 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       newPosts = posts.filter((p: { post_url?: string }) => p.post_url && !existingUrls.has(p.post_url));
       const refreshedCount = refreshedUrls.size;
       const refreshedPosts = posts.filter((p: { post_url?: string }) => p.post_url && refreshedPostsByUrl.has(p.post_url));
+      if (searchQuery) {
+        recordDiscoveryQueryRun({
+          query: searchQuery,
+          scraped: posts.length,
+          newPosts: newPosts.length,
+          refreshedPosts: refreshedCount,
+          success: true,
+          source: scrapeSource,
+          scroll: effectiveScroll,
+          limit: effectiveLimit,
+        });
+      }
       return JSON.stringify({
         success: true,
         count: newPosts.length,
@@ -550,6 +746,18 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
         updated_posts: refreshedPosts,
         all_posts: posts,
         posts: newPosts,
+      });
+    }
+    if (searchQuery) {
+      recordDiscoveryQueryRun({
+        query: searchQuery,
+        scraped: posts.length,
+        newPosts: newPosts.length,
+        refreshedPosts: 0,
+        success: true,
+        source: scrapeSource,
+        scroll: effectiveScroll,
+        limit: effectiveLimit,
       });
     }
     return JSON.stringify({
@@ -565,6 +773,19 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error('[LinkedIn] feed failed:', msg);
+    if (searchQuery) {
+      recordDiscoveryQueryRun({
+        query: searchQuery,
+        scraped: 0,
+        newPosts: 0,
+        refreshedPosts: 0,
+        success: false,
+        source: scrapeSource,
+        scroll: effectiveScroll,
+        limit: effectiveLimit,
+        error: msg,
+      });
+    }
     return JSON.stringify({ success: false, error: msg });
   }
 }
@@ -623,6 +844,7 @@ export async function runLinkedInAutoScrapeCycle(input: {
       scroll: input.scroll,
       limit: input.limit,
       skip_ai_summary: true,
+      scrape_source: 'auto:feed',
     }));
     if (!baseScrape?.success) {
       return {
@@ -645,6 +867,7 @@ export async function runLinkedInAutoScrapeCycle(input: {
           scroll: discoveryScroll,
           limit: discoveryLimit,
           skip_ai_summary: true,
+          scrape_source: 'auto:discovery',
         }));
         if (!discovered?.success) {
           warnings.push(`Discovery '${query}' failed: ${discovered?.error || 'unknown error'}`);

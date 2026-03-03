@@ -932,7 +932,7 @@
       color-scheme: dark;
     }
     #scrape-scroll-override {
-      width: 64px;
+      width: 78px;
       text-align: center;
       padding: 6px 8px;
       font-size: 12px;
@@ -1242,6 +1242,7 @@
           <div class="li-quick-field span-all">
             <label title="Comma-separated discovery searches used by auto-scrape (keywords/hashtags).">Discovery Queries</label>
             <input type="text" id="qs-discovery-queries" placeholder="ai seo, #geo, semantic seo">
+            <div class="li-quick-help" id="qs-discovery-top-hints">Top query hints will appear after a few discovery runs.</div>
           </div>
         </div>
       </div>
@@ -1339,7 +1340,7 @@
         <option value="hashtag-burst">Hashtag Burst</option>
       </select>
       <input id="scrape-query-override" placeholder="one-off queries/hashtags (optional)" title="Optional one-off discovery queries (comma-separated)">
-      <input id="scrape-scroll-override" type="number" min="1" max="24" step="1" placeholder="S" title="Optional one-off scroll override">
+      <input id="scrape-scroll-override" type="number" min="1" max="24" step="1" placeholder="Scroll" title="Optional one-off scroll override (depth)">
     </div>
     <div class="action-group">
       <button class="action-btn success" onclick="draftTopN()" title="Draft comments for top posts">
@@ -1969,6 +1970,44 @@
       }
     }
 
+    function renderDiscoveryTopHints(rawLeaderboard) {
+      const el = document.getElementById('qs-discovery-top-hints');
+      if (!el) return;
+      const raw = String(rawLeaderboard || '').trim();
+      if (!raw) {
+        el.textContent = 'Top query hints will appear after a few discovery runs.';
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          el.textContent = 'Top query hints will appear after a few discovery runs.';
+          return;
+        }
+        const top = parsed
+          .map((row) => {
+            const query = String(row?.query || '').trim();
+            if (!query) return null;
+            const runs = Math.max(0, Number(row?.run_count || 0));
+            const scraped = Math.max(0, Number(row?.scraped_total || 0));
+            const fresh = Math.max(0, Number(row?.new_total || 0));
+            const refreshed = Math.max(0, Number(row?.refreshed_total || 0));
+            const ratio = scraped > 0 ? Math.round(((fresh + (0.35 * refreshed)) / scraped) * 100) : 0;
+            return { query, runs, ratio };
+          })
+          .filter((row) => !!row)
+          .sort((a, b) => (b.ratio - a.ratio) || (b.runs - a.runs))
+          .slice(0, 5);
+        if (top.length === 0) {
+          el.textContent = 'Top query hints will appear after a few discovery runs.';
+          return;
+        }
+        el.textContent = `Top discovery queries: ${top.map((row) => `${row.query} (${row.ratio}% hit, ${row.runs} run${row.runs === 1 ? '' : 's'})`).join(' | ')}`;
+      } catch {
+        el.textContent = 'Top query hints unavailable (leaderboard parse error).';
+      }
+    }
+
     function toggleQuickSettings(force) {
       if (!quickSettingsEl) return;
       const shouldShow = typeof force === 'boolean' ? force : !quickSettingsEl.classList.contains('visible');
@@ -2009,6 +2048,7 @@
           discoveryQueries,
           discoveryScroll,
           discoveryLimit,
+          discoveryLeaderboard,
         ] = await Promise.all([
           window.pocketAgent.getSetting('linkedin.draftMode'),
           window.pocketAgent.getSetting('linkedin.draftTimeoutSec'),
@@ -2039,6 +2079,7 @@
           window.pocketAgent.getSetting('linkedin.discoveryQueries'),
           window.pocketAgent.getSetting('linkedin.discoveryScroll'),
           window.pocketAgent.getSetting('linkedin.discoveryLimit'),
+          window.pocketAgent.getSetting('linkedin.discoveryQueryLeaderboard'),
         ]);
 
         const normalizedMode = normalizeDraftMode(mode || 'balanced');
@@ -2072,6 +2113,7 @@
         setInputValue('qs-discovery-queries', String(discoveryQueries || ''));
         setInputValue('qs-discovery-scroll', String(clampInt(discoveryScroll || '10', 10, 1, 24)));
         setInputValue('qs-discovery-limit', String(clampInt(discoveryLimit || '35', 35, 5, 120)));
+        renderDiscoveryTopHints(discoveryLeaderboard);
       } catch (err) {
         showToast(`Failed to load settings: ${shortError(err)}`, 'error');
       }

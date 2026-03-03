@@ -815,6 +815,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     type: 'number',
   },
   {
+    key: 'linkedin.discoveryQueryLeaderboard',
+    defaultValue: '[]',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Discovery Query Leaderboard',
+    description: 'Auto-maintained query performance history (runs, new hit rate, refreshed hit rate)',
+    type: 'string',
+  },
+  {
     key: 'linkedin.commentDelay',
     defaultValue: '3',
     encrypted: false,
