@@ -908,6 +908,41 @@
       min-width: 210px;
       max-width: 320px;
     }
+    .action-group.scrape-group {
+      background: rgba(251, 146, 60, 0.08);
+      border-color: rgba(251, 146, 60, 0.28);
+    }
+    .action-group.scrape-group .action-btn:hover {
+      background: rgba(251, 146, 60, 0.18);
+    }
+    #scrape-profile {
+      min-width: 170px;
+      max-width: 210px;
+    }
+    #scrape-query-override {
+      width: 210px;
+      max-width: 260px;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      color-scheme: dark;
+    }
+    #scrape-scroll-override {
+      width: 64px;
+      text-align: center;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      color-scheme: dark;
+    }
 
     .action-bar .divider {
       width: 1px;
@@ -1290,10 +1325,22 @@
   </div>
 
   <div class="action-bar">
-    <button class="action-btn primary" onclick="scrapeFeedNow()" title="Scrape and classify feed (and discovery queries if enabled)">
+    <button class="action-btn primary" onclick="scrapeFeedNow()" title="Run the selected scrape profile">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16l-8-4-8 4V4z"/></svg>
       Scrape Feed
     </button>
+    <div class="action-group scrape-group">
+      <select id="scrape-profile" title="Per-click scrape strategy (does not change saved global settings)">
+        <option value="saved" selected>Saved Defaults</option>
+        <option value="quick-home">Quick Home</option>
+        <option value="deep-home">Deep Home</option>
+        <option value="discovery-only">Discovery Only</option>
+        <option value="hybrid-deep">Hybrid Deep</option>
+        <option value="hashtag-burst">Hashtag Burst</option>
+      </select>
+      <input id="scrape-query-override" placeholder="one-off queries/hashtags (optional)" title="Optional one-off discovery queries (comma-separated)">
+      <input id="scrape-scroll-override" type="number" min="1" max="24" step="1" placeholder="S" title="Optional one-off scroll override">
+    </div>
     <div class="action-group">
       <button class="action-btn success" onclick="draftTopN()" title="Draft comments for top posts">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -1468,12 +1515,36 @@
     const quickSettingsEl = document.getElementById('li-quick-settings');
     const quickSettingsBtn = document.getElementById('li-settings-btn');
     const previewModeSelect = document.getElementById('preview-mode');
+    const scrapeProfileSelect = document.getElementById('scrape-profile');
+    const scrapeQueryOverrideInput = document.getElementById('scrape-query-override');
+    const scrapeScrollOverrideInput = document.getElementById('scrape-scroll-override');
     let previewMode = 'summary';
     const storedPreviewMode = localStorage.getItem('linkedin-preview-mode');
     if (storedPreviewMode === 'snippet' || storedPreviewMode === 'summary' || storedPreviewMode === 'full') {
       previewMode = storedPreviewMode;
     }
     if (previewModeSelect) previewModeSelect.value = previewMode;
+    const storedScrapeProfile = localStorage.getItem('linkedin-scrape-profile');
+    if (scrapeProfileSelect && storedScrapeProfile) scrapeProfileSelect.value = storedScrapeProfile;
+    const storedScrapeQueries = localStorage.getItem('linkedin-scrape-query-override');
+    if (scrapeQueryOverrideInput && storedScrapeQueries) scrapeQueryOverrideInput.value = storedScrapeQueries;
+    const storedScrapeScroll = localStorage.getItem('linkedin-scrape-scroll-override');
+    if (scrapeScrollOverrideInput && storedScrapeScroll) scrapeScrollOverrideInput.value = storedScrapeScroll;
+    if (scrapeProfileSelect) {
+      scrapeProfileSelect.addEventListener('change', () => {
+        localStorage.setItem('linkedin-scrape-profile', String(scrapeProfileSelect.value || 'saved'));
+      });
+    }
+    if (scrapeQueryOverrideInput) {
+      scrapeQueryOverrideInput.addEventListener('input', () => {
+        localStorage.setItem('linkedin-scrape-query-override', String(scrapeQueryOverrideInput.value || ''));
+      });
+    }
+    if (scrapeScrollOverrideInput) {
+      scrapeScrollOverrideInput.addEventListener('input', () => {
+        localStorage.setItem('linkedin-scrape-scroll-override', String(scrapeScrollOverrideInput.value || ''));
+      });
+    }
     const today = new Date();
     datePicker.value = today.toISOString().split('T')[0];
     datePicker.addEventListener('change', () => {
@@ -3323,18 +3394,102 @@
       let prompt = 'Browse my LinkedIn feed, classify posts, filter out irrelevant ones, and present the results.';
       try {
         if (window.pocketAgent?.getSetting) {
-          const [discoveryEnabled, discoveryQueries] = await Promise.all([
+          const [
+            discoveryEnabled,
+            discoveryQueries,
+            feedScrollRaw,
+            feedLimitRaw,
+            discoveryScrollRaw,
+            discoveryLimitRaw,
+          ] = await Promise.all([
             window.pocketAgent.getSetting('linkedin.discoveryModeEnabled'),
             window.pocketAgent.getSetting('linkedin.discoveryQueries'),
+            window.pocketAgent.getSetting('linkedin.feedScroll'),
+            window.pocketAgent.getSetting('linkedin.feedLimit'),
+            window.pocketAgent.getSetting('linkedin.discoveryScroll'),
+            window.pocketAgent.getSetting('linkedin.discoveryLimit'),
           ]);
-          const queries = String(discoveryQueries || '')
+          const profile = String((scrapeProfileSelect && scrapeProfileSelect.value) || 'saved');
+          const oneOffQueries = String((scrapeQueryOverrideInput && scrapeQueryOverrideInput.value) || '')
             .split(',')
             .map(v => v.trim())
             .filter(Boolean)
             .slice(0, 12);
-          if (discoveryEnabled === 'true' && queries.length > 0) {
-            prompt += ` Also run discovery searches for: ${queries.join(', ')}. Merge and deduplicate results by post URL.`;
+          const savedQueries = String(discoveryQueries || '')
+            .split(',')
+            .map(v => v.trim())
+            .filter(Boolean)
+            .slice(0, 12);
+          const savedFeedScroll = clampInt(feedScrollRaw || '12', 12, 1, 24);
+          const savedFeedLimit = clampInt(feedLimitRaw || '20', 20, 5, 120);
+          const savedDiscoveryScroll = clampInt(discoveryScrollRaw || '10', 10, 1, 24);
+          const savedDiscoveryLimit = clampInt(discoveryLimitRaw || '35', 35, 5, 120);
+          const oneOffScroll = clampInt(
+            (scrapeScrollOverrideInput && scrapeScrollOverrideInput.value) || '',
+            NaN,
+            1,
+            24,
+          );
+
+          const queries = oneOffQueries.length > 0 ? oneOffQueries : savedQueries;
+          let runHome = true;
+          let runDiscovery = false;
+          let homeScroll = Number.isFinite(oneOffScroll) ? oneOffScroll : savedFeedScroll;
+          let discoveryScroll = Number.isFinite(oneOffScroll) ? oneOffScroll : savedDiscoveryScroll;
+          let feedLimit = savedFeedLimit;
+          let discLimit = savedDiscoveryLimit;
+          let profileLabel = 'Saved Defaults';
+
+          if (profile === 'quick-home') {
+            profileLabel = 'Quick Home';
+            runDiscovery = false;
+            homeScroll = Number.isFinite(oneOffScroll) ? oneOffScroll : 3;
+          } else if (profile === 'deep-home') {
+            profileLabel = 'Deep Home';
+            runDiscovery = false;
+            homeScroll = Number.isFinite(oneOffScroll) ? oneOffScroll : Math.max(savedFeedScroll, 12);
+            feedLimit = Math.max(feedLimit, 40);
+          } else if (profile === 'discovery-only') {
+            profileLabel = 'Discovery Only';
+            runHome = false;
+            runDiscovery = true;
+          } else if (profile === 'hybrid-deep') {
+            profileLabel = 'Hybrid Deep';
+            runDiscovery = true;
+            homeScroll = Number.isFinite(oneOffScroll) ? oneOffScroll : Math.max(savedFeedScroll, 12);
+            discoveryScroll = Number.isFinite(oneOffScroll) ? oneOffScroll : Math.max(savedDiscoveryScroll, 10);
+            feedLimit = Math.max(feedLimit, 40);
+            discLimit = Math.max(discLimit, 40);
+          } else if (profile === 'hashtag-burst') {
+            profileLabel = 'Hashtag Burst';
+            runHome = false;
+            runDiscovery = true;
+            discoveryScroll = Number.isFinite(oneOffScroll) ? oneOffScroll : Math.max(savedDiscoveryScroll, 12);
+            discLimit = Math.max(discLimit, 45);
+          } else {
+            runDiscovery = discoveryEnabled === 'true';
           }
+
+          if (runDiscovery && queries.length === 0) {
+            showToast('No discovery queries set. Add one-off queries or save Discovery Queries first.', 'error');
+            return;
+          }
+
+          const hashtagHint = profile === 'hashtag-burst'
+            ? 'Prefer hashtag-led query variants first.'
+            : '';
+          prompt = [
+            `Run LinkedIn scrape profile "${profileLabel}" now.`,
+            runHome ? `Use linkedin_feed on home feed with scroll=${homeScroll}, limit=${feedLimit}.` : 'Skip home feed scrape for this run.',
+            runDiscovery
+              ? `Also run linkedin_feed(search_query=...) for each query: ${queries.join(', ')} with scroll=${discoveryScroll}, limit=${discLimit}.`
+              : 'Skip discovery search scrape for this run.',
+            'Merge, normalize, and deduplicate strictly by canonical post_url.',
+            'Update existing rows instead of creating duplicates.',
+            'Classify results and return a concise report: new rows, refreshed rows, home-feed count, discovery count.',
+            'Do not draft or post anything in this step.',
+            hashtagHint,
+          ].filter(Boolean).join(' ');
         }
       } catch {
         // Keep base prompt when settings are unavailable.
