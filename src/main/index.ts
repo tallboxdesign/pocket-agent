@@ -1561,6 +1561,78 @@ function normalizeLinkedInText(raw: string): string {
     .trim();
 }
 
+function normalizeLinkedInPostUrl(raw: string): string {
+  const input = String(raw || '').trim();
+  if (!input) return '';
+  const activityMatch = input.match(/urn:li:activity:\d+/i);
+  if (activityMatch) {
+    return `https://www.linkedin.com/feed/update/${activityMatch[0].toLowerCase()}/`;
+  }
+  try {
+    const u = new URL(input);
+    u.hash = '';
+    u.search = '';
+    u.hostname = 'www.linkedin.com';
+    let pathname = u.pathname || '/';
+    if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);
+    u.pathname = `${pathname}/`;
+    return u.toString();
+  } catch {
+    return input;
+  }
+}
+
+function extractLinkedInActivityId(url: string): string | null {
+  const m = String(url || '').match(/activity:(\d+)/i);
+  return m ? m[1] : null;
+}
+
+function hasPostedLinkedInUrl(db: any, rawUrl: string): { matched: boolean; matchedUrl?: string; createdAt?: string } {
+  const normalizedUrl = normalizeLinkedInPostUrl(rawUrl);
+  if (!normalizedUrl) return { matched: false };
+  const activityId = extractLinkedInActivityId(normalizedUrl);
+  const row = activityId
+    ? db.prepare(
+      `SELECT post_url, created_at
+       FROM linkedin_activity_log
+       WHERE action = 'posted'
+         AND (post_url = ? OR post_url LIKE ?)
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(normalizedUrl, `%activity:${activityId}%`) as { post_url?: string; created_at?: string } | undefined
+    : db.prepare(
+      `SELECT post_url, created_at
+       FROM linkedin_activity_log
+       WHERE action = 'posted' AND post_url = ?
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(normalizedUrl) as { post_url?: string; created_at?: string } | undefined;
+  if (!row?.post_url) return { matched: false };
+  return { matched: true, matchedUrl: row.post_url, createdAt: row.created_at };
+}
+
+function reconcileLinkedInPostedState(db: any): number {
+  const rows = db.prepare(
+    `SELECT id, post_url
+     FROM linkedin_posts
+     WHERE commented = 0`
+  ).all() as Array<{ id: number; post_url: string }>;
+  if (!rows.length) return 0;
+  const markPosted = db.prepare(
+    `UPDATE linkedin_posts
+     SET commented = 1, approved = 0, scheduled_at = NULL
+     WHERE id = ?`
+  );
+  let fixed = 0;
+  for (const row of rows) {
+    if (hasPostedLinkedInUrl(db, row.post_url).matched) {
+      markPosted.run(row.id);
+      fixed += 1;
+    }
+  }
+  return fixed;
+}
+
 function buildTwoSentenceSummary(raw: string): string {
   const text = normalizeLinkedInText(raw);
   if (!text) return '';
@@ -1923,8 +1995,16 @@ function setupIPC(): void {
         if (fs.existsSync(p)) { dbPath = p; break; }
       }
       if (!dbPath) return [];
-      const db = new Database(dbPath, { readonly: true });
+      const db = new Database(dbPath);
       db.pragma('journal_mode = WAL');
+      try {
+        const reconciled = reconcileLinkedInPostedState(db);
+        if (reconciled > 0) {
+          console.log(`[LinkedIn] Reconciled ${reconciled} post(s) to published state from activity log`);
+        }
+      } catch (reconcileErr) {
+        console.warn('[LinkedIn] Reconcile posted state failed:', reconcileErr);
+      }
       const hasEvidenceTable = !!db.prepare(
         `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'linkedin_draft_evidence' LIMIT 1`
       ).get();
@@ -2424,6 +2504,16 @@ function setupIPC(): void {
       db.pragma('journal_mode = WAL');
       const row = db.prepare('SELECT post_url, comment_draft, kanban_task_id FROM linkedin_posts WHERE id = ?').get(postId) as { post_url: string; comment_draft: string | null; kanban_task_id?: number } | undefined;
       if (!row || !row.comment_draft) { db.close(); return { success: false, error: 'No draft to approve' }; }
+      const alreadyPosted = hasPostedLinkedInUrl(db, row.post_url);
+      if (alreadyPosted.matched) {
+        db.prepare('UPDATE linkedin_posts SET commented = 1, approved = 0, scheduled_at = NULL WHERE id = ?').run(postId);
+        db.close();
+        return {
+          success: false,
+          duplicate_post_url: true,
+          error: `Duplicate blocked: this URL already has a posted comment (${alreadyPosted.createdAt || 'previously'}).`,
+        };
+      }
       // Mark as approved in DB (not yet commented - that happens when actually posted)
       db.prepare('UPDATE linkedin_posts SET approved = 1 WHERE id = ?').run(postId);
       db.close();
@@ -2558,6 +2648,16 @@ function setupIPC(): void {
       const post = db.prepare('SELECT post_url, comment_draft FROM linkedin_posts WHERE id = ?').get(postId) as { post_url: string; comment_draft: string | null } | undefined;
       if (!post) { db.close(); return { success: false, error: 'Post not found' }; }
       if (!post.comment_draft) { db.close(); return { success: false, error: 'No draft to schedule' }; }
+      const alreadyPosted = hasPostedLinkedInUrl(db, post.post_url);
+      if (alreadyPosted.matched) {
+        db.prepare('UPDATE linkedin_posts SET commented = 1, approved = 0, scheduled_at = NULL WHERE id = ?').run(postId);
+        db.close();
+        return {
+          success: false,
+          duplicate_post_url: true,
+          error: `Duplicate blocked: this URL already has a posted comment (${alreadyPosted.createdAt || 'previously'}).`,
+        };
+      }
       db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(datetime, postId);
       // No cron job needed — the autoposter daemon picks up posts where scheduled_at <= now
       db.close();

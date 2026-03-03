@@ -19,6 +19,7 @@ let telegramBot: TelegramBot | null = null;
 let cachedDailyLimit: number | null = null;
 let cachedLimitDay: string | null = null;
 let autoPosterRunInFlight = false;
+let postedGuardEnsured = false;
 const ATTEMPT_GUARD_HOURS = 6;
 const LINKEDIN_CONTROL_SOURCE_KEY = 'linkedin.controlSource';
 const LINKEDIN_CONTROL_EXPIRES_AT_KEY = 'linkedin.controlExpiresAt';
@@ -67,10 +68,70 @@ function getDb(): Database.Database | null {
       const db = new Database(p);
       db.pragma('journal_mode = WAL');
       db.pragma('busy_timeout = 5000');
+      ensurePostedGuardIndexes(db);
       return db;
     }
   }
   return null;
+}
+
+function ensurePostedGuardIndexes(db: Database.Database): void {
+  if (postedGuardEnsured) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS linkedin_activity_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id INTEGER NOT NULL,
+      post_url TEXT NOT NULL,
+      action TEXT NOT NULL,
+      reason TEXT,
+      comment_text TEXT,
+      daily_limit INTEGER,
+      daily_count INTEGER,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_li_activity_action_post_url ON linkedin_activity_log(action, post_url)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_li_activity_post_id_action ON linkedin_activity_log(post_id, action)`);
+  try {
+    const duplicatePostedRows = (db.prepare(`
+      SELECT COUNT(*) as c
+      FROM linkedin_activity_log
+      WHERE action = 'posted'
+        AND id NOT IN (
+          SELECT MIN(id)
+          FROM linkedin_activity_log
+          WHERE action = 'posted'
+          GROUP BY post_url
+        )
+    `).get() as { c: number } | undefined)?.c || 0;
+    if (duplicatePostedRows > 0) {
+      db.prepare(`
+        UPDATE linkedin_activity_log
+        SET action = 'posted_duplicate_legacy',
+            reason = CASE
+              WHEN reason IS NULL OR trim(reason) = ''
+              THEN 'legacy duplicate converted during migration'
+              ELSE reason || '; legacy duplicate converted during migration'
+            END
+        WHERE action = 'posted'
+          AND id NOT IN (
+            SELECT MIN(id)
+            FROM linkedin_activity_log
+            WHERE action = 'posted'
+            GROUP BY post_url
+          )
+      `).run();
+      console.log(`[AutoPoster] Converted ${duplicatePostedRows} legacy duplicate posted row(s)`);
+    }
+  } catch (err) {
+    console.warn('[AutoPoster] Could not normalize legacy posted duplicates:', err);
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_li_posted_once_per_url
+    ON linkedin_activity_log(post_url)
+    WHERE action = 'posted'
+  `);
+  postedGuardEnsured = true;
 }
 
 function today(): string {
@@ -231,6 +292,31 @@ function hasPostedSameCommentOnUrl(db: Database.Database, postUrl: string, comme
     }
   }
   return false;
+}
+
+function hasAnyPostedOnUrl(
+  db: Database.Database,
+  postUrl: string,
+): { matched: boolean; createdAt?: string; postUrl?: string } {
+  const activityId = extractActivityId(postUrl);
+  const row = activityId
+    ? db.prepare(
+      `SELECT post_url, created_at
+       FROM linkedin_activity_log
+       WHERE action = 'posted'
+         AND (post_url = ? OR post_url LIKE ?)
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(postUrl, `%activity:${activityId}%`) as { post_url?: string; created_at?: string } | undefined
+    : db.prepare(
+      `SELECT post_url, created_at
+       FROM linkedin_activity_log
+       WHERE action = 'posted' AND post_url = ?
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(postUrl) as { post_url?: string; created_at?: string } | undefined;
+  if (!row?.post_url) return { matched: false };
+  return { matched: true, createdAt: row.created_at, postUrl: row.post_url };
 }
 
 function hasRecentAttemptGuard(db: Database.Database, postUrl: string): boolean {
@@ -632,6 +718,18 @@ export async function checkAndPostNext(): Promise<void> {
       const postUrl = normalizeLinkedInPostUrl(post.post_url);
       if (!postUrl) continue;
 
+      // Hard duplicate guard: never comment twice on the same URL.
+      const alreadyPosted = hasAnyPostedOnUrl(db, postUrl);
+      if (alreadyPosted.matched) {
+        db.prepare('UPDATE linkedin_posts SET commented = 1, approved = 0, scheduled_at = NULL WHERE id = ?').run(post.id);
+        db.prepare(
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+           VALUES (?, ?, 'skipped', 'duplicate_url_already_posted', ?, ?)`
+        ).run(post.id, postUrl, dailyLimit, todayCount);
+        await notifyTelegram(`LinkedIn: Duplicate blocked on ${post.author}'s post (URL already commented at ${alreadyPosted.createdAt || 'earlier'}).`);
+        continue;
+      }
+
       // Legacy safety guard: old retry-storm history means uncertain outcome.
       // Do not auto-post this URL again without manual verification.
       const retryHistoryCount = getRetryScheduledCount(db, postUrl);
@@ -698,6 +796,17 @@ export async function checkAndPostNext(): Promise<void> {
         continue;
       }
 
+      // Re-check after claim to avoid race windows.
+      const alreadyPostedAfterClaim = hasAnyPostedOnUrl(db, postUrl);
+      if (alreadyPostedAfterClaim.matched) {
+        db.prepare('UPDATE linkedin_posts SET commented = 1, approved = 0, scheduled_at = NULL WHERE id = ?').run(post.id);
+        db.prepare(
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+           VALUES (?, ?, 'skipped', 'duplicate_url_post_claim', ?, ?)`
+        ).run(post.id, postUrl, dailyLimit, todayCount);
+        continue;
+      }
+
       // Post the comment — single attempt, no blind retry (prevents double-posting)
       let posted = false;
       let failureReason = '';
@@ -727,7 +836,7 @@ export async function checkAndPostNext(): Promise<void> {
         db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
 
         db.prepare(
-          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text, daily_limit, daily_count)
+          `INSERT OR IGNORE INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text, daily_limit, daily_count)
            VALUES (?, ?, 'posted', ?, ?, ?, ?)`
         ).run(post.id, postUrl, `window:${window.name}`, post.comment_draft, dailyLimit, todayCount + 1);
 

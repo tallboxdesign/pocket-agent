@@ -80,6 +80,66 @@ function ensureReadableCommentLayout(draft: string): string {
 // ============================================================================
 
 let _db: Database.Database | null = null;
+let _postedGuardEnsured = false;
+
+function ensurePostedGuardIndexes(db: Database.Database): void {
+  if (_postedGuardEnsured) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS linkedin_activity_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id INTEGER NOT NULL,
+      post_url TEXT NOT NULL,
+      action TEXT NOT NULL,
+      reason TEXT,
+      comment_text TEXT,
+      daily_limit INTEGER,
+      daily_count INTEGER,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_li_activity_action_post_url ON linkedin_activity_log(action, post_url)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_li_activity_post_id_action ON linkedin_activity_log(post_id, action)`);
+  try {
+    const duplicatePostedRows = (db.prepare(`
+      SELECT COUNT(*) as c
+      FROM linkedin_activity_log
+      WHERE action = 'posted'
+        AND id NOT IN (
+          SELECT MIN(id)
+          FROM linkedin_activity_log
+          WHERE action = 'posted'
+          GROUP BY post_url
+        )
+    `).get() as { c: number } | undefined)?.c || 0;
+    if (duplicatePostedRows > 0) {
+      db.prepare(`
+        UPDATE linkedin_activity_log
+        SET action = 'posted_duplicate_legacy',
+            reason = CASE
+              WHEN reason IS NULL OR trim(reason) = ''
+              THEN 'legacy duplicate converted during migration'
+              ELSE reason || '; legacy duplicate converted during migration'
+            END
+        WHERE action = 'posted'
+          AND id NOT IN (
+            SELECT MIN(id)
+            FROM linkedin_activity_log
+            WHERE action = 'posted'
+            GROUP BY post_url
+          )
+      `).run();
+      console.log(`[LinkedIn] Converted ${duplicatePostedRows} legacy duplicate posted row(s)`);
+    }
+  } catch (err) {
+    console.warn('[LinkedIn] Could not normalize legacy posted duplicates:', err);
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_li_posted_once_per_url
+    ON linkedin_activity_log(post_url)
+    WHERE action = 'posted'
+  `);
+  _postedGuardEnsured = true;
+}
 
 function getDb(): Database.Database | null {
   if (_db) return _db;
@@ -93,6 +153,7 @@ function getDb(): Database.Database | null {
     if (fs.existsSync(p)) {
       _db = new Database(p);
       _db.pragma('journal_mode = WAL');
+      ensurePostedGuardIndexes(_db);
       return _db;
     }
   }
@@ -604,6 +665,32 @@ function hasPostedSameCommentOnUrl(
   return { matched: false };
 }
 
+function hasAnyPostedOnUrl(
+  db: Database.Database,
+  normalizedUrl: string,
+): { matched: boolean; postUrl?: string; createdAt?: string } {
+  const activityId = extractActivityId(normalizedUrl);
+  const row = activityId
+    ? db.prepare(
+      `SELECT post_url, created_at
+       FROM linkedin_activity_log
+       WHERE action = 'posted'
+         AND (post_url = ? OR post_url LIKE ?)
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(normalizedUrl, `%activity:${activityId}%`) as { post_url?: string; created_at?: string } | undefined
+    : db.prepare(
+      `SELECT post_url, created_at
+       FROM linkedin_activity_log
+       WHERE action = 'posted'
+         AND post_url = ?
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(normalizedUrl) as { post_url?: string; created_at?: string } | undefined;
+  if (!row?.post_url) return { matched: false };
+  return { matched: true, postUrl: row.post_url, createdAt: row.created_at };
+}
+
 function normalizeLinkedInPostUrl(raw: string): string {
   const input = String(raw || '').trim();
   if (!input) return '';
@@ -670,8 +757,13 @@ async function handleCommentTool(input: unknown): Promise<string> {
           `SELECT id, approved, commented FROM linkedin_posts WHERE post_url = ? ORDER BY id DESC LIMIT 1`
         ).get(normalizedUrl) as { id: number; approved: number; commented: number } | undefined;
       if (post && post.approved === 1 && post.commented === 0) {
-        scheduledAt = new Date(lastPostedMs + requiredDelayMs).toISOString().replace('T', ' ').slice(0, 19);
-        db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(scheduledAt, post.id);
+        const alreadyPosted = hasAnyPostedOnUrl(db, normalizedUrl);
+        if (alreadyPosted.matched) {
+          db.prepare('UPDATE linkedin_posts SET commented = 1, approved = 0, scheduled_at = NULL WHERE id = ?').run(post.id);
+        } else {
+          scheduledAt = new Date(lastPostedMs + requiredDelayMs).toISOString().replace('T', ' ').slice(0, 19);
+          db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(scheduledAt, post.id);
+        }
       }
     }
 
@@ -688,6 +780,38 @@ async function handleCommentTool(input: unknown): Promise<string> {
   try {
     // Duplicate guard (URL + same comment text): block repost and ask for follow-up narrative.
     if (db) {
+      const alreadyPosted = hasAnyPostedOnUrl(db, normalizedUrl);
+      if (alreadyPosted.matched) {
+        const existing = activityId
+          ? db.prepare(
+            `SELECT id
+             FROM linkedin_posts
+             WHERE post_url = ? OR post_url LIKE ?
+             ORDER BY id DESC LIMIT 1`
+          ).get(normalizedUrl, `%activity:${activityId}%`) as { id: number } | undefined
+          : db.prepare(
+            `SELECT id
+             FROM linkedin_posts
+             WHERE post_url = ?
+             ORDER BY id DESC LIMIT 1`
+          ).get(normalizedUrl) as { id: number } | undefined;
+        if (existing?.id) {
+          db.prepare(
+            `UPDATE linkedin_posts
+             SET commented = 1, approved = 0, scheduled_at = NULL
+             WHERE id = ?`
+          ).run(existing.id);
+        }
+        return JSON.stringify({
+          success: false,
+          duplicate_post_url: true,
+          needs_follow_up: true,
+          error: 'This URL already has a posted comment. Duplicate posting is blocked. Draft a follow-up narrative instead.',
+          post_url: alreadyPosted.postUrl || normalizedUrl,
+          first_posted_at: alreadyPosted.createdAt || null,
+        });
+      }
+
       const sameComment = hasPostedSameCommentOnUrl(db, normalizedUrl, p.comment);
       if (sameComment.matched) {
         return JSON.stringify({
@@ -797,7 +921,7 @@ async function handleCommentTool(input: unknown): Promise<string> {
       if (post) {
         db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
         db.prepare(
-          `INSERT INTO linkedin_activity_log (post_id, post_url, action, comment_text)
+          `INSERT OR IGNORE INTO linkedin_activity_log (post_id, post_url, action, comment_text)
            VALUES (?, ?, 'posted', ?)`
         ).run(post.id, normalizedUrl, p.comment);
 
@@ -1709,20 +1833,45 @@ async function handleScheduleApprovedLinkedInTool(input: unknown): Promise<strin
       });
     }
 
+    const markPosted = db.prepare(
+      `UPDATE linkedin_posts
+       SET commented = 1, approved = 0, scheduled_at = NULL
+       WHERE id = ?`
+    );
+    const eligible: Array<{ id: number; author: string; post_url: string; priority: string }> = [];
+    let blockedDuplicates = 0;
+    for (const c of candidates) {
+      const normalized = normalizeLinkedInPostUrl(c.post_url);
+      if (normalized && hasAnyPostedOnUrl(db, normalized).matched) {
+        markPosted.run(c.id);
+        blockedDuplicates += 1;
+        continue;
+      }
+      eligible.push(c);
+    }
+    if (eligible.length === 0) {
+      return JSON.stringify({
+        success: false,
+        scheduled: 0,
+        blocked_duplicates: blockedDuplicates,
+        error: 'No approved drafts available to schedule (duplicate URL guard blocked all candidates).',
+      });
+    }
+
     const baseMs = Date.now() + startInMinutes * 60 * 1000;
     const windowMs = windowMinutes * 60 * 1000;
-    const stepMs = candidates.length <= 1 ? 0 : Math.max(60 * 1000, Math.floor(windowMs / (candidates.length - 1)));
+    const stepMs = eligible.length <= 1 ? 0 : Math.max(60 * 1000, Math.floor(windowMs / (eligible.length - 1)));
 
     const setSchedule = db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?');
     const tx = db.transaction(() => {
-      for (let i = 0; i < candidates.length; i++) {
+      for (let i = 0; i < eligible.length; i++) {
         const runAt = new Date(baseMs + i * stepMs).toISOString().replace('T', ' ').slice(0, 19);
-        setSchedule.run(runAt, candidates[i].id);
+        setSchedule.run(runAt, eligible[i].id);
       }
     });
     tx();
 
-    const scheduledItems = candidates.map((c, i) => ({
+    const scheduledItems = eligible.map((c, i) => ({
       id: c.id,
       author: c.author,
       priority: c.priority,
@@ -1738,6 +1887,7 @@ async function handleScheduleApprovedLinkedInTool(input: unknown): Promise<strin
       success: true,
       scheduled: scheduledItems.length,
       requested: count,
+      blocked_duplicates: blockedDuplicates,
       window_minutes: windowMinutes,
       start_in_minutes: startInMinutes,
       items: scheduledItems,
