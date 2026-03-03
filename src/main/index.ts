@@ -14,7 +14,7 @@ import { loadInstructions, saveInstructions, getInstructionsPath, DEFAULT_INSTRU
 import { DEFAULT_COMMANDS } from '../config/commands';
 import { loadWorkflowCommands } from '../config/commands-loader';
 import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
-import { setLinkedInTelegramBot, notifyTelegram, rescheduleStalePosts, rebalancePendingSchedules } from '../tools/linkedin-autoposter';
+import { setLinkedInTelegramBot, notifyTelegram, rescheduleStalePosts, rebalancePendingSchedules, markLinkedInControlSource } from '../tools/linkedin-autoposter';
 import { linkedinExec } from '../tools/linkedin-wrapper';
 import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
 import { getBrowserManager } from '../browser';
@@ -1588,6 +1588,113 @@ function buildTwoSentenceSummary(raw: string): string {
   return words.slice(0, 32).join(' ') + (words.length > 32 ? '...' : '');
 }
 
+const CACHE_WARN_THRESHOLD_BYTES = 1024 * 1024 * 1024; // 1 GB
+
+type CacheStats = {
+  userDataPath: string;
+  safeCacheBytes: number;
+  appDataBytes: number;
+  appBundleBytes: number;
+  dbBytes: number;
+  dbWalBytes: number;
+  thresholdBytes: number;
+  overThreshold: boolean;
+};
+
+function getDirectorySizeBytes(targetDir: string): number {
+  let total = 0;
+  try {
+    if (!targetDir || !fs.existsSync(targetDir)) return 0;
+    const stack: string[] = [targetDir];
+    while (stack.length > 0) {
+      const dir = stack.pop();
+      if (!dir) continue;
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        try {
+          if (entry.isDirectory()) stack.push(fullPath);
+          else if (entry.isFile() || entry.isSymbolicLink()) total += fs.lstatSync(fullPath).size;
+        } catch {
+          // Ignore inaccessible files.
+        }
+      }
+    }
+  } catch {
+    return total;
+  }
+  return total;
+}
+
+function getAppBundlePath(): string {
+  if (IS_MACOS) {
+    const candidate = path.resolve(process.execPath, '../../..');
+    if (candidate.endsWith('.app') && fs.existsSync(candidate)) return candidate;
+  }
+  return path.dirname(process.execPath);
+}
+
+function getSafeCacheDirs(userDataPath: string): string[] {
+  const dirs = [
+    path.join(userDataPath, 'Cache'),
+    path.join(userDataPath, 'Code Cache'),
+    path.join(userDataPath, 'GPUCache'),
+    path.join(userDataPath, 'DawnGraphiteCache'),
+    path.join(userDataPath, 'DawnWebGPUCache'),
+    path.join(userDataPath, 'blob_storage'),
+    path.join(userDataPath, 'shared_proto_db'),
+    path.join(userDataPath, 'Service Worker', 'CacheStorage'),
+  ];
+  if (IS_MACOS) dirs.push(path.join(HOME_DIR, 'Library/Caches/pocket-agent'));
+  else if (IS_WINDOWS) dirs.push(path.join(HOME_DIR, 'AppData/Local/pocket-agent/Cache'));
+  else dirs.push(path.join(HOME_DIR, '.cache/pocket-agent'));
+  return Array.from(new Set(dirs));
+}
+
+function collectCacheStats(): CacheStats {
+  const userDataPath = app.getPath('userData');
+  const safeCacheBytes = getSafeCacheDirs(userDataPath).reduce((sum, dir) => sum + getDirectorySizeBytes(dir), 0);
+  const appDataBytes = getDirectorySizeBytes(userDataPath);
+  const appBundleBytes = getDirectorySizeBytes(getAppBundlePath());
+  const dbPath = path.join(userDataPath, 'pocket-agent.db');
+  const walPath = `${dbPath}-wal`;
+  const dbBytes = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0;
+  const dbWalBytes = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+  return {
+    userDataPath,
+    safeCacheBytes,
+    appDataBytes,
+    appBundleBytes,
+    dbBytes,
+    dbWalBytes,
+    thresholdBytes: CACHE_WARN_THRESHOLD_BYTES,
+    overThreshold: safeCacheBytes >= CACHE_WARN_THRESHOLD_BYTES,
+  };
+}
+
+function clearDirectoryContents(targetDir: string): void {
+  if (!targetDir || !fs.existsSync(targetDir)) return;
+  let entries: string[] = [];
+  try {
+    entries = fs.readdirSync(targetDir);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const entryPath = path.join(targetDir, entry);
+    try {
+      fs.rmSync(entryPath, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup failures.
+    }
+  }
+}
+
 // ============ IPC Handlers ============
 
 function setupIPC(): void {
@@ -1625,14 +1732,17 @@ function setupIPC(): void {
       const result = await AgentManager.processMessage(message, 'desktop', sessionId || 'default');
       updateTrayMenu();
 
-      // Sync to Telegram (Desktop -> Telegram) - only to the linked chat for this session
-      const linkedChatId = memory?.getChatForSession(effectiveSessionId);
-      console.log('[Main] Checking telegram sync - bot exists:', !!telegramBot, 'session:', effectiveSessionId, 'linked chat:', linkedChatId);
-      if (telegramBot && linkedChatId) {
-        console.log('[Main] Syncing desktop message to Telegram chat:', linkedChatId);
-        telegramBot.syncToChat(message, result.response, linkedChatId, result.media).catch((err) => {
-          console.error('[Main] Failed to sync desktop message to Telegram:', err);
-        });
+      // Optional sync Desktop -> Telegram (disabled by default to avoid duplicate/noisy updates)
+      const desktopToTelegramSync = SettingsManager.get('telegram.syncDesktopToTelegram') === 'true';
+      if (desktopToTelegramSync) {
+        const linkedChatId = memory?.getChatForSession(effectiveSessionId);
+        console.log('[Main] Checking telegram sync - bot exists:', !!telegramBot, 'session:', effectiveSessionId, 'linked chat:', linkedChatId);
+        if (telegramBot && linkedChatId) {
+          console.log('[Main] Syncing desktop message to Telegram chat:', linkedChatId);
+          telegramBot.syncToChat(message, result.response, linkedChatId, result.media).catch((err) => {
+            console.error('[Main] Failed to sync desktop message to Telegram:', err);
+          });
+        }
       }
 
       return {
@@ -2095,7 +2205,33 @@ function setupIPC(): void {
       if (!fullText) {
         fullText = normalizeLinkedInText(post.text_preview || '');
       }
-      const summary = buildTwoSentenceSummary(fullText);
+      let summary = buildTwoSentenceSummary(fullText);
+      try {
+        const { glmFlash, isGlmConfigured } = await import('../tools/glm-client');
+        if (isGlmConfigured()) {
+          const aiSummaryRes = await glmFlash({
+            maxTokens: 120,
+            temperature: 0.2,
+            disableThinking: true,
+            messages: [
+              {
+                role: 'system',
+                content: 'Summarize LinkedIn post text into exactly 1-2 short sentences. Keep the main claim and practical meaning. No hashtags, no emojis, no fluff.',
+              },
+              {
+                role: 'user',
+                content: fullText.slice(0, 2400),
+              },
+            ],
+          });
+          if (aiSummaryRes.success && aiSummaryRes.content) {
+            const aiSummary = normalizeLinkedInText(String(aiSummaryRes.content || ''));
+            if (aiSummary) summary = buildTwoSentenceSummary(aiSummary);
+          }
+        }
+      } catch (summaryErr) {
+        console.warn('[LinkedIn] AI summary fallback to heuristic:', summaryErr);
+      }
 
       db = new Database(dbPath);
       db.pragma('journal_mode = WAL');
@@ -2133,6 +2269,7 @@ function setupIPC(): void {
 
   ipcMain.handle('linkedin:rejectDraft', async (_, postId: number) => {
     try {
+      markLinkedInControlSource('desktop');
       const Database = (await import('better-sqlite3')).default;
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const possiblePaths = [
@@ -2167,6 +2304,7 @@ function setupIPC(): void {
 
   ipcMain.handle('linkedin:updateDraft', async (_, postId: number, newText: string) => {
     try {
+      markLinkedInControlSource('desktop');
       const Database = (await import('better-sqlite3')).default;
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const possiblePaths = [
@@ -2206,6 +2344,7 @@ function setupIPC(): void {
 
   ipcMain.handle('linkedin:rewriteDraft', async (_, postId: number, currentText: string, instructions: string) => {
     try {
+      markLinkedInControlSource('desktop');
       const normalizedPostId = Number(postId);
       const normalizedInstructions = String(instructions || '').trim();
       const providedText = String(currentText || '').trim();
@@ -2262,6 +2401,7 @@ function setupIPC(): void {
 
   ipcMain.handle('linkedin:approveDraft', async (_, postId: number) => {
     try {
+      markLinkedInControlSource('desktop');
       const Database = (await import('better-sqlite3')).default;
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const possiblePaths = [
@@ -2298,6 +2438,7 @@ function setupIPC(): void {
 
   ipcMain.handle('linkedin:hidePost', async (_, postId: number) => {
     try {
+      markLinkedInControlSource('desktop');
       const Database = (await import('better-sqlite3')).default;
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const possiblePaths = [
@@ -2323,6 +2464,7 @@ function setupIPC(): void {
 
   ipcMain.handle('linkedin:snoozePost', async (_, postId: number, days: number) => {
     try {
+      markLinkedInControlSource('desktop');
       const Database = (await import('better-sqlite3')).default;
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const possiblePaths = [
@@ -2364,6 +2506,7 @@ function setupIPC(): void {
 
   ipcMain.handle('linkedin:setPriority', async (_, postId: number, priority: string) => {
     try {
+      markLinkedInControlSource('desktop');
       const validPriorities = ['low', 'normal', 'high', 'urgent'];
       if (!validPriorities.includes(priority)) return { success: false, error: 'Invalid priority' };
       const Database = (await import('better-sqlite3')).default;
@@ -2391,6 +2534,7 @@ function setupIPC(): void {
 
   ipcMain.handle('linkedin:schedulePost', async (_, postId: number, datetime: string) => {
     try {
+      markLinkedInControlSource('desktop');
       const Database = (await import('better-sqlite3')).default;
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const possiblePaths = [
@@ -2442,6 +2586,7 @@ function setupIPC(): void {
     };
 
     try {
+      markLinkedInControlSource('desktop');
       const cleanIds = Array.isArray(postIds)
         ? postIds.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0)
         : [];
@@ -2464,6 +2609,7 @@ function setupIPC(): void {
         const result = await draftBatch(cleanIds, batchSize || 2);
         const drafted = result.results.length;
         const errors = result.errors;
+        const queued = drafted === 0 && errors.length === 0 ? cleanIds.length : 0;
 
         if (drafted === 0 && errors.length > 0) {
           return {
@@ -2474,7 +2620,7 @@ function setupIPC(): void {
           };
         }
 
-        return { success: true, drafted, errors };
+        return { success: true, drafted, queued, errors };
       } finally {
         draftEvents.removeListener('drafted', progressHandler);
         draftEvents.removeListener('error', progressHandler);
@@ -2499,6 +2645,7 @@ function setupIPC(): void {
 
   ipcMain.handle('linkedin:cancelDraftJob', async () => {
     try {
+      markLinkedInControlSource('desktop');
       const { cancelDraftJob } = await import('../tools/linkedin-drafter');
       cancelDraftJob();
       return { success: true };
@@ -2714,6 +2861,42 @@ function setupIPC(): void {
   // App info
   ipcMain.handle('app:getVersion', () => {
     return app.getVersion();
+  });
+
+  ipcMain.handle('app:getCacheStats', async () => {
+    try {
+      return { success: true, ...collectCacheStats() };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('app:clearSafeCache', async () => {
+    try {
+      const before = collectCacheStats();
+      const userDataPath = app.getPath('userData');
+      const safeDirs = getSafeCacheDirs(userDataPath);
+      for (const dir of safeDirs) clearDirectoryContents(dir);
+
+      const sessions = new Set(
+        BrowserWindow.getAllWindows()
+          .map(win => win.webContents?.session)
+          .filter(Boolean)
+      );
+      for (const ses of sessions) {
+        try {
+          await ses.clearCache();
+        } catch {
+          // best effort
+        }
+      }
+
+      const after = collectCacheStats();
+      const clearedBytes = Math.max(0, before.safeCacheBytes - after.safeCacheBytes);
+      return { success: true, before, after, clearedBytes };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   // Settings
@@ -3651,6 +3834,7 @@ Respond with ONLY valid JSON, no markdown, no explanation:
         scheduler.setTelegramBot(telegramBot);
       }
       setResearchTelegramBot(telegramBot);
+      setLinkedInTelegramBot(telegramBot);
       console.log('[Main] Telegram restarted via IPC');
       return { success: true };
     } catch (error) {
@@ -4503,6 +4687,7 @@ async function initializeAgent(): Promise<void> {
           scheduler.setTelegramBot(telegramBot);
         }
         setResearchTelegramBot(telegramBot);
+        setLinkedInTelegramBot(telegramBot);
 
         // Initialize WAQ for reliable Telegram delivery
         // Access bot via bracket notation — class methods not on prototype at runtime (Electron/ES2022 issue)
@@ -4532,6 +4717,7 @@ async function stopAgent(): Promise<void> {
   if (telegramBot) {
     await telegramBot.stop();
     telegramBot = null;
+    setLinkedInTelegramBot(null);
   }
   if (scheduler) {
     scheduler.stopAll();

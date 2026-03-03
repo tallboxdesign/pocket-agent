@@ -159,6 +159,36 @@ function buildQuickOverviewSummary(raw: string): string {
   return second ? `${clampWords(first, 14)}\n${clampWords(second, 14)}`.trim() : clampWords(first, 14);
 }
 
+async function buildAiOverviewSummary(raw: string): Promise<string> {
+  const fallback = buildQuickOverviewSummary(raw);
+  const text = normalizeLinkedInText(raw);
+  if (!text) return fallback;
+  if (!isGlmConfigured()) return fallback;
+
+  try {
+    const result = await glmFlash({
+      maxTokens: 120,
+      temperature: 0.2,
+      disableThinking: true,
+      messages: [
+        {
+          role: 'system',
+          content: 'Summarize LinkedIn post text into exactly 1-2 short sentences. Keep the core claim and practical meaning. No hashtags, no emojis, no fluff, no quotes.',
+        },
+        {
+          role: 'user',
+          content: text.slice(0, 2400),
+        },
+      ],
+    });
+    if (!result.success || !result.content) return fallback;
+    const normalized = normalizeLinkedInText(result.content);
+    return buildQuickOverviewSummary(normalized || fallback);
+  } catch {
+    return fallback;
+  }
+}
+
 function checkEnabled(): string | null {
   if (!SettingsManager.getBoolean('linkedin.enabled')) {
     // Auto-enable if auth profile exists (settings may have been reset)
@@ -328,6 +358,8 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       const existingUrls = new Set<string>();
       const refreshedUrls = new Set<string>();
       const refreshedPostsByUrl = new Map<string, unknown>();
+      type SummaryCandidate = { postId: number; postUrl: string; preview: string };
+      const summaryCandidates: SummaryCandidate[] = [];
       const tx = db.transaction(() => {
         for (const post of posts) {
           const normalizedPostUrl = post.post_url ? normalizeLinkedInPostUrl(post.post_url) : '';
@@ -372,12 +404,45 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
               const quickSummary = buildQuickOverviewSummary(nextPreview);
               if (quickSummary) {
                 upsertQuickSummary.run(persisted.id, normalizedPostUrl, quickSummary);
+                summaryCandidates.push({
+                  postId: persisted.id,
+                  postUrl: normalizedPostUrl,
+                  preview: nextPreview,
+                });
               }
             }
           }
         }
       });
       tx();
+      if (isGlmConfigured() && summaryCandidates.length > 0) {
+        const promoteAiSummary = db.prepare(
+          `UPDATE linkedin_post_content
+           SET summary_text = ?, source = 'feed_ai_summary', updated_at = datetime('now')
+           WHERE post_id = ?
+             AND (source IS NULL OR source != 'linkedin_read_post')`
+        );
+        const candidateByUrl = new Map<string, SummaryCandidate>();
+        for (const c of summaryCandidates) {
+          if (!candidateByUrl.has(c.postUrl)) candidateByUrl.set(c.postUrl, c);
+        }
+        const prioritized = Array.from(candidateByUrl.values())
+          .sort((a, b) => {
+            const pa = posts.find((p: { post_url?: string }) => p.post_url === a.postUrl) as { reactions?: number; comments?: number } | undefined;
+            const pb = posts.find((p: { post_url?: string }) => p.post_url === b.postUrl) as { reactions?: number; comments?: number } | undefined;
+            const ea = Number(pa?.reactions || 0) + Number(pa?.comments || 0);
+            const eb = Number(pb?.reactions || 0) + Number(pb?.comments || 0);
+            return eb - ea;
+          })
+          .slice(0, 12);
+
+        for (const candidate of prioritized) {
+          const aiSummary = await buildAiOverviewSummary(candidate.preview);
+          if (aiSummary) {
+            promoteAiSummary.run(aiSummary, candidate.postId);
+          }
+        }
+      }
       // Only return posts that were actually new
       newPosts = posts.filter((p: { post_url?: string }) => p.post_url && !existingUrls.has(p.post_url));
       const refreshedCount = refreshedUrls.size;
