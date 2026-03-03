@@ -1289,6 +1289,7 @@
   <div id="view-tabs" style="display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
     <button class="action-btn" id="tab-queue" onclick="setActivePanel('queue')" title="Drafting and approval queue" style="min-width:90px">Queue</button>
     <button class="action-btn" id="tab-drafted" onclick="setActivePanel('drafted')" title="Drafted but not yet approved" style="min-width:90px">Drafted</button>
+    <button class="action-btn" id="tab-scheduled" onclick="setActivePanel('scheduled')" title="Approved and scheduled to post" style="min-width:98px">Scheduled</button>
     <button class="action-btn" id="tab-attention" onclick="setActivePanel('attention')" title="Approved but unscheduled, or failed publish attempts" style="min-width:150px">Needs Attention</button>
     <button class="action-btn" id="tab-failed" onclick="setActivePanel('failed')" title="Posts with recorded errors" style="min-width:80px">Failed</button>
     <button class="action-btn" id="tab-published" onclick="setActivePanel('published')" title="Already published comments" style="min-width:110px">Published</button>
@@ -1392,7 +1393,7 @@
     let activePanel = 'queue';
 
     function refreshPanelTabs() {
-      ['queue', 'drafted', 'attention', 'failed', 'published', 'all'].forEach(name => {
+      ['queue', 'drafted', 'scheduled', 'attention', 'failed', 'published', 'all'].forEach(name => {
         const btn = document.getElementById(`tab-${name}`);
         if (!btn) return;
         btn.classList.toggle('panel-tab-active', activePanel === name);
@@ -2373,13 +2374,15 @@
         const isPostingNow = !isPublished && lastAction === 'posting_attempt' && !p.scheduled_at;
         const hasPostingFail = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
         const hasFailed = !isPublished && (Number(p.failed_attempts || 0) > 0 && !p.scheduled_at || hasPostingFail);
-        const isDraftedPanel = !isPublished && !!p.comment_draft && !p.approved && !approvedIds.has(p.id);
-        const isQueuePanel = !isPublished && !hasFailed && !isDraftedPanel;
+        const isScheduledPanel = !isPublished && !!((p.approved || approvedIds.has(p.id)) && p.scheduled_at);
+        const isDraftedPanel = !isPublished && !!p.comment_draft && !isScheduledPanel;
+        const isQueuePanel = !isPublished && !hasFailed && !isScheduledPanel && !p.comment_draft;
         const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
         const needsAttention = (!!(p.approved && !isPublished && (!p.scheduled_at || hasFailed)) && !isPostingNow) || recheckCandidate;
 
         if (activePanel === 'queue' && !isQueuePanel) return false;
         if (activePanel === 'drafted' && !isDraftedPanel) return false;
+        if (activePanel === 'scheduled' && !isScheduledPanel) return false;
         if (activePanel === 'published' && !isPublished) return false;
         if (activePanel === 'attention' && !needsAttention) return false;
         if (activePanel === 'failed' && !hasFailed) return false;
@@ -2420,7 +2423,8 @@
         // Keep only selections that still exist in the current table snapshot.
         const validIds = new Set(posts.map(p => Number(p.id)));
         selectedIds = new Set(Array.from(selectedIds).filter(id => validIds.has(id)));
-        const draftedCount = posts.filter(p => !isPublishedPost(p) && !!p.comment_draft && !p.approved).length;
+        const scheduledCount = posts.filter(p => !isPublishedPost(p) && !!(p.approved && p.scheduled_at)).length;
+        const draftedCount = posts.filter(p => !isPublishedPost(p) && !!p.comment_draft && !(p.approved && p.scheduled_at)).length;
         const publishedCount = posts.filter(p => isPublishedPost(p)).length;
         const failedCount = posts.filter(p => {
           if (isPublishedPost(p)) return false;
@@ -2432,8 +2436,8 @@
           if (isPublished) return false;
           const la = String(p.last_activity_action || '').toLowerCase();
           const hasFailed = (Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at;
-          const isDrafted = !!p.comment_draft && !p.approved;
-          return !hasFailed && !isDrafted;
+          const isScheduled = !!(p.approved && p.scheduled_at);
+          return !hasFailed && !isScheduled && !p.comment_draft;
         }).length;
         const attentionCount = posts.filter(p => {
           const isPublished = isPublishedPost(p);
@@ -2445,11 +2449,13 @@
         }).length;
         const tabQueue = document.getElementById('tab-queue');
         const tabDrafted = document.getElementById('tab-drafted');
+        const tabScheduled = document.getElementById('tab-scheduled');
         const tabAttention = document.getElementById('tab-attention');
         const tabFailed = document.getElementById('tab-failed');
         const tabPublished = document.getElementById('tab-published');
         if (tabQueue) tabQueue.textContent = `Queue (${queueCount})`;
         if (tabDrafted) tabDrafted.textContent = `Drafted (${draftedCount})`;
+        if (tabScheduled) tabScheduled.textContent = `Scheduled (${scheduledCount})`;
         if (tabAttention) tabAttention.textContent = `Needs Attention (${attentionCount})`;
         if (tabFailed) tabFailed.textContent = `Failed (${failedCount})`;
         if (tabPublished) tabPublished.textContent = `Published (${publishedCount})`;
