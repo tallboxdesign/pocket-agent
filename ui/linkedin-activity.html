@@ -224,6 +224,11 @@
     }
     .li-quick-field.span-2 { grid-column: span 2; }
     .li-quick-field.span-all { grid-column: 1 / -1; }
+    .li-quick-help {
+      font-size: 10px;
+      color: var(--text-muted);
+      line-height: 1.2;
+    }
     .li-quick-actions {
       display: flex;
       align-items: center;
@@ -353,7 +358,44 @@
     .col-priority { width: 70px; text-align: center; }
     .col-author { width: 130px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .col-preview { color: var(--text-secondary); line-height: 1.4; word-break: break-word; }
+    .col-type .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 118px;
+      line-height: 1.1;
+      vertical-align: middle;
+    }
     .post-preview-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .post-preview-overview {
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    .preview-label {
+      color: #cbd5e1;
+      font-weight: 700;
+      margin-right: 6px;
+    }
+    .post-preview-source {
+      margin-top: 6px;
+      color: #9fb2cf;
+      opacity: 0.9;
+      font-size: 12px;
+      border-left: 2px solid rgba(96, 165, 250, 0.35);
+      padding-left: 8px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .post-preview-draft {
+      color: #d5f4dd;
+      font-weight: 600;
+      margin-bottom: 6px;
       white-space: pre-wrap;
       word-break: break-word;
     }
@@ -453,6 +495,24 @@
       background: rgba(148, 163, 184, 0.16);
       color: #cbd5e1;
       border: 1px solid rgba(148, 163, 184, 0.32);
+    }
+
+    .badge-image-ok {
+      background: rgba(34, 197, 94, 0.15);
+      color: #86efac;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .badge-image-warn {
+      background: rgba(251, 146, 60, 0.16);
+      color: #fdba74;
+      border: 1px solid rgba(251, 146, 60, 0.3);
+    }
+
+    .badge-image-err {
+      background: rgba(239, 68, 68, 0.15);
+      color: #fda4af;
+      border: 1px solid rgba(239, 68, 68, 0.28);
     }
 
     .mini-spinner {
@@ -1096,12 +1156,9 @@
             <input type="number" id="qs-comment-delay" min="1" max="15" step="0.5" title="Randomized around this average">
           </div>
           <div class="li-quick-field">
-            <label title="Minimum daily auto-post count.">Daily Min</label>
-            <input type="number" id="qs-daily-min" min="1" max="50" step="1" title="Minimum posts per day">
-          </div>
-          <div class="li-quick-field">
-            <label title="Maximum daily auto-post count.">Daily Max</label>
-            <input type="number" id="qs-daily-max" min="1" max="50" step="1" title="Maximum posts per day">
+            <label title="Daily auto-post cap. 15/day is the safe recommendation. You can raise it up to 50/day.">Daily Limit</label>
+            <input type="number" id="qs-daily-limit" min="1" max="50" step="1" title="Safe recommendation: 15/day. Maximum: 50/day." oninput="updateQuickDailyLimitHint(this.value)">
+            <div class="li-quick-help" id="qs-daily-limit-hint">Safe limit: 15/day</div>
           </div>
           <div class="li-quick-field">
             <label title="Enable auto-posting of approved scheduled drafts.">Auto-Poster</label>
@@ -1386,11 +1443,16 @@
     const approvedIds = new Set();
     const rejectedIds = new Set();
     const fullPostLoadInFlight = new Set();
+    const autoFullPostNextRetryAt = new Map();
+    const expandedFullPostIds = new Set();
+    let cacheWarnedOver1Gb = false;
+    let nextCacheHealthCheckAt = 0;
 
     // Selection management
     let selectedIds = new Set();
     let refreshInterval = null;
     let activePanel = 'queue';
+    let editingDraftPostId = null;
 
     function refreshPanelTabs() {
       ['queue', 'drafted', 'scheduled', 'attention', 'failed', 'published', 'all'].forEach(name => {
@@ -1423,6 +1485,7 @@
     }
 
     startAutoRefresh();
+    void checkCacheHealth(false);
     window.addEventListener('beforeunload', () => stopAutoRefresh());
 
     function escapeHtml(text) {
@@ -1434,6 +1497,36 @@
     function truncate(text, max) {
       if (!text) return '';
       return text.length > max ? text.slice(0, max) + '...' : text;
+    }
+
+    function formatBytes(bytes) {
+      const n = Number(bytes || 0);
+      if (!Number.isFinite(n) || n <= 0) return '0 B';
+      if (n < 1024) return `${Math.round(n)} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+      return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+
+    async function checkCacheHealth(silent = true) {
+      if (!window.pocketAgent?.getCacheStats) return;
+      const now = Date.now();
+      if (silent && now < nextCacheHealthCheckAt) return;
+      nextCacheHealthCheckAt = now + (10 * 60 * 1000);
+      try {
+        const stats = await window.pocketAgent.getCacheStats();
+        if (!stats) return;
+        if (stats.overThreshold) {
+          if (!cacheWarnedOver1Gb) {
+            showToast(`Cache warning: ${formatBytes(stats.safeCacheBytes)} temporary cache (over 1 GB). Consider clearing safe cache in Settings > Debug.`, 'error');
+            cacheWarnedOver1Gb = true;
+          }
+        } else {
+          cacheWarnedOver1Gb = false;
+        }
+      } catch {
+        // Non-blocking health signal only.
+      }
     }
 
     function changePreviewMode() {
@@ -1451,6 +1544,23 @@
         .replace(/[ \t]+\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+    }
+
+    function isNearDuplicateText(a, b) {
+      const norm = (v) => String(v || '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const x = norm(a);
+      const y = norm(b);
+      if (!x || !y) return false;
+      if (x === y) return true;
+      if (x.length >= 28 && y.includes(x)) return true;
+      if (y.length >= 28 && x.includes(y)) return true;
+      const shorter = x.length <= y.length ? x : y;
+      const longer = x.length <= y.length ? y : x;
+      return shorter.length >= 36 && longer.startsWith(shorter.slice(0, Math.min(shorter.length, 120)));
     }
 
     function buildTwoSentenceSummary(raw) {
@@ -1493,7 +1603,9 @@
     }
 
     function getPostSummary(post) {
-      const dbSummary = normalizePreviewText(post.full_post_summary || post.evidence_post_summary || '');
+      // Summary mode should reflect the post itself (scrape/fetch content), not
+      // a generated evidence narrative from drafting metadata.
+      const dbSummary = normalizePreviewText(post.full_post_summary || '');
       if (dbSummary) return dbSummary;
       const base = normalizePreviewText(post.full_post_text || post.text_preview || '');
       return buildTwoSentenceSummary(base);
@@ -1693,6 +1805,20 @@
       if (el) el.value = value;
     }
 
+    function updateQuickDailyLimitHint(rawValue) {
+      const hint = document.getElementById('qs-daily-limit-hint');
+      if (!hint) return;
+      const parsed = parseInt(String(rawValue || '').trim(), 10);
+      const value = Number.isFinite(parsed) ? Math.max(1, Math.min(50, parsed)) : 15;
+      if (value <= 15) {
+        hint.textContent = 'Safe limit: 15/day';
+        hint.style.color = 'var(--success)';
+      } else {
+        hint.textContent = `High volume: ${value}/day (safe recommendation is 15/day)`;
+        hint.style.color = '#f59e0b';
+      }
+    }
+
     function toggleQuickSettings(force) {
       if (!quickSettingsEl) return;
       const shouldShow = typeof force === 'boolean' ? force : !quickSettingsEl.classList.contains('visible');
@@ -1713,8 +1839,7 @@
           fallbackModel2,
           fallbackModel3,
           commentDelay,
-          dailyMin,
-          dailyMax,
+          dailyLimit,
           autoPoster,
           dayWindowEnabled,
           dayWindowStart,
@@ -1734,8 +1859,7 @@
           window.pocketAgent.getSetting('linkedin.researchFallbackModel2'),
           window.pocketAgent.getSetting('linkedin.researchFallbackModel3'),
           window.pocketAgent.getSetting('linkedin.commentDelay'),
-          window.pocketAgent.getSetting('linkedin.dailyLimitMin'),
-          window.pocketAgent.getSetting('linkedin.dailyLimitMax'),
+          window.pocketAgent.getSetting('linkedin.dailyLimit'),
           window.pocketAgent.getSetting('linkedin.autoPosterEnabled'),
           window.pocketAgent.getSetting('linkedin.dayWindowEnabled'),
           window.pocketAgent.getSetting('linkedin.dayWindowStart'),
@@ -1757,8 +1881,8 @@
         setInputValue('qs-fallback-model-2', String(fallbackModel2 || 'gpt-4.1'));
         setInputValue('qs-fallback-model-3', String(fallbackModel3 || ''));
         setInputValue('qs-comment-delay', String(clampFloat(commentDelay || '3', 3, 1, 15)));
-        setInputValue('qs-daily-min', String(clampInt(dailyMin || '8', 8, 1, 50)));
-        setInputValue('qs-daily-max', String(clampInt(dailyMax || '18', 18, 1, 50)));
+        setInputValue('qs-daily-limit', String(clampInt(dailyLimit || '15', 15, 1, 50)));
+        updateQuickDailyLimitHint(dailyLimit || '15');
         setInputValue('qs-auto-poster', autoPoster === 'true' ? 'true' : 'false');
         setInputValue('qs-day-window-enabled', dayWindowEnabled === 'false' ? 'false' : 'true');
         setInputValue('qs-day-window-start', String(dayWindowStart || '09:00'));
@@ -1785,8 +1909,7 @@
         const fallbackModel2 = getInputValue('qs-fallback-model-2');
         const fallbackModel3 = getInputValue('qs-fallback-model-3');
         const commentDelay = String(clampFloat(getInputValue('qs-comment-delay'), 3, 1, 15));
-        const dailyMin = String(clampInt(getInputValue('qs-daily-min'), 8, 1, 50));
-        const dailyMax = String(clampInt(getInputValue('qs-daily-max'), 18, 1, 50));
+        const dailyLimit = String(clampInt(getInputValue('qs-daily-limit'), 15, 1, 50));
         const autoPoster = getInputValue('qs-auto-poster');
         const dayWindowEnabled = getInputValue('qs-day-window-enabled') === 'false' ? 'false' : 'true';
         const dayWindowStart = getInputValue('qs-day-window-start') || '09:00';
@@ -1807,8 +1930,9 @@
           window.pocketAgent.setSetting('linkedin.researchFallbackModel2', fallbackModel2),
           window.pocketAgent.setSetting('linkedin.researchFallbackModel3', fallbackModel3),
           window.pocketAgent.setSetting('linkedin.commentDelay', commentDelay),
-          window.pocketAgent.setSetting('linkedin.dailyLimitMin', dailyMin),
-          window.pocketAgent.setSetting('linkedin.dailyLimitMax', dailyMax),
+          window.pocketAgent.setSetting('linkedin.dailyLimit', dailyLimit),
+          window.pocketAgent.setSetting('linkedin.dailyLimitMin', dailyLimit),
+          window.pocketAgent.setSetting('linkedin.dailyLimitMax', dailyLimit),
           window.pocketAgent.setSetting('linkedin.autoPosterEnabled', autoPoster),
           window.pocketAgent.setSetting('linkedin.dayWindowEnabled', dayWindowEnabled),
           window.pocketAgent.setSetting('linkedin.dayWindowStart', dayWindowStart),
@@ -1829,8 +1953,8 @@
         setInputValue('qs-fallback-model-2', fallbackModel2);
         setInputValue('qs-fallback-model-3', fallbackModel3);
         setInputValue('qs-comment-delay', commentDelay);
-        setInputValue('qs-daily-min', dailyMin);
-        setInputValue('qs-daily-max', dailyMax);
+        setInputValue('qs-daily-limit', dailyLimit);
+        updateQuickDailyLimitHint(dailyLimit);
         setInputValue('qs-auto-poster', autoPoster);
         setInputValue('qs-day-window-enabled', dayWindowEnabled);
         setInputValue('qs-day-window-start', dayWindowStart);
@@ -1997,9 +2121,12 @@
 
       if (result.success) {
         const drafted = typeof result.drafted === 'number' ? result.drafted : 0;
+        const queued = typeof result.queued === 'number' ? result.queued : 0;
         const failed = Array.isArray(result.errors) ? result.errors.length : 0;
         await loadPosts();
-        if (failed > 0) {
+        if (queued > 0 && drafted === 0 && failed === 0) {
+          showToast(`Queued ${queued} post${queued === 1 ? '' : 's'} behind active draft job`, 'success');
+        } else if (failed > 0) {
           showToast(`${successLabel} (${mode}): ${drafted} drafted, ${failed} failed`, failed === drafted ? 'error' : 'success');
         } else {
           showToast(`${successLabel} (${mode}): ${drafted} comments`, 'success');
@@ -2384,12 +2511,15 @@
       return posts.filter(p => {
         const lastAction = String(p.last_activity_action || '').toLowerCase();
         const isPublished = isPublishedPost(p);
+        const hasDraft = !!String(p.comment_draft || '').trim();
+        const ds = String(p.draft_state || '');
         const isPostingNow = !isPublished && lastAction === 'posting_attempt' && !p.scheduled_at;
         const hasPostingFail = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
-        const hasFailed = !isPublished && (Number(p.failed_attempts || 0) > 0 && !p.scheduled_at || hasPostingFail);
+        const hasDraftFailure = ds.startsWith('failed_');
+        const hasFailed = !isPublished && !hasDraft && (hasDraftFailure || Number(p.failed_attempts || 0) > 0 || hasPostingFail) && !p.scheduled_at;
         const isScheduledPanel = !isPublished && !!((p.approved || approvedIds.has(p.id)) && p.scheduled_at);
-        const isDraftedPanel = !isPublished && !!p.comment_draft && !isScheduledPanel;
-        const isQueuePanel = !isPublished && !hasFailed && !isScheduledPanel && !p.comment_draft;
+        const isDraftedPanel = !isPublished && hasDraft && !isScheduledPanel;
+        const isQueuePanel = !isPublished && !hasFailed && !isScheduledPanel && !hasDraft;
         const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
         const needsAttention = (!!(p.approved && !isPublished && (!p.scheduled_at || hasFailed)) && !isPostingNow) || recheckCandidate;
 
@@ -2400,8 +2530,8 @@
         if (activePanel === 'attention' && !needsAttention) return false;
         if (activePanel === 'failed' && !hasFailed) return false;
 
-        if (status === 'undrafted' && (p.comment_draft || isPublished)) return false;
-        if (status === 'draft' && (!p.comment_draft || isPublished)) return false;
+        if (status === 'undrafted' && (hasDraft || isPublished)) return false;
+        if (status === 'draft' && (!hasDraft || isPublished)) return false;
         if (status === 'approved' && (!p.approved || isPublished)) return false;
         if (status === 'commented' && !isPublished) return false;
         if (status === 'failed' && !hasFailed) return false;
@@ -2414,7 +2544,17 @@
       });
     }
 
-    async function loadPosts() {
+    function isDraftEditActive() {
+      if (!editingDraftPostId) return false;
+      const editor = document.getElementById(`draft-edit-${editingDraftPostId}`);
+      if (editor) return true;
+      editingDraftPostId = null;
+      startAutoRefresh();
+      return false;
+    }
+
+    async function loadPosts(force = false) {
+      if (!force && isDraftEditActive()) return;
       try {
         // Load daily stats in parallel
         if (window.pocketAgent.getLinkedInDailyStats) {
@@ -2433,6 +2573,7 @@
         const snoozed = Array.isArray(result) ? [] : (result.snoozed || []);
         currentPosts = posts;
         currentSnoozed = snoozed;
+        void checkCacheHealth(true);
         // Keep only selections that still exist in the current table snapshot.
         const validIds = new Set(posts.map(p => Number(p.id)));
         selectedIds = new Set(Array.from(selectedIds).filter(id => validIds.has(id)));
@@ -2441,22 +2582,28 @@
         const publishedCount = posts.filter(p => isPublishedPost(p)).length;
         const failedCount = posts.filter(p => {
           if (isPublishedPost(p)) return false;
+          if (String(p.comment_draft || '').trim()) return false;
+          const ds = String(p.draft_state || '');
           const la = String(p.last_activity_action || '').toLowerCase();
-          return (Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at;
+          return (ds.startsWith('failed_') || Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at;
         }).length;
         const queueCount = posts.filter(p => {
           const isPublished = isPublishedPost(p);
           if (isPublished) return false;
+          if (String(p.comment_draft || '').trim()) return false;
+          const ds = String(p.draft_state || '');
           const la = String(p.last_activity_action || '').toLowerCase();
-          const hasFailed = (Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at;
+          const hasFailed = (ds.startsWith('failed_') || Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at;
           const isScheduled = !!(p.approved && p.scheduled_at);
           return !hasFailed && !isScheduled && !p.comment_draft;
         }).length;
         const attentionCount = posts.filter(p => {
           const isPublished = isPublishedPost(p);
+          const hasDraft = !!String(p.comment_draft || '').trim();
+          const ds = String(p.draft_state || '');
           const la = String(p.last_activity_action || '').toLowerCase();
           const isPostingNow = !isPublished && la === 'posting_attempt' && !p.scheduled_at;
-          const hf = ((Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at);
+          const hf = ((ds.startsWith('failed_') || Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at && !hasDraft);
           const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
           return (!!(p.approved && !isPublished && (!p.scheduled_at || hf)) && !isPostingNow) || recheckCandidate;
         }).length;
@@ -2596,6 +2743,27 @@
         content.innerHTML = html;
         // Re-sync selection bar and selected checkboxes after redraw.
         updateSelection();
+
+        // In full-post mode, automatically load missing full posts in background so
+        // users can read real content without per-row manual clicks.
+        if (previewMode === 'full') {
+          const nowMs = Date.now();
+          const autoIds = filtered
+            .filter(p => !getPostFullText(p))
+            .map(p => Number(p.id))
+            .filter(id => {
+              if (!Number.isFinite(id) || id <= 0) return false;
+              if (fullPostLoadInFlight.has(id)) return false;
+              const nextRetryAt = Number(autoFullPostNextRetryAt.get(id) || 0);
+              return !Number.isFinite(nextRetryAt) || nowMs >= nextRetryAt;
+            })
+            .slice(0, 2);
+          autoIds.forEach((id, idx) => {
+            // Retry in 60s if this silent attempt doesn't succeed.
+            autoFullPostNextRetryAt.set(id, Date.now() + 60000);
+            setTimeout(() => { void fetchFullPost(id, false, true); }, 120 * (idx + 1));
+          });
+        }
       } catch (error) {
         console.error('Error loading posts:', error);
         showToast('Could not load posts', 'error');
@@ -2645,6 +2813,7 @@
       };
 
       const ds = p.draft_state || '';
+      const hasDraft = !!String(p.comment_draft || '').trim();
       const isQueued = ds === 'queued' || locallyQueuedDraftPostIds.has(p.id);
       const isResearching = ds === 'researching';
       const isWriting = ds === 'writing';
@@ -2660,7 +2829,7 @@
       const isDelayed = !isPublished && lastAction === 'delayed' && !!p.scheduled_at;
       const isRecovered = !isPublished && lastAction === 'recovered';
       const hasPostingFailure = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
-      const hasFailed = isDraftFailed || hasPostingFailure;
+      const hasFailed = !hasDraft && (isDraftFailed || hasPostingFailure);
       const statusBadges = [];
       if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
       else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
@@ -2690,7 +2859,7 @@
       }
       if (!isPublished && !isScheduled && !isDueScheduled && (p.approved || approvedIds.has(p.id))) statusBadges.push(`<span class="badge badge-approved">Approved${tsSuffix}</span>`);
       else if (rejectedIds.has(p.id)) statusBadges.push(`<span class="badge badge-rejected">Rejected${tsSuffix}</span>`);
-      else if (p.comment_draft) statusBadges.push(`<span class="badge badge-draft">Draft${tsSuffix}</span>`);
+      else if (hasDraft) statusBadges.push(`<span class="badge badge-draft">Draft${tsSuffix}</span>`);
       if (!isPublished && p.approved && !p.scheduled_at && !isPostingNow) {
         statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)">Awaiting schedule</span>');
       }
@@ -2710,6 +2879,20 @@
                 ? 'Provider error'
                 : 'Failed';
         statusBadges.push(`<span class="badge badge-rejected" title="${failReason}">${failLabel}</span>`);
+      }
+
+      const imageCount = Math.max(0, Number(p.image_count || 0));
+      const imageStatus = String(p.image_analysis_status || '').trim().toLowerCase();
+      const imageNote = escapeHtml(String(p.image_analysis_note || '').slice(0, 220));
+      if (imageStatus === 'analyzed') {
+        const label = `Img analyzed${imageCount > 0 ? ` (${imageCount})` : ''}`;
+        statusBadges.push(`<span class="badge badge-image-ok" title="${imageNote || 'Images analyzed during draft/research'}">${label}</span>`);
+      } else if (imageStatus === 'pending' || (imageCount > 0 && (isQueued || isResearching || isWriting))) {
+        statusBadges.push('<span class="badge badge-image-warn" title="Image analysis queued for draft/research">Img pending</span>');
+      } else if (imageStatus === 'skipped_no_model') {
+        statusBadges.push(`<span class="badge badge-image-warn" title="${imageNote || 'Images found but no vision model configured'}">Img no model</span>`);
+      } else if (imageStatus === 'failed') {
+        statusBadges.push(`<span class="badge badge-image-err" title="${imageNote || 'Image analysis failed'}">Img failed</span>`);
       }
 
       // Engagement delta badge
@@ -2744,18 +2927,58 @@
       const scheduledCell = isScheduled
         ? `<span title="${escapeHtml(String(p.scheduled_at || ''))}" style="${isDueScheduled ? 'color:#fb923c;font-weight:700' : ''}">${escapeHtml(schTime || '-')}</span>`
         : '-';
-      const previewTextRaw = getDisplayPreviewText(p);
-      const previewText = previewMode === 'full'
-        ? previewTextRaw
-        : truncate(previewTextRaw, previewMode === 'summary' ? 170 : 120);
-      const previewHtml = escapeHtml(previewText || '').replace(/\n/g, '<br>');
       const hasFullPostText = getPostFullText(p).length > 0;
       const loadingFullPost = fullPostLoadInFlight.has(Number(p.id));
       const fetchedAt = p.full_post_updated_at ? formatShortDateTime(p.full_post_updated_at) : '';
-      const previewTools = previewMode === 'full'
+      const summaryText = getPostSummary(p);
+      const fullText = getPostFullText(p);
+      const draftText = normalizePreviewText(p.comment_draft || '');
+      const draftLead = truncate(draftText.replace(/\s+/g, ' ').trim(), 170);
+      const sourceText = fullText || summaryText;
+      const isQueueLikePanel = activePanel === 'queue' || activePanel === 'failed';
+      const fullPostExpanded = isQueueLikePanel && expandedFullPostIds.has(Number(p.id));
+      let previewMainHtml = '';
+      if (activePanel === 'drafted' && draftLead) {
+        previewMainHtml = `<div class="post-preview-draft"><span class="preview-label">Draft:</span>${escapeHtml(draftLead).replace(/\n/g, '<br>')}</div>`;
+        if (sourceText) {
+          previewMainHtml += `<div class="post-preview-source"><span class="preview-label">Post:</span>${escapeHtml(truncate(sourceText, 220)).replace(/\n/g, '<br>')}</div>`;
+        }
+      } else if (isQueueLikePanel) {
+        const feedOverview = normalizePreviewText(p.text_preview || '');
+        let overviewBase = summaryText || feedOverview;
+        if (fullText && isNearDuplicateText(overviewBase, fullText) && feedOverview) {
+          overviewBase = feedOverview;
+        }
+        const overview = truncate(overviewBase || 'Overview pending while full post loads...', 180);
+        previewMainHtml = `<div class="post-preview-overview"><span class="preview-label">Overview:</span>${escapeHtml(overview).replace(/\n/g, '<br>')}</div>`;
+        if (fullPostExpanded) {
+          if (fullText) {
+            const fullPostHtml = escapeHtml(fullText).replace(/\n/g, '<br>');
+            previewMainHtml += `<div class="post-preview-source"><span class="preview-label">Real post:</span>${fullPostHtml}</div>`;
+          } else {
+            previewMainHtml += `<div class="post-preview-source"><span class="preview-label">Real post:</span>Loading full post...</div>`;
+          }
+        }
+      } else {
+        const previewTextRaw = getDisplayPreviewText(p);
+        const previewText = previewMode === 'full'
+          ? previewTextRaw
+          : truncate(previewTextRaw, previewMode === 'summary' ? 170 : 120);
+        const previewHtml = escapeHtml(previewText || '').replace(/\n/g, '<br>');
+        previewMainHtml = `<div class="post-preview-text ${previewMode === 'full' ? 'full' : ''}">${previewHtml}</div>`;
+      }
+      const previewTools = isQueueLikePanel
+        ? `<div class="preview-tools">
+            <span class="draft-toggle" onclick="toggleQueueFullPost(${p.id})" style="margin:0">
+              ${loadingFullPost ? 'Loading full post...' : (fullPostExpanded ? 'Hide full post' : 'Show full post')}
+            </span>
+            <span class="preview-meta" style="cursor:pointer" onclick="fetchFullPost(${p.id}, true, true)">${hasFullPostText ? 'Refresh from LinkedIn' : 'Fetch from LinkedIn'}</span>
+            ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">Overview shown until full post is fetched</span>'}
+          </div>`
+        : previewMode === 'full'
         ? `<div class="preview-tools">
             <span class="draft-toggle" onclick="fetchFullPost(${p.id}, ${hasFullPostText ? 'true' : 'false'})" style="margin:0">
-              ${loadingFullPost ? 'Loading full post...' : (hasFullPostText ? 'Refresh full post' : 'Fetch full post')}
+              ${loadingFullPost ? 'Loading full post...' : (hasFullPostText ? 'Refresh from LinkedIn' : 'Fetch from LinkedIn')}
             </span>
             ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">Summary shown until full text is fetched</span>'}
           </div>`
@@ -2771,6 +2994,9 @@
         : '<span class="badge" style="background:rgba(107,114,128,0.12);color:#9ca3af;border-color:rgba(107,114,128,0.25)" title="No type classification yet">Unclassified</span>';
       const intentKey = getContentIntentKey(p);
       const intentBadge = contentIntentBadge(intentKey);
+      const imageTag = imageCount > 0
+        ? `<span class="badge" style="background:rgba(96,165,250,0.14);color:#93c5fd;border:1px solid rgba(96,165,250,0.32)" title="Post includes image/media">${imageCount === 1 ? 'Image' : `Images ${imageCount}`}</span>`
+        : '';
 
       return `
         <tr class="${isPublished ? 'commented' : ''}" data-post-id="${p.id}">
@@ -2779,7 +3005,7 @@
           <td class="col-priority">${priorityDot(p.id, p.priority)}</td>
           <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}<br>${relationBadge} ${weeklyWarn} ${reconnectHint}</td>
           <td class="col-preview">
-            <div class="post-preview-text ${previewMode === 'full' ? 'full' : ''}">${previewHtml}</div>
+            ${previewMainHtml}
             ${previewTools}
             ${inflightHint}
             ${failureNote}
@@ -2804,7 +3030,7 @@
           </td>
           <td class="col-stats">${p.reactions || 0}</td>
           <td class="col-stats">${p.comments || 0}</td>
-          <td class="col-type">${typeBadge} ${intentBadge}</td>
+          <td class="col-type">${typeBadge} ${intentBadge} ${imageTag}</td>
           <td class="col-status"><div class="status-badges">${statusBadges.join(' ')} ${engagementBadge}</div></td>
           <td class="col-scheduled">${scheduledCell}</td>
           <td class="col-actions">
@@ -2827,9 +3053,9 @@
       `;
     }
 
-    async function fetchFullPost(postId, forceRefresh = false) {
+    async function fetchFullPost(postId, forceRefresh = false, silent = false) {
       if (!window.pocketAgent?.getLinkedInPostContent) {
-        showToast('Full post fetch is unavailable in this build', 'error');
+        if (!silent) showToast('Full post fetch is unavailable in this build', 'error');
         return;
       }
       const id = Number(postId);
@@ -2837,17 +3063,44 @@
       if (fullPostLoadInFlight.has(id)) return;
       fullPostLoadInFlight.add(id);
       loadPosts();
+      let loaded = false;
       try {
         const result = await window.pocketAgent.getLinkedInPostContent(id, !!forceRefresh);
         if (!result?.success) {
           throw new Error(result?.error || 'Failed to load full post');
         }
-        if (result.warning) showToast(result.warning, 'error');
-        else showToast(result.cached ? 'Loaded cached full post' : 'Fetched full post text', 'success');
+        loaded = true;
+        if (!silent) {
+          if (result.warning) showToast(result.warning, 'error');
+          else showToast(result.cached ? 'Loaded cached full post' : 'Fetched full post text', 'success');
+        }
       } catch (err) {
-        showToast(`Could not load full post: ${shortError(err)}`, 'error');
+        if (!silent) showToast(`Could not load full post: ${shortError(err)}`, 'error');
       } finally {
+        if (!forceRefresh) {
+          if (loaded) {
+            // Don't auto-refetch rows that already have full text.
+            autoFullPostNextRetryAt.set(id, Number.MAX_SAFE_INTEGER);
+          }
+        }
         fullPostLoadInFlight.delete(id);
+        loadPosts();
+      }
+    }
+
+    async function toggleQueueFullPost(postId) {
+      const id = Number(postId);
+      if (!Number.isFinite(id) || id <= 0) return;
+      if (expandedFullPostIds.has(id)) {
+        expandedFullPostIds.delete(id);
+        loadPosts();
+        return;
+      }
+      expandedFullPostIds.add(id);
+      const post = currentPosts.find(p => Number(p.id) === id) || currentSnoozed.find(p => Number(p.id) === id);
+      if (!post || !getPostFullText(post)) {
+        await fetchFullPost(id, false, true);
+      } else {
         loadPosts();
       }
     }
@@ -2857,7 +3110,7 @@
       previewMode = 'full';
       localStorage.setItem('linkedin-preview-mode', 'full');
       if (previewSelect) previewSelect.value = 'full';
-      await fetchFullPost(postId, true);
+      await fetchFullPost(postId, false);
     }
 
     function openPostUrl(postId) {
@@ -3015,6 +3268,8 @@
     function editDraft(postId) {
       const contentEl = document.getElementById('draft-content-' + postId);
       if (!contentEl) return;
+      editingDraftPostId = postId;
+      stopAutoRefresh();
       const extraEl = document.getElementById('draft-extra-' + postId);
       if (extraEl) extraEl.innerHTML = '';
       const currentText = contentEl.textContent || '';
@@ -3023,10 +3278,16 @@
         <div class="draft-actions" style="margin-top:6px">
           <button class="btn-edit" onclick="aiAssistDraftEdit(${postId})">AI Apply</button>
           <button class="btn-approve" onclick="saveDraftEdit(${postId})">Save</button>
-          <button onclick="loadPosts()">Cancel</button>
+          <button onclick="cancelDraftEdit(${postId})">Cancel</button>
         </div>`;
       const textarea = document.getElementById('draft-edit-' + postId);
       if (textarea) textarea.focus();
+    }
+
+    function cancelDraftEdit(postId) {
+      if (editingDraftPostId === postId) editingDraftPostId = null;
+      startAutoRefresh();
+      loadPosts(true);
     }
 
     async function aiAssistDraftEdit(postId) {
@@ -3079,7 +3340,9 @@
           return;
         }
         showToast('Draft updated', 'success');
-        loadPosts();
+        if (editingDraftPostId === postId) editingDraftPostId = null;
+        startAutoRefresh();
+        loadPosts(true);
       } catch (err) {
         console.error('Failed to update draft:', err);
         showToast(`Failed to update draft: ${shortError(err)}`, 'error');

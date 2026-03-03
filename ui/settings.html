@@ -993,6 +993,64 @@
       outline: none;
     }
 
+    .model-inline-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+    }
+    .model-inline-actions select {
+      flex: 1;
+      width: auto;
+      min-width: 180px;
+    }
+    .model-inline-actions button {
+      padding: 6px 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .model-inline-actions button:hover {
+      color: var(--text-primary);
+      border-color: var(--accent);
+    }
+    .model-fav-help {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .model-fav-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .model-fav-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(96, 165, 250, 0.35);
+      background: rgba(96, 165, 250, 0.12);
+      color: #bfdbfe;
+      font-size: 10px;
+    }
+    .model-fav-chip button {
+      border: none;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1;
+      padding: 0;
+    }
+    .model-fav-chip button:hover { color: #fca5a5; }
+
     /* Email Processing */
     .ep-subsection {
       margin-top: 20px;
@@ -1694,6 +1752,52 @@
           </div>
         </div>
 
+        <h3 class="subsection-title" style="margin-top: 24px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">Qwen (Direct)</h3>
+        <div class="keys-table" id="qwen-api-key-section">
+          <div class="key-row">
+            <div class="key-info">
+              <span class="key-name">API Key</span>
+              <a href="https://dashscope.console.aliyun.com/" target="_blank" class="key-link">dashscope.console.aliyun.com</a>
+            </div>
+            <div class="key-input">
+              <input type="password" id="qwen.apiKey" placeholder="sk-...">
+              <button class="delete-btn" id="qwen.apiKey-delete" onclick="deleteKey('qwen.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+              <button onclick="validateKey('qwen')">Test</button>
+            </div>
+          </div>
+        </div>
+
+        <h3 class="subsection-title" style="margin-top: 24px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">OpenRouter</h3>
+        <div class="keys-table" id="openrouter-api-key-section">
+          <div class="key-row">
+            <div class="key-info">
+              <span class="key-name">API Key</span>
+              <a href="https://openrouter.ai/keys" target="_blank" class="key-link">openrouter.ai/keys</a>
+            </div>
+            <div class="key-input">
+              <input type="password" id="openrouter.apiKey" placeholder="sk-or-v1-...">
+              <button class="delete-btn" id="openrouter.apiKey-delete" onclick="deleteKey('openrouter.apiKey')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+              <button onclick="validateKey('openrouter')">Test</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-grid" style="margin-top: 8px;">
+          <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+            <label>Favorite OpenRouter Models</label>
+            <div class="model-inline-actions">
+              <select id="openrouter.favoritePicker">
+                <option value="">Select OpenRouter model...</option>
+              </select>
+              <button onclick="addOpenRouterFavoriteFromPicker()">Add Favorite</button>
+              <button onclick="refreshModelDropdown()">Reload</button>
+            </div>
+            <div id="openrouter.favoriteChips" class="model-fav-chips"></div>
+            <span class="model-fav-help">Pick models and click Add. No typing needed.</span>
+            <input type="text" id="openrouter.favoriteModels" placeholder="Optional: paste model IDs, comma/newline separated" />
+            <span class="setting-desc">Favorites are pinned in “OpenRouter Favorites” and shown in LinkedIn/chat model pickers first.</span>
+          </div>
+        </div>
+
         <h3 class="subsection-title" style="margin-top: 24px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">Worker Models</h3>
         <p style="font-size:11px;color:var(--text-secondary);margin:0 0 8px;">Used for background tasks: email classification, summaries, extraction. OpenAI models require an OpenAI key in the Keys section.</p>
         <div class="settings-grid" id="glm-worker-section">
@@ -1739,12 +1843,22 @@
         <h3 class="subsection-title" style="margin-top: 24px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">Model Settings</h3>
         <div class="settings-grid" id="brain-power-section">
           <div class="setting-row">
-            <label>Model</label>
+            <label>Main Model</label>
             <select id="agent.model">
               <option value="claude-opus-4-6">Opus 4.6</option>
               <option value="claude-sonnet-4-6">Sonnet 4.6</option>
               <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
             </select>
+          </div>
+          <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+            <label>OpenRouter Model (separate picker)</label>
+            <div class="model-inline-actions">
+              <select id="agent.openrouterModelPicker">
+                <option value="">Select OpenRouter model...</option>
+              </select>
+              <button onclick="useSelectedOpenRouterModel()">Use as Main</button>
+            </div>
+            <span class="model-fav-help">Use this when you want any OpenRouter model without crowding the main dropdown.</span>
           </div>
           <div class="setting-row">
             <label>Backup Model</label>
@@ -2506,6 +2620,14 @@
               </div>
             </div>
             <div class="setting-row">
+              <label title="Daily auto-post cap. 15 is the recommended safe limit. You can raise it up to 50.">Daily Auto-Post Limit</label>
+              <div class="key-input" style="width: 320px; align-items: center; gap: 8px;">
+                <input type="number" id="linkedin-daily-limit" min="1" max="50" placeholder="15" style="width: 70px; text-align: center;" title="Safe recommendation: 15/day. Absolute max: 50/day." oninput="updateLinkedInDailyLimitHint(this.value)">
+                <button onclick="saveLinkedInSetting('linkedin.dailyLimit', 'linkedin-daily-limit')">Save</button>
+                <span id="linkedin-daily-limit-hint" style="font-size: 10px; color: var(--text-muted); white-space: nowrap;">Safe limit: 15/day</span>
+              </div>
+            </div>
+            <div class="setting-row">
               <label title="Average minutes between posting comments. Randomized ±40% for natural timing.">Comment Delay (min)</label>
               <div class="key-input" style="width: 120px;">
                 <input type="number" id="linkedin-comment-delay" min="1" max="15" step="0.5" placeholder="3" style="width: 60px; text-align: center;" title="Average delay between comment posts. Add spacing to reduce spam risk.">
@@ -2631,6 +2753,9 @@
                   <option value="glm-5">glm-5</option>
                   <option value="MiniMax-M2.5">MiniMax-M2.5</option>
                   <option value="MiniMax-M2.5-Lightning">MiniMax-M2.5-Lightning</option>
+                  <option value="qwen3.5-plus-2026-02-15">qwen3.5-plus-2026-02-15</option>
+                  <option value="qwen/qwen3.5-plus-02-15">qwen/qwen3.5-plus-02-15</option>
+                  <option value="qwen/qwen3.5-flash">qwen/qwen3.5-flash</option>
                 </select>
                 <button onclick="saveLinkedInSetting('linkedin.researchFallbackModel', 'linkedin-research-fallback-model')">Save</button>
               </div>
@@ -2839,6 +2964,41 @@
             <div class="toggle" id="debug.devTools-toggle" onclick="toggleSetting('debug.devTools')"></div>
           </div>
         </div>
+
+        <div class="card" style="margin-top: 12px;">
+          <div class="card-title">Storage & Cache</div>
+          <div class="settings-grid">
+            <div class="setting-row">
+              <label>Safe Cache Size</label>
+              <span id="cache-safe-size" class="key-link" style="font-size: 12px;">Loading...</span>
+            </div>
+            <div class="setting-row">
+              <label>App Data Size</label>
+              <span id="cache-appdata-size" class="key-link" style="font-size: 12px;">Loading...</span>
+            </div>
+            <div class="setting-row">
+              <label>Main DB Size</label>
+              <span id="cache-db-size" class="key-link" style="font-size: 12px;">Loading...</span>
+            </div>
+            <div class="setting-row">
+              <label>Cache Status</label>
+              <span id="cache-status" class="status info" style="margin: 0;">Checking...</span>
+            </div>
+            <div class="setting-row">
+              <label>Actions</label>
+              <div style="display:flex; gap:6px;">
+                <button class="skills-setup-btn" style="margin:0" onclick="refreshCacheStats()">Refresh</button>
+                <button class="skills-setup-btn" style="margin:0" onclick="clearSafeCache()">Clear Safe Cache</button>
+              </div>
+            </div>
+          </div>
+          <div class="info-box" style="margin-top: 10px;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <span>
+              Safe cache cleanup removes temporary cache files only. It does not remove your database, LinkedIn posts, kanban data, Gmail/API settings, attachments, or screenshots.
+            </span>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -2852,6 +3012,7 @@
     let settings = {};
     let pendingChanges = {};
     let validationStatus = {};
+    let availableModelsCache = [];
 
     // Handle external links - open in system browser, not Electron
     document.addEventListener('click', (e) => {
@@ -2866,12 +3027,15 @@
     window.addEventListener('DOMContentLoaded', async () => {
       await loadSettings();
       await loadAppVersion();
+      await refreshCacheStats(true);
       setupNavigation();
       setupAutoSave();
+      setupOpenRouterFavoriteInput();
       initializeBrowserSection();
       initPocketCli();
       checkGlmStatus();
       checkGogStatus();
+      setInterval(() => { void refreshCacheStats(true); }, 5 * 60 * 1000);
       epInit();
 
       // Listen for tab navigation from main process
@@ -2901,6 +3065,63 @@
         document.getElementById('current-version').textContent = `v${version}`;
       } catch (err) {
         console.error('Failed to load app version:', err);
+      }
+    }
+
+    function formatBytes(bytes) {
+      const n = Number(bytes || 0);
+      if (!Number.isFinite(n) || n <= 0) return '0 B';
+      if (n < 1024) return `${Math.round(n)} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+      return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+
+    async function refreshCacheStats(silent = false) {
+      if (!window.pocketAgent?.getCacheStats) return;
+      const safeEl = document.getElementById('cache-safe-size');
+      const appDataEl = document.getElementById('cache-appdata-size');
+      const dbEl = document.getElementById('cache-db-size');
+      const statusEl = document.getElementById('cache-status');
+      try {
+        const stats = await window.pocketAgent.getCacheStats();
+        if (!stats?.success) throw new Error(stats?.error || 'Failed to read cache stats');
+        if (safeEl) safeEl.textContent = formatBytes(stats.safeCacheBytes);
+        if (appDataEl) appDataEl.textContent = formatBytes(stats.appDataBytes);
+        if (dbEl) dbEl.textContent = `${formatBytes(stats.dbBytes)} (+ WAL ${formatBytes(stats.dbWalBytes)})`;
+        if (statusEl) {
+          if (stats.overThreshold) {
+            statusEl.className = 'status error';
+            statusEl.textContent = `Over threshold (${formatBytes(stats.thresholdBytes)})`;
+            if (!silent) {
+              showToast(`Cache warning: ${formatBytes(stats.safeCacheBytes)} temporary cache (over 1 GB)`, 'error');
+            }
+          } else {
+            statusEl.className = 'status success';
+            statusEl.textContent = `Healthy (< ${formatBytes(stats.thresholdBytes)})`;
+          }
+        }
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'status error';
+          statusEl.textContent = 'Failed';
+        }
+        if (!silent) showToast(`Failed to read cache stats: ${err.message || err}`, 'error');
+      }
+    }
+
+    async function clearSafeCache() {
+      if (!window.pocketAgent?.clearSafeCache) return;
+      const ok = confirm('Clear temporary cache files only? This will keep DB, LinkedIn, kanban, Gmail settings, attachments, and screenshots.');
+      if (!ok) return;
+      try {
+        const result = await window.pocketAgent.clearSafeCache();
+        if (!result?.success) throw new Error(result?.error || 'Clear cache failed');
+        const cleared = Math.max(0, Number(result.clearedBytes || 0));
+        showToast(`Safe cache cleared: ${formatBytes(cleared)} reclaimed`, 'success');
+        await refreshCacheStats(true);
+      } catch (err) {
+        showToast(`Clear cache failed: ${err.message || err}`, 'error');
       }
     }
 
@@ -2965,63 +3186,253 @@
       }
     }
 
+    function parseModelIdList(raw) {
+      return Array.from(
+        new Set(
+          String(raw || '')
+            .split(/[\n,]+/g)
+            .map(v => v.trim())
+            .filter(Boolean)
+        )
+      );
+    }
+
+    function serializeModelIdList(ids) {
+      return Array.from(new Set(ids.map(v => String(v || '').trim()).filter(Boolean))).join('\n');
+    }
+
+    function isOpenRouterProvider(provider) {
+      return provider === 'openrouter' || provider === 'openrouter_fav';
+    }
+
+    function providerDisplay(provider) {
+      if (provider === 'anthropic') return 'Claude';
+      if (provider === 'moonshot') return 'Kimi';
+      if (provider === 'glm') return 'GLM';
+      if (provider === 'minimax') return 'MiniMax';
+      if (provider === 'gemini') return 'Gemini';
+      if (provider === 'qwen') return 'Qwen';
+      if (provider === 'openrouter_fav') return 'OpenRouter Fav';
+      if (provider === 'openrouter') return 'OpenRouter';
+      return provider || 'model';
+    }
+
+    function modelDisplayName(model) {
+      return `${model.name} (${providerDisplay(model.provider)})`;
+    }
+
+    function getFavoriteModelIdsFromSettings() {
+      return parseModelIdList(settings['openrouter.favoriteModels'] || '');
+    }
+
+    async function saveFavoriteModelIds(ids, silent = false) {
+      const normalized = serializeModelIdList(ids);
+      const previous = settings['openrouter.favoriteModels'] || '';
+      const input = document.getElementById('openrouter.favoriteModels');
+
+      settings['openrouter.favoriteModels'] = normalized;
+      if (input) input.value = normalized;
+
+      try {
+        await window.pocketAgent.setSetting('openrouter.favoriteModels', normalized);
+        if (!silent) showToast('OpenRouter favorites saved', 'success');
+      } catch (err) {
+        settings['openrouter.favoriteModels'] = previous;
+        if (input) input.value = previous;
+        throw err;
+      }
+    }
+
+    function renderFavoriteChips(models) {
+      const host = document.getElementById('openrouter.favoriteChips');
+      if (!host) return;
+      const ids = getFavoriteModelIdsFromSettings();
+      const modelById = new Map(models.map(m => [m.id, m]));
+
+      host.innerHTML = '';
+      if (ids.length === 0) {
+        const empty = document.createElement('span');
+        empty.className = 'model-fav-help';
+        empty.textContent = 'No favorites yet.';
+        host.appendChild(empty);
+        return;
+      }
+
+      for (const id of ids) {
+        const chip = document.createElement('span');
+        chip.className = 'model-fav-chip';
+        const label = modelById.has(id) ? (modelById.get(id).name || id) : `${id} (unavailable)`;
+        chip.textContent = label;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = '×';
+        removeBtn.title = 'Remove favorite';
+        removeBtn.addEventListener('click', async () => {
+          try {
+            const next = getFavoriteModelIdsFromSettings().filter(v => v !== id);
+            await saveFavoriteModelIds(next, true);
+            await refreshModelDropdown();
+            showToast('Favorite removed', 'success');
+          } catch (err) {
+            console.error('Failed to remove favorite model:', err);
+            showToast('Could not remove favorite', 'error');
+          }
+        });
+
+        chip.appendChild(removeBtn);
+        host.appendChild(chip);
+      }
+    }
+
+    function renderFavoritePicker(models) {
+      const picker = document.getElementById('openrouter.favoritePicker');
+      if (!picker) return;
+      const openRouterModels = models
+        .filter(m => isOpenRouterProvider(m.provider))
+        .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+
+      const current = picker.value;
+      picker.innerHTML = '<option value="">Select OpenRouter model...</option>';
+      for (const model of openRouterModels) {
+        const opt = document.createElement('option');
+        opt.value = model.id;
+        opt.textContent = modelDisplayName(model);
+        picker.appendChild(opt);
+      }
+      if (current && openRouterModels.some(m => m.id === current)) picker.value = current;
+    }
+
+    function renderOpenRouterModelPicker(models, savedModel) {
+      const picker = document.getElementById('agent.openrouterModelPicker');
+      if (!picker) return;
+      const openRouterModels = models
+        .filter(m => isOpenRouterProvider(m.provider))
+        .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+
+      picker.innerHTML = '<option value="">Select OpenRouter model...</option>';
+      for (const model of openRouterModels) {
+        const opt = document.createElement('option');
+        opt.value = model.id;
+        opt.textContent = modelDisplayName(model);
+        picker.appendChild(opt);
+      }
+      if (savedModel && openRouterModels.some(m => m.id === savedModel)) {
+        picker.value = savedModel;
+      }
+    }
+
+    async function addOpenRouterFavoriteFromPicker() {
+      const picker = document.getElementById('openrouter.favoritePicker');
+      if (!picker) return;
+      const modelId = String(picker.value || '').trim();
+      if (!modelId) {
+        showToast('Pick an OpenRouter model first', 'error');
+        return;
+      }
+      const current = getFavoriteModelIdsFromSettings();
+      if (current.includes(modelId)) {
+        showToast('Already in favorites', 'success');
+        return;
+      }
+      try {
+        await saveFavoriteModelIds([...current, modelId], true);
+        await refreshModelDropdown();
+        showToast('Favorite added', 'success');
+      } catch (err) {
+        console.error('Failed to add favorite model:', err);
+        showToast('Could not add favorite', 'error');
+      }
+    }
+
+    async function useSelectedOpenRouterModel() {
+      const picker = document.getElementById('agent.openrouterModelPicker');
+      if (!picker) return;
+      const modelId = String(picker.value || '').trim();
+      if (!modelId) {
+        showToast('Pick an OpenRouter model first', 'error');
+        return;
+      }
+      try {
+        await window.pocketAgent.setSetting('agent.model', modelId);
+        settings['agent.model'] = modelId;
+        await refreshModelDropdown();
+        activateReboot();
+        showToast('Main model switched to selected OpenRouter model', 'success');
+      } catch (err) {
+        console.error('Failed to set OpenRouter main model:', err);
+        showToast('Could not switch main model', 'error');
+      }
+    }
+
     // Refresh model dropdown based on available API keys
     async function refreshModelDropdown() {
       try {
         const models = await window.pocketAgent.getAvailableModels();
+        availableModelsCache = models;
+
         const dropdown = document.getElementById('agent.model');
-        // Use local settings cache first (updated synchronously by change handler),
-        // fall back to backend only if local cache is empty
         const savedModel = settings['agent.model'] || await window.pocketAgent.getSetting('agent.model');
 
-        // Clear existing options
         dropdown.innerHTML = '';
 
         if (models.length === 0) {
-          // No models available - show placeholder
           const option = document.createElement('option');
           option.value = '';
           option.textContent = 'Add API key to enable models';
           option.disabled = true;
           dropdown.appendChild(option);
+
+          renderFavoritePicker([]);
+          renderFavoriteChips([]);
+          renderOpenRouterModelPicker([], '');
           return;
         }
 
-        // Add available models grouped by provider
+        const visibleInMain = models.filter(m => {
+          const provider = String(m.provider || '').toLowerCase();
+          return provider !== 'openrouter' && provider !== 'openrouter_fav';
+        });
         const providerGroups = [
           { key: 'anthropic', label: 'Anthropic' },
           { key: 'moonshot', label: 'Kimi (Moonshot)' },
           { key: 'glm', label: 'GLM (Z.AI)' },
           { key: 'minimax', label: 'MiniMax' },
+          { key: 'gemini', label: 'Gemini (Direct)' },
+          { key: 'qwen', label: 'Qwen (Direct)' },
         ];
 
         for (const pg of providerGroups) {
-          const providerModels = models.filter(m => m.provider === pg.key);
-          if (providerModels.length > 0) {
-            const group = document.createElement('optgroup');
-            group.label = pg.label;
-            for (const model of providerModels) {
-              const option = document.createElement('option');
-              option.value = model.id;
-              option.textContent = model.name;
-              group.appendChild(option);
-            }
-            dropdown.appendChild(group);
+          const providerModels = visibleInMain.filter(m => m.provider === pg.key);
+          if (providerModels.length === 0) continue;
+          const group = document.createElement('optgroup');
+          group.label = pg.label;
+          for (const model of providerModels) {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.name;
+            group.appendChild(option);
           }
+          dropdown.appendChild(group);
         }
 
-        // Restore saved selection if still valid for current API keys
-        const isValidSelection = models.some(m => m.id === savedModel);
-        if (isValidSelection) {
+        if (dropdown.options.length === 0) {
+          const placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.textContent = 'Use OpenRouter picker below';
+          placeholder.disabled = true;
+          dropdown.appendChild(placeholder);
+        }
+
+        const validInMain = Array.from(dropdown.querySelectorAll('option')).some(opt => opt.value === savedModel);
+        if (validInMain) {
           dropdown.value = savedModel;
-        } else if (models.length > 0) {
-          // Only reset to first model if saved model is not available
-          // (e.g., user removed an API key for that provider)
-          dropdown.value = models[0].id;
-          await window.pocketAgent.setSetting('agent.model', models[0].id);
+        } else if (visibleInMain.length > 0) {
+          dropdown.value = visibleInMain[0].id;
+          settings['agent.model'] = visibleInMain[0].id;
+          await window.pocketAgent.setSetting('agent.model', visibleInMain[0].id);
         }
 
-        // Populate fallback model dropdown
         const fallbackDropdown = document.getElementById('agent.fallbackModel');
         if (fallbackDropdown) {
           const savedFallback = settings['agent.fallbackModel'] || await window.pocketAgent.getSetting('agent.fallbackModel');
@@ -3029,13 +3440,12 @@
           for (const model of models) {
             const opt = document.createElement('option');
             opt.value = model.id;
-            opt.textContent = model.name + ' (' + model.provider + ')';
+            opt.textContent = modelDisplayName(model);
             fallbackDropdown.appendChild(opt);
           }
           if (savedFallback) fallbackDropdown.value = savedFallback;
         }
 
-        // Populate LinkedIn primary model dropdown
         const linkedinPostModelDropdown = document.getElementById('linkedin-post-model');
         if (linkedinPostModelDropdown) {
           const savedLinkedInModel = settings['linkedin.postModel'] || await window.pocketAgent.getSetting('linkedin.postModel');
@@ -3043,7 +3453,7 @@
           for (const model of models) {
             const opt = document.createElement('option');
             opt.value = model.id;
-            opt.textContent = model.name + ' (' + model.provider + ')';
+            opt.textContent = modelDisplayName(model);
             linkedinPostModelDropdown.appendChild(opt);
           }
           if (savedLinkedInModel && models.some(m => m.id === savedLinkedInModel)) {
@@ -3052,9 +3462,29 @@
             linkedinPostModelDropdown.value = '';
           }
         }
+
+        renderFavoritePicker(models);
+        renderFavoriteChips(models);
+        renderOpenRouterModelPicker(models, savedModel);
       } catch (err) {
         console.error('Failed to refresh model dropdown:', err);
       }
+    }
+
+    function setupOpenRouterFavoriteInput() {
+      const input = document.getElementById('openrouter.favoriteModels');
+      if (!input) return;
+      input.addEventListener('change', async () => {
+        try {
+          const parsed = parseModelIdList(input.value);
+          await saveFavoriteModelIds(parsed, true);
+          await refreshModelDropdown();
+          showToast('OpenRouter favorites updated', 'success');
+        } catch (err) {
+          console.error('Failed to update OpenRouter favorites:', err);
+          showToast('Could not update favorites', 'error');
+        }
+      });
     }
 
     function populateFields() {
@@ -3122,6 +3552,8 @@
       if (linkedinScroll) linkedinScroll.value = settings['linkedin.feedScroll'] || '3';
       const linkedinLimit = document.getElementById('linkedin-feed-limit');
       if (linkedinLimit) linkedinLimit.value = settings['linkedin.feedLimit'] || '20';
+      const linkedinDailyLimit = document.getElementById('linkedin-daily-limit');
+      if (linkedinDailyLimit) linkedinDailyLimit.value = settings['linkedin.dailyLimit'] || '15';
       const linkedinDelay = document.getElementById('linkedin-comment-delay');
       if (linkedinDelay) linkedinDelay.value = settings['linkedin.commentDelay'] || '3';
       const linkedinDayStart = document.getElementById('linkedin-day-window-start');
@@ -3150,6 +3582,7 @@
       if (linkedinResearchQueries) linkedinResearchQueries.value = settings['linkedin.researchMaxQueries'] || '2';
       const linkedinFallbackModel = document.getElementById('linkedin-research-fallback-model');
       if (linkedinFallbackModel) linkedinFallbackModel.value = settings['linkedin.researchFallbackModel'] || 'kimi-k2.5';
+      updateLinkedInDailyLimitHint(linkedinDailyLimit ? linkedinDailyLimit.value : settings['linkedin.dailyLimit'] || '15');
 
       // Browser toggle
       const browserToggle = document.getElementById('browser.enabled-toggle');
@@ -3241,12 +3674,15 @@
       const excludedIds = [
         'anthropic.apiKey', 'openai.apiKey', 'gemini.apiKey', 'zhipu.apiKey',
         'google.placesApiKey', 'notion.apiKey', 'trello.apiKey', 'minimax.apiKey',
+        'qwen.apiKey', 'openrouter.apiKey',
+        'openrouter.favoriteModels', 'openrouter.favoritePicker',
         'trello.token', 'elevenlabs.apiKey', 'auth-api-key', 'oauth-code',
+        'agent.openrouterModelPicker',
         'telegram.allowedUserIds', 'telegram.defaultChatId',
         'gmail-user-email', 'gmail-default-recipient',
         'ep-enabled', 'ep-interval', 'ep-processed-label', 'ep-review-label',
         'ep-max-emails', 'ep-lookback', 'ep-gmail-conc', 'ep-glm-conc',
-        'linkedin-feed-keywords', 'linkedin-feed-scroll', 'linkedin-feed-limit', 'linkedin-comment-delay',
+        'linkedin-feed-keywords', 'linkedin-feed-scroll', 'linkedin-feed-limit', 'linkedin-daily-limit', 'linkedin-comment-delay',
         'linkedin-draft-mode', 'linkedin-post-model', 'linkedin-draft-timeout', 'linkedin-research-turns', 'linkedin-write-turns',
         'linkedin-research-queries', 'linkedin-research-fallback-model',
         'linkedin-voice-style', 'linkedin-writing-rules', 'linkedin-content-direction'
@@ -3309,6 +3745,14 @@
         pattern: /^(eyJ|sk-api-)[A-Za-z0-9_-]{8,}/,
         hint: 'MiniMax keys start with "eyJ" or "sk-api-"'
       },
+      'qwen.apiKey': {
+        pattern: /^[A-Za-z0-9._-]{16,}$/,
+        hint: 'Enter your Qwen/DashScope API key'
+      },
+      'openrouter.apiKey': {
+        pattern: /^sk-or-v1-[A-Za-z0-9_-]{16,}$/,
+        hint: 'OpenRouter keys start with "sk-or-v1-"'
+      },
       'telegram.botToken': {
         pattern: /^\d{6,}:[A-Za-z0-9_-]{30,}$/,
         hint: 'Telegram tokens are in format "123456789:ABC..."'
@@ -3361,7 +3805,7 @@
     function updateDeleteButtons() {
       const keyIds = [
         'anthropic.apiKey', 'openai.apiKey', 'gemini.apiKey',
-        'moonshot.apiKey', 'minimax.apiKey', 'telegram.botToken'
+        'moonshot.apiKey', 'minimax.apiKey', 'qwen.apiKey', 'openrouter.apiKey', 'telegram.botToken'
       ];
 
       for (const keyId of keyIds) {
@@ -3403,7 +3847,7 @@
         showToast('Key removed!', 'success');
 
         // Refresh model dropdown if this affects available models
-        if (keyId === 'anthropic.apiKey' || keyId === 'moonshot.apiKey') {
+        if (['anthropic.apiKey', 'moonshot.apiKey', 'minimax.apiKey', 'qwen.apiKey', 'openrouter.apiKey'].includes(keyId)) {
           await refreshModelDropdown();
           activateReboot();
         }
@@ -3473,16 +3917,44 @@
 
     async function saveLinkedInSetting(settingKey, inputId) {
       const input = document.getElementById(inputId);
-      const value = input.value.trim();
+      let value = input.value.trim();
+      if (settingKey === 'linkedin.dailyLimit') {
+        const parsed = parseInt(value || '15', 10);
+        const clamped = Math.max(1, Math.min(50, Number.isFinite(parsed) ? parsed : 15));
+        value = String(clamped);
+        input.value = value;
+      }
       try {
         await window.pocketAgent.setSetting(settingKey, value);
         settings[settingKey] = value;
+        if (settingKey === 'linkedin.dailyLimit') {
+          updateLinkedInDailyLimitHint(value);
+          if (parseInt(value, 10) > 15) {
+            showToast('Saved. Over 15/day increases spam/rate-limit risk.', 'warning');
+            activateReboot();
+            return;
+          }
+        }
         showToast('Saved!', 'success');
         activateReboot();
       } catch (err) {
         console.error('Failed to save linkedin setting:', err);
         showToast('Save failed, try again?', 'error');
       }
+    }
+
+    function updateLinkedInDailyLimitHint(rawValue) {
+      const hint = document.getElementById('linkedin-daily-limit-hint');
+      if (!hint) return;
+      const parsed = parseInt(String(rawValue || '').trim(), 10);
+      const limit = Number.isFinite(parsed) ? parsed : 15;
+      if (limit <= 15) {
+        hint.textContent = 'Safe limit: 15/day';
+        hint.style.color = 'var(--success)';
+        return;
+      }
+      hint.textContent = `High volume: ${Math.min(50, limit)}/day (safe recommendation is 15/day)`;
+      hint.style.color = 'var(--warning)';
     }
 
     async function expandWithAI(textareaId, systemInstruction) {
@@ -6193,6 +6665,10 @@ Never mention internal labels, automation, or filtering.`;
           result = await window.pocketAgent.validateMoonshotKey(key);
         } else if (provider === 'minimax') {
           result = await window.pocketAgent.validateMinimaxKey(key);
+        } else if (provider === 'qwen') {
+          result = await window.pocketAgent.validateQwenKey(key);
+        } else if (provider === 'openrouter') {
+          result = await window.pocketAgent.validateOpenRouterKey(key);
         } else if (provider === 'telegram') {
           result = await window.pocketAgent.validateTelegramToken(key);
         }
@@ -6295,6 +6771,9 @@ Never mention internal labels, automation, or filtering.`;
       const hasApiKey = settings['anthropic.apiKey'];
       const hasMoonshotKey = settings['moonshot.apiKey'];
       const hasMinimaxKey = settings['minimax.apiKey'];
+      const hasQwenKey = settings['qwen.apiKey'];
+      const hasOpenRouterKey = settings['openrouter.apiKey'];
+      const hasGlmKey = settings['glm.apiKey'];
       const anthropicKeyRow = document.getElementById('anthropic-key-row');
       const authApiKeySection = document.getElementById('auth-api-key-section');
       const brainPowerSection = document.getElementById('brain-power-section');
@@ -6305,7 +6784,13 @@ Never mention internal labels, automation, or filtering.`;
       }
 
       // Connected if any LLM provider is configured
-      const isConnected = (authMethod === 'oauth' && hasOAuth) || hasApiKey || hasMoonshotKey || hasMinimaxKey;
+      const isConnected = (authMethod === 'oauth' && hasOAuth)
+        || hasApiKey
+        || hasMoonshotKey
+        || hasMinimaxKey
+        || hasQwenKey
+        || hasOpenRouterKey
+        || hasGlmKey;
 
       if (authMethod === 'oauth' && hasOAuth) {
         // Show checking state while validating token

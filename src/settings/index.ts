@@ -158,6 +158,42 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: 'Your Z.AI API key for GLM models',
     type: 'password',
   },
+  {
+    key: 'minimax.apiKey',
+    defaultValue: '',
+    encrypted: true,
+    category: 'api_keys',
+    label: 'MiniMax API Key',
+    description: 'Your MiniMax API key for MiniMax chat models',
+    type: 'password',
+  },
+  {
+    key: 'qwen.apiKey',
+    defaultValue: '',
+    encrypted: true,
+    category: 'api_keys',
+    label: 'Qwen API Key',
+    description: 'Alibaba Model Studio API key for Qwen (Anthropic-compatible endpoint)',
+    type: 'password',
+  },
+  {
+    key: 'openrouter.apiKey',
+    defaultValue: '',
+    encrypted: true,
+    category: 'api_keys',
+    label: 'OpenRouter API Key',
+    description: 'OpenRouter API key for Qwen/OpenRouter models',
+    type: 'password',
+  },
+  {
+    key: 'openrouter.favoriteModels',
+    defaultValue: '',
+    encrypted: false,
+    category: 'llm',
+    label: 'OpenRouter Favorite Models',
+    description: 'Comma/newline separated OpenRouter model IDs to pin at top (for example: qwen/qwen3.5-plus-02-15)',
+    type: 'string',
+  },
 
   // Agent settings
   {
@@ -708,12 +744,39 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     key: 'linkedin.researchFallbackModel',
-    defaultValue: 'kimi-k2.5',
+    defaultValue: 'claude-sonnet-4-6',
     encrypted: false,
     category: 'linkedin',
     label: 'Research Fallback Model',
-    description: 'Fallback model for LinkedIn draft runs (empty disables fallback)',
+    description: 'Primary fallback model for LinkedIn draft runs (recommended: authenticated Claude subscription)',
     type: 'string',
+  },
+  {
+    key: 'linkedin.researchFallbackModel2',
+    defaultValue: 'gpt-4.1',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Research Fallback Model #2',
+    description: 'Second fallback model for LinkedIn draft runs (recommended: OpenAI gpt-4.1 API)',
+    type: 'string',
+  },
+  {
+    key: 'linkedin.researchFallbackModel3',
+    defaultValue: '',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Research Fallback Model #3',
+    description: 'Third fallback model for LinkedIn draft runs (optional)',
+    type: 'string',
+  },
+  {
+    key: 'linkedin.dailyLimit',
+    defaultValue: '15',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Daily Limit',
+    description: 'Daily auto-post cap. 15 is the recommended safe limit; you can raise it up to 50.',
+    type: 'number',
   },
   {
     key: 'linkedin.dailyLimitMin',
@@ -1201,7 +1264,7 @@ class SettingsManagerClass {
 
   /**
    * Check if required authentication is set
-   * Returns true if any LLM provider key is configured (Anthropic, Moonshot, or OAuth)
+   * Returns true if any supported LLM provider key is configured (or OAuth)
    */
   hasRequiredKeys(): boolean {
     const authMethod = this.get('auth.method');
@@ -1216,7 +1279,10 @@ class SettingsManagerClass {
     const anthropicKey = this.get('anthropic.apiKey');
     const moonshotKey = this.get('moonshot.apiKey');
     const glmKey = this.get('glm.apiKey');
-    return !!anthropicKey || !!moonshotKey || !!glmKey;
+    const minimaxKey = this.get('minimax.apiKey');
+    const qwenKey = this.get('qwen.apiKey');
+    const openRouterKey = this.get('openrouter.apiKey');
+    return !!anthropicKey || !!moonshotKey || !!glmKey || !!minimaxKey || !!qwenKey || !!openRouterKey;
   }
 
   /**
@@ -1423,6 +1489,62 @@ class SettingsManagerClass {
     }
   }
 
+  async validateQwenKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+    try {
+      const response = await fetch('https://dashscope-intl.aliyuncs.com/apps/anthropic/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'qwen3.5-plus-2026-02-15',
+          max_tokens: 10,
+          messages: [{ role: 'user', content: 'Hi' }],
+        }),
+      });
+
+      if (response.ok) {
+        return { valid: true };
+      }
+
+      const data = await response.json();
+      return { valid: false, error: data.error?.message || data.message || 'Invalid API key' };
+    } catch (error) {
+      return { valid: false, error: error instanceof Error ? error.message : 'Connection failed' };
+    }
+  }
+
+  async validateOpenRouterKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+    try {
+      const response = await fetch('https://openrouter.ai/api/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'anthropic-version': '2023-06-01',
+          'HTTP-Referer': 'https://github.com/google-gemini/pocket-agent',
+          'X-Title': 'Pocket Agent',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.0-flash-lite:free',
+          max_tokens: 10,
+          messages: [{ role: 'user', content: 'Hi' }],
+        }),
+      });
+
+      if (response.ok) {
+        return { valid: true };
+      }
+
+      const data = await response.json();
+      return { valid: false, error: data.error?.message || data.message || 'Invalid API key' };
+    } catch (error) {
+      return { valid: false, error: error instanceof Error ? error.message : 'Connection failed' };
+    }
+  }
+
   async validateGlmKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
     try {
       // Z.AI GLM uses Anthropic-compatible API with Bearer token auth
@@ -1470,6 +1592,9 @@ class SettingsManagerClass {
       'zhipu.apiKey': 'ZHIPU_API_KEY',
       'anthropic.apiKey': 'ANTHROPIC_API_KEY',
       'moonshot.apiKey': 'MOONSHOT_API_KEY',
+      'minimax.apiKey': 'MINIMAX_API_KEY',
+      'qwen.apiKey': 'QWEN_API_KEY',
+      'openrouter.apiKey': 'OPENROUTER_API_KEY',
     };
 
     for (const [settingKey, envVar] of Object.entries(keyMappings)) {
@@ -1497,6 +1622,9 @@ class SettingsManagerClass {
       'ZHIPU_API_KEY': 'zhipu.apiKey',
       'ANTHROPIC_API_KEY': 'anthropic.apiKey',
       'MOONSHOT_API_KEY': 'moonshot.apiKey',
+      'MINIMAX_API_KEY': 'minimax.apiKey',
+      'QWEN_API_KEY': 'qwen.apiKey',
+      'OPENROUTER_API_KEY': 'openrouter.apiKey',
     };
 
     const settingKey = reverseMapping[envVarName];

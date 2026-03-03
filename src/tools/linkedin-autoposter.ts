@@ -20,9 +20,39 @@ let cachedDailyLimit: number | null = null;
 let cachedLimitDay: string | null = null;
 let autoPosterRunInFlight = false;
 const ATTEMPT_GUARD_HOURS = 6;
+const LINKEDIN_CONTROL_SOURCE_KEY = 'linkedin.controlSource';
+const LINKEDIN_CONTROL_EXPIRES_AT_KEY = 'linkedin.controlExpiresAt';
+const LINKEDIN_TELEGRAM_NOTIFY_MODE_KEY = 'linkedin.telegramNotifyMode';
 
 export function setLinkedInTelegramBot(bot: TelegramBot | null): void {
   telegramBot = bot;
+}
+
+export function markLinkedInControlSource(source: 'telegram' | 'desktop'): void {
+  const normalized = source === 'telegram' ? 'telegram' : 'desktop';
+  SettingsManager.set(LINKEDIN_CONTROL_SOURCE_KEY, normalized);
+  if (normalized === 'telegram') {
+    const ttlRaw = parseInt(SettingsManager.get('linkedin.telegramControlTtlMin') || '240', 10);
+    const ttlMin = Number.isFinite(ttlRaw) ? Math.max(5, Math.min(1440, ttlRaw)) : 240;
+    const expiresAt = Date.now() + (ttlMin * 60 * 1000);
+    SettingsManager.set(LINKEDIN_CONTROL_EXPIRES_AT_KEY, String(expiresAt));
+  } else {
+    SettingsManager.set(LINKEDIN_CONTROL_EXPIRES_AT_KEY, '0');
+  }
+}
+
+export function shouldNotifyTelegramForLinkedIn(): boolean {
+  const mode = String(SettingsManager.get(LINKEDIN_TELEGRAM_NOTIFY_MODE_KEY) || 'telegram_only')
+    .trim()
+    .toLowerCase();
+  if (mode === 'off') return false;
+  if (mode === 'always') return true;
+
+  const source = String(SettingsManager.get(LINKEDIN_CONTROL_SOURCE_KEY) || '').trim().toLowerCase();
+  const expiresAt = parseInt(SettingsManager.get(LINKEDIN_CONTROL_EXPIRES_AT_KEY) || '0', 10);
+  if (source !== 'telegram') return false;
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) return false;
+  return Date.now() <= expiresAt;
 }
 
 function getDb(): Database.Database | null {
@@ -95,8 +125,18 @@ function activePostingWindow(): { name: 'day' | 'night'; intervalMs: number } | 
 function getDailyLimit(): number {
   const d = today();
   if (cachedLimitDay === d && cachedDailyLimit !== null) return cachedDailyLimit;
-  const min = Math.max(1, parseInt(SettingsManager.get('linkedin.dailyLimitMin') || '8', 10) || 8);
-  const max = Math.max(min, parseInt(SettingsManager.get('linkedin.dailyLimitMax') || '18', 10) || 18);
+  const hardCap = 50;
+  const explicit = parseInt(SettingsManager.get('linkedin.dailyLimit') || '', 10);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    cachedDailyLimit = Math.min(hardCap, Math.max(1, explicit));
+    cachedLimitDay = d;
+    return cachedDailyLimit;
+  }
+
+  const minRaw = Math.max(1, parseInt(SettingsManager.get('linkedin.dailyLimitMin') || '8', 10) || 8);
+  const maxRaw = Math.max(minRaw, parseInt(SettingsManager.get('linkedin.dailyLimitMax') || '15', 10) || 15);
+  const min = Math.min(hardCap, minRaw);
+  const max = Math.min(hardCap, Math.max(min, maxRaw));
   cachedDailyLimit = min + Math.floor(Math.random() * (max - min + 1));
   cachedLimitDay = d;
   return cachedDailyLimit;
@@ -475,6 +515,7 @@ function getLastPostedAtMs(db: Database.Database): number {
 
 export async function notifyTelegram(message: string): Promise<void> {
   if (!telegramBot) return;
+  if (!shouldNotifyTelegramForLinkedIn()) return;
   try {
     const chatId = SettingsManager.get('telegram.defaultChatId');
     if (chatId) {
