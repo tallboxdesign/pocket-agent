@@ -2933,7 +2933,15 @@
       const hasFullPostText = getPostFullText(p).length > 0;
       const loadingFullPost = fullPostLoadInFlight.has(Number(p.id));
       const fetchedAt = p.full_post_updated_at ? formatShortDateTime(p.full_post_updated_at) : '';
-      const aiSummaryText = normalizePreviewText(p.evidence_post_summary || '');
+      const contentSummarySource = String(p.full_post_source || '').trim().toLowerCase();
+      const hasAiContentSummary = (
+        contentSummarySource === 'feed_ai_summary'
+        || contentSummarySource === 'linkedin_read_post_ai'
+        || contentSummarySource === 'linkedin_read_post'
+      );
+      const aiSummaryText = normalizePreviewText(
+        p.evidence_post_summary || (hasAiContentSummary ? p.full_post_summary : '')
+      );
       const summaryText = getPostSummary(p);
       const fullText = getPostFullText(p);
       const draftText = normalizePreviewText(p.comment_draft || '');
@@ -2955,7 +2963,7 @@
         }
       } else if (isQueueLikePanel) {
         const feedOverview = normalizePreviewText(p.text_preview || '');
-        const hasAiOverview = !!aiSummaryText;
+        const hasAiOverview = !!aiSummaryText || hasAiContentSummary;
         let overviewBase = aiSummaryText || summaryText || feedOverview;
         if (!hasAiOverview && fullText && isNearDuplicateText(overviewBase, fullText) && feedOverview) {
           overviewBase = feedOverview;
@@ -3279,8 +3287,17 @@
     }
 
     function editDraft(postId) {
+      const existingEditor = document.getElementById(`draft-edit-${postId}`);
+      if (existingEditor) {
+        existingEditor.focus();
+        return;
+      }
       const contentEl = document.getElementById('draft-content-' + postId);
       if (!contentEl) return;
+      if (editingDraftPostId && editingDraftPostId !== postId) {
+        showToast('Finish or cancel the current edit first', 'error');
+        return;
+      }
       editingDraftPostId = postId;
       stopAutoRefresh();
       const extraEl = document.getElementById('draft-extra-' + postId);
@@ -3344,7 +3361,9 @@
     async function saveDraftEdit(postId) {
       const textarea = document.getElementById('draft-edit-' + postId);
       if (!textarea) return;
-      const newText = textarea.value.trim();
+      const newText = textarea.value
+        .replace(/\n?\s*AI Apply\s*Save\s*Cancel\s*$/i, '')
+        .trim();
       if (!newText) return;
       try {
         const result = await window.pocketAgent.updateLinkedInDraft(postId, newText);

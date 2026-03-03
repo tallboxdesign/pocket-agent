@@ -426,6 +426,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
         for (const c of summaryCandidates) {
           if (!candidateByUrl.has(c.postUrl)) candidateByUrl.set(c.postUrl, c);
         }
+        const configuredLimit = Math.max(1, Math.min(200, parseInt(SettingsManager.get('linkedin.feedAiOverviewLimit') || '50', 10) || 50));
         const prioritized = Array.from(candidateByUrl.values())
           .sort((a, b) => {
             const pa = posts.find((p: { post_url?: string }) => p.post_url === a.postUrl) as { reactions?: number; comments?: number } | undefined;
@@ -434,7 +435,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
             const eb = Number(pb?.reactions || 0) + Number(pb?.comments || 0);
             return eb - ea;
           })
-          .slice(0, 12);
+          .slice(0, configuredLimit);
 
         for (const candidate of prioritized) {
           const aiSummary = await buildAiOverviewSummary(candidate.preview);

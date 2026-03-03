@@ -1958,11 +1958,13 @@ function setupIPC(): void {
         ? `
            pc.full_text AS full_post_text,
            pc.summary_text AS full_post_summary,
+           pc.source AS full_post_source,
            pc.updated_at AS full_post_updated_at
            `
         : `
            NULL AS full_post_text,
            NULL AS full_post_summary,
+           NULL AS full_post_source,
            NULL AS full_post_updated_at
            `;
       const evidenceJoin = hasEvidenceTable
@@ -2206,6 +2208,7 @@ function setupIPC(): void {
         fullText = normalizeLinkedInText(post.text_preview || '');
       }
       let summary = buildTwoSentenceSummary(fullText);
+      let summarySource = 'linkedin_read_post';
       try {
         const { glmFlash, isGlmConfigured } = await import('../tools/glm-client');
         if (isGlmConfigured()) {
@@ -2226,7 +2229,10 @@ function setupIPC(): void {
           });
           if (aiSummaryRes.success && aiSummaryRes.content) {
             const aiSummary = normalizeLinkedInText(String(aiSummaryRes.content || ''));
-            if (aiSummary) summary = buildTwoSentenceSummary(aiSummary);
+            if (aiSummary) {
+              summary = buildTwoSentenceSummary(aiSummary);
+              summarySource = 'linkedin_read_post_ai';
+            }
           }
         }
       } catch (summaryErr) {
@@ -2238,14 +2244,14 @@ function setupIPC(): void {
       db.exec(ensureSql);
       db.prepare(
         `INSERT INTO linkedin_post_content (post_id, post_url, full_text, summary_text, source, updated_at)
-         VALUES (?, ?, ?, ?, 'linkedin_read_post', datetime('now'))
+         VALUES (?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(post_id) DO UPDATE SET
            post_url = excluded.post_url,
            full_text = excluded.full_text,
            summary_text = excluded.summary_text,
            source = excluded.source,
            updated_at = datetime('now')`
-      ).run(normalizedPostId, post.post_url, fullText, summary);
+      ).run(normalizedPostId, post.post_url, fullText, summary, summarySource);
       const updated = db.prepare(
         'SELECT updated_at FROM linkedin_post_content WHERE post_id = ?'
       ).get(normalizedPostId) as { updated_at?: string } | undefined;
