@@ -2559,14 +2559,9 @@
     async function loadPosts(force = false) {
       if (!force && isDraftEditActive()) return;
       try {
-        // Load daily stats in parallel
+        let dailyStats = null;
         if (window.pocketAgent.getLinkedInDailyStats) {
-          window.pocketAgent.getLinkedInDailyStats().then(stats => {
-            const el = document.getElementById('daily-stats');
-            if (el && stats && stats.dailyLimit > 0) {
-              el.textContent = `${stats.postedToday}/${stats.dailyLimit} posted`;
-            }
-          }).catch(() => {});
+          try { dailyStats = await window.pocketAgent.getLinkedInDailyStats(); } catch { /* best effort */ }
         }
         const date = datePicker.value;
         const authorFilter = getInputValue('filter-author').trim();
@@ -2616,12 +2611,28 @@
         const tabAttention = document.getElementById('tab-attention');
         const tabFailed = document.getElementById('tab-failed');
         const tabPublished = document.getElementById('tab-published');
+        const dailyStatsEl = document.getElementById('daily-stats');
         if (tabQueue) tabQueue.textContent = `Queue (${queueCount})`;
         if (tabDrafted) tabDrafted.textContent = `Drafted (${draftedCount})`;
         if (tabScheduled) tabScheduled.textContent = `Scheduled (${scheduledCount})`;
         if (tabAttention) tabAttention.textContent = `Needs Attention (${attentionCount})`;
         if (tabFailed) tabFailed.textContent = `Failed (${failedCount})`;
         if (tabPublished) tabPublished.textContent = `Published (${publishedCount})`;
+        if (dailyStatsEl) {
+          const todayIso = new Date().toISOString().split('T')[0];
+          if (dailyStats && Number(dailyStats.dailyLimit || 0) > 0) {
+            if (date === todayIso) {
+              dailyStatsEl.textContent = `${dailyStats.postedToday}/${dailyStats.dailyLimit} posted today (all) | ${publishedCount} in this view`;
+              dailyStatsEl.title = 'The first number is today total across all scraped dates. The second is this current filtered date/view.';
+            } else {
+              dailyStatsEl.textContent = `${publishedCount} published in this view`;
+              dailyStatsEl.title = 'Published count for the currently selected date and filters.';
+            }
+          } else {
+            dailyStatsEl.textContent = `${publishedCount} published in this view`;
+            dailyStatsEl.title = 'Published count for the currently selected date and filters.';
+          }
+        }
         refreshPanelTabs();
         // Draft state is read from DB (p.draft_state) — no transient pruning needed
 
