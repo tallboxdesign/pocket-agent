@@ -103,6 +103,17 @@ function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function normalizeLinkedInPostType(raw: unknown): string | null {
+  const v = String(raw || '').trim().toLowerCase().replace(/[_\s]+/g, '-');
+  if (!v) return null;
+  if (v === 'promotion' || v === 'promo') return 'promotional';
+  if (v === 'jobposting') return 'job-posting';
+  if (v === 'thoughtleadership') return 'thought-leadership';
+  if (v === 'personalstory') return 'personal-story';
+  if (v === 'summit' || v === 'conference' || v === 'webinar') return 'event';
+  return v;
+}
+
 function checkEnabled(): string | null {
   if (!SettingsManager.getBoolean('linkedin.enabled')) {
     // Auto-enable if auth profile exists (settings may have been reset)
@@ -248,7 +259,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
             const nextPreview = (post.text_preview || '').slice(0, 500);
             const nextReactions = post.reactions || 0;
             const nextComments = post.comments || 0;
-            const nextType = post.type || null;
+            const nextType = normalizeLinkedInPostType(post.type);
 
             if (existing) {
               existingUrls.add(normalizedPostUrl);
@@ -395,6 +406,51 @@ function parseDbTsMs(value: string | null | undefined): number {
   return Number.isFinite(ts) ? ts : 0;
 }
 
+function normalizeCommentFingerprint(raw: string): string {
+  return String(raw || '')
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hasPostedSameCommentOnUrl(
+  db: Database.Database,
+  normalizedUrl: string,
+  commentText: string,
+): { matched: boolean; postUrl?: string; createdAt?: string } {
+  const activityId = extractActivityId(normalizedUrl);
+  const rows = activityId
+    ? db.prepare(
+      `SELECT post_url, comment_text, created_at
+       FROM linkedin_activity_log
+       WHERE action = 'posted'
+         AND comment_text IS NOT NULL
+         AND (post_url = ? OR post_url LIKE ?)
+       ORDER BY id DESC
+       LIMIT 30`
+    ).all(normalizedUrl, `%activity:${activityId}%`) as Array<{ post_url: string; comment_text: string; created_at: string }>
+    : db.prepare(
+      `SELECT post_url, comment_text, created_at
+       FROM linkedin_activity_log
+       WHERE action = 'posted'
+         AND comment_text IS NOT NULL
+         AND post_url = ?
+       ORDER BY id DESC
+       LIMIT 30`
+    ).all(normalizedUrl) as Array<{ post_url: string; comment_text: string; created_at: string }>;
+
+  const target = normalizeCommentFingerprint(commentText);
+  if (!target) return { matched: false };
+  for (const row of rows) {
+    if (normalizeCommentFingerprint(String(row.comment_text || '')) === target) {
+      return { matched: true, postUrl: row.post_url, createdAt: row.created_at };
+    }
+  }
+  return { matched: false };
+}
+
 function normalizeLinkedInPostUrl(raw: string): string {
   const input = String(raw || '').trim();
   if (!input) return '';
@@ -477,32 +533,18 @@ async function handleCommentTool(input: unknown): Promise<string> {
   }
 
   try {
-    // Double-post guard: check if already commented or already logged as posted
+    // Duplicate guard (URL + same comment text): block repost and ask for follow-up narrative.
     if (db) {
-      const check = activityId
-        ? db.prepare(
-          `SELECT 1 as ok FROM linkedin_posts
-           WHERE (post_url = ? OR post_url LIKE ?) AND commented = 1
-           LIMIT 1`
-        ).get(normalizedUrl, `%activity:${activityId}%`) as { ok: number } | undefined
-        : db.prepare(
-          `SELECT 1 as ok FROM linkedin_posts
-           WHERE post_url = ? AND commented = 1
-           LIMIT 1`
-        ).get(normalizedUrl) as { ok: number } | undefined;
-      const postedLog = activityId
-        ? db.prepare(
-          `SELECT 1 as ok FROM linkedin_activity_log
-           WHERE (post_url = ? OR post_url LIKE ?) AND action = 'posted'
-           LIMIT 1`
-        ).get(normalizedUrl, `%activity:${activityId}%`) as { ok: number } | undefined
-        : db.prepare(
-          `SELECT 1 as ok FROM linkedin_activity_log
-           WHERE post_url = ? AND action = 'posted'
-           LIMIT 1`
-        ).get(normalizedUrl) as { ok: number } | undefined;
-      if (check?.ok || postedLog?.ok) {
-        return JSON.stringify({ success: false, error: 'Already posted on this post' });
+      const sameComment = hasPostedSameCommentOnUrl(db, normalizedUrl, p.comment);
+      if (sameComment.matched) {
+        return JSON.stringify({
+          success: false,
+          duplicate_comment: true,
+          needs_follow_up: true,
+          error: 'Same comment already posted on this URL. Draft a follow-up narrative instead of reposting.',
+          post_url: sameComment.postUrl || normalizedUrl,
+          first_posted_at: sameComment.createdAt || null,
+        });
       }
 
       const recentAttempt = activityId
@@ -527,6 +569,27 @@ async function handleCommentTool(input: unknown): Promise<string> {
             error: 'Recent uncertain posting attempt detected. Verify on LinkedIn before retrying.',
           });
         }
+      }
+
+      const retryStormCount = activityId
+        ? (db.prepare(
+          `SELECT COUNT(*) as c
+           FROM linkedin_activity_log
+           WHERE action = 'retry_scheduled'
+             AND (post_url = ? OR post_url LIKE ?)`
+        ).get(normalizedUrl, `%activity:${activityId}%`) as { c: number } | undefined)?.c || 0
+        : (db.prepare(
+          `SELECT COUNT(*) as c
+           FROM linkedin_activity_log
+           WHERE action = 'retry_scheduled'
+             AND post_url = ?`
+        ).get(normalizedUrl) as { c: number } | undefined)?.c || 0;
+      if (retryStormCount >= 3) {
+        return JSON.stringify({
+          success: false,
+          needs_verification: true,
+          error: `Legacy retry-storm history detected (${retryStormCount}). Verify on LinkedIn before posting again.`,
+        });
       }
 
       const postForAttempt = activityId
@@ -579,12 +642,7 @@ async function handleCommentTool(input: unknown): Promise<string> {
         ).get(normalizedUrl) as { id: number; author: string; kanban_task_id: number | null } | undefined;
 
       if (post) {
-        if (activityId) {
-          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ? OR post_url LIKE ?')
-            .run(normalizedUrl, `%activity:${activityId}%`);
-        } else {
-          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(normalizedUrl);
-        }
+        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, comment_text)
            VALUES (?, ?, 'posted', ?)`
@@ -733,7 +791,7 @@ async function handleAuthStatusTool(input: unknown): Promise<string> {
 
 const LINKEDIN_POST_CATEGORIES = [
   'thought-leadership', 'technical', 'news', 'personal-story',
-  'promotion', 'job-posting', 'event', 'question', 'other',
+  'promotional', 'job-posting', 'event', 'question', 'other',
 ] as const;
 
 function getClassifyPostsToolDefinition() {
@@ -811,7 +869,7 @@ async function handleClassifyPostsTool(input: unknown): Promise<string> {
           temperature: 0.1,
         });
         const type = result.success && result.content
-          ? result.content.trim().toLowerCase().replace(/[^a-z-]/g, '')
+          ? (normalizeLinkedInPostType(result.content.trim().toLowerCase().replace(/[^a-z-]/g, '')) || 'other')
           : 'other';
         return { ...post, type: LINKEDIN_POST_CATEGORIES.includes(type as typeof LINKEDIN_POST_CATEGORIES[number]) ? type : 'other' };
       })
@@ -827,6 +885,22 @@ async function handleClassifyPostsTool(input: unknown): Promise<string> {
     const t = post.type as string;
     if (!byType[t]) byType[t] = [];
     byType[t].push(post);
+  }
+
+  // Persist classification back to DB so LinkedIn Activity matches chat classification.
+  const db = getDb();
+  if (db) {
+    const updateByUrl = db.prepare('UPDATE linkedin_posts SET post_type = ? WHERE post_url = ?');
+    const tx = db.transaction(() => {
+      for (const post of classified) {
+        const postUrl = String(post.post_url || '').trim();
+        const nextType = normalizeLinkedInPostType(post.type);
+        if (!postUrl || !nextType) continue;
+        const normalizedUrl = normalizeLinkedInPostUrl(postUrl);
+        updateByUrl.run(nextType, normalizedUrl);
+      }
+    });
+    tx();
   }
 
   return JSON.stringify({ success: true, classified: true, count: classified.length, posts: classified, by_type: byType });

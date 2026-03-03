@@ -15,6 +15,7 @@ import { DEFAULT_COMMANDS } from '../config/commands';
 import { loadWorkflowCommands } from '../config/commands-loader';
 import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
 import { setLinkedInTelegramBot, notifyTelegram, rescheduleStalePosts, rebalancePendingSchedules } from '../tools/linkedin-autoposter';
+import { linkedinExec } from '../tools/linkedin-wrapper';
 import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
 import { getBrowserManager } from '../browser';
 import { WAQManager } from '../queue/processor';
@@ -1538,6 +1539,55 @@ function showNotification(title: string, body: string): void {
   }
 }
 
+function getLinkedInDbPath(): string {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  const possiblePaths = [
+    path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+    path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+    path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+  return '';
+}
+
+function normalizeLinkedInText(raw: string): string {
+  return String(raw || '')
+    .replace(/\r/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function buildTwoSentenceSummary(raw: string): string {
+  const text = normalizeLinkedInText(raw);
+  if (!text) return '';
+  const flat = text.replace(/\s+/g, ' ').trim();
+  const sentences = flat
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  const selected: string[] = [];
+  for (const sentence of sentences) {
+    if (sentence.split(/\s+/).length < 5) continue;
+    selected.push(sentence);
+    if (selected.length >= 2) break;
+  }
+  if (selected.length >= 2) return selected.join(' ');
+  if (selected.length === 1) {
+    const words = flat.split(/\s+/);
+    const firstCount = selected[0].split(/\s+/).length;
+    const tail = words.slice(firstCount, firstCount + 18).join(' ');
+    if (!tail) return selected[0];
+    const clipped = words.length > firstCount + 18 ? `${tail}...` : tail;
+    return `${selected[0]} ${clipped}`;
+  }
+  const words = flat.split(/\s+/);
+  return words.slice(0, 32).join(' ') + (words.length > 32 ? '...' : '');
+}
+
 // ============ IPC Handlers ============
 
 function setupIPC(): void {
@@ -1749,7 +1799,7 @@ function setupIPC(): void {
     openLinkedInActivityWindow();
   });
 
-  ipcMain.handle('linkedin:listPosts', async (_, date: string) => {
+  ipcMain.handle('linkedin:listPosts', async (_, date: string, authorFilter?: string) => {
     try {
       const Database = (await import('better-sqlite3')).default;
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
@@ -1767,6 +1817,9 @@ function setupIPC(): void {
       db.pragma('journal_mode = WAL');
       const hasEvidenceTable = !!db.prepare(
         `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'linkedin_draft_evidence' LIMIT 1`
+      ).get();
+      const hasPostContentTable = !!db.prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'linkedin_post_content' LIMIT 1`
       ).get();
       const priorityOrder = `CASE lp.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
       const evidenceSelect = hasEvidenceTable
@@ -1790,6 +1843,17 @@ function setupIPC(): void {
            de.created_at AS evidence_created_at,
            `
         : `,
+           `;
+      const contentSelect = hasPostContentTable
+        ? `
+           pc.full_text AS full_post_text,
+           pc.summary_text AS full_post_summary,
+           pc.updated_at AS full_post_updated_at
+           `
+        : `
+           NULL AS full_post_text,
+           NULL AS full_post_summary,
+           NULL AS full_post_updated_at
            `;
       const evidenceJoin = hasEvidenceTable
         ? `
@@ -1820,8 +1884,25 @@ function setupIPC(): void {
            ) latest_ev ON latest_ev.max_id = ev.id
          ) de ON de.post_id = lp.id`
         : '';
+      const contentJoin = hasPostContentTable
+        ? `
+         LEFT JOIN linkedin_post_content pc ON pc.post_id = lp.id`
+        : '';
+      const authorSearch = String(authorFilter || '').trim();
+      const useAuthorSearch = authorSearch.length > 0;
+      const authorLike = `%${authorSearch}%`;
+
+      const activeWhere = useAuthorSearch
+        ? `lp.hidden = 0 AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now')) AND LOWER(lp.author) LIKE LOWER(?)`
+        : `lp.scraped_date = ? AND lp.hidden = 0 AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now'))`;
+      const snoozedWhere = useAuthorSearch
+        ? `hidden = 0 AND snoozed_until > datetime('now') AND LOWER(author) LIKE LOWER(?)`
+        : `scraped_date = ? AND hidden = 0 AND snoozed_until > datetime('now')`;
+      const queryArg = useAuthorSearch ? authorLike : date;
+
       const posts = db.prepare(
         `SELECT lp.*, lp.draft_state, lp.draft_error${evidenceSelect}
+           ${contentSelect},
            CASE
              WHEN lp.commented = 1 THEN 1
              WHEN EXISTS (
@@ -1884,17 +1965,169 @@ function setupIPC(): void {
            GROUP BY post_id HAVING id = MAX(id)
          ) ec ON ec.post_id = lp.id
          ${evidenceJoin}
-         WHERE lp.scraped_date = ? AND lp.hidden = 0 AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now'))
+         ${contentJoin}
+         WHERE ${activeWhere}
          ORDER BY ${priorityOrder}, (lp.reactions + lp.comments) DESC`
-      ).all(date);
+      ).all(queryArg);
       const snoozed = db.prepare(
-        `SELECT * FROM linkedin_posts WHERE scraped_date = ? AND hidden = 0 AND snoozed_until > datetime('now') ORDER BY snoozed_until ASC`
-      ).all(date);
+        `SELECT * FROM linkedin_posts WHERE ${snoozedWhere} ORDER BY snoozed_until ASC`
+      ).all(queryArg);
       db.close();
       return { posts, snoozed };
     } catch (err) {
       console.error('[LinkedIn] Failed to list posts:', err);
       return { posts: [], snoozed: [], error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:getPostingDays', async (_, month?: string) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return [];
+
+      const monthKey = String(month || '').trim().match(/^\d{4}-\d{2}$/)
+        ? String(month).trim()
+        : new Date().toISOString().slice(0, 7);
+
+      const db = new Database(dbPath, { readonly: true });
+      db.pragma('journal_mode = WAL');
+      const rows = db.prepare(
+        `SELECT date(created_at, 'localtime') AS date, COUNT(*) AS count
+         FROM linkedin_activity_log
+         WHERE action = 'posted'
+           AND strftime('%Y-%m', datetime(created_at, 'localtime')) = ?
+         GROUP BY date
+         ORDER BY date ASC`
+      ).all(monthKey) as Array<{ date: string; count: number }>;
+      db.close();
+      return rows;
+    } catch (err) {
+      console.error('[LinkedIn] Failed to load posting days:', err);
+      return [];
+    }
+  });
+
+  ipcMain.handle('linkedin:getPostContent', async (_, postId: number, forceRefresh?: boolean) => {
+    try {
+      const normalizedPostId = Number(postId);
+      if (!Number.isFinite(normalizedPostId) || normalizedPostId <= 0) {
+        return { success: false, error: 'Invalid post id' };
+      }
+      const dbPath = getLinkedInDbPath();
+      if (!dbPath) return { success: false, error: 'LinkedIn database not found' };
+
+      const Database = (await import('better-sqlite3')).default;
+      const ensureSql = `
+        CREATE TABLE IF NOT EXISTS linkedin_post_content (
+          post_id INTEGER PRIMARY KEY REFERENCES linkedin_posts(id) ON DELETE CASCADE,
+          post_url TEXT NOT NULL,
+          full_text TEXT NOT NULL,
+          summary_text TEXT,
+          source TEXT DEFAULT 'linkedin_read_post',
+          updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_linkedin_post_content_url ON linkedin_post_content(post_url);
+      `;
+
+      let db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      db.exec(ensureSql);
+      const post = db.prepare(
+        'SELECT id, post_url, author, text_preview FROM linkedin_posts WHERE id = ?'
+      ).get(normalizedPostId) as { id: number; post_url: string; author: string; text_preview: string } | undefined;
+      const cached = db.prepare(
+        'SELECT full_text, summary_text, updated_at FROM linkedin_post_content WHERE post_id = ?'
+      ).get(normalizedPostId) as { full_text?: string; summary_text?: string; updated_at?: string } | undefined;
+      db.close();
+
+      if (!post) return { success: false, error: 'Post not found' };
+
+      const cachedText = normalizeLinkedInText(String(cached?.full_text || ''));
+      const hasCached = cachedText.length > 0;
+      if (hasCached && !forceRefresh) {
+        const summary = normalizeLinkedInText(String(cached?.summary_text || ''))
+          || buildTwoSentenceSummary(cachedText);
+        return {
+          success: true,
+          postId: normalizedPostId,
+          postUrl: post.post_url,
+          author: post.author,
+          fullText: cachedText,
+          summary,
+          cached: true,
+          fetchedAt: cached?.updated_at || null,
+        };
+      }
+
+      let fullText = '';
+      try {
+        const stdout = await linkedinExec('reply', ['--url', post.post_url, '--read-only'], 90000);
+        const parsed = JSON.parse(stdout) as { text?: string };
+        fullText = normalizeLinkedInText(String(parsed?.text || ''));
+      } catch (fetchErr) {
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        if (hasCached) {
+          return {
+            success: true,
+            postId: normalizedPostId,
+            postUrl: post.post_url,
+            author: post.author,
+            fullText: cachedText,
+            summary: normalizeLinkedInText(String(cached?.summary_text || '')) || buildTwoSentenceSummary(cachedText),
+            cached: true,
+            fetchedAt: cached?.updated_at || null,
+            warning: `Live fetch failed, using cached copy: ${msg}`,
+          };
+        }
+        return { success: false, error: `Failed to fetch full post: ${msg}` };
+      }
+
+      if (!fullText) {
+        fullText = normalizeLinkedInText(post.text_preview || '');
+      }
+      const summary = buildTwoSentenceSummary(fullText);
+
+      db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      db.exec(ensureSql);
+      db.prepare(
+        `INSERT INTO linkedin_post_content (post_id, post_url, full_text, summary_text, source, updated_at)
+         VALUES (?, ?, ?, ?, 'linkedin_read_post', datetime('now'))
+         ON CONFLICT(post_id) DO UPDATE SET
+           post_url = excluded.post_url,
+           full_text = excluded.full_text,
+           summary_text = excluded.summary_text,
+           source = excluded.source,
+           updated_at = datetime('now')`
+      ).run(normalizedPostId, post.post_url, fullText, summary);
+      const updated = db.prepare(
+        'SELECT updated_at FROM linkedin_post_content WHERE post_id = ?'
+      ).get(normalizedPostId) as { updated_at?: string } | undefined;
+      db.close();
+
+      return {
+        success: true,
+        postId: normalizedPostId,
+        postUrl: post.post_url,
+        author: post.author,
+        fullText,
+        summary,
+        cached: false,
+        fetchedAt: updated?.updated_at || null,
+      };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to fetch post content:', err);
+      return { success: false, error: String(err) };
     }
   });
 
@@ -1967,6 +2200,62 @@ function setupIPC(): void {
       return { success: true };
     } catch (err) {
       console.error('[LinkedIn] Failed to update draft:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:rewriteDraft', async (_, postId: number, currentText: string, instructions: string) => {
+    try {
+      const normalizedPostId = Number(postId);
+      const normalizedInstructions = String(instructions || '').trim();
+      const providedText = String(currentText || '').trim();
+      if (!Number.isFinite(normalizedPostId) || normalizedPostId <= 0) {
+        return { success: false, error: 'Invalid post id' };
+      }
+      if (!normalizedInstructions) {
+        return { success: false, error: 'Instructions are required' };
+      }
+
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      const row = db.prepare(
+        'SELECT author, text_preview, post_url, comment_draft FROM linkedin_posts WHERE id = ?'
+      ).get(normalizedPostId) as { author?: string; text_preview?: string; post_url?: string; comment_draft?: string | null } | undefined;
+      db.close();
+      if (!row) return { success: false, error: 'Post not found' };
+
+      const baseDraft = providedText || String(row.comment_draft || '').trim();
+      if (!baseDraft) return { success: false, error: 'No draft text available to rewrite' };
+
+      const { rewriteLinkedInDraftWithInstructions } = await import('../tools/linkedin-drafter');
+      const rewritten = await rewriteLinkedInDraftWithInstructions({
+        draftText: baseDraft,
+        instructions: normalizedInstructions,
+        author: String(row.author || ''),
+        postPreview: String(row.text_preview || ''),
+        postUrl: String(row.post_url || ''),
+      });
+
+      return {
+        success: true,
+        rewritten: rewritten.rewritten,
+        model: rewritten.model,
+      };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to rewrite draft:', err);
       return { success: false, error: String(err) };
     }
   });
@@ -2455,6 +2744,10 @@ function setupIPC(): void {
         }
       }
 
+      if (key === 'agent.model') {
+        AgentManager.setModel(value);
+      }
+
       // Auto-setup birthday cron jobs when birthday is set
       if (key === 'profile.birthday') {
         await setupBirthdayCronJobs(value);
@@ -2642,6 +2935,14 @@ function setupIPC(): void {
             if (!id) return null;
             const nameRaw = String(row.name || '').trim();
             const isFav = favoriteIds.has(id.toLowerCase());
+            
+            // Check for tool support - agent depends on tools!
+            const supportedParams = Array.isArray(row.supported_parameters) ? (row.supported_parameters as string[]) : [];
+            const supportsTools = supportedParams.includes('tools');
+            
+            // Filter out models that don't support tools, unless they are already favorites.
+            if (!supportsTools && !isFav) return null;
+
             const promptPrice = Number((row as { pricing?: { prompt?: string | number } }).pricing?.prompt);
             const completionPrice = Number((row as { pricing?: { completion?: string | number } }).pricing?.completion);
             const isFree = Number.isFinite(promptPrice)
@@ -2649,10 +2950,13 @@ function setupIPC(): void {
               && promptPrice === 0
               && completionPrice === 0;
 
+            const contextLength = Number(row.context_length);
+            const contextStr = contextLength >= 1024 ? ` (${Math.round(contextLength / 1024)}k)` : '';
+
             const name = nameRaw && nameRaw.toLowerCase() !== id.toLowerCase() ? nameRaw : id;
             return {
               id,
-              name: `${name}${isFree ? ' [free]' : ''}`,
+              name: `${name}${contextStr}${isFree ? ' [free]' : ''}`,
               provider: isFav ? 'openrouter_fav' : 'openrouter',
             };
           })
@@ -2709,6 +3013,16 @@ function setupIPC(): void {
       models.push(
         { id: 'MiniMax-M2.5', name: 'MiniMax M2.5', provider: 'minimax' },
         { id: 'MiniMax-M2.5-Lightning', name: 'M2.5 Lightning', provider: 'minimax' }
+      );
+    }
+
+    // Check for Gemini key (direct API, not OpenRouter)
+    const hasGeminiKey = SettingsManager.get('gemini.apiKey');
+    if (hasGeminiKey) {
+      models.push(
+        { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini' },
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'gemini' },
+        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', provider: 'gemini' }
       );
     }
 
@@ -4238,6 +4552,35 @@ async function restartAgent(): Promise<void> {
   await initializeAgent();
 }
 
+async function recoverAndRetryInterruptedLinkedInDrafts(trigger: 'restart' | 'wake' = 'restart'): Promise<void> {
+  try {
+    const { recoverInterruptedDrafts, draftBatch, isDraftJobRunning } = await import('../tools/linkedin-drafter');
+    if (isDraftJobRunning()) return;
+
+    const recovered = recoverInterruptedDrafts(trigger);
+    if (recovered.recoveredCount <= 0 || recovered.recoveredPostIds.length === 0) return;
+
+    const sourceLabel = trigger === 'wake' ? 'after wake' : 'after restart';
+    notifyTelegram(`LinkedIn: Recovered ${recovered.recoveredCount} interrupted drafts ${sourceLabel}. Auto-retrying now.`).catch(() => {});
+
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await draftBatch(recovered.recoveredPostIds, 1);
+          if (result.errors.length > 0) {
+            notifyTelegram(`LinkedIn: Auto-retry completed with ${result.errors.length} issue(s). Check LinkedIn Activity status badges.`).catch(() => {});
+          }
+        } catch (err) {
+          console.warn('[LinkedIn] Auto-retry of recovered drafts failed:', err);
+          notifyTelegram('LinkedIn: Auto-retry of recovered drafts failed. Please check LinkedIn Activity.').catch(() => {});
+        }
+      })();
+    }, 2500);
+  } catch (err) {
+    console.warn('[LinkedIn] Draft recovery check failed:', err);
+  }
+}
+
 // ============ App Lifecycle ============
 
 app.whenReady().then(async () => {
@@ -4432,6 +4775,7 @@ app.whenReady().then(async () => {
       if (startupRebalance.warning) {
         notifyTelegram(`LinkedIn warning: ${startupRebalance.warning}`).catch(() => {});
       }
+      void recoverAndRetryInterruptedLinkedInDrafts('restart');
       // Open chat window on launch so users see the app
       openChatWindow();
     }

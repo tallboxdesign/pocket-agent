@@ -152,25 +152,45 @@ function extractActivityId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-function hasPostedActivity(db: Database.Database, postUrl: string): boolean {
+function normalizeCommentFingerprint(raw: string): string {
+  return String(raw || '')
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hasPostedSameCommentOnUrl(db: Database.Database, postUrl: string, commentText: string): boolean {
+  const target = normalizeCommentFingerprint(commentText);
+  if (!target) return false;
   const activityId = extractActivityId(postUrl);
-  if (activityId) {
-    const row = db.prepare(
-      `SELECT 1 as ok
+  const rows = activityId
+    ? db.prepare(
+      `SELECT comment_text
        FROM linkedin_activity_log
        WHERE action = 'posted'
+         AND comment_text IS NOT NULL
          AND (post_url = ? OR post_url LIKE ?)
-       LIMIT 1`
-    ).get(postUrl, `%activity:${activityId}%`) as { ok: number } | undefined;
-    return !!row?.ok;
+       ORDER BY id DESC
+       LIMIT 30`
+    ).all(postUrl, `%activity:${activityId}%`) as Array<{ comment_text: string }>
+    : db.prepare(
+      `SELECT comment_text
+       FROM linkedin_activity_log
+       WHERE action = 'posted'
+         AND comment_text IS NOT NULL
+         AND post_url = ?
+       ORDER BY id DESC
+       LIMIT 30`
+    ).all(postUrl) as Array<{ comment_text: string }>;
+
+  for (const row of rows) {
+    if (normalizeCommentFingerprint(String(row.comment_text || '')) === target) {
+      return true;
+    }
   }
-  const row = db.prepare(
-    `SELECT 1 as ok
-     FROM linkedin_activity_log
-     WHERE action = 'posted' AND post_url = ?
-     LIMIT 1`
-  ).get(postUrl) as { ok: number } | undefined;
-  return !!row?.ok;
+  return false;
 }
 
 function hasRecentAttemptGuard(db: Database.Database, postUrl: string): boolean {
@@ -199,6 +219,27 @@ function hasRecentAttemptGuard(db: Database.Database, postUrl: string): boolean 
   const ts = parseDbDateTime(row.created_at);
   if (!Number.isFinite(ts)) return true;
   return (Date.now() - ts) < ATTEMPT_GUARD_HOURS * 60 * 60 * 1000;
+}
+
+function getRetryScheduledCount(db: Database.Database, postUrl: string): number {
+  const activityId = extractActivityId(postUrl);
+  if (activityId) {
+    const row = db.prepare(
+      `SELECT COUNT(*) as c
+       FROM linkedin_activity_log
+       WHERE action = 'retry_scheduled'
+         AND (post_url = ? OR post_url LIKE ?)`
+    ).get(postUrl, `%activity:${activityId}%`) as { c: number } | undefined;
+    return Number(row?.c || 0);
+  }
+
+  const row = db.prepare(
+    `SELECT COUNT(*) as c
+     FROM linkedin_activity_log
+     WHERE action = 'retry_scheduled'
+       AND post_url = ?`
+  ).get(postUrl) as { c: number } | undefined;
+  return Number(row?.c || 0);
 }
 
 type PostingWindows = {
@@ -242,6 +283,55 @@ function alignToPostingWindowMs(tsMs: number, windows: PostingWindows): number |
     if (isWithinPostingWindowMs(candidate, windows)) return candidate;
   }
   return null;
+}
+
+function delayDuePostsForCooldown(
+  db: Database.Database,
+  windows: PostingWindows,
+  cooldownUntilMs: number,
+  dailyLimit: number,
+  todayCount: number,
+): number {
+  const priorityOrder = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
+  const due = db.prepare(
+    `SELECT id, post_url
+     FROM linkedin_posts
+     WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL
+       AND scheduled_at IS NOT NULL AND datetime(scheduled_at) <= datetime('now')
+       AND hidden = 0
+     ORDER BY ${priorityOrder}, scheduled_at ASC`
+  ).all() as Array<{ id: number; post_url: string }>;
+
+  if (due.length === 0) return 0;
+
+  const update = db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?');
+  const log = db.prepare(
+    `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+     VALUES (?, ?, 'delayed', ?, ?, ?)`
+  );
+
+  const spacingMs = getBaseCommentDelayMs();
+  let cursorMs = Math.max(cooldownUntilMs, Date.now() + 30_000);
+  let shifted = 0;
+  const cooldownLabel = toDbDateTime(cooldownUntilMs);
+
+  const tx = db.transaction(() => {
+    for (const row of due) {
+      const normalizedUrl = normalizeLinkedInPostUrl(row.post_url);
+      const aligned = alignToPostingWindowMs(cursorMs, windows);
+      if (aligned === null) break;
+
+      update.run(toDbDateTime(aligned), row.id);
+      log.run(row.id, normalizedUrl, `cooldown_until_${cooldownLabel}`, dailyLimit, todayCount);
+      shifted++;
+
+      const nextCursor = alignToPostingWindowMs(aligned + spacingMs, windows);
+      cursorMs = nextCursor ?? (aligned + spacingMs);
+    }
+  });
+  tx();
+
+  return shifted;
 }
 
 export interface RebalanceScheduleResult {
@@ -471,40 +561,15 @@ export async function checkAndPostNext(): Promise<void> {
     if (lastPostedAt > 0) {
       const elapsed = Date.now() - lastPostedAt;
       const requiredDelay = Math.max(getCommentDelayMs(), window.intervalMs);
-      if (elapsed < requiredDelay) return;
-    }
-
-    // Safety quarantine: posts with repeated timeout retries are treated as uncertain.
-    // We stop auto-posting them until manually verified.
-    const retryStorm = db.prepare(
-      `SELECT p.id, p.post_url, p.author, COUNT(al.id) as retry_count
-       FROM linkedin_posts p
-       JOIN linkedin_activity_log al ON al.post_id = p.id
-       WHERE p.approved = 1
-         AND p.commented = 0
-         AND p.comment_draft IS NOT NULL
-         AND p.scheduled_at IS NOT NULL
-         AND p.hidden = 0
-         AND al.action = 'retry_scheduled'
-         AND al.created_at >= datetime('now', '-2 days')
-       GROUP BY p.id
-       HAVING retry_count >= 3`
-    ).all() as Array<{ id: number; post_url: string; author: string; retry_count: number }>;
-    if (retryStorm.length > 0) {
-      const markStorm = db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?');
-      const logStorm = db.prepare(
-        `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
-         VALUES (?, ?, 'verify_needed', ?, ?, ?)`
-      );
-      const tx = db.transaction(() => {
-        for (const item of retryStorm) {
-          const url = normalizeLinkedInPostUrl(item.post_url);
-          markStorm.run(item.id);
-          logStorm.run(item.id, url, `retry_storm_${item.retry_count}`, dailyLimit, todayCount);
+      if (elapsed < requiredDelay) {
+        const cooldownUntilMs = lastPostedAt + requiredDelay;
+        const windows = getPostingWindows();
+        const shifted = delayDuePostsForCooldown(db, windows, cooldownUntilMs, dailyLimit, todayCount);
+        if (shifted > 0) {
+          console.log(`[AutoPoster] Cooldown active, delayed ${shifted} due post(s) until ${toDbDateTime(cooldownUntilMs)}`);
         }
-      });
-      tx();
-      await notifyTelegram(`LinkedIn: Quarantined ${retryStorm.length} repeatedly timed-out posts for manual verification.`);
+        return;
+      }
     }
 
     // Find next eligible post
@@ -526,21 +591,29 @@ export async function checkAndPostNext(): Promise<void> {
       const postUrl = normalizeLinkedInPostUrl(post.post_url);
       if (!postUrl) continue;
 
-      // URL-level duplicate guard across legacy duplicate rows / failed previous updates.
-      // If we ever posted this URL before, mark all matching rows as commented and skip.
-      if (hasPostedActivity(db, postUrl)) {
-        const activityId = extractActivityId(postUrl);
-        if (activityId) {
-          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ? OR post_url LIKE ?')
-            .run(postUrl, `%activity:${activityId}%`);
-        } else {
-          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(postUrl);
-        }
+      // Legacy safety guard: old retry-storm history means uncertain outcome.
+      // Do not auto-post this URL again without manual verification.
+      const retryHistoryCount = getRetryScheduledCount(db, postUrl);
+      if (retryHistoryCount >= 3) {
+        db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?').run(post.id);
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
-           VALUES (?, ?, 'skipped', 'duplicate_post_guard', ?, ?)`
+           VALUES (?, ?, 'verify_needed', ?, ?, ?)`
+        ).run(post.id, postUrl, `retry_storm_history_${retryHistoryCount}`, dailyLimit, todayCount);
+        await notifyTelegram(`LinkedIn: Blocked auto-post on ${post.author}'s post due to retry-storm history (${retryHistoryCount}). Verify manually before retrying.`);
+        continue;
+      }
+
+      // Duplicate guard: allow multiple comments on the same URL, but never repost
+      // the exact same comment text on that URL.
+      if (hasPostedSameCommentOnUrl(db, postUrl, post.comment_draft)) {
+        db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?').run(post.id);
+        db.prepare(
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+           VALUES (?, ?, 'verify_needed', 'duplicate_same_comment_url', ?, ?)`
         ).run(post.id, postUrl, dailyLimit, todayCount);
-        console.log(`[AutoPoster] Duplicate guard skipped already-posted URL: ${postUrl}`);
+        await notifyTelegram(`LinkedIn: Skipped duplicate comment on ${post.author}'s post (same URL + same text). Draft a follow-up narrative, then approve/schedule again.`);
+        console.log(`[AutoPoster] Blocked duplicate same-comment repost on URL: ${postUrl}`);
         continue;
       }
 
@@ -610,13 +683,7 @@ export async function checkAndPostNext(): Promise<void> {
       }
 
       if (posted) {
-        const activityId = extractActivityId(postUrl);
-        if (activityId) {
-          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ? OR post_url LIKE ?')
-            .run(postUrl, `%activity:${activityId}%`);
-        } else {
-          db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE post_url = ?').run(postUrl);
-        }
+        db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
 
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text, daily_limit, daily_count)

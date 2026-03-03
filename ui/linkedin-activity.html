@@ -353,9 +353,30 @@
     .col-priority { width: 70px; text-align: center; }
     .col-author { width: 130px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .col-preview { color: var(--text-secondary); line-height: 1.4; word-break: break-word; }
+    .post-preview-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .post-preview-text.full {
+      max-height: 220px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .preview-tools {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .preview-meta {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
     .col-stats { width: 38px; text-align: center; color: var(--text-muted); font-size: 12px; }
-    .col-type { width: 55px; }
-    .col-status { width: 100px; text-align: center; }
+    .col-type { width: 150px; }
+    .col-status { width: 130px; text-align: center; }
+    .col-scheduled { width: 84px; text-align: center; color: var(--text-secondary); font-size: 12px; }
     .col-actions { width: 80px; text-align: center; }
 
     .status-badges {
@@ -372,6 +393,12 @@
       border-radius: 6px;
       font-size: 11px;
       font-weight: 600;
+      max-width: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      line-height: 1.2;
+      text-align: center;
     }
 
     .badge-commented {
@@ -802,6 +829,18 @@
     .action-group .action-btn { border: none; background: transparent; }
     .action-group .action-btn:hover { background: rgba(34, 197, 94, 0.15); }
 
+    .action-group.model-group {
+      background: rgba(96, 165, 250, 0.08);
+      border-color: rgba(96, 165, 250, 0.26);
+    }
+    .action-group.model-group .action-btn:hover {
+      background: rgba(96, 165, 250, 0.18);
+    }
+    #draft-model {
+      min-width: 210px;
+      max-width: 320px;
+    }
+
     .action-bar .divider {
       width: 1px;
       height: 24px;
@@ -961,6 +1000,7 @@
       <button class="li-settings-btn" id="li-settings-btn" onclick="toggleQuickSettings()" title="LinkedIn quick settings for draft/research controls">LinkedIn Settings</button>
       <button onclick="playNormalClick(); shiftDate(-1)" title="Previous day" style="padding:4px 8px;font-size:14px;min-width:28px">◀</button>
       <input type="date" id="date-picker" />
+      <button onclick="playNormalClick(); jumpToToday()" title="Jump to today" style="padding:4px 8px;font-size:12px;min-width:52px">Today</button>
       <button onclick="playNormalClick(); shiftDate(1)" title="Next day" style="padding:4px 8px;font-size:14px;min-width:28px">▶</button>
       <button onclick="playNormalClick(); loadPosts()">Refresh</button>
       <button onclick="playNormalClick(); window.close()">Done</button>
@@ -1001,15 +1041,48 @@
             <input type="number" id="qs-research-queries" min="1" max="4" step="1" title="2 is usually balanced">
           </div>
           <div class="li-quick-field span-2">
-            <label title="Fallback model when primary run fails or times out.">Fallback Model</label>
-            <select id="qs-fallback-model" title="Fallback model when primary fails or times out">
+            <label title="First fallback model when primary run fails or times out (recommended: authenticated Claude).">Fallback #1</label>
+            <select id="qs-fallback-model" title="First fallback model">
               <option value="">None (no fallback)</option>
               <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
               <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
+              <option value="gpt-4.1">gpt-4.1 (OpenAI API)</option>
+              <option value="gpt-4.1-mini">gpt-4.1-mini (OpenAI API)</option>
               <option value="kimi-k2.5">kimi-k2.5</option>
               <option value="glm-5">glm-5</option>
               <option value="MiniMax-M2.5">MiniMax-M2.5</option>
               <option value="MiniMax-M2.5-Lightning">MiniMax-M2.5-Lightning</option>
+              <option value="qwen3.5-plus-2026-02-15">qwen3.5-plus-2026-02-15</option>
+            </select>
+          </div>
+          <div class="li-quick-field span-2">
+            <label title="Second fallback model (recommended: Claude via subscription auth).">Fallback #2</label>
+            <select id="qs-fallback-model-2" title="Second fallback model">
+              <option value="">None</option>
+              <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+              <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
+              <option value="gpt-4.1">gpt-4.1 (OpenAI API)</option>
+              <option value="gpt-4.1-mini">gpt-4.1-mini (OpenAI API)</option>
+              <option value="kimi-k2.5">kimi-k2.5</option>
+              <option value="glm-5">glm-5</option>
+              <option value="MiniMax-M2.5">MiniMax-M2.5</option>
+              <option value="MiniMax-M2.5-Lightning">MiniMax-M2.5-Lightning</option>
+              <option value="qwen3.5-plus-2026-02-15">qwen3.5-plus-2026-02-15</option>
+            </select>
+          </div>
+          <div class="li-quick-field span-2">
+            <label title="Third fallback model (optional).">Fallback #3</label>
+            <select id="qs-fallback-model-3" title="Third fallback model">
+              <option value="">None</option>
+              <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+              <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
+              <option value="gpt-4.1">gpt-4.1 (OpenAI API)</option>
+              <option value="gpt-4.1-mini">gpt-4.1-mini (OpenAI API)</option>
+              <option value="kimi-k2.5">kimi-k2.5</option>
+              <option value="glm-5">glm-5</option>
+              <option value="MiniMax-M2.5">MiniMax-M2.5</option>
+              <option value="MiniMax-M2.5-Lightning">MiniMax-M2.5-Lightning</option>
+              <option value="qwen3.5-plus-2026-02-15">qwen3.5-plus-2026-02-15</option>
             </select>
           </div>
         </div>
@@ -1128,6 +1201,15 @@
         <option value="deep">Deep</option>
       </select>
     </div>
+    <div class="action-group model-group">
+      <button class="action-btn" onclick="saveDraftModel()" title="Save model used for LinkedIn drafting only">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 4.5v9L12 21l-9-4.5v-9L12 3z"/><path d="M12 3v18"/></svg>
+        Model
+      </button>
+      <select id="draft-model" title="LinkedIn drafting model (separate from chat)">
+        <option value="">Use chat model</option>
+      </select>
+    </div>
     <div class="divider"></div>
     <button class="action-btn" onclick="fullPipeline()" title="Scrape, draft, and schedule comments with delays" style="background:rgba(245,158,11,0.12);color:#fbbf24;border-color:rgba(245,158,11,0.25);">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -1175,8 +1257,30 @@
       <option value="technical">Technical</option>
       <option value="news">News</option>
       <option value="personal-story">Personal Story</option>
+      <option value="event">Event</option>
+      <option value="job-posting">Job Posting</option>
       <option value="question">Question</option>
       <option value="promotional">Promotional</option>
+      <option value="other">Other</option>
+    </select>
+    <select id="filter-intent" onchange="loadPosts()" title="Classify post by information intent">
+      <option value="">All Intent</option>
+      <option value="educational">Educational</option>
+      <option value="mixed">Mixed</option>
+      <option value="promotional">Promotional</option>
+    </select>
+    <select id="filter-relationship" onchange="loadPosts()" title="How often you comment on this author">
+      <option value="">All Authors</option>
+      <option value="new">New</option>
+      <option value="casual">Casual</option>
+      <option value="familiar">Familiar</option>
+      <option value="frequent">Frequent</option>
+      <option value="core">Core</option>
+    </select>
+    <select id="preview-mode" onchange="changePreviewMode()" title="Switch post preview style">
+      <option value="summary">Summary (2 lines)</option>
+      <option value="full">Full post</option>
+      <option value="snippet">Feed snippet</option>
     </select>
     <input id="filter-author" placeholder="Filter author..." oninput="loadPosts()" style="width:140px">
     <span id="filter-count"></span>
@@ -1184,6 +1288,7 @@
 
   <div id="view-tabs" style="display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);">
     <button class="action-btn" id="tab-queue" onclick="setActivePanel('queue')" title="Drafting and approval queue" style="min-width:90px">Queue</button>
+    <button class="action-btn" id="tab-drafted" onclick="setActivePanel('drafted')" title="Drafted but not yet approved" style="min-width:90px">Drafted</button>
     <button class="action-btn" id="tab-attention" onclick="setActivePanel('attention')" title="Approved but unscheduled, or failed publish attempts" style="min-width:150px">Needs Attention</button>
     <button class="action-btn" id="tab-failed" onclick="setActivePanel('failed')" title="Posts with recorded errors" style="min-width:80px">Failed</button>
     <button class="action-btn" id="tab-published" onclick="setActivePanel('published')" title="Already published comments" style="min-width:110px">Published</button>
@@ -1241,9 +1346,18 @@
     const datePicker = document.getElementById('date-picker');
     const quickSettingsEl = document.getElementById('li-quick-settings');
     const quickSettingsBtn = document.getElementById('li-settings-btn');
+    const previewModeSelect = document.getElementById('preview-mode');
+    let previewMode = 'summary';
+    const storedPreviewMode = localStorage.getItem('linkedin-preview-mode');
+    if (storedPreviewMode === 'snippet' || storedPreviewMode === 'summary' || storedPreviewMode === 'full') {
+      previewMode = storedPreviewMode;
+    }
+    if (previewModeSelect) previewModeSelect.value = previewMode;
     const today = new Date();
     datePicker.value = today.toISOString().split('T')[0];
-    datePicker.addEventListener('change', () => loadPosts());
+    datePicker.addEventListener('change', () => {
+      loadPosts();
+    });
 
     function shiftDate(delta) {
       const current = new Date(datePicker.value + 'T00:00:00');
@@ -1252,14 +1366,25 @@
       loadPosts();
     }
 
+    function jumpToToday() {
+      const now = new Date();
+      datePicker.value = now.toISOString().split('T')[0];
+      loadPosts();
+    }
+
     const draftModeSelect = document.getElementById('draft-mode');
+    const draftModelSelect = document.getElementById('draft-model');
     if (draftModeSelect) {
       draftModeSelect.addEventListener('change', () => { saveDraftMode(true); });
+    }
+    if (draftModelSelect) {
+      draftModelSelect.addEventListener('change', () => { saveDraftModel(true); });
     }
 
     const PRIORITY_ORDER = ['low', 'normal', 'high', 'urgent'];
     const approvedIds = new Set();
     const rejectedIds = new Set();
+    const fullPostLoadInFlight = new Set();
 
     // Selection management
     let selectedIds = new Set();
@@ -1267,7 +1392,7 @@
     let activePanel = 'queue';
 
     function refreshPanelTabs() {
-      ['queue', 'attention', 'failed', 'published', 'all'].forEach(name => {
+      ['queue', 'drafted', 'attention', 'failed', 'published', 'all'].forEach(name => {
         const btn = document.getElementById(`tab-${name}`);
         if (!btn) return;
         btn.classList.toggle('panel-tab-active', activePanel === name);
@@ -1308,6 +1433,140 @@
     function truncate(text, max) {
       if (!text) return '';
       return text.length > max ? text.slice(0, max) + '...' : text;
+    }
+
+    function changePreviewMode() {
+      const next = getInputValue('preview-mode');
+      if (next !== 'snippet' && next !== 'summary' && next !== 'full') return;
+      previewMode = next;
+      localStorage.setItem('linkedin-preview-mode', previewMode);
+      loadPosts();
+    }
+
+    function normalizePreviewText(raw) {
+      return String(raw || '')
+        .replace(/\r/g, '\n')
+        .replace(/\u00a0/g, ' ')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
+    function buildTwoSentenceSummary(raw) {
+      const text = normalizePreviewText(raw);
+      if (!text) return '';
+      const flat = text.replace(/\s+/g, ' ').trim();
+      const sentences = flat
+        .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      const picked = [];
+      for (const sentence of sentences) {
+        if ((sentence.split(/\s+/).length || 0) < 5) continue;
+        picked.push(sentence);
+        if (picked.length >= 2) break;
+      }
+      if (picked.length >= 2) return picked.join(' ');
+      if (picked.length === 1) {
+        const words = flat.split(/\s+/);
+        const firstCount = picked[0].split(/\s+/).length;
+        const tail = words.slice(firstCount, firstCount + 18).join(' ');
+        if (!tail) return picked[0];
+        return `${picked[0]} ${words.length > firstCount + 18 ? `${tail}...` : tail}`;
+      }
+      const words = flat.split(/\s+/);
+      return words.slice(0, 32).join(' ') + (words.length > 32 ? '...' : '');
+    }
+
+    function getPostSummary(post) {
+      const dbSummary = normalizePreviewText(post.full_post_summary || post.evidence_post_summary || '');
+      if (dbSummary) return dbSummary;
+      const base = normalizePreviewText(post.full_post_text || post.text_preview || '');
+      return buildTwoSentenceSummary(base);
+    }
+
+    function getPostFullText(post) {
+      return normalizePreviewText(post.full_post_text || '');
+    }
+
+    function getDisplayPreviewText(post) {
+      if (previewMode === 'snippet') {
+        return normalizePreviewText(post.text_preview || '');
+      }
+      if (previewMode === 'full') {
+        return getPostFullText(post) || getPostSummary(post);
+      }
+      return getPostSummary(post);
+    }
+
+    function normalizePostType(raw) {
+      const v = String(raw || '').trim().toLowerCase().replace(/[_\s]+/g, '-');
+      if (!v) return '';
+      if (v === 'promotion' || v === 'promo') return 'promotional';
+      if (v === 'jobposting') return 'job-posting';
+      if (v === 'thoughtleadership') return 'thought-leadership';
+      if (v === 'personalstory') return 'personal-story';
+      if (v === 'summit' || v === 'conference' || v === 'webinar') return 'event';
+      return v;
+    }
+
+    function postTypeLabel(key) {
+      const k = normalizePostType(key);
+      if (k === 'thought-leadership') return 'Thought Leadership';
+      if (k === 'technical') return 'Technical';
+      if (k === 'news') return 'News';
+      if (k === 'personal-story') return 'Personal Story';
+      if (k === 'event') return 'Event';
+      if (k === 'job-posting') return 'Job Posting';
+      if (k === 'question') return 'Question';
+      if (k === 'promotional') return 'Promotional';
+      if (k === 'other') return 'Other';
+      return k ? k.replace(/-/g, ' ') : '';
+    }
+
+    function getContentIntentKey(post) {
+      const evidenceIntent = String(post?.evidence_post_intent || '').trim().toLowerCase();
+      if (evidenceIntent === 'educational' || evidenceIntent === 'promotional' || evidenceIntent === 'mixed') {
+        return evidenceIntent;
+      }
+      const type = normalizePostType(post?.post_type);
+      if (type === 'promotional' || type === 'job-posting' || type === 'event') return 'promotional';
+      if (type === 'technical' || type === 'thought-leadership' || type === 'news' || type === 'personal-story') return 'educational';
+      return 'mixed';
+    }
+
+    function getContentIntentLabel(key) {
+      if (key === 'educational') return 'Educational';
+      if (key === 'promotional') return 'Promotional';
+      return 'Mixed';
+    }
+
+    function getAuthorRelationship(post) {
+      const total = Number(post?.author_total_comments || 0);
+      const weekly = Number(post?.author_weekly_comments || 0);
+      if (total <= 0) {
+        return { key: 'new', label: 'New', title: 'No comments posted yet to this author', style: 'background:rgba(107,114,128,0.12);color:#9ca3af;border-color:rgba(107,114,128,0.25)' };
+      }
+      if (total >= 12 || weekly >= 4) {
+        return { key: 'core', label: `Core (${total})`, title: 'Very frequent engagement with this author', style: 'background:rgba(34,197,94,0.18);color:#4ade80;border-color:rgba(34,197,94,0.35)' };
+      }
+      if (total >= 7 || weekly >= 3) {
+        return { key: 'frequent', label: `Frequent (${total})`, title: 'Frequent engagement with this author', style: 'background:rgba(16,185,129,0.16);color:#6ee7b7;border-color:rgba(16,185,129,0.3)' };
+      }
+      if (total >= 3 || weekly >= 2) {
+        return { key: 'familiar', label: `Familiar (${total})`, title: 'Recurring engagement with this author', style: 'background:rgba(59,130,246,0.14);color:#93c5fd;border-color:rgba(59,130,246,0.3)' };
+      }
+      return { key: 'casual', label: `Casual (${total})`, title: 'Occasional engagement with this author', style: 'background:rgba(245,158,11,0.12);color:#fbbf24;border-color:rgba(245,158,11,0.25)' };
+    }
+
+    function contentIntentBadge(intentKey) {
+      const key = String(intentKey || 'mixed');
+      const style = key === 'promotional'
+        ? 'background:rgba(239,68,68,0.12);color:#fca5a5;border-color:rgba(239,68,68,0.28)'
+        : key === 'educational'
+          ? 'background:rgba(34,197,94,0.12);color:#86efac;border-color:rgba(34,197,94,0.28)'
+          : 'background:rgba(59,130,246,0.12);color:#93c5fd;border-color:rgba(59,130,246,0.28)';
+      return `<span class="badge" style="${style}" title="Content intent">${escapeHtml(getContentIntentLabel(key))}</span>`;
     }
 
     function toggleDraft(id, toggleEl) {
@@ -1380,6 +1639,24 @@
       return (mode === 'fast' || mode === 'deep' || mode === 'balanced') ? mode : 'balanced';
     }
 
+    function providerLabel(provider) {
+      const key = String(provider || '').toLowerCase();
+      if (key === 'anthropic') return 'Claude';
+      if (key === 'moonshot') return 'Kimi';
+      if (key === 'glm') return 'GLM';
+      if (key === 'minimax') return 'MiniMax';
+      if (key === 'gemini') return 'Gemini';
+      if (key === 'qwen') return 'Qwen';
+      if (key === 'openrouter' || key === 'openrouter_fav') return 'OpenRouter';
+      return String(provider || 'Model');
+    }
+
+    function formatModelOptionName(model) {
+      const provider = providerLabel(model.provider);
+      const name = String(model.name || model.id || '').trim();
+      return `[${provider}] ${name || model.id}`;
+    }
+
     function clampInt(value, fallback, min, max) {
       const parsed = Number.parseInt(String(value || ''), 10);
       if (!Number.isFinite(parsed)) return fallback;
@@ -1419,6 +1696,8 @@
           writeTurns,
           queries,
           fallbackModel,
+          fallbackModel2,
+          fallbackModel3,
           commentDelay,
           dailyMin,
           dailyMax,
@@ -1438,6 +1717,8 @@
           window.pocketAgent.getSetting('linkedin.writeMaxTurns'),
           window.pocketAgent.getSetting('linkedin.researchMaxQueries'),
           window.pocketAgent.getSetting('linkedin.researchFallbackModel'),
+          window.pocketAgent.getSetting('linkedin.researchFallbackModel2'),
+          window.pocketAgent.getSetting('linkedin.researchFallbackModel3'),
           window.pocketAgent.getSetting('linkedin.commentDelay'),
           window.pocketAgent.getSetting('linkedin.dailyLimitMin'),
           window.pocketAgent.getSetting('linkedin.dailyLimitMax'),
@@ -1458,7 +1739,9 @@
         setInputValue('qs-research-turns', String(clampInt(researchTurns || '5', 5, 2, 10)));
         setInputValue('qs-write-turns', String(clampInt(writeTurns || '4', 4, 2, 10)));
         setInputValue('qs-research-queries', String(clampInt(queries || '2', 2, 1, 4)));
-        setInputValue('qs-fallback-model', String(fallbackModel || 'kimi-k2.5'));
+        setInputValue('qs-fallback-model', String(fallbackModel || 'claude-sonnet-4-6'));
+        setInputValue('qs-fallback-model-2', String(fallbackModel2 || 'gpt-4.1'));
+        setInputValue('qs-fallback-model-3', String(fallbackModel3 || ''));
         setInputValue('qs-comment-delay', String(clampFloat(commentDelay || '3', 3, 1, 15)));
         setInputValue('qs-daily-min', String(clampInt(dailyMin || '8', 8, 1, 50)));
         setInputValue('qs-daily-max', String(clampInt(dailyMax || '18', 18, 1, 50)));
@@ -1485,6 +1768,8 @@
         const writeTurns = String(clampInt(getInputValue('qs-write-turns'), 4, 2, 10));
         const queries = String(clampInt(getInputValue('qs-research-queries'), 2, 1, 4));
         const fallbackModel = getInputValue('qs-fallback-model');
+        const fallbackModel2 = getInputValue('qs-fallback-model-2');
+        const fallbackModel3 = getInputValue('qs-fallback-model-3');
         const commentDelay = String(clampFloat(getInputValue('qs-comment-delay'), 3, 1, 15));
         const dailyMin = String(clampInt(getInputValue('qs-daily-min'), 8, 1, 50));
         const dailyMax = String(clampInt(getInputValue('qs-daily-max'), 18, 1, 50));
@@ -1505,6 +1790,8 @@
           window.pocketAgent.setSetting('linkedin.writeMaxTurns', writeTurns),
           window.pocketAgent.setSetting('linkedin.researchMaxQueries', queries),
           window.pocketAgent.setSetting('linkedin.researchFallbackModel', fallbackModel),
+          window.pocketAgent.setSetting('linkedin.researchFallbackModel2', fallbackModel2),
+          window.pocketAgent.setSetting('linkedin.researchFallbackModel3', fallbackModel3),
           window.pocketAgent.setSetting('linkedin.commentDelay', commentDelay),
           window.pocketAgent.setSetting('linkedin.dailyLimitMin', dailyMin),
           window.pocketAgent.setSetting('linkedin.dailyLimitMax', dailyMax),
@@ -1524,6 +1811,9 @@
         setInputValue('qs-research-turns', researchTurns);
         setInputValue('qs-write-turns', writeTurns);
         setInputValue('qs-research-queries', queries);
+        setInputValue('qs-fallback-model', fallbackModel);
+        setInputValue('qs-fallback-model-2', fallbackModel2);
+        setInputValue('qs-fallback-model-3', fallbackModel3);
         setInputValue('qs-comment-delay', commentDelay);
         setInputValue('qs-daily-min', dailyMin);
         setInputValue('qs-daily-max', dailyMax);
@@ -1560,6 +1850,49 @@
       } catch {}
     }
 
+    async function loadDraftModelOptions() {
+      const el = document.getElementById('draft-model');
+      if (!el || !window.pocketAgent?.getAvailableModels || !window.pocketAgent?.getSetting) return;
+      try {
+        const [models, savedModel] = await Promise.all([
+          window.pocketAgent.getAvailableModels(),
+          window.pocketAgent.getSetting('linkedin.postModel'),
+        ]);
+
+        const providerOrder = ['anthropic', 'moonshot', 'glm', 'minimax', 'gemini', 'openai', 'qwen'];
+        const sortedModels = [...models]
+          .filter(m => !String(m.provider || '').toLowerCase().includes('openrouter'))
+          .sort((a, b) => {
+          const ai = providerOrder.indexOf(a.provider);
+          const bi = providerOrder.indexOf(b.provider);
+          if (ai !== bi) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+          return String(a.name || a.id).localeCompare(String(b.name || b.id));
+        });
+
+        el.innerHTML = '<option value="">Use chat model</option>';
+        for (const model of sortedModels) {
+          const opt = document.createElement('option');
+          opt.value = model.id;
+          opt.textContent = formatModelOptionName(model);
+          el.appendChild(opt);
+        }
+
+        if (savedModel && sortedModels.some(m => m.id === savedModel)) {
+          el.value = savedModel;
+        } else if (savedModel) {
+          const missing = document.createElement('option');
+          missing.value = savedModel;
+          missing.textContent = `[Unavailable] ${savedModel}`;
+          el.appendChild(missing);
+          el.value = savedModel;
+        } else {
+          el.value = '';
+        }
+      } catch (err) {
+        showToast(`Failed to load model list: ${shortError(err)}`, 'error');
+      }
+    }
+
     async function saveDraftMode(silent = false) {
       const mode = currentDraftMode();
       if (!window.pocketAgent?.setSetting) return mode;
@@ -1571,6 +1904,26 @@
         if (!silent) showToast(`Failed to save draft mode: ${shortError(err)}`, 'error');
       }
       return mode;
+    }
+
+    function currentDraftModel() {
+      const el = document.getElementById('draft-model');
+      return el ? String(el.value || '').trim() : '';
+    }
+
+    async function saveDraftModel(silent = false) {
+      const model = currentDraftModel();
+      if (!window.pocketAgent?.setSetting) return model;
+      try {
+        await window.pocketAgent.setSetting('linkedin.postModel', model);
+        if (!silent) {
+          const label = model ? `LinkedIn model saved: ${model}` : 'LinkedIn model saved: use chat model';
+          showToast(label, 'success');
+        }
+      } catch (err) {
+        if (!silent) showToast(`Failed to save LinkedIn model: ${shortError(err)}`, 'error');
+      }
+      return model;
     }
 
     // Draft state is now persisted in DB (draft_state column) — no transient JS tracking needed
@@ -1593,14 +1946,14 @@
         if (!next) continue;
         try {
           draftQueueStartedCount++;
-          for (const id of next.ids) locallyQueuedDraftPostIds.delete(id);
-          void loadPosts();
           const value = await runBatchDraftNow(next.ids, next.successLabel, next.failureLabel);
           next.resolve(value);
         } catch (err) {
           next.reject(err);
         } finally {
           draftQueueStartedCount = Math.max(0, draftQueueStartedCount - 1);
+          for (const id of next.ids) locallyQueuedDraftPostIds.delete(id);
+          void loadPosts();
         }
       }
       draftQueueProcessing = false;
@@ -1613,6 +1966,7 @@
       }
 
       const mode = await saveDraftMode(true);
+      await saveDraftModel(true);
       await loadPosts();
 
       let result;
@@ -1630,6 +1984,7 @@
       if (result.success) {
         const drafted = typeof result.drafted === 'number' ? result.drafted : 0;
         const failed = Array.isArray(result.errors) ? result.errors.length : 0;
+        await loadPosts();
         if (failed > 0) {
           showToast(`${successLabel} (${mode}): ${drafted} drafted, ${failed} failed`, failed === drafted ? 'error' : 'success');
         } else {
@@ -1649,10 +2004,10 @@
 
       return new Promise((resolve, reject) => {
         const queuedBehindActive = draftQueueProcessing || draftRequestQueue.length > 0 || draftQueueStartedCount > 0;
+        for (const id of cleanIds) locallyQueuedDraftPostIds.add(id);
+        void loadPosts();
         draftRequestQueue.push({ ids: cleanIds, successLabel, failureLabel, resolve, reject });
         if (queuedBehindActive) {
-          for (const id of cleanIds) locallyQueuedDraftPostIds.add(id);
-          void loadPosts();
           const count = cleanIds.length;
           showToast(`Queued ${count} post${count === 1 ? '' : 's'} for drafting`, 'success');
         }
@@ -1676,21 +2031,35 @@
     async function approveSelected() {
       const ids = getSelectedIds();
       if (ids.length === 0) return;
-      const delayStr = await window.pocketAgent.getSetting('linkedin.commentDelay') || '3';
-      const delayMin = Math.max(1, parseInt(delayStr, 10) || 3);
-      let cumulativeMs = 60000; // start 1 min from now
-      let scheduled = 0;
-      for (let i = 0; i < ids.length; i++) {
+      let ok = 0;
+      const failures = [];
+      let scheduleCursorMs = Date.now() + (45 * 60 * 1000);
+      for (const id of ids) {
         try {
-          if (i > 0) cumulativeMs += jitterMs(delayMin);
-          await window.pocketAgent.approveLinkedInDraft(ids[i]);
-          const dt = new Date(Date.now() + cumulativeMs);
-          const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
-          await window.pocketAgent.scheduleLinkedInPost(ids[i], iso);
-          scheduled++;
-        } catch {}
+          const approve = await window.pocketAgent.approveLinkedInDraft(id);
+          if (!approve?.success) {
+            failures.push(`#${id}: ${shortError(approve?.error || 'Approve failed')}`);
+            continue;
+          }
+          const randomOffsetMin = 45 + Math.floor(Math.random() * 91); // 45-135m
+          scheduleCursorMs = Math.max(scheduleCursorMs + jitterMs(2), Date.now() + randomOffsetMin * 60 * 1000);
+          const iso = new Date(scheduleCursorMs).toISOString().replace('T', ' ').slice(0, 19);
+          const scheduleResult = await window.pocketAgent.scheduleLinkedInPost(id, iso);
+          if (!scheduleResult?.success) {
+            failures.push(`#${id}: ${shortError(scheduleResult?.error || 'Schedule failed')}`);
+            continue;
+          }
+          ok++;
+        } catch (err) {
+          failures.push(`#${id}: ${shortError(err)}`);
+        }
       }
-      showToast(`Approved and scheduled ${scheduled} drafts (~${delayMin}min apart)`, 'success');
+      if (ok > 0) {
+        showToast(`Approved and auto-scheduled ${ok} post${ok === 1 ? '' : 's'} in the next ~1-3 hours`, 'success');
+      }
+      if (failures.length > 0) {
+        showToast(`Approve selected: ${failures[0]}${failures.length > 1 ? ` (+${failures.length - 1} more)` : ''}`, 'error');
+      }
       clearSelection();
       loadPosts();
     }
@@ -1847,6 +2216,11 @@
     function showSchedulePicker(postId) {
       const host = document.getElementById('draft-extra-' + postId);
       if (!host) return;
+      const draftEl = document.getElementById('draft-' + postId);
+      if (draftEl && !draftEl.classList.contains('expanded')) {
+        draftEl.classList.add('expanded');
+        expandedDraftId = postId;
+      }
       const existing = host.querySelector('.schedule-picker');
       if (existing) { existing.remove(); return; }
       const existingFeedback = host.querySelector('.feedback-input');
@@ -1856,7 +2230,7 @@
       wrapper.style.marginTop = '6px';
       wrapper.innerHTML = `<input type="datetime-local" id="sched-${postId}" />
         <div class="draft-actions" style="margin-top:4px">
-          <button class="btn-schedule" onclick="confirmSchedule(${postId})">Schedule</button>
+          <button class="btn-schedule" onclick="confirmSchedule(${postId})">Confirm Schedule</button>
           <button onclick="this.closest('.schedule-picker').remove()">Cancel</button>
         </div>`;
       host.appendChild(wrapper);
@@ -1864,24 +2238,52 @@
       const now = new Date();
       now.setHours(now.getHours() + 1, 0, 0, 0);
       const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-      document.getElementById('sched-' + postId).value = local;
+      const input = document.getElementById('sched-' + postId);
+      if (input) {
+        input.value = local;
+        const min = new Date(Date.now() + 60000);
+        input.min = new Date(min.getTime() - min.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      }
     }
 
     async function confirmSchedule(postId) {
       const input = document.getElementById('sched-' + postId);
-      if (!input || !input.value) return;
+      if (!input || !input.value) {
+        showToast('Pick a date and time first', 'error');
+        return;
+      }
       // Convert local datetime to ISO/UTC
       const dt = new Date(input.value);
+      if (!Number.isFinite(dt.getTime())) {
+        showToast('Invalid schedule time', 'error');
+        return;
+      }
       const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
       try {
+        const post = currentPosts.find(p => p.id === postId);
+        if (!post) {
+          showToast('Post not found', 'error');
+          return;
+        }
+        if (!post.approved) {
+          const approve = await window.pocketAgent.approveLinkedInDraft(postId);
+          if (!approve?.success) {
+            showToast(`Approve failed: ${shortError(approve?.error || 'Unknown error')}`, 'error');
+            return;
+          }
+        }
         const result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        if (!result?.success) {
+          showToast(`Schedule failed: ${shortError(result?.error || 'Unknown error')}`, 'error');
+          return;
+        }
         if (result?.warning) showToast(result.warning, 'error');
         const finalAt = result?.scheduledAt || iso;
         const shifted = Number(result?.adjustedOthers || 0);
         showToast(`Comment scheduled (${formatShortDateTime(finalAt)})${shifted > 0 ? `, shifted ${shifted} nearby` : ''}`, 'success');
         loadPosts();
       } catch (err) {
-        showToast('Failed to schedule', 'error');
+        showToast(`Failed to schedule: ${shortError(err)}`, 'error');
       }
     }
 
@@ -1939,10 +2341,16 @@
           case 'comments': va = a.comments || 0; vb = b.comments || 0; break;
           case 'author': va = (a.author || '').toLowerCase(); vb = (b.author || '').toLowerCase(); break;
           case 'priority': va = PRIO_ORDER[a.priority] ?? 2; vb = PRIO_ORDER[b.priority] ?? 2; break;
-          case 'type': va = a.post_type || ''; vb = b.post_type || ''; break;
+          case 'type': va = normalizePostType(a.post_type); vb = normalizePostType(b.post_type); break;
           case 'status':
             va = isPublishedPost(a) ? 3 : a.approved ? 2 : a.comment_draft ? 1 : 0;
             vb = isPublishedPost(b) ? 3 : b.approved ? 2 : b.comment_draft ? 1 : 0;
+            break;
+          case 'scheduled':
+            va = parseUtcDateMs(a.scheduled_at);
+            vb = parseUtcDateMs(b.scheduled_at);
+            if (!Number.isFinite(va)) va = -1;
+            if (!Number.isFinite(vb)) vb = -1;
             break;
           default: return 0;
         }
@@ -1955,17 +2363,23 @@
       const status = getInputValue('filter-status');
       const priority = getInputValue('filter-priority');
       const type = getInputValue('filter-type');
+      const intent = getInputValue('filter-intent');
+      const relationship = getInputValue('filter-relationship');
       const author = getInputValue('filter-author').toLowerCase();
 
       return posts.filter(p => {
         const lastAction = String(p.last_activity_action || '').toLowerCase();
         const isPublished = isPublishedPost(p);
+        const isPostingNow = !isPublished && lastAction === 'posting_attempt' && !p.scheduled_at;
         const hasPostingFail = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
         const hasFailed = !isPublished && (Number(p.failed_attempts || 0) > 0 && !p.scheduled_at || hasPostingFail);
+        const isDraftedPanel = !isPublished && !!p.comment_draft && !p.approved && !approvedIds.has(p.id);
+        const isQueuePanel = !isPublished && !hasFailed && !isDraftedPanel;
         const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
-        const needsAttention = !!(p.approved && !isPublished && (!p.scheduled_at || hasFailed)) || recheckCandidate;
+        const needsAttention = (!!(p.approved && !isPublished && (!p.scheduled_at || hasFailed)) && !isPostingNow) || recheckCandidate;
 
-        if (activePanel === 'queue' && isPublished) return false;
+        if (activePanel === 'queue' && !isQueuePanel) return false;
+        if (activePanel === 'drafted' && !isDraftedPanel) return false;
         if (activePanel === 'published' && !isPublished) return false;
         if (activePanel === 'attention' && !needsAttention) return false;
         if (activePanel === 'failed' && !hasFailed) return false;
@@ -1976,7 +2390,9 @@
         if (status === 'commented' && !isPublished) return false;
         if (status === 'failed' && !hasFailed) return false;
         if (priority && (p.priority || 'normal') !== priority) return false;
-        if (type && p.post_type !== type) return false;
+        if (type && normalizePostType(p.post_type) !== type) return false;
+        if (intent && getContentIntentKey(p) !== intent) return false;
+        if (relationship && getAuthorRelationship(p).key !== relationship) return false;
         if (author && !(p.author || '').toLowerCase().includes(author)) return false;
         return true;
       });
@@ -1994,7 +2410,8 @@
           }).catch(() => {});
         }
         const date = datePicker.value;
-        const result = await window.pocketAgent.listLinkedInPosts(date);
+        const authorFilter = getInputValue('filter-author').trim();
+        const result = await window.pocketAgent.listLinkedInPosts(date, authorFilter);
         // Handle both old format (array) and new format ({posts, snoozed})
         const posts = Array.isArray(result) ? result : (result.posts || []);
         const snoozed = Array.isArray(result) ? [] : (result.snoozed || []);
@@ -2003,25 +2420,36 @@
         // Keep only selections that still exist in the current table snapshot.
         const validIds = new Set(posts.map(p => Number(p.id)));
         selectedIds = new Set(Array.from(selectedIds).filter(id => validIds.has(id)));
-        const queueCount = posts.filter(p => !isPublishedPost(p)).length;
+        const draftedCount = posts.filter(p => !isPublishedPost(p) && !!p.comment_draft && !p.approved).length;
         const publishedCount = posts.filter(p => isPublishedPost(p)).length;
         const failedCount = posts.filter(p => {
           if (isPublishedPost(p)) return false;
           const la = String(p.last_activity_action || '').toLowerCase();
           return (Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at;
         }).length;
+        const queueCount = posts.filter(p => {
+          const isPublished = isPublishedPost(p);
+          if (isPublished) return false;
+          const la = String(p.last_activity_action || '').toLowerCase();
+          const hasFailed = (Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at;
+          const isDrafted = !!p.comment_draft && !p.approved;
+          return !hasFailed && !isDrafted;
+        }).length;
         const attentionCount = posts.filter(p => {
           const isPublished = isPublishedPost(p);
           const la = String(p.last_activity_action || '').toLowerCase();
+          const isPostingNow = !isPublished && la === 'posting_attempt' && !p.scheduled_at;
           const hf = ((Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at);
           const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
-          return !!(p.approved && !isPublished && (!p.scheduled_at || hf)) || recheckCandidate;
+          return (!!(p.approved && !isPublished && (!p.scheduled_at || hf)) && !isPostingNow) || recheckCandidate;
         }).length;
         const tabQueue = document.getElementById('tab-queue');
+        const tabDrafted = document.getElementById('tab-drafted');
         const tabAttention = document.getElementById('tab-attention');
         const tabFailed = document.getElementById('tab-failed');
         const tabPublished = document.getElementById('tab-published');
         if (tabQueue) tabQueue.textContent = `Queue (${queueCount})`;
+        if (tabDrafted) tabDrafted.textContent = `Drafted (${draftedCount})`;
         if (tabAttention) tabAttention.textContent = `Needs Attention (${attentionCount})`;
         if (tabFailed) tabFailed.textContent = `Failed (${failedCount})`;
         if (tabPublished) tabPublished.textContent = `Published (${publishedCount})`;
@@ -2035,9 +2463,14 @@
         const drafted = posts.filter(p => p.comment_draft && !isPublishedPost(p)).length;
         const commented = posts.filter(p => isPublishedPost(p)).length;
         const approvedPending = posts.filter(p => p.approved && !isPublishedPost(p)).length;
+        const delayedCount = posts.filter(p => {
+          if (isPublishedPost(p)) return false;
+          return String(p.last_activity_action || '').toLowerCase() === 'delayed' && !!p.scheduled_at;
+        }).length;
         const parts = [`${posts.length} posts`];
         if (drafted) parts.push(`${drafted} drafted`);
         if (approvedPending) parts.push(`${approvedPending} approved`);
+        if (delayedCount) parts.push(`${delayedCount} delayed/rescheduled`);
         if (commented) parts.push(`${commented} published`);
         if (snoozed.length) parts.push(`${snoozed.length} snoozed`);
         countEl.textContent = `(${parts.join(', ')})`;
@@ -2071,21 +2504,23 @@
               <col id="col-w-preview">
               <col id="col-w-reacts" style="width:35px">
               <col id="col-w-cmts" style="width:35px">
-              <col id="col-w-type" style="width:50px">
+              <col id="col-w-type" style="width:130px">
               <col id="col-w-status" style="width:90px">
+              <col id="col-w-scheduled" style="width:84px">
               <col id="col-w-actions" style="width:75px">
             </colgroup>
             <thead>
               <tr>
                 <th class="col-check"><input type="checkbox" onchange="toggleSelectAll(this.checked)" /></th>
                 <th class="col-num">#</th>
-                <th class="col-priority" style="cursor:pointer;position:relative" onclick="toggleSort('priority')">Pri<div class="th-resize-handle" data-col="pri"></div></th>
+                <th class="col-priority" style="cursor:pointer;position:relative" onclick="toggleSort('priority')" title="Manual posting priority order: urgent, high, normal, low">Pri<div class="th-resize-handle" data-col="pri"></div></th>
                 <th style="cursor:pointer;position:relative" onclick="toggleSort('author')">Author<div class="th-resize-handle" data-col="author"></div></th>
                 <th style="position:relative">Preview<div class="th-resize-handle" data-col="preview"></div></th>
                 <th class="col-stats" style="cursor:pointer;position:relative" onclick="toggleSort('reactions')">Reacts<div class="th-resize-handle" data-col="reacts"></div></th>
                 <th class="col-stats" style="cursor:pointer;position:relative" onclick="toggleSort('comments')">Cmts<div class="th-resize-handle" data-col="cmts"></div></th>
-                <th style="cursor:pointer;position:relative" onclick="toggleSort('type')">Type<div class="th-resize-handle" data-col="type"></div></th>
+                <th style="cursor:pointer;position:relative" onclick="toggleSort('type')" title="Post type plus inferred information intent">Type/Intent<div class="th-resize-handle" data-col="type"></div></th>
                 <th class="col-status" style="cursor:pointer;position:relative" onclick="toggleSort('status')">Status<div class="th-resize-handle" data-col="status"></div></th>
+                <th class="col-scheduled" style="cursor:pointer;position:relative" onclick="toggleSort('scheduled')">Scheduled<div class="th-resize-handle" data-col="scheduled"></div></th>
                 <th class="col-actions">Actions</th>
               </tr>
             </thead>
@@ -2109,8 +2544,9 @@
                   <col id="col-s-preview">
                   <col id="col-s-reacts" style="width:35px">
                   <col id="col-s-cmts" style="width:35px">
-                  <col id="col-s-type" style="width:50px">
+                  <col id="col-s-type" style="width:130px">
                   <col id="col-s-status" style="width:90px">
+                  <col id="col-s-scheduled" style="width:84px">
                   <col id="col-s-actions" style="width:75px">
                 </colgroup>
                 <tbody>
@@ -2124,6 +2560,7 @@
                       <td class="col-stats">${p.comments || 0}</td>
                       <td class="col-type"><span class="badge badge-snoozed">Until ${new Date(p.snoozed_until + 'Z').toLocaleDateString()}</span></td>
                       <td class="col-status"></td>
+                      <td class="col-scheduled">-</td>
                       <td class="col-actions">
                         <button class="icon-btn" onclick="openPostUrl(${p.id})" title="Open in browser">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -2200,12 +2637,16 @@
       const gainComments = Number(p.comments_gain_since_first || 0);
       const seenDays = Number(p.days_since_first_seen || 0);
       const lastAction = String(p.last_activity_action || '').toLowerCase();
+      const isPostingNow = !isPublished && lastAction === 'posting_attempt' && !p.scheduled_at;
+      const isDelayed = !isPublished && lastAction === 'delayed' && !!p.scheduled_at;
+      const isRecovered = !isPublished && lastAction === 'recovered';
       const hasPostingFailure = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
       const hasFailed = isDraftFailed || hasPostingFailure;
       const statusBadges = [];
       if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
       else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
       else if (isQueued) statusBadges.push('<span class="badge badge-queued">Queued</span>');
+      if (isPostingNow) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Posting...</span>');
       if (recheckCandidate) {
         const ageHint = seenDays > 0 ? ` (${seenDays}d)` : '';
         statusBadges.push(`<span class="badge" style="background:rgba(59,130,246,0.14);color:#60a5fa;border:1px solid rgba(96,165,250,0.32)" title="This post gained engagement since first seen and is worth re-checking">Recheck +${Math.max(0, gainReactions)}r +${Math.max(0, gainComments)}c${ageHint}</span>`);
@@ -2218,12 +2659,20 @@
       const tsSuffix = activityTime ? ` <span style="opacity:0.7;font-size:10px">${activityTime}</span>` : '';
       const schTime = formatShortDateTime(p.scheduled_at);
       if (isPublished) statusBadges.push(`<span class="badge badge-commented">Published${tsSuffix}</span>`);
-      else if (isDueScheduled) statusBadges.push(`<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)" title="Scheduled time passed; waiting for auto-poster window/slot">Due <span style="opacity:0.7;font-size:10px">${schTime}</span></span>`);
-      else if (isScheduled) statusBadges.push(`<span class="badge badge-scheduled">Scheduled <span style="opacity:0.7;font-size:10px">${schTime}</span></span>`);
-      else if (p.approved || approvedIds.has(p.id)) statusBadges.push(`<span class="badge badge-approved">Approved${tsSuffix}</span>`);
+      else if (isDueScheduled) statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)" title="Scheduled time passed; waiting for auto-poster window/slot">Due</span>');
+      else if (isScheduled) statusBadges.push('<span class="badge badge-scheduled">Scheduled</span>');
+      if (isDelayed) {
+        const delayedHint = escapeHtml(String(p.last_activity_reason || 'Delayed and rescheduled'));
+        statusBadges.push(`<span class="badge" style="background:rgba(245,222,179,0.14);color:#f6ddbc;border:1px solid rgba(245,222,179,0.35)" title="${delayedHint}">Delayed</span>`);
+      }
+      if (isRecovered) {
+        const recoveredHint = escapeHtml(String(p.last_activity_reason || 'Recovered after restart and auto-retried'));
+        statusBadges.push(`<span class="badge" style="background:rgba(245,222,179,0.14);color:#f6ddbc;border:1px solid rgba(245,222,179,0.35)" title="${recoveredHint}">Recovered</span>`);
+      }
+      if (!isPublished && !isScheduled && !isDueScheduled && (p.approved || approvedIds.has(p.id))) statusBadges.push(`<span class="badge badge-approved">Approved${tsSuffix}</span>`);
       else if (rejectedIds.has(p.id)) statusBadges.push(`<span class="badge badge-rejected">Rejected${tsSuffix}</span>`);
       else if (p.comment_draft) statusBadges.push(`<span class="badge badge-draft">Draft${tsSuffix}</span>`);
-      if (!isPublished && p.approved && !p.scheduled_at) {
+      if (!isPublished && p.approved && !p.scheduled_at && !isPostingNow) {
         statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)">Awaiting schedule</span>');
       }
       if (!isPublished && hasFailed) {
@@ -2249,18 +2698,16 @@
         ? `<span class="badge" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3)">+${p.reactions_delta || 0}r +${p.comments_delta || 0}c</span>`
         : '';
 
-      // Relationship badge
-      let relationBadge = '';
-      const tc = p.author_total_comments || 0;
-      if (tc >= 5) relationBadge = '<span class="badge" style="background:rgba(34,197,94,0.12);color:#4ade80;border-color:rgba(34,197,94,0.25)" title="Regular contact">Regular</span>';
-      else if (tc >= 1) relationBadge = '<span class="badge" style="background:rgba(245,158,11,0.12);color:#fbbf24;border-color:rgba(245,158,11,0.25)" title="Occasional contact">Occasional</span>';
-      else relationBadge = '<span class="badge" style="background:rgba(107,114,128,0.12);color:#9ca3af;border-color:rgba(107,114,128,0.25)" title="New contact">New</span>';
+      // Relationship badge (5 levels)
+      const relationship = getAuthorRelationship(p);
+      const relationBadge = `<span class="badge" style="${relationship.style}" title="${escapeHtml(relationship.title)}">${escapeHtml(relationship.label)}</span>`;
 
       // Weekly warning
       const weeklyWarn = (p.author_weekly_comments >= 2) ? `<span style="color:var(--warning);font-size:10px">${p.author_weekly_comments}x this week</span>` : '';
 
       // Reconnect hint
       let reconnectHint = '';
+      const tc = Number(p.author_total_comments || 0);
       if (tc >= 5 && p.author_last_commented) {
         const daysSince = Math.floor((Date.now() - new Date(p.author_last_commented).getTime()) / (1000 * 60 * 60 * 24));
         if (daysSince >= 14) reconnectHint = `<span style="color:var(--text-muted);font-size:10px">${daysSince}d ago</span>`;
@@ -2275,6 +2722,31 @@
         ? `<div style="margin-top:6px;font-size:11px;color:#f87171;line-height:1.4">Last error: ${escapeHtml(String(p.last_activity_reason).slice(0, 220))}</div>`
         : '';
       const evidenceBlock = renderEvidenceBlock(p);
+      const scheduledCell = isScheduled
+        ? `<span title="${escapeHtml(String(p.scheduled_at || ''))}" style="${isDueScheduled ? 'color:#fb923c;font-weight:700' : ''}">${escapeHtml(schTime || '-')}</span>`
+        : '-';
+      const previewTextRaw = getDisplayPreviewText(p);
+      const previewText = previewMode === 'full'
+        ? previewTextRaw
+        : truncate(previewTextRaw, previewMode === 'summary' ? 260 : 120);
+      const previewHtml = escapeHtml(previewText || '').replace(/\n/g, '<br>');
+      const hasFullPostText = getPostFullText(p).length > 0;
+      const loadingFullPost = fullPostLoadInFlight.has(Number(p.id));
+      const fetchedAt = p.full_post_updated_at ? formatShortDateTime(p.full_post_updated_at) : '';
+      const previewTools = previewMode === 'full'
+        ? `<div class="preview-tools">
+            <span class="draft-toggle" onclick="fetchFullPost(${p.id}, ${hasFullPostText ? 'true' : 'false'})" style="margin:0">
+              ${loadingFullPost ? 'Loading full post...' : (hasFullPostText ? 'Refresh full post' : 'Fetch full post')}
+            </span>
+            ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">Summary shown until full text is fetched</span>'}
+          </div>`
+        : '';
+      const typeKey = normalizePostType(p.post_type);
+      const typeBadge = typeKey
+        ? `<span class="badge badge-type" title="Post type">${escapeHtml(postTypeLabel(typeKey))}</span>`
+        : '<span class="badge" style="background:rgba(107,114,128,0.12);color:#9ca3af;border-color:rgba(107,114,128,0.25)" title="No type classification yet">Unclassified</span>';
+      const intentKey = getContentIntentKey(p);
+      const intentBadge = contentIntentBadge(intentKey);
 
       return `
         <tr class="${isPublished ? 'commented' : ''}" data-post-id="${p.id}">
@@ -2283,7 +2755,8 @@
           <td class="col-priority">${priorityDot(p.id, p.priority)}</td>
           <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}<br>${relationBadge} ${weeklyWarn} ${reconnectHint}</td>
           <td class="col-preview">
-            ${escapeHtml(truncate(p.text_preview, 100))}
+            <div class="post-preview-text ${previewMode === 'full' ? 'full' : ''}">${previewHtml}</div>
+            ${previewTools}
             ${inflightHint}
             ${failureNote}
             ${p.comment_draft ? `
@@ -2307,8 +2780,9 @@
           </td>
           <td class="col-stats">${p.reactions || 0}</td>
           <td class="col-stats">${p.comments || 0}</td>
-          <td class="col-type">${p.post_type ? `<span class="badge badge-type">${escapeHtml(p.post_type)}</span>` : ''}</td>
+          <td class="col-type">${typeBadge} ${intentBadge}</td>
           <td class="col-status"><div class="status-badges">${statusBadges.join(' ')} ${engagementBadge}</div></td>
+          <td class="col-scheduled">${scheduledCell}</td>
           <td class="col-actions">
             <div class="action-icons">
               <button class="icon-btn" onclick="draftSinglePost(${p.id})" title="Research and draft this post now">
@@ -2327,6 +2801,31 @@
           </td>
         </tr>
       `;
+    }
+
+    async function fetchFullPost(postId, forceRefresh = false) {
+      if (!window.pocketAgent?.getLinkedInPostContent) {
+        showToast('Full post fetch is unavailable in this build', 'error');
+        return;
+      }
+      const id = Number(postId);
+      if (!Number.isFinite(id) || id <= 0) return;
+      if (fullPostLoadInFlight.has(id)) return;
+      fullPostLoadInFlight.add(id);
+      loadPosts();
+      try {
+        const result = await window.pocketAgent.getLinkedInPostContent(id, !!forceRefresh);
+        if (!result?.success) {
+          throw new Error(result?.error || 'Failed to load full post');
+        }
+        if (result.warning) showToast(result.warning, 'error');
+        else showToast(result.cached ? 'Loaded cached full post' : 'Fetched full post text', 'success');
+      } catch (err) {
+        showToast(`Could not load full post: ${shortError(err)}`, 'error');
+      } finally {
+        fullPostLoadInFlight.delete(id);
+        loadPosts();
+      }
     }
 
     function openPostUrl(postId) {
@@ -2380,28 +2879,29 @@
       try {
         const post = currentPosts.find(p => p.id === postId);
         if (!post || !post.comment_draft) { showToast('No draft to approve', 'error'); return; }
-        await window.pocketAgent.approveLinkedInDraft(postId);
+        const approve = await window.pocketAgent.approveLinkedInDraft(postId);
+        if (!approve?.success) {
+          showToast(`Failed to approve draft: ${shortError(approve?.error || 'Unknown error')}`, 'error');
+          return;
+        }
         approvedIds.add(postId);
-        // Find latest scheduled time among all posts to offset from
-        const delayStr = await window.pocketAgent.getSetting('linkedin.commentDelay') || '3';
-        const delayMin = Math.max(1, parseInt(delayStr, 10) || 3);
-        const scheduledTimes = currentPosts
-          .filter(p => p.scheduled_at && !isPublishedPost(p) && p.id !== postId)
-          .map(p => new Date(p.scheduled_at + (p.scheduled_at.includes('Z') ? '' : 'Z')).getTime())
-          .filter(t => !isNaN(t));
-        const latestScheduled = scheduledTimes.length > 0 ? Math.max(...scheduledTimes) : 0;
-        const earliest = Math.max(Date.now() + 60000, latestScheduled + delayMin * 60000);
-        const dt = new Date(earliest + jitterMs(0));
+        // Approve means "queue soon": schedule randomly in the next 1-3 hours.
+        const offsetMin = 60 + Math.floor(Math.random() * 121); // 60-180
+        const dt = new Date(Date.now() + offsetMin * 60 * 1000 + jitterMs(1));
         const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
         const result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        if (!result?.success) {
+          showToast(`Approved, but schedule failed: ${shortError(result?.error || 'Unknown error')}`, 'error');
+          return;
+        }
         if (result?.warning) showToast(result.warning, 'error');
         const finalAt = result?.scheduledAt || iso;
         const shifted = Number(result?.adjustedOthers || 0);
-        showToast(`Approved, scheduled ${formatShortDateTime(finalAt)}${shifted > 0 ? `, shifted ${shifted} nearby` : ''}`, 'success');
+        showToast(`Approved and auto-scheduled (${formatShortDateTime(finalAt)})${shifted > 0 ? `, shifted ${shifted} nearby` : ''}`, 'success');
         loadPosts();
       } catch (err) {
         console.error('Failed to approve draft:', err);
-        showToast('Failed to approve draft', 'error');
+        showToast(`Failed to approve draft: ${shortError(err)}`, 'error');
       }
     }
 
@@ -2409,10 +2909,20 @@
       try {
         const post = currentPosts.find(p => p.id === postId);
         if (!post || !post.comment_draft) { showToast('No draft to post', 'error'); return; }
-        if (!post.approved) await window.pocketAgent.approveLinkedInDraft(postId);
+        if (!post.approved) {
+          const approve = await window.pocketAgent.approveLinkedInDraft(postId);
+          if (!approve?.success) {
+            showToast(`Approve failed: ${shortError(approve?.error || 'Unknown error')}`, 'error');
+            return;
+          }
+        }
         approvedIds.add(postId);
         const iso = new Date(Date.now() + 5000).toISOString().replace('T', ' ').slice(0, 19);
         const result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        if (!result?.success) {
+          showToast(`Failed to schedule immediate post: ${shortError(result?.error || 'Unknown error')}`, 'error');
+          return;
+        }
         if (result?.warning) showToast(result.warning, 'error');
         const finalAt = result?.scheduledAt || iso;
         const shifted = Number(result?.adjustedOthers || 0);
@@ -2434,7 +2944,10 @@
         let cumulativeMs = 0;
         for (let i = 0; i < ids.length; i++) {
           const p = currentPosts.find(pp => pp.id === ids[i]);
-          if (!p.approved) await window.pocketAgent.approveLinkedInDraft(ids[i]);
+          if (!p.approved) {
+            const approve = await window.pocketAgent.approveLinkedInDraft(ids[i]);
+            if (!approve?.success) throw new Error(`Approve failed for #${ids[i]}: ${shortError(approve?.error || 'Unknown error')}`);
+          }
           approvedIds.add(ids[i]);
           if (i === 0) {
             cumulativeMs = 5000; // First one: now
@@ -2444,6 +2957,7 @@
           const dt = new Date(Date.now() + cumulativeMs);
           const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
           const result = await window.pocketAgent.scheduleLinkedInPost(ids[i], iso);
+          if (!result?.success) throw new Error(`Schedule failed for #${ids[i]}: ${shortError(result?.error || 'Unknown error')}`);
           if (result?.warning) showToast(result.warning, 'error');
         }
         showToast(`${ids.length} posts scheduled for immediate posting`, 'success');
@@ -2473,12 +2987,52 @@
       if (extraEl) extraEl.innerHTML = '';
       const currentText = contentEl.textContent || '';
       contentEl.innerHTML = `<textarea class="draft-edit-area" id="draft-edit-${postId}">${escapeHtml(currentText)}</textarea>
+        <textarea class="draft-edit-area" id="draft-edit-instructions-${postId}" style="margin-top:8px;min-height:72px" placeholder="AI helper: describe exactly what to add/change (it will keep the rest intact)"></textarea>
         <div class="draft-actions" style="margin-top:6px">
+          <button class="btn-edit" onclick="aiAssistDraftEdit(${postId})">AI Apply</button>
           <button class="btn-approve" onclick="saveDraftEdit(${postId})">Save</button>
           <button onclick="loadPosts()">Cancel</button>
         </div>`;
       const textarea = document.getElementById('draft-edit-' + postId);
       if (textarea) textarea.focus();
+    }
+
+    async function aiAssistDraftEdit(postId) {
+      const textArea = document.getElementById('draft-edit-' + postId);
+      const instructionsArea = document.getElementById('draft-edit-instructions-' + postId);
+      if (!textArea || !instructionsArea) return;
+      const currentText = textArea.value.trim();
+      const instructions = instructionsArea.value.trim();
+      if (!currentText) {
+        showToast('Draft text is empty', 'error');
+        return;
+      }
+      if (!instructions) {
+        showToast('Add instructions for the AI helper first', 'error');
+        return;
+      }
+      if (!window.pocketAgent?.rewriteLinkedInDraft) {
+        showToast('AI edit helper unavailable in this build', 'error');
+        return;
+      }
+      instructionsArea.disabled = true;
+      textArea.disabled = true;
+      showToast('Applying AI edit...', 'success');
+      try {
+        const result = await window.pocketAgent.rewriteLinkedInDraft(postId, currentText, instructions);
+        if (!result?.success || !result?.rewritten) {
+          showToast(`AI edit failed: ${shortError(result?.error || 'Unknown error')}`, 'error');
+          return;
+        }
+        textArea.value = result.rewritten;
+        showToast(`AI edit applied (${result.model || 'model'})`, 'success');
+      } catch (err) {
+        showToast(`AI edit failed: ${shortError(err)}`, 'error');
+      } finally {
+        instructionsArea.disabled = false;
+        textArea.disabled = false;
+        textArea.focus();
+      }
     }
 
     async function saveDraftEdit(postId) {
@@ -2487,48 +3041,28 @@
       const newText = textarea.value.trim();
       if (!newText) return;
       try {
-        await window.pocketAgent.updateLinkedInDraft(postId, newText);
+        const result = await window.pocketAgent.updateLinkedInDraft(postId, newText);
+        if (!result?.success) {
+          showToast(`Failed to update draft: ${shortError(result?.error || 'Unknown error')}`, 'error');
+          return;
+        }
         showToast('Draft updated', 'success');
         loadPosts();
       } catch (err) {
         console.error('Failed to update draft:', err);
-        showToast('Failed to update draft', 'error');
+        showToast(`Failed to update draft: ${shortError(err)}`, 'error');
       }
     }
 
     async function redoDraft(postId) {
-      const post = currentPosts.find(p => p.id === postId);
-      if (!post) return;
-      const postUrl = post.post_url;
-      sendToAgent(`Re-draft the LinkedIn comment for post ${postUrl} (post ID ${postId}). The previous draft was rejected for quality issues.
-
-STEP 1: Use linkedin_read_post to read the FULL post content. Actually understand what the author is saying.
-STEP 2: Research the topic using web search. Use ONLY this run's research, not model memory. Pick your two-cents basis in this order: contradiction > missing piece > lived experience > logical gap.
-STEP 3: Write the comment YOURSELF (do NOT use draft_linkedin_comment). Include something concrete from your research. Think about what a real practitioner would say.
-STEP 4: Save it using linkedin_save_draft with the post_id and your draft text. This updates the kanban task too.
-
-YOUR COMMENT MUST:
-- Auto-size length from the post depth. Keep it concise if the claim is simple, longer if the claim needs unpacking. Don't pad.
-- Start with the author's first name, then reference something SPECIFIC they said.
-- Weave in ONE insight from research naturally. Do NOT cite source names, publication names, or exact statistics. Paraphrase loosely like you already knew it.
-- Add your own angle or experience. Never just agree.
-- Include one clear two-cents stance, then actionable follow-through (mini tutorial step, practical suggestion, or concrete discovery).
-- Even if you call something bullshit, leave the reader with useful next-step advice.
-- Do NOT end with a question.
-- Format as 2-4 short paragraphs with line breaks. No wall of text.
-- Sound like someone who genuinely knows their stuff typing a quick reply.
-
-VOICE:
-- Vary sentence rhythm. Include short sentences and longer ones.
-- Add punctuation texture naturally, use "..." or ";" or an inline "?" mid-comment.
-- Lowercase generic acronyms: "seo", "ctr", "aio". Brand names stay capitalized.
-- Use one casual connector max: "honestly", "the thing is", "tbh".
-- Incomplete thoughts OK: "but yeah." or "..." or starting with "and".
-- Challenge marketing stunts. Never be a yes-man. Call out self-promotion with data.
-
-NEVER USE: em dashes, en dashes, "landscape", "crucial", "leverage", "comprehensive", "robust", "ecosystem", "transformative", "cutting-edge", "holistic", "navigate", "streamline", "optimize", "paradigm", "innovative", "unprecedented", "game-changing", "delve", "foster", "harness", "elevate".
-
-If you catch yourself writing any banned word or a dash, rewrite the sentence.`);
+      try {
+        showToast(`Redrafting 1 post (${currentDraftMode()})...`, 'success');
+        await runBatchDraft([postId], 'Redrafted', 'Redo failed');
+        await loadPosts();
+      } catch (err) {
+        console.error('Failed to redo draft:', err);
+        showToast(`Redo failed: ${shortError(err)}`, 'error');
+      }
     }
 
     function feedbackDraft(postId) {
@@ -2580,13 +3114,33 @@ If you catch yourself writing any banned word or a dash, rewrite the sentence.`)
 
     // --- Resizable columns with localStorage persistence ---
     const COL_STORAGE_KEY = 'linkedin-col-widths';
-    const RESIZABLE_COLS = ['pri','author','preview','reacts','cmts','type','status','actions'];
+    const RESIZABLE_COLS = ['pri','author','preview','reacts','cmts','type','status','scheduled','actions'];
+    const COL_MIN_WIDTH = {
+      pri: 56,
+      author: 110,
+      preview: 240,
+      reacts: 36,
+      cmts: 36,
+      type: 140,
+      status: 120,
+      scheduled: 84,
+      actions: 70,
+    };
+
+    function clampColumnWidth(name, width) {
+      const min = Number(COL_MIN_WIDTH[name] || 20);
+      return Math.max(min, Math.round(width));
+    }
 
     function saveColumnWidths() {
       const widths = {};
       for (const name of RESIZABLE_COLS) {
         const col = document.getElementById('col-w-' + name);
-        if (col && col.style.width) widths[name] = col.style.width;
+        if (!col) continue;
+        const raw = parseInt(String(col.style.width || '').replace('px', ''), 10);
+        if (Number.isFinite(raw) && raw > 0) {
+          widths[name] = `${clampColumnWidth(name, raw)}px`;
+        }
       }
       localStorage.setItem(COL_STORAGE_KEY, JSON.stringify(widths));
     }
@@ -2596,10 +3150,13 @@ If you catch yourself writing any banned word or a dash, rewrite the sentence.`)
         const stored = JSON.parse(localStorage.getItem(COL_STORAGE_KEY));
         if (!stored) return;
         for (const [name, w] of Object.entries(stored)) {
+          const parsed = parseInt(String(w || '').replace('px', ''), 10);
+          if (!Number.isFinite(parsed) || parsed <= 0) continue;
+          const safeWidth = `${clampColumnWidth(name, parsed)}px`;
           const main = document.getElementById('col-w-' + name);
           const snz = document.getElementById('col-s-' + name);
-          if (main) main.style.width = w;
-          if (snz) snz.style.width = w;
+          if (main) main.style.width = safeWidth;
+          if (snz) snz.style.width = safeWidth;
         }
       } catch {}
     }
@@ -2626,7 +3183,7 @@ If you catch yourself writing any banned word or a dash, rewrite the sentence.`)
           handle.classList.add('active');
 
           const onMove = (ev) => {
-            const newWidth = Math.max(20, startWidth + ev.clientX - startX);
+            const newWidth = clampColumnWidth(colName, startWidth + ev.clientX - startX);
             col.style.width = newWidth + 'px';
             const snz = document.getElementById('col-s-' + colName);
             if (snz) snz.style.width = newWidth + 'px';
@@ -2657,6 +3214,7 @@ If you catch yourself writing any banned word or a dash, rewrite the sentence.`)
 
     refreshPanelTabs();
     loadDraftMode();
+    loadDraftModelOptions();
     loadPosts();
   </script>
 </body>

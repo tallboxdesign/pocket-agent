@@ -18,6 +18,8 @@ import fs from 'fs';
 import { SettingsManager } from '../settings';
 import { KanbanService } from '../kanban';
 import { AgentManager } from '../agent';
+import { glmChat } from './glm-client';
+import { linkedinExec } from './linkedin-wrapper';
 
 // SDK types
 type SDKQuery = AsyncGenerator<unknown, void>;
@@ -43,7 +45,7 @@ async function loadSDK(): Promise<typeof sdkQuery> {
   return sdkQuery;
 }
 
-type ProviderType = 'anthropic' | 'moonshot' | 'glm' | 'minimax';
+type ProviderType = 'anthropic' | 'moonshot' | 'glm' | 'minimax' | 'qwen' | 'openrouter' | 'openai' | 'gemini';
 type DraftMode = 'fast' | 'balanced' | 'deep';
 type LinkedInDraftConfig = {
   mode: DraftMode;
@@ -52,6 +54,8 @@ type LinkedInDraftConfig = {
   writeMaxTurns: number;
   maxSearchQueries: number;
   fallbackModel: string;
+  fallbackModel2: string;
+  fallbackModel3: string;
   requireTwoSources: boolean;
 };
 
@@ -63,6 +67,7 @@ type ResearchEvidence = {
   keyPoint: string;
   statistic: string;
   sources: Array<{ name: string; url: string }>;
+  namedMechanism: string;
   implication: string;
   followUpQuestion: string;
   stanceBasis: StanceBasis;
@@ -81,42 +86,73 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   'claude-opus-4-6': 'anthropic',
   'claude-sonnet-4-6': 'anthropic',
   'claude-haiku-4-5-20251001': 'anthropic',
+  'gpt-4.1': 'openai',
+  'gpt-4.1-mini': 'openai',
+  'gpt-4.1-nano': 'openai',
+  'gemini-2.5-pro': 'gemini',
+  'gemini-2.5-flash': 'gemini',
+  'gemini-2.5-flash-lite': 'gemini',
   'kimi-k2.5': 'moonshot',
   'glm-5': 'glm',
   'MiniMax-M2.5': 'minimax',
   'MiniMax-M2.5-Lightning': 'minimax',
+  'qwen3.5-plus-2026-02-15': 'qwen',
+  'qwen/qwen3.5-plus-02-15': 'openrouter',
+  'qwen/qwen3.5-flash': 'openrouter',
 };
 
 const PROVIDER_BASE_URLS: Record<Exclude<ProviderType, 'anthropic'>, string> = {
-  moonshot: 'https://api.moonshot.ai/anthropic/',
-  glm: 'https://api.z.ai/api/anthropic/',
-  minimax: 'https://api.minimax.io/anthropic/',
+  moonshot: 'https://api.moonshot.ai/anthropic',
+  glm: 'https://api.z.ai/api/anthropic',
+  minimax: 'https://api.minimax.io/anthropic',
+  qwen: 'https://dashscope-intl.aliyuncs.com/apps/anthropic',
+  openrouter: 'https://openrouter.ai/api',
+  openai: 'https://api.openai.com/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
 };
+
+function isAllowedLinkedInModel(model: string): boolean {
+  return getProviderForModel(model) !== 'openrouter';
+}
 
 function getDraftModel(): string {
   const explicit = (SettingsManager.get('linkedin.postModel') || '').trim();
-  if (explicit && hasModelCredentials(explicit)) return explicit;
+  if (explicit && isAllowedLinkedInModel(explicit) && hasModelCredentials(explicit)) return explicit;
 
   const runtimeModel = AgentManager.getModel();
-  if (typeof runtimeModel === 'string' && runtimeModel.trim() && hasModelCredentials(runtimeModel.trim())) {
+  if (
+    typeof runtimeModel === 'string'
+    && runtimeModel.trim()
+    && isAllowedLinkedInModel(runtimeModel.trim())
+    && hasModelCredentials(runtimeModel.trim())
+  ) {
     return runtimeModel.trim();
   }
 
   const configured = (SettingsManager.get('agent.model') || '').trim();
-  if (configured && hasModelCredentials(configured)) {
+  if (configured && isAllowedLinkedInModel(configured) && hasModelCredentials(configured)) {
     return configured.trim();
   }
 
-  const fallbacks = ['claude-sonnet-4-6', 'glm-5', 'MiniMax-M2.5-Lightning', 'kimi-k2.5'];
+  const fallbacks = ['claude-sonnet-4-6', 'gemini-2.5-flash', 'gpt-4.1', 'glm-5', 'MiniMax-M2.5-Lightning', 'kimi-k2.5', 'qwen3.5-plus-2026-02-15'];
   const firstAvailable = fallbacks.find(model => hasModelCredentials(model));
   if (firstAvailable) return firstAvailable;
 
   // Last resort: keep a deterministic default even if credentials are currently missing.
-  return explicit || configured || 'claude-sonnet-4-6';
+  return (isAllowedLinkedInModel(explicit) && explicit)
+    || (isAllowedLinkedInModel(configured) && configured)
+    || 'claude-sonnet-4-6';
 }
 
 function getProviderForModel(model: string): ProviderType {
-  return MODEL_PROVIDERS[model] || 'anthropic';
+  const mapped = MODEL_PROVIDERS[model];
+  if (mapped) return mapped;
+  const normalized = String(model || '').trim().toLowerCase();
+  if (normalized.startsWith('gpt-')) return 'openai';
+  if (normalized.startsWith('gemini-')) return 'gemini';
+  if (normalized.includes('/')) return 'openrouter';
+  if (normalized.startsWith('qwen')) return 'qwen';
+  return 'anthropic';
 }
 
 function parseIntSetting(key: string, fallback: number, min: number, max: number): number {
@@ -148,6 +184,8 @@ function getLinkedInDraftConfig(): LinkedInDraftConfig {
     writeMaxTurns: parseIntSetting('linkedin.writeMaxTurns', defaults.writeTurns, 2, 10),
     maxSearchQueries: parseIntSetting('linkedin.researchMaxQueries', defaults.queries, 1, 4),
     fallbackModel: (SettingsManager.get('linkedin.researchFallbackModel') || '').trim(),
+    fallbackModel2: (SettingsManager.get('linkedin.researchFallbackModel2') || '').trim(),
+    fallbackModel3: (SettingsManager.get('linkedin.researchFallbackModel3') || '').trim(),
     requireTwoSources: defaults.requireTwoSources,
   };
 }
@@ -174,17 +212,25 @@ function hasModelCredentials(model: string): boolean {
   if (provider === 'moonshot') return !!SettingsManager.get('moonshot.apiKey');
   if (provider === 'glm') return !!SettingsManager.get('glm.apiKey');
   if (provider === 'minimax') return !!SettingsManager.get('minimax.apiKey');
+  if (provider === 'qwen') return !!SettingsManager.get('qwen.apiKey');
+  if (provider === 'openai') return !!SettingsManager.get('openai.apiKey');
+  if (provider === 'gemini') return !!SettingsManager.get('gemini.apiKey');
+  if (provider === 'openrouter') return !!SettingsManager.get('openrouter.apiKey');
   return !!SettingsManager.get('anthropic.apiKey') || SettingsManager.get('auth.method') === 'oauth';
 }
 
-function getAttemptModels(primaryModel: string, fallbackModel: string): string[] {
+function getAttemptModels(primaryModel: string, fallbackModel: string, fallbackModel2: string, fallbackModel3: string): string[] {
   const globalFallback = (SettingsManager.get('agent.fallbackModel') || '').trim();
-  const defaults = ['claude-sonnet-4-6', 'glm-5', 'MiniMax-M2.5-Lightning', 'kimi-k2.5'];
-  const candidates = [primaryModel, fallbackModel, globalFallback, ...defaults]
+  const defaults = ['claude-sonnet-4-6', 'gemini-2.5-flash', 'gpt-4.1', 'glm-5', 'MiniMax-M2.5-Lightning', 'kimi-k2.5', 'qwen3.5-plus-2026-02-15'];
+  const candidates = [primaryModel, fallbackModel, fallbackModel2, fallbackModel3, globalFallback, ...defaults]
     .map(m => (m || '').trim())
     .filter(Boolean);
   const unique = Array.from(new Set(candidates));
-  return unique.filter((model, idx) => idx === 0 || hasModelCredentials(model));
+  return unique.filter((model, idx) => {
+    const provider = getProviderForModel(model);
+    if (provider === 'openrouter') return false;
+    return idx === 0 || hasModelCredentials(model);
+  });
 }
 
 async function buildProviderEnv(model: string): Promise<Record<string, string | undefined>> {
@@ -223,14 +269,32 @@ async function buildProviderEnv(model: string): Promise<Record<string, string | 
       throw new Error('MiniMax API key not configured. Add it in Settings > LLM.');
     }
     env.ANTHROPIC_BASE_URL = PROVIDER_BASE_URLS.minimax;
-    env.ANTHROPIC_AUTH_TOKEN = minimaxKey;
-    env.ANTHROPIC_API_KEY = minimaxKey;
+    env.CLAUDE_CODE_OAUTH_TOKEN = minimaxKey;
+    delete env.ANTHROPIC_API_KEY;
     return env;
   }
 
-  const anthropicKey = SettingsManager.get('anthropic.apiKey');
-  if (anthropicKey) {
-    env.ANTHROPIC_API_KEY = anthropicKey;
+  if (provider === 'qwen') {
+    const qwenKey = SettingsManager.get('qwen.apiKey');
+    if (!qwenKey) {
+      throw new Error('Qwen API key not configured. Add it in Settings > LLM.');
+    }
+    env.ANTHROPIC_BASE_URL = PROVIDER_BASE_URLS.qwen;
+    env.CLAUDE_CODE_OAUTH_TOKEN = qwenKey;
+    delete env.ANTHROPIC_API_KEY;
+    return env;
+  }
+
+  if (provider === 'openrouter') {
+    const openRouterKey = SettingsManager.get('openrouter.apiKey');
+    if (!openRouterKey) {
+      throw new Error('OpenRouter API key not configured. Add it in Settings > LLM.');
+    }
+    env.ANTHROPIC_BASE_URL = PROVIDER_BASE_URLS.openrouter;
+    env.CLAUDE_CODE_OAUTH_TOKEN = openRouterKey;
+    delete env.ANTHROPIC_API_KEY;
+    env.HTTP_REFERER = 'https://github.com/google-gemini/pocket-agent';
+    env.X_TITLE = 'Pocket Agent';
     return env;
   }
 
@@ -244,6 +308,12 @@ async function buildProviderEnv(model: string): Promise<Record<string, string | 
     env.CLAUDE_CODE_OAUTH_TOKEN = freshToken;
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;
+    return env;
+  }
+
+  const anthropicKey = SettingsManager.get('anthropic.apiKey');
+  if (anthropicKey) {
+    env.ANTHROPIC_API_KEY = anthropicKey;
     return env;
   }
 
@@ -265,6 +335,185 @@ function getSdkEnv(): Record<string, string | undefined> {
   // Prevent nested-session and global config leakage that can crash child SDK runs.
   delete env.CLAUDECODE;
   return env;
+}
+
+function normalizeLinkedInPostText(raw: string): string {
+  return String(raw || '')
+    .replace(/\r/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function clipForPrompt(text: string, maxChars: number): string {
+  const clean = normalizeLinkedInPostText(text);
+  if (clean.length <= maxChars) return clean;
+  return `${clean.slice(0, maxChars).trimEnd()}\n...[truncated for prompt]`;
+}
+
+type LinkedInPostImage = {
+  url: string;
+  alt: string;
+  dataUri: string;
+};
+
+type LinkedInPostContent = {
+  text: string;
+  images: LinkedInPostImage[];
+  imageContext: string;
+};
+
+function normalizeImageDataUri(raw: string): string {
+  const value = String(raw || '').trim();
+  if (!value.startsWith('data:image/')) return '';
+  return value.length <= 750000 ? value : '';
+}
+
+function normalizeLinkedInPostImages(raw: unknown): LinkedInPostImage[] {
+  if (!Array.isArray(raw)) return [];
+  const out: LinkedInPostImage[] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const url = String(row.url || '').trim();
+    const alt = normalizeLinkedInPostText(String(row.alt || ''));
+    const dataUri = normalizeImageDataUri(String(row.data_uri || row.dataUri || ''));
+    const key = (url || dataUri || alt).toLowerCase().trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (!url && !dataUri) continue;
+    out.push({ url, alt, dataUri });
+    if (out.length >= 2) break;
+  }
+
+  return out;
+}
+
+function getVisionModelConfig(): { baseUrl: string; apiKey: string; model: string } | null {
+  const geminiKey = String(SettingsManager.get('gemini.apiKey') || '').trim();
+  if (geminiKey) {
+    return { baseUrl: PROVIDER_BASE_URLS.gemini, apiKey: geminiKey, model: 'gemini-2.5-flash' };
+  }
+  const openAiKey = String(SettingsManager.get('openai.apiKey') || '').trim();
+  if (openAiKey) {
+    return { baseUrl: PROVIDER_BASE_URLS.openai, apiKey: openAiKey, model: 'gpt-4.1-mini' };
+  }
+  return null;
+}
+
+async function summarizeLinkedInPostImages(
+  images: LinkedInPostImage[],
+  postPreview: string,
+  postUrl: string,
+  parentAbortController?: AbortController,
+): Promise<string> {
+  const modelCfg = getVisionModelConfig();
+  if (!modelCfg) return '';
+
+  const usable = images.filter(img => !!img.dataUri || /^https?:\/\//i.test(img.url || '')).slice(0, 2);
+  if (usable.length === 0) return '';
+
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort();
+  if (parentAbortController) {
+    parentAbortController.signal.addEventListener('abort', onParentAbort, { once: true });
+  }
+  const timeout = setTimeout(() => controller.abort(), 18000);
+
+  try {
+    const content: Array<Record<string, unknown>> = [
+      {
+        type: 'text',
+        text: `You are analyzing image(s) attached to a LinkedIn post.
+
+Return STRICT JSON only:
+{
+  "image_narrative": "1-2 short sentences explaining what the images are communicating",
+  "image_text": "key OCR/copy visible in the images, or empty string if none",
+  "confidence": "high|medium|low"
+}
+
+Rules:
+- Stay grounded in image content only.
+- No speculation.
+- Keep image_narrative under 80 words.
+
+Post preview:
+${clipForPrompt(postPreview || '', 500)}
+Post URL: ${postUrl}`,
+      },
+    ];
+
+    for (const image of usable) {
+      const src = image.dataUri || image.url;
+      if (!src) continue;
+      content.push({
+        type: 'image_url',
+        image_url: { url: src, detail: 'low' },
+      });
+    }
+
+    const response = await fetch(`${modelCfg.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${modelCfg.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelCfg.model,
+        temperature: 0.1,
+        max_tokens: 300,
+        messages: [
+          { role: 'system', content: 'Analyze post images for comment drafting context.' },
+          { role: 'user', content },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Vision API failed (${response.status})`);
+    }
+
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const raw = String(payload?.choices?.[0]?.message?.content || '').trim();
+    if (!raw) return '';
+
+    const parsed = extractJsonObject(raw);
+    if (!parsed) return clipForPrompt(raw, 260);
+
+    const narrative = normalizeLinkedInPostText(String(parsed.image_narrative || ''));
+    const imageText = normalizeLinkedInPostText(String(parsed.image_text || ''));
+    const confidence = String(parsed.confidence || '').trim().toLowerCase();
+    const confidenceLabel = confidence ? ` (${confidence})` : '';
+
+    const parts = [
+      narrative ? `Image narrative${confidenceLabel}: ${narrative}` : '',
+      imageText ? `Image text signals: ${imageText}` : '',
+    ].filter(Boolean);
+    return parts.join('\n');
+  } catch (err) {
+    console.warn('[LinkedInDrafter] Image vision analysis skipped:', err);
+    return '';
+  } finally {
+    clearTimeout(timeout);
+    if (parentAbortController) {
+      parentAbortController.signal.removeEventListener('abort', onParentAbort);
+    }
+  }
+}
+
+async function readFullLinkedInPostContent(postUrl: string, abortController?: AbortController): Promise<LinkedInPostContent> {
+  const url = String(postUrl || '').trim();
+  if (!url) return { text: '', images: [], imageContext: '' };
+  const out = await linkedinExec('reply', ['--url', url, '--read-only'], 90000);
+  const parsed = JSON.parse(out) as { text?: string; images?: unknown };
+  const text = normalizeLinkedInPostText(String(parsed?.text || ''));
+  const images = normalizeLinkedInPostImages(parsed?.images);
+  const imageContext = await summarizeLinkedInPostImages(images, text, url, abortController);
+  return { text, images, imageContext };
 }
 
 function isWeakDraft(draft: string): boolean {
@@ -431,7 +680,7 @@ function hasRelevanceAnchor(draft: string, keyPoint: string, preview: string): b
 }
 
 function hasAISlopWords(text: string): boolean {
-  return /\b(landscape|leverage|robust|comprehensive|holistic|streamline|optimize|paradigm|game[- ]changing|cutting-edge|transformative|unprecedented|synergy|foster|harness|delve|elevate|dramatically|significantly|meaningful|signaling|proposes|pressure-testing|measurable|acquisition channel|survey questions)\b/i.test(text);
+  return /\b(landscape|leverage|robust|comprehensive|holistic|streamline|optimize|paradigm|game[- ]changing|cutting-edge|transformative|unprecedented|synergy|foster|harness|delve|elevate|dramatically|significantly|meaningful|signaling|proposes|pressure-testing|measurable|acquisition channel|survey questions|importantly|more importantly|most importantly)\b/i.test(text);
 }
 
 function getNumbers(text: string): string[] {
@@ -608,6 +857,28 @@ function evaluateDraftQuality(
   if (hasHeavyPhraseOverlap(preview, draft)) hardIssues.push('too close to the post wording');
   if (!draft.includes('\n') && draft.length > 350) hardIssues.push('single dense paragraph, needs line breaks');
   if (hasAISlopWords(draft)) hardIssues.push('contains AI-sounding jargon');
+  if (/\b(?:the\s+)?pattern in 20\d{2} is (?:pretty|very|quite)?\s*clear\b/i.test(draft)) {
+    hardIssues.push('uses year-pattern boilerplate phrasing');
+  }
+  if (/\b(?:more importantly|most importantly|importantly)\b/i.test(draft)) {
+    hardIssues.push('uses emphasis filler wording');
+  }
+  if (/\bgoogle'?s?\s+spam detection\b/i.test(draft)) {
+    hardIssues.push('uses vague algorithm phrasing ("spam detection")');
+  }
+  if (
+    evidence.namedMechanism
+    && !new RegExp(`\\b${escapeRegex(evidence.namedMechanism)}\\b`, 'i').test(draft)
+    && /\b(spam detection|anti[- ]spam|link schemes?|link spam)\b/i.test(draft)
+  ) {
+    softWarnings.push(`mechanism name available ("${evidence.namedMechanism}") but not used`);
+  }
+  if (/\bthe author (claims|says|argues|thinks|believes)\b/i.test(draft)) {
+    softWarnings.push('meta framing sounds robotic; talk directly to the person');
+  }
+  if (/\bQ[1-4]\s+20\d{2}\s+analysis\b/i.test(draft)) {
+    softWarnings.push('report citation tone reads formal; keep it lighter');
+  }
   if (/\?\s*$/.test(draft.trim())) hardIssues.push('ends with a question');
   if (/\bhttps?:\/\/|www\./i.test(draft)) hardIssues.push('contains source url in comment');
   const allCapsWords = draft.match(/\b[A-Z]{4,}\b/g) || [];
@@ -684,6 +955,9 @@ function hasCriticalQualityIssue(issues: string[]): boolean {
     'too many paragraphs',
     'comment too long',
     'contains metaphor',
+    'year-pattern boilerplate',
+    'emphasis filler wording',
+    'vague algorithm phrasing',
     'missing clear two-cents stance',
     'missing actionable follow-through',
     'contains canned template phrase',
@@ -701,18 +975,62 @@ function buildDeterministicFallbackDraft(
   authorFirstName: string,
   commentIntent: CommentIntent,
 ): string {
-  const anchor = (evidence.keyPoint || post.text_preview || 'the point you shared')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[.?!]+$/, '')
-    .slice(0, 160);
+  const normalizeAnchorSnippet = (value: string): string => {
+    const cleaned = String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^(the author|this post|author)\s+(claims|says|argues|thinks|believes)\s+(that\s+)?/i, '')
+      .replace(/^that\s+/i, '')
+      .replace(/\bALL\b/g, 'all')
+      .replace(/[.?!]+$/, '');
+    return (cleaned || 'the point you shared').slice(0, 160);
+  };
 
-  const rawStat = (evidence.statistic || '').replace(/\s+/g, ' ').trim();
-  const statSentence = rawStat
-    ? rawStat
+  const toCasualEvidenceSentence = (ev: ResearchEvidence): string => {
+    const fallback = 'lately i keep seeing execution quality matter more than checklist seo.';
+    let text = String(ev.implication || ev.statistic || '')
+      .replace(/\s+/g, ' ')
+      .trim()
       .replace(/\baccording to\b[^,]*,\s*/ig, '')
-      .replace(/\b(in|from)\s+[a-z0-9&.\- ]{2,40}\s+(data|report|study)\b[:,]?/ig, 'in recent data')
-    : 'in recent market data, search behavior is fragmenting faster than most teams plan for.';
+      .replace(/\b(?:more importantly|most importantly|importantly)\b[:,]?\s*/ig, '')
+      .replace(/\b(?:the\s+)?pattern in 20\d{2} is (?:pretty|very|quite)?\s*clear\b[:,]?\s*/ig, '')
+      .replace(/\bhttps?:\/\/\S+/ig, '')
+      .replace(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,4}'s\s+(?:Q[1-4]\s+20\d{2}\s+)?(analysis|report|study|data)\b/g, 'recent data')
+      .replace(/\([^)]*(analysis|report|study|survey|data)[^)]*\)/ig, '')
+      .replace(/\b\d+\.\d+\b/g, (m) => `${Math.round(Number(m))}`);
+
+    // Keep at most one rough percentage to avoid report-like comments.
+    let pctSeen = 0;
+    text = text.replace(/\b\d+(?:\.\d+)?%/g, (m) => {
+      pctSeen += 1;
+      if (pctSeen === 1) return `around ${Math.round(Number(m.replace('%', '')))}%`;
+      return '';
+    });
+
+    // If numeric density is still high, strip numbers entirely.
+    const numberTokens = text.match(/\b\d+(?:\.\d+)?\b/g) || [];
+    if (numberTokens.length > 2) {
+      text = text.replace(/\b\d+(?:\.\d+)?\b/g, '');
+    }
+
+    text = text
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+([,.;:])/g, '$1')
+      .replace(/,\s*,/g, ', ')
+      .replace(/^[,.;:\s]+|[,.;:\s]+$/g, '')
+      .trim();
+
+    const mechanism = String(ev.namedMechanism || '').trim();
+    if (mechanism && !new RegExp(`\\b${escapeRegex(mechanism)}\\b`, 'i').test(text)) {
+      text = `${mechanism} is a good example here, ${text}`.replace(/\s{2,}/g, ' ').trim();
+    }
+
+    if (!text) return fallback;
+    return /[.?!]$/.test(text) ? text : `${text}.`;
+  };
+
+  const anchor = normalizeAnchorSnippet(evidence.keyPoint || post.text_preview || 'the point you shared');
+  const statSentence = toCasualEvidenceSentence(evidence);
 
   const angleLineMap: Record<typeof commentIntent, string[]> = {
     tradeoff: [
@@ -728,8 +1046,8 @@ function buildDeterministicFallbackDraft(
       "this works until teams break rhythm after week two, then the signal disappears.",
     ],
     sharp_question: [
-      "i'd pressure-test this with one hard metric before scaling it across channels.",
-      "this is true up to the point where you can tie it to one measurable outcome.",
+      "i'd pressure-test this with one hard metric before scaling it.",
+      "where i'd push back is broad claims before the metric is clear.",
     ],
   };
   const angleVariants = angleLineMap[commentIntent];
@@ -737,6 +1055,7 @@ function buildDeterministicFallbackDraft(
 
   const actionLine = (evidence.actionableAddOn || 'start with one workflow, choose one metric, and review it after two weeks.')
     .replace(/\s+/g, ' ')
+    .replace(/^(practical move|actionable add[- ]on|next step)\s*:\s*/i, '')
     .trim()
     .replace(/[.?!]+$/, '');
 
@@ -774,6 +1093,7 @@ function parseResearchEvidence(rawResearch: string, fallbackIntent: ResearchEvid
     keyPoint: '',
     statistic: '',
     sources: [],
+    namedMechanism: '',
     implication: '',
     followUpQuestion: '',
     stanceBasis: 'logical_gap',
@@ -827,6 +1147,7 @@ function parseResearchEvidence(rawResearch: string, fallbackIntent: ResearchEvid
     keyPoint: String(parsed.key_point || '').trim(),
     statistic: String(parsed.statistic || '').trim(),
     sources,
+    namedMechanism: String(parsed.named_mechanism || parsed.mechanism_name || '').trim(),
     implication: String(parsed.implication || '').trim(),
     followUpQuestion: String(parsed.follow_up_question || '').trim(),
     stanceBasis,
@@ -846,6 +1167,7 @@ function evidenceToBrief(evidence: ResearchEvidence): string {
     evidence.postSummary ? `Post summary: ${evidence.postSummary}` : '',
     evidence.keyPoint ? `Key point: ${evidence.keyPoint}` : '',
     evidence.statistic ? `Background insight (paraphrase loosely; optional light source mention, but no URLs and no exact numbers): ${evidence.statistic}` : '',
+    evidence.namedMechanism ? `Concrete mechanism/system name (if relevant, mention naturally): ${evidence.namedMechanism}` : '',
     sourceLines,
     evidence.fullPostWordCount > 0 ? `Full post word count from WebFetch: ${evidence.fullPostWordCount}` : '',
     evidence.implication ? `Implication: ${evidence.implication}` : '',
@@ -859,6 +1181,7 @@ function evidenceToBrief(evidence: ResearchEvidence): string {
 
 function hasMinimumEvidence(evidence: ResearchEvidence, requireTwoSources: boolean): boolean {
   if (!evidence.keyPoint || !evidence.statistic || !evidence.actionableAddOn) return false;
+  if (!Number.isFinite(evidence.fullPostWordCount) || evidence.fullPostWordCount <= 0) return false;
   if (requireTwoSources) return evidence.sources.length >= 2;
   return evidence.sources.length >= 1;
 }
@@ -915,21 +1238,28 @@ async function generateDraftFromSdk(
 async function runResearchPass(
   queryFn: (params: { prompt: string; options?: SDKOptions }) => SDKQuery,
   post: DraftPost,
+  fullPostText: string,
+  imageContext: string,
   model: string,
   config: LinkedInDraftConfig,
   abortController: AbortController,
   env: Record<string, string | undefined>,
 ): Promise<ResearchEvidence> {
-  const fallbackIntent = detectPostIntent(post.text_preview);
+  const fullTextForPrompt = clipForPrompt(fullPostText || post.text_preview || '', 10000);
+  const fallbackIntent = detectPostIntent(fullTextForPrompt || post.text_preview);
   const researchSystemPrompt = `You are a focused research analyst for LinkedIn comments.
 
 Rules:
-- FIRST: Use WebFetch on the post URL to read the FULL post content. The preview below is truncated.
+- Full post content is already provided below from a direct LinkedIn read-only fetch. Use that as the primary source of truth for what the author said.
+- If IMAGE CONTEXT is provided, treat it as additional source-of-truth for what the author is communicating.
+- Never invent visual details beyond IMAGE CONTEXT.
+- You may use WebFetch on the post URL only if you must verify missing context.
 - Then use at most ${config.maxSearchQueries} WebSearch calls to find one recent concrete fact.
 - Gather one practical implication grounded in real data.
 - Derive the two-cents basis in this priority order: contradiction > missing_piece > lived_experience > logical_gap.
 - Provide one actionable add-on (mini tutorial step, practical suggestion, or researched discovery) so the comment adds value, not just criticism.
-- Use ONLY evidence from this run's WebFetch/WebSearch. Do not rely on model memory.
+- If your fact references a named system/algorithm/policy (for example SpamBrain), capture that exact name. Avoid vague labels like "spam detection" when a concrete name exists.
+- Use ONLY evidence from provided full post text + this run's WebSearch/WebFetch. Do not rely on model memory.
 - Use grounded sources only. No made-up stats.
 - Do not write the final comment.
 - Return ONLY strict JSON.`;
@@ -938,14 +1268,26 @@ Rules:
 "${post.text_preview}"
 Post URL: ${post.post_url}
 
-STEP 1: WebFetch the post URL above to read the FULL post text (the preview is often truncated).
-STEP 2: Research the exact topic with WebSearch.
+FULL POST TEXT (authoritative; use this for key point extraction):
+"""
+${fullTextForPrompt}
+"""
+
+IMAGE CONTEXT (from direct post media analysis; may be empty):
+"""
+${clipForPrompt(imageContext || '', 1200) || '[none]'}
+"""
+
+STEP 1: Extract the true key point from FULL POST TEXT above.
+STEP 1b: If IMAGE CONTEXT is non-empty, fold one concrete image detail into your understanding of the post.
+STEP 2: Research the exact topic with WebSearch (and WebFetch if needed).
 STEP 3: Return STRICT JSON:
 {
   "post_summary": "one-line summary of what the author is saying",
-  "full_post_word_count": "integer word count from the WebFetch full post text",
+  "full_post_word_count": "integer word count from FULL POST TEXT above",
   "key_point": "most specific point from the post to reference",
   "statistic": "one loose fact or trend you found (paraphrase casually; optional light source mention, no exact numbers)",
+  "named_mechanism": "if relevant, exact algorithm/system/policy name from research (example: SpamBrain), else empty string",
   "stance_basis": "contradiction|missing_piece|lived_experience|logical_gap",
   "actionable_add_on": "one concrete next step or mini-tutorial tip that helps the reader act",
   "source_1": "publication/org name for your reference only",
@@ -980,6 +1322,8 @@ STEP 3: Return STRICT JSON:
 async function runWritePass(
   queryFn: (params: { prompt: string; options?: SDKOptions }) => SDKQuery,
   post: DraftPost,
+  fullPostText: string,
+  imageContext: string,
   styleGuide: string,
   evidence: ResearchEvidence,
   commentIntent: CommentIntent,
@@ -992,6 +1336,7 @@ async function runWritePass(
   const researchBrief = evidenceToBrief(evidence);
   const authorFirstName = getAuthorFirstName(post.author);
   const lengthPlan = getLengthPlan(post.text_preview, evidence, commentIntent);
+  const fullTextForPrompt = clipForPrompt(fullPostText || post.text_preview || '', 10000);
   const avoidOpenings = diversity ? Array.from(diversity.usedOpeningSignatures).filter(Boolean).slice(-6) : [];
   const avoidLeadIns = diversity ? Array.from(diversity.usedLeadInSignatures).filter(Boolean).slice(-8) : [];
   const challengeInstruction = evidence.postIntent === 'promotional' || evidence.postIntent === 'mixed'
@@ -1011,7 +1356,11 @@ RESPONSE REQUIREMENTS:
 - Automatic length target for this post: around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords} acceptable). Content decides where it lands, never pad.
 - Sentence 1 must start with "${authorFirstName}," and reference a specific point from the post.
 - Weave in ONE insight from the research naturally. Optional: one light source mention ("recently saw in [source]..."). No URLs or exact statistics.
+- If image context is available, incorporate one concrete visual/text detail naturally when relevant.
 - Use your own wording. Do not mirror long phrases from the author's original post.
+- Do not say "the author claims/says". Talk directly to the person ("you") or by name.
+- Avoid formula phrasing like "the pattern in 2025 is pretty clear".
+- Do not use filler emphasis words: "importantly", "more importantly", "most importantly".
 - Numbers are optional. If you use one, keep it rough and single (no stacked percentages).
 - Do NOT end with a question. End with a statement, a take, or an incomplete thought. Questions at the end feel like interview prompts, not real comments.
 - Include one clear "two-cents moment": a direct stance, pushback, or "this part is bs" claim tied to what the author said. No fence-sitting.
@@ -1028,6 +1377,7 @@ VOICE (critical - this is what makes it sound human):
 - If you use numbers, round casually: "around 60%" not "61%", "3-4x" not "3.7x".
 - Let some thoughts run naturally into each other. Don't perfectly structure every paragraph.
 - Rhythm guidance is soft, not rigid: prefer mixed sentence lengths and occasional punctuation texture ("...", ";", inline "?"), but do not force weird punctuation if it hurts flow.
+- If research surfaced a concrete system/algorithm name, prefer that specific name once instead of vague wording (example: use "SpamBrain", not "google spam detection").
 - NO metaphors or analogies. Never "it's like X", "the way Y works", "think of it as Z". Just say the thing directly. Metaphors are the #1 AI tell.
 - NO intro-body-conclusion structure. The comment should read like one continuous thought that could have kept going but you stopped typing. Real comments don't wrap up neatly.
 - Don't overuse personal experience framing ("I've seen", "we had a client", "happened to us"). Use it once max and only when it genuinely adds weight. Most of the time just state your take directly without qualifying where it comes from.
@@ -1050,6 +1400,17 @@ OUTPUT FORMAT:
 Return ONLY the final comment text.`;
 
   const writePrompt = `LinkedIn post by ${post.author}:
+FULL POST TEXT:
+"""
+${fullTextForPrompt}
+"""
+
+IMAGE CONTEXT (may be empty):
+"""
+${clipForPrompt(imageContext || '', 1200) || '[none]'}
+"""
+
+Preview snippet:
 "${post.text_preview}"
 Post URL: ${post.post_url}
 
@@ -1088,6 +1449,9 @@ Rewrite with strict compliance:
 - start sentence 1 with "${authorFirstName},"
 - reference the post's key point explicitly
 - do not copy long phrases from the post; rephrase in your own words
+- do not use meta phrasing like "the author claims"
+- avoid formula phrasing like "the pattern in 2025 is pretty clear"
+- avoid emphasis filler words like "importantly" or "more importantly"
 - include one direct two-cents stance tied to the specific claim in the post
 - include actionable follow-through right after the stance (specific next step or mini tutorial)
 - keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
@@ -1114,6 +1478,9 @@ Final rewrite requirements:
 - Keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
 - Sentence 1 must start with "${authorFirstName},"
 - Use different phrasing from the original post (no close paraphrase)
+- Do not use wording like "the author claims/says"
+- Avoid formula phrasing like "the pattern in 2025 is pretty clear"
+- Do not use filler emphasis words like "importantly", "more importantly", or "most importantly"
 - Include one clear two-cents stance, direct and specific
 - Include actionable follow-through after the stance, concrete and useful
 - Keep natural human tone and short paragraph formatting with line breaks
@@ -1136,6 +1503,10 @@ Return only the final comment text.`;
         const fallbackQuality = evaluateDraftQuality(fallbackDraft, evidence, post.text_preview, authorFirstName, lengthPlan, diversity);
         if (fallbackQuality.hardIssues.length > 0 || fallbackQuality.softWarnings.length > 0) {
           console.warn(`[LinkedInDrafter] Fallback draft warnings: ${[...fallbackQuality.hardIssues, ...fallbackQuality.softWarnings].join('; ')}`);
+          // If fallback degraded too much, keep the salvage draft even with issues.
+          if (salvageQuality.hardIssues.length < fallbackQuality.hardIssues.length) {
+            return draft;
+          }
         }
         return fallbackDraft;
       }
@@ -1150,9 +1521,128 @@ Return only the final comment text.`;
   return draft;
 }
 
+function buildFallbackEvidenceFromPost(post: DraftPost, fullPostText: string, imageContext = ''): ResearchEvidence {
+  const fullText = normalizeLinkedInPostText(fullPostText || post.text_preview || '');
+  const imageSignal = normalizeLinkedInPostText(imageContext || '');
+  const combined = [fullText, imageSignal].filter(Boolean).join('\n\n');
+  const firstSentence = (fullText.match(/[^.!?]+[.!?]?/) || [''])[0].trim();
+  const fallbackIntent = detectPostIntent(combined || fullText);
+  const keyPoint = firstSentence || fullText.slice(0, 160);
+  const postSummary = firstSentence || fullText.slice(0, 180);
+  return {
+    postSummary: imageSignal ? `${postSummary} ${clipForPrompt(imageSignal, 140)}` : postSummary,
+    keyPoint,
+    statistic: 'Recent operator reports suggest distribution shifts quickly when publishing cadence outruns quality controls.',
+    sources: [],
+    namedMechanism: '',
+    implication: imageSignal
+      ? 'Execution quality and visual message alignment matter more than raw posting volume.'
+      : 'Execution quality and pacing matter more than volume.',
+    followUpQuestion: '',
+    stanceBasis: 'logical_gap',
+    actionableAddOn: 'Add one concrete test and one measurable checkpoint before scaling the tactic.',
+    fullPostWordCount: countWords(fullText),
+    postIntent: fallbackIntent,
+    confidence: 'low',
+  };
+}
+
+async function generateDraftViaOpenAIModel(
+  post: DraftPost,
+  fullPostText: string,
+  imageContext: string,
+  styleGuide: string,
+  model: string,
+  parentAbortController: AbortController,
+  remainingMs: number,
+  diversity?: DraftDiversityContext,
+): Promise<DraftGenerationResult> {
+  const attempt = createAttemptAbortController(parentAbortController, remainingMs);
+  const fullTextForPrompt = clipForPrompt(fullPostText || post.text_preview || '', 10000);
+  const imageContextForPrompt = clipForPrompt(imageContext || '', 1200);
+  const evidence = buildFallbackEvidenceFromPost(post, fullTextForPrompt, imageContextForPrompt);
+  const commentIntent = chooseCommentIntent(post.id);
+  const authorFirstName = getAuthorFirstName(post.author);
+  const lengthPlan = getLengthPlan(post.text_preview, evidence, commentIntent);
+  const avoidOpenings = diversity ? Array.from(diversity.usedOpeningSignatures).filter(Boolean).slice(-5) : [];
+  const avoidLeadIns = diversity ? Array.from(diversity.usedLeadInSignatures).filter(Boolean).slice(-6) : [];
+
+  const systemPrompt = `You write a LinkedIn reply comment.
+
+Rules:
+- Start sentence 1 with "${authorFirstName},"
+- Keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
+- Keep the comment specific to the post and add one practical two-cents stance.
+- Add one actionable follow-through after your stance.
+- Use short readable paragraph chunks (2-4), no hashtags, no emojis, no links.
+- Do not end with a question.
+- No generic praise, no AI jargon, no em dash.
+- Return ONLY the final comment text.${styleGuide ? `\n\nStyle guide:\n${styleGuide}` : ''}`;
+
+  const userPrompt = `Author: ${post.author}
+Full post text:
+"""
+${fullTextForPrompt}
+"""
+
+Image context (may be empty):
+"""
+${imageContextForPrompt || '[none]'}
+"""
+
+Preview snippet:
+${post.text_preview}
+
+Draft a direct reply comment now.
+Avoid repeating these opening signatures: ${avoidOpenings.join(' | ') || 'none'}
+Avoid repeating these lead-ins: ${avoidLeadIns.join(' | ') || 'none'}`;
+
+  const abortPromise = new Promise<never>((_, reject) => {
+    attempt.controller.signal.addEventListener('abort', () => {
+      if (attempt.timedOut()) reject(new Error(`Timed out while drafting with ${model}`));
+      else reject(new Error('Draft job cancelled'));
+    }, { once: true });
+  });
+
+  try {
+    const response = await Promise.race([
+      glmChat({
+        model,
+        disableThinking: true,
+        temperature: 0.35,
+        maxTokens: 1200,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+      abortPromise,
+    ]);
+
+    if (!response.success || !response.content?.trim()) {
+      throw new Error(response.error || `No draft output for ${model}`);
+    }
+
+    let draft = ensureReadableCommentLayout(cleanDraftText(response.content));
+    const quality = evaluateDraftQuality(draft, evidence, post.text_preview, authorFirstName, lengthPlan, diversity);
+    if (quality.hardIssues.length > 0) {
+      if (hasCriticalQualityIssue(quality.hardIssues)) {
+        draft = buildDeterministicFallbackDraft(post, evidence, authorFirstName, commentIntent);
+      } else {
+        console.warn(`[LinkedInDrafter] OpenAI fallback draft quality warnings: ${quality.hardIssues.join('; ')}`);
+      }
+    }
+    return { draft, evidence, commentIntent, model };
+  } finally {
+    attempt.cleanup();
+  }
+}
+
 async function generateDraftForModel(
   queryFn: (params: { prompt: string; options?: SDKOptions }) => SDKQuery,
   post: DraftPost,
+  fullPostText: string,
+  imageContext: string,
   styleGuide: string,
   model: string,
   config: LinkedInDraftConfig,
@@ -1160,14 +1650,19 @@ async function generateDraftForModel(
   remainingMs: number,
   diversity?: DraftDiversityContext,
 ): Promise<DraftGenerationResult> {
+  const provider = getProviderForModel(model);
+  if (provider === 'openai' || provider === 'gemini') {
+    return generateDraftViaOpenAIModel(post, fullPostText, imageContext, styleGuide, model, parentAbortController, remainingMs, diversity);
+  }
+
   const env = await buildProviderEnv(model);
   const attempt = createAttemptAbortController(parentAbortController, remainingMs);
   let evidence: ResearchEvidence | null = null;
   let commentIntent: CommentIntent | null = null;
   try {
-    evidence = await runResearchPass(queryFn, post, model, config, attempt.controller, env);
+    evidence = await runResearchPass(queryFn, post, fullPostText, imageContext, model, config, attempt.controller, env);
     commentIntent = chooseCommentIntent(post.id);
-    const draft = await runWritePass(queryFn, post, styleGuide, evidence, commentIntent, model, config, attempt.controller, env, diversity);
+    const draft = await runWritePass(queryFn, post, fullPostText, imageContext, styleGuide, evidence, commentIntent, model, config, attempt.controller, env, diversity);
     return { draft, evidence, commentIntent, model };
   } catch (err) {
     const abortReason = parentAbortController.signal.reason;
@@ -1282,6 +1777,66 @@ function setDraftState(postId: number, state: DraftState, error?: string): void 
     }
   } catch (err) {
     console.warn('[LinkedInDrafter] Failed to set draft state:', err);
+  } finally {
+    db.close();
+  }
+}
+
+export interface DraftRecoveryResult {
+  recoveredCount: number;
+  recoveredPostIds: number[];
+}
+
+export function recoverInterruptedDrafts(trigger: 'restart' | 'wake' = 'restart'): DraftRecoveryResult {
+  const db = getDb();
+  if (!db) return { recoveredCount: 0, recoveredPostIds: [] };
+
+  try {
+    const rows = db.prepare(
+      `SELECT id, post_url, draft_state
+       FROM linkedin_posts
+       WHERE hidden = 0
+         AND commented = 0
+         AND draft_state IN ('queued', 'researching', 'writing')
+       ORDER BY id ASC`
+    ).all() as Array<{ id: number; post_url: string; draft_state: string }>;
+
+    if (rows.length === 0) return { recoveredCount: 0, recoveredPostIds: [] };
+
+    const now = new Date().toISOString();
+    const update = db.prepare(
+      `UPDATE linkedin_posts
+       SET draft_state = 'queued',
+           draft_error = ?,
+           draft_started_at = ?,
+           draft_finished_at = NULL
+       WHERE id = ?`
+    );
+    const log = db.prepare(
+      `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
+       VALUES (?, ?, 'recovered', ?)`
+    );
+
+    const reasonBase = trigger === 'wake'
+      ? 'draft_recovered_after_wake'
+      : 'draft_recovered_after_restart';
+
+    const tx = db.transaction(() => {
+      for (const row of rows) {
+        const reason = `${reasonBase}:was_${String(row.draft_state || 'unknown')}`;
+        update.run('Recovered after interruption. Auto-retry started.', now, row.id);
+        log.run(row.id, row.post_url, reason);
+      }
+    });
+    tx();
+
+    return {
+      recoveredCount: rows.length,
+      recoveredPostIds: rows.map(r => Number(r.id)).filter(id => Number.isFinite(id) && id > 0),
+    };
+  } catch (err) {
+    console.warn('[LinkedInDrafter] Failed to recover interrupted drafts:', err);
+    return { recoveredCount: 0, recoveredPostIds: [] };
   } finally {
     db.close();
   }
@@ -1420,10 +1975,16 @@ async function draftOnePost(
   }
 
   const config = getLinkedInDraftConfig();
-  const attemptModels = getAttemptModels(model, config.fallbackModel);
+  const attemptModels = getAttemptModels(model, config.fallbackModel, config.fallbackModel2, config.fallbackModel3);
   // Keep internal deadline aligned with outer batch timeout window (+20s grace).
   const effectiveTimeoutSec = computeEffectiveTimeoutSec(config.perPostTimeoutSec, model, post.text_preview) + 20;
   const deadline = Date.now() + (effectiveTimeoutSec * 1000);
+  const fullPost = await readFullLinkedInPostContent(post.post_url, abortController);
+  const fullPostText = fullPost.text;
+  const imageContext = fullPost.imageContext;
+  if (!fullPostText) {
+    throw new Error(`Full post fetch failed for ${post.author}; drafting aborted to avoid summary-only output`);
+  }
 
   let draft = '';
   let generation: DraftGenerationResult | null = null;
@@ -1440,6 +2001,8 @@ async function draftOnePost(
       generation = await generateDraftForModel(
         queryFn,
         post,
+        fullPostText,
+        imageContext,
         styleGuide,
         attemptModel,
         config,
@@ -1699,4 +2262,101 @@ export async function draftBatch(
       errors: errors.length,
     });
   }
+}
+
+export async function rewriteLinkedInDraftWithInstructions(options: {
+  draftText: string;
+  instructions: string;
+  author?: string;
+  postPreview?: string;
+  postUrl?: string;
+}): Promise<{ rewritten: string; model: string }> {
+  const original = String(options.draftText || '').trim();
+  const instructions = String(options.instructions || '').trim();
+  if (!original) throw new Error('Original draft is empty');
+  if (!instructions) throw new Error('Instructions are required');
+
+  const author = String(options.author || '').trim();
+  const preview = String(options.postPreview || '').trim();
+  const postUrl = String(options.postUrl || '').trim();
+  const primaryModel = getDraftModel();
+  const config = getLinkedInDraftConfig();
+  const attemptModels = getAttemptModels(primaryModel, config.fallbackModel, config.fallbackModel2, config.fallbackModel3);
+  if (attemptModels.length === 0) {
+    throw new Error('No available models for AI edit helper');
+  }
+
+  const attemptErrors: string[] = [];
+  let queryFn: ((params: { prompt: string; options?: SDKOptions }) => SDKQuery) | null = null;
+  for (const model of attemptModels) {
+    const provider = getProviderForModel(model);
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort('timeout'), 70_000);
+    try {
+      const systemPrompt = `You are editing a LinkedIn comment draft.
+
+Rules:
+- Apply only the requested changes.
+- Keep the original narrative, structure, and intent intact.
+- Preserve any strong phrasing that is already good.
+- Do not add hashtags, emojis, URLs, or markdown.
+- Keep line breaks readable.
+- Return ONLY the revised draft text.`;
+
+      const userPrompt = `Author: ${author || 'unknown'}
+Post preview: ${preview || 'n/a'}
+Post URL: ${postUrl || 'n/a'}
+
+Original draft:
+${original}
+
+Requested additions/changes:
+${instructions}
+
+Rewrite now while preserving everything else as much as possible.`;
+
+      let rewritten = '';
+      if (provider === 'openai') {
+        const response = await glmChat({
+          model,
+          disableThinking: true,
+          temperature: 0.2,
+          maxTokens: Math.max(700, Math.min(1800, Math.round(original.length * 1.8))),
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+        });
+        if (!response.success || !response.content?.trim()) {
+          throw new Error(response.error || `Empty rewrite output from ${model}`);
+        }
+        rewritten = response.content;
+      } else {
+        if (!queryFn) queryFn = await loadSDK();
+        if (!queryFn) throw new Error('Failed to load SDK');
+        const env = await buildProviderEnv(model);
+        rewritten = await generateDraftFromSdk(queryFn, userPrompt, {
+          model,
+          maxTurns: 3,
+          abortController,
+          systemPrompt,
+          cwd: getSdkCwd(),
+          env,
+        });
+      }
+
+      const cleaned = ensureReadableCommentLayout(cleanDraftText(rewritten));
+      if (!cleaned) {
+        throw new Error(`Rewriter returned empty output (${model})`);
+      }
+      return { rewritten: cleaned, model };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      attemptErrors.push(`${model}: ${msg}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw new Error(`AI edit helper failed (${attemptErrors.join(' | ')})`);
 }
