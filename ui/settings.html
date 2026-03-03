@@ -2793,6 +2793,42 @@
             </div>
           </div>
 
+          <div class="li-subsection">Post Campaign Targets</div>
+
+          <div class="li-voice-grid">
+            <div class="li-field">
+              <label title="LinkedIn destinations for original posts. One URL per line. Include your profile URL and any company/group pages you own or are allowed to post from.">Posting Target URLs</label>
+              <textarea id="linkedin-post-targets" rows="3" placeholder="https://www.linkedin.com/in/your-profile/\nhttps://www.linkedin.com/company/your-company/\nhttps://www.linkedin.com/groups/123456/" title="One URL per line. These are explicit destinations for post publishing, so the agent does not guess where to post."></textarea>
+              <div class="li-actions">
+                <button onclick="saveLinkedInSetting('linkedin.postTargets', 'linkedin-post-targets')">Save</button>
+              </div>
+            </div>
+
+            <div class="li-field">
+              <label title="Daily target for original LinkedIn posts.">Posts Per Day</label>
+              <div class="key-input" style="width: 150px;">
+                <input type="number" id="linkedin-posts-per-day" min="1" max="10" placeholder="3" style="width: 70px; text-align: center;" title="Target daily original-post output.">
+                <button onclick="saveLinkedInSetting('linkedin.postsPerDay', 'linkedin-posts-per-day')">Save</button>
+              </div>
+            </div>
+
+            <div class="li-field">
+              <label title="How the agent should turn feed engagement signals into new original posts.">Post Strategy</label>
+              <textarea id="linkedin-post-strategy" rows="3" placeholder="Use top engaging feed topics as signal, then write a stronger original narrative with practical takeaways." title="Workflow guidance for post ideation and narrative shaping."></textarea>
+              <div class="li-actions">
+                <button onclick="saveLinkedInSetting('linkedin.postStrategy', 'linkedin-post-strategy')">Save</button>
+              </div>
+            </div>
+
+            <div class="li-field">
+              <label title="Guidelines for image generation prompts attached to new posts (KIE Nano Banana 2 workflow).">Image Prompt Style</label>
+              <textarea id="linkedin-image-prompt-style" rows="2" placeholder="Authentic visual, no stock-feel, supports main claim, clear composition, high readability." title="Used as a reusable image-brief style when generating visuals for posts."></textarea>
+              <div class="li-actions">
+                <button onclick="saveLinkedInSetting('linkedin.imagePromptStyle', 'linkedin-image-prompt-style')">Save</button>
+              </div>
+            </div>
+          </div>
+
           <div class="li-info">
             <div><strong>Setup:</strong> First tool call installs Python venv + Chrome (~60s). Auth: <code>python3 src/skills/linkedin/scripts/run.py auth_manager setup</code></div>
             <div><strong>Data:</strong> Browser state and venv at <code>~/.pocket-agent/linkedin/</code> (survives updates).</div>
@@ -3548,6 +3584,14 @@
       if (linkedinRules && settings['linkedin.writingRules']) linkedinRules.value = settings['linkedin.writingRules'];
       const linkedinDirection = document.getElementById('linkedin-content-direction');
       if (linkedinDirection && settings['linkedin.contentDirection']) linkedinDirection.value = settings['linkedin.contentDirection'];
+      const linkedinPostTargets = document.getElementById('linkedin-post-targets');
+      if (linkedinPostTargets && settings['linkedin.postTargets']) linkedinPostTargets.value = settings['linkedin.postTargets'];
+      const linkedinPostsPerDay = document.getElementById('linkedin-posts-per-day');
+      if (linkedinPostsPerDay) linkedinPostsPerDay.value = settings['linkedin.postsPerDay'] || '3';
+      const linkedinPostStrategy = document.getElementById('linkedin-post-strategy');
+      if (linkedinPostStrategy && settings['linkedin.postStrategy']) linkedinPostStrategy.value = settings['linkedin.postStrategy'];
+      const linkedinImagePromptStyle = document.getElementById('linkedin-image-prompt-style');
+      if (linkedinImagePromptStyle && settings['linkedin.imagePromptStyle']) linkedinImagePromptStyle.value = settings['linkedin.imagePromptStyle'];
       const linkedinScroll = document.getElementById('linkedin-feed-scroll');
       if (linkedinScroll) linkedinScroll.value = settings['linkedin.feedScroll'] || '3';
       const linkedinLimit = document.getElementById('linkedin-feed-limit');
@@ -3685,7 +3729,8 @@
         'linkedin-feed-keywords', 'linkedin-feed-scroll', 'linkedin-feed-limit', 'linkedin-daily-limit', 'linkedin-comment-delay',
         'linkedin-draft-mode', 'linkedin-post-model', 'linkedin-draft-timeout', 'linkedin-research-turns', 'linkedin-write-turns',
         'linkedin-research-queries', 'linkedin-research-fallback-model',
-        'linkedin-voice-style', 'linkedin-writing-rules', 'linkedin-content-direction'
+        'linkedin-voice-style', 'linkedin-writing-rules', 'linkedin-content-direction',
+        'linkedin-post-targets', 'linkedin-posts-per-day', 'linkedin-post-strategy', 'linkedin-image-prompt-style'
       ];
 
       const inputs = document.querySelectorAll('input, select');
