@@ -1600,6 +1600,7 @@ class AgentManagerClass extends EventEmitter {
         `When critiquing ideas, be direct but always include a constructive next action.\n` +
         `Avoid coding/file-editing/shell actions in this mode unless explicitly required.\n` +
         `No conversational filler or banter (e.g., "haha", "fair enough", "let me check"). Use direct professional language.\n` +
+        `If the user asks for implementation that requires writing files, editing code, or running shell commands, explicitly state a mode handoff first: "This needs Coder mode. Switch to Coder and I will execute it." Then stop and wait for mode switch.\n` +
         `For factual lookup questions, keep searching until you can answer confidently, but do it with progressive strategy changes (narrow, broaden, cross-check) rather than repeating near-identical queries.\n` +
         `Default retrieval order: (1) memory/facts/session context, (2) local workspace read/search, (3) web search. If local evidence is insufficient, proceed to web search automatically.\n` +
         `Do not ask whether to search; do it. Ask a follow-up only when the request is ambiguous or missing key constraints.\n` +
