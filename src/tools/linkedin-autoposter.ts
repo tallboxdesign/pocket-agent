@@ -250,6 +250,52 @@ function nextLocalDayStartMs(ms: number): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 1, 0, 0).getTime();
 }
 
+function clampInt(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
+function randomIntBetween(min: number, max: number): number {
+  const lo = Math.floor(min);
+  const hi = Math.floor(max);
+  if (hi <= lo) return lo;
+  return lo + Math.floor(Math.random() * (hi - lo + 1));
+}
+
+function computeAdaptiveSpacingMs(
+  position: number,
+  total: number,
+  minSpacingMs: number,
+  lastAtMs: number,
+  bulkHorizonEndMs: number,
+): number {
+  // Small batches can stay near-term (manual burst behavior).
+  if (total <= 3) {
+    const min = Math.max(2 * 60_000, Math.floor(minSpacingMs * 0.8));
+    const max = Math.max(min + 60_000, Math.floor(minSpacingMs * 1.9));
+    return randomIntBetween(min, max);
+  }
+  if (total === 4) {
+    const min = Math.max(3 * 60_000, Math.floor(minSpacingMs * 0.9));
+    const max = Math.max(min + 90_000, Math.floor(7.5 * 60_000));
+    return randomIntBetween(min, max);
+  }
+
+  // Larger batches: spread over a broader horizon with jitter.
+  if (lastAtMs >= bulkHorizonEndMs) {
+    const min = Math.max(8 * 60_000, Math.floor(minSpacingMs * 2));
+    const max = Math.max(min + 120_000, 55 * 60_000);
+    return randomIntBetween(min, max);
+  }
+
+  const remaining = Math.max(1, total - position - 1);
+  const remainingHorizonMs = Math.max(minSpacingMs, bulkHorizonEndMs - lastAtMs);
+  const baseline = Math.max(minSpacingMs, Math.floor(remainingHorizonMs / remaining));
+  const min = Math.max(4 * 60_000, Math.floor(minSpacingMs * 1.1));
+  const max = Math.max(min + 60_000, Math.floor(baseline * 1.8));
+  const jittered = Math.floor(baseline * (0.7 + Math.random() * 0.8)); // 0.7x to 1.5x
+  return clampInt(jittered, min, max);
+}
+
 function normalizeLinkedInPostUrl(raw: string): string {
   const input = String(raw || '').trim();
   if (!input) return '';
@@ -534,6 +580,8 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
 
     const nowFloorMs = Math.max(0, Date.now() + 60_000);
     const minSpacingMs = getBaseCommentDelayMs();
+    const bulkSpreadHours = 6;
+    const bulkHorizonEndMs = nowFloorMs + (bulkSpreadHours * 60 * 60 * 1000);
     const preferredMsRaw = parseDbDateTime(options.preferredAt);
     const preferredMs = Number.isFinite(preferredMsRaw) ? preferredMsRaw : NaN;
     const dayCap = getScheduleDayCap();
@@ -554,7 +602,8 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
     let cursorMs = nowFloorMs;
     let warning: string | undefined;
 
-    for (const row of rows) {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
       const currentMsRaw = parseDbDateTime(row.scheduled_at);
       const hasCurrent = Number.isFinite(currentMsRaw);
       let candidateMs = hasCurrent ? currentMsRaw : cursorMs;
@@ -599,7 +648,8 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
       if (aligned === null) break;
       alignedMs = aligned;
 
-      const nextCursor = alignToPostingWindowMs(alignedMs + minSpacingMs, windows);
+      const adaptiveSpacingMs = computeAdaptiveSpacingMs(i, rows.length, minSpacingMs, alignedMs, bulkHorizonEndMs);
+      const nextCursor = alignToPostingWindowMs(alignedMs + adaptiveSpacingMs, windows);
       if (nextCursor === null) {
         warning = 'Could not compute safe spacing in posting windows.';
         break;
