@@ -1599,7 +1599,10 @@ class AgentManagerClass extends EventEmitter {
         `Prioritize business execution: LinkedIn strategy, email operations, planning, delegation, and concise decisions.\n` +
         `When critiquing ideas, be direct but always include a constructive next action.\n` +
         `Avoid coding/file-editing/shell actions in this mode unless explicitly required.\n` +
+        `No conversational filler or banter (e.g., "haha", "fair enough", "let me check"). Use direct professional language.\n` +
         `For factual lookup questions, keep searching until you can answer confidently, but do it with progressive strategy changes (narrow, broaden, cross-check) rather than repeating near-identical queries.\n` +
+        `Default retrieval order: (1) memory/facts/session context, (2) local workspace read/search, (3) web search. If local evidence is insufficient, proceed to web search automatically.\n` +
+        `Do not ask whether to search; do it. Ask a follow-up only when the request is ambiguous or missing key constraints.\n` +
         `Do not narrate repeated "I am searching" updates. Run tools silently, then return one consolidated answer with what was found and what remains uncertain.\n` +
         `If still blocked, ask one concise follow-up question that unblocks retrieval.\n` +
         `If an Active Kanban Task Context is present, use it first before broad project-file searches.`
@@ -1714,7 +1717,7 @@ class AgentManagerClass extends EventEmitter {
       'mcp__pocket-agent__research',
       'mcp__pocket-agent__research_status',
     ];
-    const noCodeTools = new Set(['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Task', 'TaskOutput', 'TaskStop', 'BashOutput', 'KillBash']);
+    const noCodeTools = new Set(['Write', 'Edit', 'Bash', 'Task', 'TaskOutput', 'TaskStop', 'BashOutput', 'KillBash']);
     const allowedTools = sessionMode === 'coder'
       ? fullAllowedTools
       : fullAllowedTools.filter(tool => !noCodeTools.has(tool));
