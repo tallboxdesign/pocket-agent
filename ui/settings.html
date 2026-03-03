@@ -2620,6 +2620,37 @@
               </div>
             </div>
             <div class="setting-row">
+              <label title="Automatically scrape LinkedIn feed and flag high-engagement posts for drafting, then notify on Telegram.">Auto Feed Scrape Alerts</label>
+              <div class="toggle" id="linkedin.autoScrapeEnabled-toggle" onclick="toggleSetting('linkedin.autoScrapeEnabled')" title="Enable interval-based feed scraping + Telegram drafting alerts"></div>
+            </div>
+            <div class="setting-row">
+              <label title="How often automatic feed scrape should run. 60 is recommended; 30 is more aggressive and may return duplicates sooner.">Auto Scrape Interval (min)</label>
+              <div class="key-input" style="width: 150px;">
+                <select id="linkedin-auto-scrape-interval" style="width: 85px; text-align: center;" title="Choose 30 or 60 minutes">
+                  <option value="30">30</option>
+                  <option value="60">60</option>
+                </select>
+                <button onclick="saveLinkedInSetting('linkedin.autoScrapeIntervalMin', 'linkedin-auto-scrape-interval')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Scroll depth for automatic scrape runs. Higher values find more posts but increase runtime and LinkedIn friction risk.">Auto Scrape Scroll</label>
+              <div class="key-input" style="width: 140px;">
+                <input type="number" id="linkedin-auto-scrape-scroll" min="1" max="24" placeholder="12" style="width: 70px; text-align: center;">
+                <button onclick="saveLinkedInSetting('linkedin.autoScrapeScroll', 'linkedin-auto-scrape-scroll')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Threshold to flag drafting candidates from auto-scrape.">Auto Flag Threshold</label>
+              <div class="key-input" style="width: 250px; gap: 6px;">
+                <input type="number" id="linkedin-auto-min-reactions" min="0" max="5000" placeholder="5" style="width: 62px; text-align: center;" title="Minimum reactions">
+                <span style="font-size:11px;color:var(--text-muted)">reacts</span>
+                <input type="number" id="linkedin-auto-min-comments" min="0" max="2000" placeholder="1" style="width: 62px; text-align: center;" title="Minimum comments">
+                <span style="font-size:11px;color:var(--text-muted)">comments</span>
+                <button onclick="saveLinkedInSetting('linkedin.autoScrapeMinReactions', 'linkedin-auto-min-reactions'); saveLinkedInSetting('linkedin.autoScrapeMinComments', 'linkedin-auto-min-comments');">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
               <label title="Daily auto-post cap. 15 is the recommended safe limit. You can raise it up to 50.">Daily Auto-Post Limit</label>
               <div class="key-input" style="width: 320px; align-items: center; gap: 8px;">
                 <input type="number" id="linkedin-daily-limit" min="1" max="50" placeholder="15" style="width: 70px; text-align: center;" title="Safe recommendation: 15/day. Absolute max: 50/day." oninput="updateLinkedInDailyLimitHint(this.value)">
@@ -3572,6 +3603,8 @@
       }
       const linkedinAutoConfirm = document.getElementById('linkedin.autoConfirm-toggle');
       if (linkedinAutoConfirm) linkedinAutoConfirm.classList.toggle('active', settings['linkedin.autoConfirm'] === 'true');
+      const linkedinAutoScrapeToggle = document.getElementById('linkedin.autoScrapeEnabled-toggle');
+      if (linkedinAutoScrapeToggle) linkedinAutoScrapeToggle.classList.toggle('active', settings['linkedin.autoScrapeEnabled'] === 'true');
       const linkedinDayWindowToggle = document.getElementById('linkedin.dayWindowEnabled-toggle');
       if (linkedinDayWindowToggle) linkedinDayWindowToggle.classList.toggle('active', settings['linkedin.dayWindowEnabled'] !== 'false');
       const linkedinNightWindowToggle = document.getElementById('linkedin.nightWindowEnabled-toggle');
@@ -3596,6 +3629,14 @@
       if (linkedinScroll) linkedinScroll.value = settings['linkedin.feedScroll'] || '3';
       const linkedinLimit = document.getElementById('linkedin-feed-limit');
       if (linkedinLimit) linkedinLimit.value = settings['linkedin.feedLimit'] || '20';
+      const linkedinAutoInterval = document.getElementById('linkedin-auto-scrape-interval');
+      if (linkedinAutoInterval) linkedinAutoInterval.value = settings['linkedin.autoScrapeIntervalMin'] || '60';
+      const linkedinAutoScroll = document.getElementById('linkedin-auto-scrape-scroll');
+      if (linkedinAutoScroll) linkedinAutoScroll.value = settings['linkedin.autoScrapeScroll'] || '12';
+      const linkedinAutoMinReactions = document.getElementById('linkedin-auto-min-reactions');
+      if (linkedinAutoMinReactions) linkedinAutoMinReactions.value = settings['linkedin.autoScrapeMinReactions'] || '5';
+      const linkedinAutoMinComments = document.getElementById('linkedin-auto-min-comments');
+      if (linkedinAutoMinComments) linkedinAutoMinComments.value = settings['linkedin.autoScrapeMinComments'] || '1';
       const linkedinDailyLimit = document.getElementById('linkedin-daily-limit');
       if (linkedinDailyLimit) linkedinDailyLimit.value = settings['linkedin.dailyLimit'] || '15';
       const linkedinDelay = document.getElementById('linkedin-comment-delay');
@@ -3726,7 +3767,9 @@
         'gmail-user-email', 'gmail-default-recipient',
         'ep-enabled', 'ep-interval', 'ep-processed-label', 'ep-review-label',
         'ep-max-emails', 'ep-lookback', 'ep-gmail-conc', 'ep-glm-conc',
-        'linkedin-feed-keywords', 'linkedin-feed-scroll', 'linkedin-feed-limit', 'linkedin-daily-limit', 'linkedin-comment-delay',
+        'linkedin-feed-keywords', 'linkedin-feed-scroll', 'linkedin-feed-limit',
+        'linkedin-auto-scrape-interval', 'linkedin-auto-scrape-scroll', 'linkedin-auto-min-reactions', 'linkedin-auto-min-comments',
+        'linkedin-daily-limit', 'linkedin-comment-delay',
         'linkedin-draft-mode', 'linkedin-post-model', 'linkedin-draft-timeout', 'linkedin-research-turns', 'linkedin-write-turns',
         'linkedin-research-queries', 'linkedin-research-fallback-model',
         'linkedin-voice-style', 'linkedin-writing-rules', 'linkedin-content-direction',

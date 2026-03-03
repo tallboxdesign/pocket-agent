@@ -550,6 +550,148 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   }
 }
 
+type AutoScrapeFlaggedPost = {
+  id: number;
+  author: string;
+  post_url: string;
+  reactions: number;
+  comments: number;
+  engagement: number;
+};
+
+export async function runLinkedInAutoScrapeCycle(input: {
+  scroll?: number;
+  limit?: number;
+  minReactions?: number;
+  minComments?: number;
+  maxFlagged?: number;
+} = {}): Promise<{
+  success: boolean;
+  scraped: number;
+  new_posts: number;
+  flagged: number;
+  flagged_posts: AutoScrapeFlaggedPost[];
+  warning?: string;
+  error?: string;
+}> {
+  const minReactions = Math.max(0, Math.floor(input.minReactions ?? 5));
+  const minComments = Math.max(0, Math.floor(input.minComments ?? 1));
+  const maxFlagged = Math.max(1, Math.min(20, Math.floor(input.maxFlagged ?? 8)));
+
+  try {
+    const scrapeRaw = await handleBrowseFeedTool({
+      scroll: input.scroll,
+      limit: input.limit,
+    });
+    const scrape = JSON.parse(scrapeRaw) as {
+      success?: boolean;
+      error?: string;
+      warning?: string;
+      total_scraped?: number;
+      count?: number;
+    };
+    if (!scrape?.success) {
+      return {
+        success: false,
+        scraped: 0,
+        new_posts: 0,
+        flagged: 0,
+        flagged_posts: [],
+        error: scrape?.error || 'Auto scrape failed',
+      };
+    }
+
+    const db = getDb();
+    if (!db) {
+      return {
+        success: false,
+        scraped: Number(scrape?.total_scraped || 0),
+        new_posts: Number(scrape?.count || 0),
+        flagged: 0,
+        flagged_posts: [],
+        error: 'Database not available',
+      };
+    }
+
+    const today = todayDate();
+    const candidates = db.prepare(
+      `SELECT id, author, post_url, reactions, comments, priority
+       FROM linkedin_posts
+       WHERE scraped_date = ?
+         AND hidden = 0
+         AND commented = 0
+         AND (comment_draft IS NULL OR trim(comment_draft) = '')
+         AND COALESCE(reactions, 0) >= ?
+         AND COALESCE(comments, 0) >= ?
+       ORDER BY (COALESCE(reactions, 0) + COALESCE(comments, 0)) DESC, id ASC
+       LIMIT ?`
+    ).all(today, minReactions, minComments, maxFlagged) as Array<{
+      id: number;
+      author: string;
+      post_url: string;
+      reactions: number;
+      comments: number;
+      priority: string | null;
+    }>;
+
+    const alreadyFlagged = db.prepare(
+      `SELECT 1
+       FROM linkedin_activity_log
+       WHERE post_id = ?
+         AND action = 'auto_scrape_flagged'
+         AND date(created_at, 'localtime') = date('now', 'localtime')
+       LIMIT 1`
+    );
+    const markPriority = db.prepare(
+      `UPDATE linkedin_posts
+       SET priority = CASE WHEN priority = 'urgent' THEN 'urgent' ELSE 'high' END
+       WHERE id = ?`
+    );
+    const logFlag = db.prepare(
+      `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
+       VALUES (?, ?, 'auto_scrape_flagged', ?)`
+    );
+
+    const flaggedPosts: AutoScrapeFlaggedPost[] = [];
+    const tx = db.transaction(() => {
+      for (const row of candidates) {
+        const seen = alreadyFlagged.get(row.id) as { 1: number } | undefined;
+        if (seen) continue;
+        markPriority.run(row.id);
+        logFlag.run(row.id, normalizeLinkedInPostUrl(row.post_url), `engagement:r${row.reactions}:c${row.comments}`);
+        flaggedPosts.push({
+          id: row.id,
+          author: row.author || 'Unknown',
+          post_url: normalizeLinkedInPostUrl(row.post_url),
+          reactions: Number(row.reactions || 0),
+          comments: Number(row.comments || 0),
+          engagement: Number(row.reactions || 0) + Number(row.comments || 0),
+        });
+      }
+    });
+    tx();
+
+    return {
+      success: true,
+      scraped: Number(scrape?.total_scraped || 0),
+      new_posts: Number(scrape?.count || 0),
+      flagged: flaggedPosts.length,
+      flagged_posts: flaggedPosts,
+      warning: scrape?.warning,
+    };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      scraped: 0,
+      new_posts: 0,
+      flagged: 0,
+      flagged_posts: [],
+      error: msg,
+    };
+  }
+}
+
 // ============================================================================
 // Read Post Tool
 // ============================================================================

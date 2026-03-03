@@ -78,6 +78,9 @@ export class CronScheduler {
   private checkStartedAt: number = 0; // Timestamp when check started (for stale mutex detection)
   private autoPosterInterval: ReturnType<typeof setInterval> | null = null;
   private engagementCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private linkedInAutoScrapeInterval: ReturnType<typeof setInterval> | null = null;
+  private linkedInAutoScrapeRunning: boolean = false;
+  private linkedInAutoScrapeLastRunAt: number = 0;
 
   constructor() {}
 
@@ -114,16 +117,73 @@ export class CronScheduler {
     this.checkReminders().catch(err => console.error('[Scheduler] Error checking reminders:', err));
 
     // Start LinkedIn auto-poster (every 60s) and engagement checks (every 30min)
-    import('../tools/linkedin-autoposter').then(({ checkAndPostNext, checkDueEngagement, syncAuthorsFromPosts }) => {
+    import('../tools/linkedin-autoposter').then(({ checkAndPostNext, checkDueEngagement, syncAuthorsFromPosts, notifyTelegram }) => {
       this.autoPosterInterval = setInterval(() => {
         checkAndPostNext().catch(err => console.error('[Scheduler] AutoPoster error:', err));
       }, 60000);
       this.engagementCheckInterval = setInterval(() => {
         checkDueEngagement().catch(err => console.error('[Scheduler] Engagement check error:', err));
       }, 30 * 60 * 1000);
+      this.linkedInAutoScrapeInterval = setInterval(() => {
+        this.runLinkedInAutoScrapeTick(notifyTelegram).catch(err => console.error('[Scheduler] LinkedIn auto-scrape error:', err));
+      }, 60000);
       // Sync authors on startup
       try { syncAuthorsFromPosts(); } catch (err) { console.error('[Scheduler] Author sync error:', err); }
+      this.runLinkedInAutoScrapeTick(notifyTelegram).catch(err => console.error('[Scheduler] LinkedIn auto-scrape start error:', err));
     }).catch(err => console.error('[Scheduler] Failed to load autoposter:', err));
+  }
+
+  private async runLinkedInAutoScrapeTick(notifyLinkedIn: (message: string) => Promise<void>): Promise<void> {
+    if (this.linkedInAutoScrapeRunning) return;
+    if (SettingsManager.get('linkedin.enabled') !== 'true') return;
+    if (SettingsManager.get('linkedin.autoScrapeEnabled') !== 'true') return;
+
+    const rawInterval = parseInt(SettingsManager.get('linkedin.autoScrapeIntervalMin') || '60', 10);
+    const intervalMin = Math.max(30, Math.min(240, Number.isFinite(rawInterval) ? rawInterval : 60));
+    const now = Date.now();
+    if (this.linkedInAutoScrapeLastRunAt > 0 && now - this.linkedInAutoScrapeLastRunAt < intervalMin * 60 * 1000) {
+      return;
+    }
+
+    this.linkedInAutoScrapeRunning = true;
+    try {
+      const scrollRaw = parseInt(SettingsManager.get('linkedin.autoScrapeScroll') || SettingsManager.get('linkedin.feedScroll') || '12', 10);
+      const limitRaw = parseInt(SettingsManager.get('linkedin.autoScrapeLimit') || SettingsManager.get('linkedin.feedLimit') || '50', 10);
+      const minReactsRaw = parseInt(SettingsManager.get('linkedin.autoScrapeMinReactions') || '5', 10);
+      const minCommentsRaw = parseInt(SettingsManager.get('linkedin.autoScrapeMinComments') || '1', 10);
+      const maxFlaggedRaw = parseInt(SettingsManager.get('linkedin.autoScrapeMaxFlagged') || '8', 10);
+      const scroll = Math.max(1, Math.min(24, Number.isFinite(scrollRaw) ? scrollRaw : 12));
+      const limit = Math.max(5, Math.min(120, Number.isFinite(limitRaw) ? limitRaw : 50));
+      const minReactions = Math.max(0, Math.min(10000, Number.isFinite(minReactsRaw) ? minReactsRaw : 5));
+      const minComments = Math.max(0, Math.min(5000, Number.isFinite(minCommentsRaw) ? minCommentsRaw : 1));
+      const maxFlagged = Math.max(1, Math.min(20, Number.isFinite(maxFlaggedRaw) ? maxFlaggedRaw : 8));
+
+      const { runLinkedInAutoScrapeCycle } = await import('../tools/linkedin-tools');
+      const result = await runLinkedInAutoScrapeCycle({
+        scroll,
+        limit,
+        minReactions,
+        minComments,
+        maxFlagged,
+      });
+      this.linkedInAutoScrapeLastRunAt = now;
+
+      if (!result.success) {
+        console.warn('[Scheduler] LinkedIn auto-scrape failed:', result.error || 'unknown error');
+        return;
+      }
+
+      if (result.flagged > 0) {
+        const preview = result.flagged_posts
+          .slice(0, 4)
+          .map((p, idx) => `${idx + 1}) ${p.author} (${p.reactions}r/${p.comments}c)`)
+          .join(' | ');
+        const message = `LinkedIn auto-scrape: flagged ${result.flagged} post(s) for drafting (>=${minReactions} reacts, >=${minComments} comments). ${preview}`;
+        await notifyLinkedIn(message);
+      }
+    } finally {
+      this.linkedInAutoScrapeRunning = false;
+    }
   }
 
   /**
@@ -969,6 +1029,10 @@ export class CronScheduler {
     if (this.engagementCheckInterval) {
       clearInterval(this.engagementCheckInterval);
       this.engagementCheckInterval = null;
+    }
+    if (this.linkedInAutoScrapeInterval) {
+      clearInterval(this.linkedInAutoScrapeInterval);
+      this.linkedInAutoScrapeInterval = null;
     }
 
     // Close persistent DB connection
