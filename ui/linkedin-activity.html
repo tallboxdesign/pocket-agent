@@ -3016,12 +3016,8 @@
           <td class="col-priority">${priorityDot(p.id, p.priority)}</td>
           <td class="col-author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}<br>${relationBadge} ${weeklyWarn} ${reconnectHint}</td>
           <td class="col-preview">
-            ${previewMainHtml}
-            ${previewTools}
-            ${inflightHint}
-            ${failureNote}
             ${p.comment_draft ? `
-              <div class="draft-actions" style="margin-top:6px">
+              <div class="draft-actions" style="margin:0 0 8px 0">
                 <span class="draft-toggle" onclick="toggleDraft(${p.id}, this)" style="margin:0">${expandedDraftId === p.id ? 'Hide draft' : 'Show draft'}</span>
                 ${!isPublished && !isScheduled ? `
                   <button class="btn-approve" onclick="approveDraft(${p.id})">Approve</button>
@@ -3032,6 +3028,12 @@
                   <button class="btn-schedule" onclick="showSchedulePicker(${p.id})">Schedule</button>
                 ` : ''}
               </div>
+            ` : ''}
+            ${previewMainHtml}
+            ${previewTools}
+            ${inflightHint}
+            ${failureNote}
+            ${p.comment_draft ? `
               <div class="draft-text ${expandedDraftId === p.id ? 'expanded' : ''}" id="draft-${p.id}">
                 <div class="draft-body" id="draft-content-${p.id}">${escapeHtml(p.comment_draft)}</div>
                 ${evidenceBlock}
