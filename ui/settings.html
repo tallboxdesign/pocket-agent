@@ -2606,9 +2606,9 @@
 
           <div class="settings-grid" style="margin-bottom: 14px;">
             <div class="setting-row">
-              <label title="How many times to scroll your feed. More = more posts but slower. 3 ≈ 15 posts, 6 ≈ 30, 10 ≈ 50">Scroll Depth</label>
+              <label title="How many times to scroll your feed. More = more posts but slower. 12 is a solid baseline, 18 is deep scan.">Scroll Depth</label>
               <div class="key-input" style="width: 120px;">
-                <input type="number" id="linkedin-feed-scroll" min="1" max="20" placeholder="3" style="width: 60px; text-align: center;" title="Recommended 3-6 for daily runs. Higher values are slower but see more posts.">
+                <input type="number" id="linkedin-feed-scroll" min="1" max="24" placeholder="12" style="width: 60px; text-align: center;" title="Recommended baseline 12. Use 18 for deep scans. Higher values are slower and may repeat posts.">
                 <button onclick="saveLinkedInSetting('linkedin.feedScroll', 'linkedin-feed-scroll')">Save</button>
               </div>
             </div>
@@ -2648,6 +2648,27 @@
                 <input type="number" id="linkedin-auto-min-comments" min="0" max="2000" placeholder="1" style="width: 62px; text-align: center;" title="Minimum comments">
                 <span style="font-size:11px;color:var(--text-muted)">comments</span>
                 <button onclick="saveLinkedInSetting('linkedin.autoScrapeMinReactions', 'linkedin-auto-min-reactions'); saveLinkedInSetting('linkedin.autoScrapeMinComments', 'linkedin-auto-min-comments');">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="When enabled, each auto-scrape cycle also scans LinkedIn search results for your focus queries.">Discovery Mode</label>
+              <div class="toggle" id="linkedin.discoveryModeEnabled-toggle" onclick="toggleSetting('linkedin.discoveryModeEnabled')" title="Enable LinkedIn content search discovery mode"></div>
+            </div>
+            <div class="setting-row">
+              <label title="Comma-separated search queries and hashtags for discovery mode (examples: ai seo,#geo,semantic seo).">Discovery Queries</label>
+              <div class="key-input" style="flex:1;">
+                <input type="text" id="linkedin-discovery-queries" placeholder="ai seo, #geo, semantic seo" style="flex:1;">
+                <button onclick="saveLinkedInSetting('linkedin.discoveryQueries', 'linkedin-discovery-queries')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Per-query depth and max posts for discovery mode.">Discovery Depth/Limit</label>
+              <div class="key-input" style="width: 220px; gap: 6px;">
+                <input type="number" id="linkedin-discovery-scroll" min="1" max="24" placeholder="10" style="width: 62px; text-align:center;" title="Scroll depth per discovery query">
+                <span style="font-size:11px;color:var(--text-muted)">scroll</span>
+                <input type="number" id="linkedin-discovery-limit" min="5" max="120" placeholder="35" style="width: 62px; text-align:center;" title="Post limit per discovery query">
+                <span style="font-size:11px;color:var(--text-muted)">limit</span>
+                <button onclick="saveLinkedInSetting('linkedin.discoveryScroll', 'linkedin-discovery-scroll'); saveLinkedInSetting('linkedin.discoveryLimit', 'linkedin-discovery-limit');">Save</button>
               </div>
             </div>
             <div class="setting-row">
@@ -3605,6 +3626,8 @@
       if (linkedinAutoConfirm) linkedinAutoConfirm.classList.toggle('active', settings['linkedin.autoConfirm'] === 'true');
       const linkedinAutoScrapeToggle = document.getElementById('linkedin.autoScrapeEnabled-toggle');
       if (linkedinAutoScrapeToggle) linkedinAutoScrapeToggle.classList.toggle('active', settings['linkedin.autoScrapeEnabled'] === 'true');
+      const linkedinDiscoveryToggle = document.getElementById('linkedin.discoveryModeEnabled-toggle');
+      if (linkedinDiscoveryToggle) linkedinDiscoveryToggle.classList.toggle('active', settings['linkedin.discoveryModeEnabled'] === 'true');
       const linkedinDayWindowToggle = document.getElementById('linkedin.dayWindowEnabled-toggle');
       if (linkedinDayWindowToggle) linkedinDayWindowToggle.classList.toggle('active', settings['linkedin.dayWindowEnabled'] !== 'false');
       const linkedinNightWindowToggle = document.getElementById('linkedin.nightWindowEnabled-toggle');
@@ -3626,7 +3649,7 @@
       const linkedinImagePromptStyle = document.getElementById('linkedin-image-prompt-style');
       if (linkedinImagePromptStyle && settings['linkedin.imagePromptStyle']) linkedinImagePromptStyle.value = settings['linkedin.imagePromptStyle'];
       const linkedinScroll = document.getElementById('linkedin-feed-scroll');
-      if (linkedinScroll) linkedinScroll.value = settings['linkedin.feedScroll'] || '3';
+      if (linkedinScroll) linkedinScroll.value = settings['linkedin.feedScroll'] || '12';
       const linkedinLimit = document.getElementById('linkedin-feed-limit');
       if (linkedinLimit) linkedinLimit.value = settings['linkedin.feedLimit'] || '20';
       const linkedinAutoInterval = document.getElementById('linkedin-auto-scrape-interval');
@@ -3637,6 +3660,12 @@
       if (linkedinAutoMinReactions) linkedinAutoMinReactions.value = settings['linkedin.autoScrapeMinReactions'] || '5';
       const linkedinAutoMinComments = document.getElementById('linkedin-auto-min-comments');
       if (linkedinAutoMinComments) linkedinAutoMinComments.value = settings['linkedin.autoScrapeMinComments'] || '1';
+      const linkedinDiscoveryQueries = document.getElementById('linkedin-discovery-queries');
+      if (linkedinDiscoveryQueries) linkedinDiscoveryQueries.value = settings['linkedin.discoveryQueries'] || '';
+      const linkedinDiscoveryScroll = document.getElementById('linkedin-discovery-scroll');
+      if (linkedinDiscoveryScroll) linkedinDiscoveryScroll.value = settings['linkedin.discoveryScroll'] || '10';
+      const linkedinDiscoveryLimit = document.getElementById('linkedin-discovery-limit');
+      if (linkedinDiscoveryLimit) linkedinDiscoveryLimit.value = settings['linkedin.discoveryLimit'] || '35';
       const linkedinDailyLimit = document.getElementById('linkedin-daily-limit');
       if (linkedinDailyLimit) linkedinDailyLimit.value = settings['linkedin.dailyLimit'] || '15';
       const linkedinDelay = document.getElementById('linkedin-comment-delay');
@@ -3769,6 +3798,7 @@
         'ep-max-emails', 'ep-lookback', 'ep-gmail-conc', 'ep-glm-conc',
         'linkedin-feed-keywords', 'linkedin-feed-scroll', 'linkedin-feed-limit',
         'linkedin-auto-scrape-interval', 'linkedin-auto-scrape-scroll', 'linkedin-auto-min-reactions', 'linkedin-auto-min-comments',
+        'linkedin-discovery-queries', 'linkedin-discovery-scroll', 'linkedin-discovery-limit',
         'linkedin-daily-limit', 'linkedin-comment-delay',
         'linkedin-draft-mode', 'linkedin-post-model', 'linkedin-draft-timeout', 'linkedin-research-turns', 'linkedin-write-turns',
         'linkedin-research-queries', 'linkedin-research-fallback-model',

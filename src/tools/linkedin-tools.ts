@@ -282,15 +282,18 @@ Examples:
 - linkedin_feed() -browse feed with default settings
 - linkedin_feed(scroll=5, keyword="AI") -scroll more, filter by keyword
 - linkedin_feed(person="Sam Altman") -find posts by a specific person
-- linkedin_feed(min_engagement=50, limit=10) -high-engagement posts only`,
+- linkedin_feed(min_engagement=50, limit=10) -high-engagement posts only
+- linkedin_feed(search_query="#seo", scroll=8, limit=30) -discovery scrape from LinkedIn content search`,
     input_schema: {
       type: 'object' as const,
       properties: {
         scroll: { type: 'number', description: 'Number of scroll iterations (default: 3, more = more posts but slower)' },
         person: { type: 'string', description: 'Filter posts by author name (case-insensitive)' },
         keyword: { type: 'string', description: 'Filter posts containing this keyword (case-insensitive)' },
+        search_query: { type: 'string', description: 'Discovery mode query for LinkedIn content search (keyword or hashtag)' },
         min_engagement: { type: 'number', description: 'Minimum reactions+comments (default: 0)' },
         limit: { type: 'number', description: 'Max posts to return (default: 20)' },
+        skip_ai_summary: { type: 'boolean', description: 'Skip AI summary promotion pass (useful for background scraping)' },
       },
       required: [],
     },
@@ -304,19 +307,21 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   const p = input as {
     scroll?: number; person?: string; keyword?: string;
     min_engagement?: number; limit?: number;
+    search_query?: string; skip_ai_summary?: boolean;
   };
 
   const args: string[] = [];
-  const defaultScroll = parseInt(SettingsManager.get('linkedin.feedScroll') || '3', 10);
+  const defaultScroll = parseInt(SettingsManager.get('linkedin.feedScroll') || '12', 10);
   const defaultLimit = parseInt(SettingsManager.get('linkedin.feedLimit') || '20', 10);
   args.push('--scroll', String(p.scroll || defaultScroll));
   args.push('--limit', String(p.limit || defaultLimit));
   if (p.min_engagement) args.push('--min-engagement', String(p.min_engagement));
 
   // Apply explicit filters or fall back to settings defaults
-  const keyword = p.keyword || SettingsManager.get('linkedin.feedKeywords');
+  const keyword = (p.search_query && !p.keyword) ? '' : (p.keyword || SettingsManager.get('linkedin.feedKeywords'));
   if (p.person) args.push('--person', p.person);
   if (keyword) args.push('--keyword', keyword);
+  if (p.search_query) args.push('--search-query', p.search_query);
 
   // Always dump HTML for diagnostics when feed is empty
   const dumpPath = path.join(os.homedir(), '.pocket-agent', 'linkedin', 'data', 'debug_feed.html');
@@ -489,7 +494,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
         }
       });
       tx();
-      if (isGlmConfigured() && summaryCandidates.length > 0) {
+      if (!p.skip_ai_summary && isGlmConfigured() && summaryCandidates.length > 0) {
         const promoteAiSummary = db.prepare(
           `UPDATE linkedin_post_content
            SET summary_text = ?, source = 'feed_ai_summary', updated_at = datetime('now')
@@ -565,6 +570,10 @@ export async function runLinkedInAutoScrapeCycle(input: {
   minReactions?: number;
   minComments?: number;
   maxFlagged?: number;
+  discoveryEnabled?: boolean;
+  discoveryQueries?: string[];
+  discoveryScroll?: number;
+  discoveryLimit?: number;
 } = {}): Promise<{
   success: boolean;
   scraped: number;
@@ -577,36 +586,68 @@ export async function runLinkedInAutoScrapeCycle(input: {
   const minReactions = Math.max(0, Math.floor(input.minReactions ?? 5));
   const minComments = Math.max(0, Math.floor(input.minComments ?? 1));
   const maxFlagged = Math.max(1, Math.min(20, Math.floor(input.maxFlagged ?? 8)));
+  const discoveryEnabled = !!input.discoveryEnabled;
+  const discoveryQueries = Array.from(new Set((input.discoveryQueries || [])
+    .map(q => String(q || '').trim())
+    .filter(Boolean)));
+  const discoveryScroll = Math.max(1, Math.min(24, Math.floor(input.discoveryScroll ?? Math.max(8, input.scroll ?? 12))));
+  const discoveryLimit = Math.max(5, Math.min(120, Math.floor(input.discoveryLimit ?? Math.max(20, input.limit ?? 50))));
 
   try {
-    const scrapeRaw = await handleBrowseFeedTool({
-      scroll: input.scroll,
-      limit: input.limit,
-    });
-    const scrape = JSON.parse(scrapeRaw) as {
+    const parseScrape = (raw: string) => JSON.parse(raw) as {
       success?: boolean;
       error?: string;
       warning?: string;
       total_scraped?: number;
       count?: number;
     };
-    if (!scrape?.success) {
+    let totalScraped = 0;
+    let totalNew = 0;
+    const warnings: string[] = [];
+
+    const baseScrape = parseScrape(await handleBrowseFeedTool({
+      scroll: input.scroll,
+      limit: input.limit,
+      skip_ai_summary: true,
+    }));
+    if (!baseScrape?.success) {
       return {
         success: false,
         scraped: 0,
         new_posts: 0,
         flagged: 0,
         flagged_posts: [],
-        error: scrape?.error || 'Auto scrape failed',
+        error: baseScrape?.error || 'Auto scrape failed',
       };
+    }
+    totalScraped += Number(baseScrape?.total_scraped || 0);
+    totalNew += Number(baseScrape?.count || 0);
+    if (baseScrape?.warning) warnings.push(baseScrape.warning);
+
+    if (discoveryEnabled && discoveryQueries.length > 0) {
+      for (const query of discoveryQueries) {
+        const discovered = parseScrape(await handleBrowseFeedTool({
+          search_query: query,
+          scroll: discoveryScroll,
+          limit: discoveryLimit,
+          skip_ai_summary: true,
+        }));
+        if (!discovered?.success) {
+          warnings.push(`Discovery '${query}' failed: ${discovered?.error || 'unknown error'}`);
+          continue;
+        }
+        totalScraped += Number(discovered?.total_scraped || 0);
+        totalNew += Number(discovered?.count || 0);
+        if (discovered?.warning) warnings.push(`Discovery '${query}': ${discovered.warning}`);
+      }
     }
 
     const db = getDb();
     if (!db) {
       return {
         success: false,
-        scraped: Number(scrape?.total_scraped || 0),
-        new_posts: Number(scrape?.count || 0),
+        scraped: totalScraped,
+        new_posts: totalNew,
         flagged: 0,
         flagged_posts: [],
         error: 'Database not available',
@@ -673,11 +714,11 @@ export async function runLinkedInAutoScrapeCycle(input: {
 
     return {
       success: true,
-      scraped: Number(scrape?.total_scraped || 0),
-      new_posts: Number(scrape?.count || 0),
+      scraped: totalScraped,
+      new_posts: totalNew,
       flagged: flaggedPosts.length,
       flagged_posts: flaggedPosts,
-      warning: scrape?.warning,
+      warning: warnings.length > 0 ? warnings.slice(0, 4).join(' | ') : undefined,
     };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

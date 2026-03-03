@@ -10,6 +10,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from patchright.sync_api import sync_playwright
 
@@ -22,6 +23,14 @@ from config import (
     POST_COMMENT_COUNT_SELECTORS
 )
 from browser_utils import BrowserFactory, StealthUtils
+
+
+def build_search_url(query: str) -> str:
+    """Build LinkedIn content search URL for discovery mode."""
+    clean = (query or "").strip()
+    if not clean:
+        return LINKEDIN_FEED_URL
+    return f"https://www.linkedin.com/search/results/content/?keywords={quote_plus(clean)}&origin=SWITCH_SEARCH_VERTICAL"
 
 
 def find_text(container, selectors):
@@ -140,6 +149,7 @@ def main():
     parser.add_argument('--show-browser', action='store_true', help='Show browser')
     parser.add_argument('--limit', type=int, default=20, help='Max posts to return (default: 20)')
     parser.add_argument('--dump-html', type=str, help='Save page HTML to file')
+    parser.add_argument('--search-query', type=str, help='Discovery mode: scrape LinkedIn content search for this keyword/hashtag')
     args = parser.parse_args()
 
     headless = not args.show_browser
@@ -152,17 +162,21 @@ def main():
 
         page = context.new_page()
         page.set_viewport_size({"width": 1440, "height": 900})
-        page.goto(LINKEDIN_FEED_URL, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
+        target_url = build_search_url(args.search_query) if args.search_query else LINKEDIN_FEED_URL
+        page.goto(target_url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
 
         if "login" in page.url:
             print("ERROR: Not authenticated. Run: python run.py auth_manager setup", file=sys.stderr)
             sys.exit(1)
 
-        # Wait for feed posts to render (JS-heavy SPA)
+        # Wait for posts to render (JS-heavy SPA)
         try:
             page.wait_for_selector(".feed-shared-update-v2", timeout=15000)
         except Exception:
-            print("Warning: feed posts not found after 15s, continuing anyway", file=sys.stderr)
+            try:
+                page.wait_for_selector("[role='article']", timeout=8000)
+            except Exception:
+                print("Warning: posts not found after 23s, continuing anyway", file=sys.stderr)
 
         StealthUtils.random_delay(3000, 5000)
 
@@ -177,6 +191,11 @@ def main():
 
         # Extract
         posts = extract_posts(page)
+
+        # Annotate source for downstream ranking/inspection
+        source_label = f"search:{args.search_query.strip()}" if args.search_query else "feed:home"
+        for p in posts:
+            p["source"] = source_label
 
         # Filter by person (comma-separated: match ANY person)
         if args.person:

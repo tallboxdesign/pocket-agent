@@ -152,11 +152,22 @@ export class CronScheduler {
       const minReactsRaw = parseInt(SettingsManager.get('linkedin.autoScrapeMinReactions') || '5', 10);
       const minCommentsRaw = parseInt(SettingsManager.get('linkedin.autoScrapeMinComments') || '1', 10);
       const maxFlaggedRaw = parseInt(SettingsManager.get('linkedin.autoScrapeMaxFlagged') || '8', 10);
+      const discoveryEnabled = SettingsManager.get('linkedin.discoveryModeEnabled') === 'true';
+      const discoveryQueriesRaw = String(SettingsManager.get('linkedin.discoveryQueries') || '').trim();
+      const discoveryQueries = discoveryQueriesRaw
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .slice(0, 6);
+      const discoveryScrollRaw = parseInt(SettingsManager.get('linkedin.discoveryScroll') || '10', 10);
+      const discoveryLimitRaw = parseInt(SettingsManager.get('linkedin.discoveryLimit') || '35', 10);
       const scroll = Math.max(1, Math.min(24, Number.isFinite(scrollRaw) ? scrollRaw : 12));
       const limit = Math.max(5, Math.min(120, Number.isFinite(limitRaw) ? limitRaw : 50));
       const minReactions = Math.max(0, Math.min(10000, Number.isFinite(minReactsRaw) ? minReactsRaw : 5));
       const minComments = Math.max(0, Math.min(5000, Number.isFinite(minCommentsRaw) ? minCommentsRaw : 1));
       const maxFlagged = Math.max(1, Math.min(20, Number.isFinite(maxFlaggedRaw) ? maxFlaggedRaw : 8));
+      const discoveryScroll = Math.max(1, Math.min(24, Number.isFinite(discoveryScrollRaw) ? discoveryScrollRaw : 10));
+      const discoveryLimit = Math.max(5, Math.min(120, Number.isFinite(discoveryLimitRaw) ? discoveryLimitRaw : 35));
 
       const { runLinkedInAutoScrapeCycle } = await import('../tools/linkedin-tools');
       const result = await runLinkedInAutoScrapeCycle({
@@ -165,6 +176,10 @@ export class CronScheduler {
         minReactions,
         minComments,
         maxFlagged,
+        discoveryEnabled,
+        discoveryQueries,
+        discoveryScroll,
+        discoveryLimit,
       });
       this.linkedInAutoScrapeLastRunAt = now;
 
