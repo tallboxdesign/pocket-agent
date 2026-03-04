@@ -8,7 +8,14 @@ import { EventEmitter } from 'events';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { buildCanUseToolCallback, buildPreToolUseHook, setStatusEmitter } from './safety';
+import {
+  buildCanUseToolCallback,
+  buildPreToolUseHook,
+  setStatusEmitter,
+  approvePendingExternalApproval,
+  clearPendingExternalApproval,
+  getPendingExternalApproval,
+} from './safety';
 import { PersistentSDKSession, TurnResult } from './persistent-session';
 
 // Provider configuration for different LLM backends
@@ -455,6 +462,16 @@ export interface ProcessResult {
   media?: MediaAttachment[];
 }
 
+export interface TurnContext {
+  hints?: string[];
+}
+
+export interface ToolCallRecord {
+  tool: string;
+  input?: string;
+  timestamp: string;
+}
+
 /**
  * AgentManager - Singleton wrapper around Claude Agent SDK
  */
@@ -472,13 +489,24 @@ class AgentManagerClass extends EventEmitter {
   private abortControllersBySession: Map<string, AbortController> = new Map();
   private processingBySession: Map<string, boolean> = new Map();
   private lastSuggestedPromptBySession: Map<string, string | undefined> = new Map();
-  private messageQueueBySession: Map<string, Array<{ message: string; channel: string; images?: ImageContent[]; attachmentInfo?: AttachmentInfo; resolve: (result: ProcessResult) => void; reject: (error: Error) => void }>> = new Map();
+  private messageQueueBySession: Map<string, Array<{
+    message: string;
+    channel: string;
+    images?: ImageContent[];
+    attachmentInfo?: AttachmentInfo;
+    turnContext?: TurnContext;
+    resolve: (result: ProcessResult) => void;
+    reject: (error: Error) => void;
+  }>> = new Map();
   private sdkSessionIdBySession: Map<string, string> = new Map();
   private persistentSessions: Map<string, PersistentSDKSession> = new Map();
   private contextUsageBySession: Map<string, { contextTokens: number; contextWindow: number }> = new Map();
   private pendingMedia: MediaAttachment[] = [];
   private stoppedByUserSession: Set<string> = new Set();
   private sdkToolTimers: Map<string, { timer: ReturnType<typeof setTimeout>; sessionId: string }> = new Map();
+  private recentToolCallsBySession: Map<string, ToolCallRecord[]> = new Map();
+  private activeTurnToolNamesBySession: Map<string, Set<string>> = new Map();
+  private static readonly MAX_RECENT_TOOL_CALLS = 40;
 
   // Per-tool timeouts for SDK built-in tools (MCP tools have their own via wrapToolHandler)
   private static readonly SDK_TOOL_TIMEOUTS: Record<string, number> = {
@@ -606,6 +634,135 @@ class AgentManagerClass extends EventEmitter {
     return false;
   }
 
+  private controlExternalApproval(
+    userMessage: string,
+    sessionId: string,
+  ): { rewrittenMessage?: string; immediateResult?: ProcessResult } {
+    const text = String(userMessage || '').trim();
+    if (!text) return {};
+
+    const denyMatch = text.match(/^deny\s+external\b/i);
+    if (denyMatch) {
+      clearPendingExternalApproval(sessionId);
+      return {
+        immediateResult: {
+          response: 'External action denied. No host-level command was executed.',
+          tokensUsed: 0,
+          wasCompacted: false,
+        },
+      };
+    }
+
+    const approveMatch = text.match(/^approve\s+external(?:\s*:\s*([\s\S]+))?$/i);
+    if (!approveMatch) return {};
+
+    const explicitCommand = String(approveMatch[1] || '').trim() || undefined;
+    const approval = approvePendingExternalApproval(sessionId, explicitCommand);
+    if (!approval.ok || !approval.command) {
+      const pending = getPendingExternalApproval(sessionId);
+      const suffix = pending
+        ? `\nPending command:\n${pending.command}\n\nReply with:\napprove external: ${pending.command}`
+        : '';
+      return {
+        immediateResult: {
+          response: `${approval.message}${suffix}`,
+          tokensUsed: 0,
+          wasCompacted: false,
+        },
+      };
+    }
+
+    return {
+      rewrittenMessage:
+        `[User approved one external command for this session: "${approval.command}". ` +
+        `Continue previous task and execute only this approved command if still needed.]`,
+    };
+  }
+
+  private recordToolCall(sessionId: string, tool: string, input?: string): void {
+    const list = this.recentToolCallsBySession.get(sessionId) || [];
+    list.push({
+      tool,
+      input: input?.trim() ? input.slice(0, 220) : undefined,
+      timestamp: new Date().toISOString(),
+    });
+    if (list.length > AgentManagerClass.MAX_RECENT_TOOL_CALLS) {
+      list.splice(0, list.length - AgentManagerClass.MAX_RECENT_TOOL_CALLS);
+    }
+    this.recentToolCallsBySession.set(sessionId, list);
+  }
+
+  private markToolAttemptedThisTurn(sessionId: string, tool: string): void {
+    let set = this.activeTurnToolNamesBySession.get(sessionId);
+    if (!set) {
+      set = new Set<string>();
+      this.activeTurnToolNamesBySession.set(sessionId, set);
+    }
+    set.add(tool);
+  }
+
+  private getToolGroupSummary(mode: 'coder' | 'manager'): string[] {
+    const groups: string[] = [];
+    if (mode === 'coder') {
+      groups.push('Code/Shell: enabled (Read, Write, Edit, Bash, Task, WebSearch, WebFetch)');
+    } else {
+      groups.push('Code/Shell: restricted (Read/Write/Edit/Bash/Task blocked in Manager mode)');
+      groups.push('Lookup tools: enabled (Grep, Glob, WebSearch, WebFetch)');
+    }
+
+    groups.push('Memory: enabled (remember, list_facts, memory_search, daily_log, soul_set)');
+    groups.push('Planning: enabled (task_*, calendar_*, scheduler/reminders)');
+    groups.push('Kanban: enabled (project/task search and updates)');
+    groups.push('Research + LinkedIn + Telegram ops: enabled');
+    groups.push(`Browser: ${this.toolsConfig?.browser.enabled ? 'enabled' : 'disabled by settings'}`);
+    return groups;
+  }
+
+  private buildRuntimeModeToolCard(
+    sessionId: string,
+    channel: string,
+    sessionMode: 'coder' | 'manager',
+    allowedTools: string[]
+  ): string {
+    const now = new Date();
+    const local = now.toLocaleString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    const groups = this.getToolGroupSummary(sessionMode);
+    return [
+      '## Runtime Mode + Tool Card',
+      `Session ID: ${sessionId}`,
+      `Channel: ${channel}`,
+      `Active mode: ${sessionMode}`,
+      `Current time (ISO): ${now.toISOString()}`,
+      `Current local time: ${local}`,
+      `Allowed tool count this turn: ${allowedTools.length}`,
+      `Allowed tool groups: ${groups.join(' | ')}`,
+    ].join('\n');
+  }
+
+  getSessionMode(sessionId: string = 'default'): 'coder' | 'manager' {
+    const memory = this.memory;
+    if (!memory) return this.mode;
+    return memory.getSessionMode(sessionId);
+  }
+
+  getToolSummary(sessionId: string = 'default'): { mode: 'coder' | 'manager'; groups: string[] } {
+    const mode = this.getSessionMode(sessionId);
+    return { mode, groups: this.getToolGroupSummary(mode) };
+  }
+
+  getRecentToolCalls(sessionId: string = 'default', limit: number = 8): ToolCallRecord[] {
+    const list = this.recentToolCallsBySession.get(sessionId) || [];
+    return list.slice(-Math.max(1, limit)).reverse();
+  }
+
   setModel(model: string): void {
     const oldProvider = getProviderForModel(this.model);
     const newProvider = getProviderForModel(model);
@@ -646,18 +803,25 @@ class AgentManagerClass extends EventEmitter {
     channel: string = 'default',
     sessionId: string = 'default',
     images?: ImageContent[],
-    attachmentInfo?: AttachmentInfo
+    attachmentInfo?: AttachmentInfo,
+    turnContext?: TurnContext
   ): Promise<ProcessResult> {
     if (!this.memory) {
       throw new Error('AgentManager not initialized - call initialize() first');
     }
 
+    const externalControl = this.controlExternalApproval(userMessage, sessionId);
+    if (externalControl.immediateResult) {
+      return externalControl.immediateResult;
+    }
+    const effectiveUserMessage = externalControl.rewrittenMessage || userMessage;
+
     // If already processing, queue the message
     if (this.processingBySession.get(sessionId)) {
-      return this.queueMessage(userMessage, channel, sessionId, images, attachmentInfo);
+      return this.queueMessage(effectiveUserMessage, channel, sessionId, images, attachmentInfo, turnContext);
     }
 
-    return this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo);
+    return this.executeMessage(effectiveUserMessage, channel, sessionId, images, attachmentInfo, false, undefined, turnContext);
   }
 
   /**
@@ -668,7 +832,8 @@ class AgentManagerClass extends EventEmitter {
     channel: string,
     sessionId: string,
     images?: ImageContent[],
-    attachmentInfo?: AttachmentInfo
+    attachmentInfo?: AttachmentInfo,
+    turnContext?: TurnContext
   ): Promise<ProcessResult> {
     return new Promise((resolve, reject) => {
       // Get or create queue for this session
@@ -678,7 +843,7 @@ class AgentManagerClass extends EventEmitter {
       const queue = this.messageQueueBySession.get(sessionId)!;
 
       // Add to queue
-      queue.push({ message: userMessage, channel, images, attachmentInfo, resolve, reject });
+      queue.push({ message: userMessage, channel, images, attachmentInfo, resolve, reject, turnContext });
 
       const queuePosition = queue.length;
       console.log(`[AgentManager] Message queued at position ${queuePosition} for session ${sessionId}`);
@@ -713,7 +878,16 @@ class AgentManagerClass extends EventEmitter {
     });
 
     try {
-      const result = await this.executeMessage(next.message, next.channel, sessionId, next.images, next.attachmentInfo);
+      const result = await this.executeMessage(
+        next.message,
+        next.channel,
+        sessionId,
+        next.images,
+        next.attachmentInfo,
+        false,
+        undefined,
+        next.turnContext
+      );
       next.resolve(result);
     } catch (error) {
       next.reject(error instanceof Error ? error : new Error(String(error)));
@@ -802,6 +976,7 @@ class AgentManagerClass extends EventEmitter {
     attachmentInfo?: AttachmentInfo,
     retryWithFallback = false,
     modelOverride?: string,
+    turnContext?: TurnContext,
   ): Promise<ProcessResult> {
     // Memory should already be checked by processMessage, but guard anyway
     if (!this.memory) {
@@ -813,6 +988,16 @@ class AgentManagerClass extends EventEmitter {
     const usingTemporaryModel = !!modelOverride && modelOverride !== this.model;
     let sessionMode = memory.getSessionMode(sessionId);
     let autoSwitchNotice: string | null = null;
+    const safeHints = (turnContext?.hints || [])
+      .map(h => String(h || '').trim())
+      .filter(Boolean)
+      .slice(0, 4);
+    const turnHintPrefix = safeHints.length > 0
+      ? safeHints.map(h => `[Turn context: ${h}]`).join('\n')
+      : '';
+    const runtimeUserMessage = turnHintPrefix
+      ? `${turnHintPrefix}\n${userMessage}`
+      : userMessage;
 
     // Convenience: if chat is in Manager and request clearly needs coding, auto-switch to Coder.
     if ((channel === 'telegram' || channel === 'desktop') && sessionMode === 'manager') {
@@ -837,6 +1022,7 @@ class AgentManagerClass extends EventEmitter {
     this.stoppedByUserSession.delete(sessionId);
     this.lastSuggestedPromptBySession.set(sessionId, undefined);
     this.pendingMedia = [];
+    this.activeTurnToolNamesBySession.set(sessionId, new Set<string>());
 
     try {
       const existingSession = this.persistentSessions.get(sessionId);
@@ -851,7 +1037,7 @@ class AgentManagerClass extends EventEmitter {
         // Build content blocks for images
         const contentBlocks = images && images.length > 0
           ? [
-              { type: 'text' as const, text: userMessage },
+              { type: 'text' as const, text: runtimeUserMessage },
               ...images.map(img => ({
                 type: 'image' as const,
                 source: {
@@ -863,7 +1049,7 @@ class AgentManagerClass extends EventEmitter {
             ]
           : undefined;
 
-        turnResult = await existingSession.send(userMessage, contentBlocks);
+        turnResult = await existingSession.send(runtimeUserMessage, contentBlocks);
       } else {
         // === New session: create Query with first message ===
         // Clean up dead session if present
@@ -887,7 +1073,7 @@ class AgentManagerClass extends EventEmitter {
         if (!queryFn) throw new Error('Failed to load SDK');
 
         // Build options with dynamic context
-        const options = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, sdkSessionId);
+        const options = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, channel, sdkSessionId);
 
         console.log('[AgentManager] Calling query() with model:', options.model, 'thinking:', JSON.stringify(options.thinking) || 'default', 'effort:', options.effort || 'default');
         this.emitStatus({ type: 'thinking', sessionId, message: '*stretches paws* thinking...' });
@@ -922,7 +1108,7 @@ class AgentManagerClass extends EventEmitter {
         // Build content blocks for images (if any)
         const firstContentBlocks: ContentBlock[] | undefined = images && images.length > 0
           ? [
-              { type: 'text' as const, text: userMessage },
+              { type: 'text' as const, text: runtimeUserMessage },
               ...images.map(img => ({
                 type: 'image' as const,
                 source: {
@@ -942,7 +1128,7 @@ class AgentManagerClass extends EventEmitter {
           turnResult = await session.start(
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             queryFn as any,
-            userMessage,
+            runtimeUserMessage,
             options as unknown as Record<string, unknown>,
             firstContentBlocks
           );
@@ -960,7 +1146,7 @@ class AgentManagerClass extends EventEmitter {
             this.persistentSessions.delete(sessionId);
 
             // Create new session without resume
-            const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, undefined);
+            const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, channel, undefined);
             const freshSession = new PersistentSDKSession(
               sessionId,
               (msg) => this.processStatusFromMessage(msg),
@@ -988,7 +1174,7 @@ class AgentManagerClass extends EventEmitter {
             turnResult = await freshSession.start(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               queryFn as any,
-              userMessage,
+              runtimeUserMessage,
               freshOptions as unknown as Record<string, unknown>,
               firstContentBlocks
             );
@@ -1044,7 +1230,7 @@ class AgentManagerClass extends EventEmitter {
         if (!queryFn) throw new Error('Failed to load SDK');
 
         const resumeId = isAuthFailed ? staleId : undefined;
-        const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, resumeId);
+        const freshOptions = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, channel, resumeId);
         const freshSession = new PersistentSDKSession(
           sessionId,
           (msg) => this.processStatusFromMessage(msg),
@@ -1073,7 +1259,7 @@ class AgentManagerClass extends EventEmitter {
         // Build content blocks for images (if any)
         const retryContentBlocks = images && images.length > 0
           ? [
-              { type: 'text' as const, text: userMessage },
+              { type: 'text' as const, text: runtimeUserMessage },
               ...images.map(img => ({
                 type: 'image' as const,
                 source: {
@@ -1088,7 +1274,7 @@ class AgentManagerClass extends EventEmitter {
         turnResult = await freshSession.start(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           queryFn as any,
-          userMessage,
+          runtimeUserMessage,
           freshOptions as unknown as Record<string, unknown>,
           retryContentBlocks
         );
@@ -1112,7 +1298,8 @@ class AgentManagerClass extends EventEmitter {
             images,
             attachmentInfo,
             true,
-            fallbackModel
+            fallbackModel,
+            turnContext
           );
           result.response = `[Used fallback model ${fallbackModel} for this request (${reason}; primary: ${originalModel})]\n\n${result.response}`;
           return result;
@@ -1173,7 +1360,8 @@ class AgentManagerClass extends EventEmitter {
                 images,
                 attachmentInfo,
                 true,
-                fallbackModel
+                fallbackModel,
+                turnContext
               );
               result.response = `[Used fallback model ${fallbackModel} for this request (${reason}; primary: ${originalModel})]\n\n${result.response}`;
               return result;
@@ -1235,14 +1423,14 @@ class AgentManagerClass extends EventEmitter {
             images,
             attachmentInfo,
             true,
-            fallbackModel
+            fallbackModel,
+            turnContext
           );
           result.response = `[Used fallback model ${fallbackModel} for this request (${reason}; primary: ${originalModel})]\n\n${result.response}`;
           return result;
         }
       }
 
-      // Telegram has no live desktop status indicator, so include a concise note in the reply.
       if (autoSwitchNotice && channel === 'telegram' && response) {
         response = `ℹ️ ${autoSwitchNotice}\n\n${response}`;
       }
@@ -1320,7 +1508,8 @@ class AgentManagerClass extends EventEmitter {
             images,
             attachmentInfo,
             true,
-            fallbackModel
+            fallbackModel,
+            turnContext
           );
           result.response = `[Used fallback model ${fallbackModel} for this request (${reason}; primary: ${originalModel})]\n\n${result.response}`;
           return result;
@@ -1339,6 +1528,7 @@ class AgentManagerClass extends EventEmitter {
         this.sdkSessionIdBySession.delete(sessionId);
         memory.clearSdkSessionId(sessionId);
       }
+      this.activeTurnToolNamesBySession.delete(sessionId);
       this.processingBySession.set(sessionId, false);
 
       // Process next message in queue (if any)
@@ -1551,6 +1741,7 @@ class AgentManagerClass extends EventEmitter {
     sessionId: string,
     sessionMode: 'coder' | 'manager',
     model: string,
+    channel: string,
     sdkSessionId?: string,
   ): Promise<SDKOptions> {
     // === Static context (set once at session creation) ===
@@ -1594,20 +1785,9 @@ class AgentManagerClass extends EventEmitter {
     if (sessionMode === 'manager') {
       staticParts.push(
         `## Active Mode: Manager\n` +
-        `You are in Manager mode for this session.\n` +
-        `This mode also includes the former General behavior: clear answers, planning, and practical guidance.\n` +
-        `Prioritize business execution: LinkedIn strategy, email operations, planning, delegation, and concise decisions.\n` +
-        `When critiquing ideas, be direct but always include a constructive next action.\n` +
-        `Avoid coding/file-editing/shell actions in this mode unless explicitly required.\n` +
-        `No conversational filler or banter (e.g., "haha", "fair enough", "let me check"). Use direct professional language.\n` +
-        `If the user asks for implementation that requires writing files, editing code, or running shell commands, explicitly state a mode handoff first: "This needs Coder mode. Switch to Coder and I will execute it." Then stop and wait for mode switch.\n` +
-        `Do not say "let me pull/check/search" as a standalone response. Execute retrieval first, then answer with findings in the same message.\n` +
-        `For factual lookup questions, keep searching until you can answer confidently, but do it with progressive strategy changes (narrow, broaden, cross-check) rather than repeating near-identical queries.\n` +
-        `Default retrieval order: (1) memory/facts/session context, (2) local workspace read/search, (3) web search. If local evidence is insufficient, proceed to web search automatically.\n` +
-        `Do not ask whether to search; do it. Ask a follow-up only when the request is ambiguous or missing key constraints.\n` +
-        `Do not narrate repeated "I am searching" updates. Run tools silently, then return one consolidated answer with what was found and what remains uncertain.\n` +
-        `If still blocked, ask one concise follow-up question that unblocks retrieval.\n` +
-        `If an Active Kanban Task Context is present, use it first before broad project-file searches.`
+        `Prioritize business execution: strategy, planning, email, Kanban, LinkedIn, delegation, and concise decisions.\n` +
+        `When the user asks about something they worked on or discussed, check memory and Kanban before answering — don't invent or guess.\n` +
+        `Avoid coding/file-editing/shell actions in this mode; if implementation is needed, ask the user to switch to Coder mode.`
       );
     } else {
       staticParts.push(
@@ -1617,18 +1797,12 @@ class AgentManagerClass extends EventEmitter {
       );
     }
 
-    // Acknowledgment-first behavior: respond quickly, then execute
-    // Only for user-initiated messages -scheduled routines should execute silently
     staticParts.push(
-      `## Response Style -Acknowledge First\n` +
-      `When the user sends you a task or request (via Telegram or desktop), ALWAYS respond in two parts:\n` +
-      `1. **Immediate acknowledgment** (1-2 sentences): Confirm you received the task and briefly state what you will do. Send this FIRST.\n` +
-      `2. **Execution**: Then proceed to use tools and complete the task. Send the full result when done.\n\n` +
-      `Example: User says "check my emails for anything urgent"\n` +
-      `→ First respond: "On it -checking your recent unread emails across both accounts for anything urgent."\n` +
-      `→ Then use read_emails, analyze, and send the full report.\n\n` +
-      `This ensures the user knows you heard them and what you're about to do, especially for tasks that take time.\n\n` +
-      `**Exception:** Do NOT acknowledge [SCHEDULED ROUTINE] tasks. These are automated -just execute them directly and return the result.`
+      `## Operating Policy\n` +
+      `Reason naturally and choose the best tool path for the request.\n` +
+      `Prefer real evidence over assumptions, and keep tool/reporting claims factual.\n` +
+      `Avoid meta-chatter and rigid scripted phrasing.\n` +
+      `Prefer real evidence over assumptions. Don't invent facts or guess at things the user has worked on — use memory and Kanban tools to find them.`
     );
 
     // Get thinking level config -only Anthropic models support thinking/effort.
@@ -1644,6 +1818,10 @@ class AgentManagerClass extends EventEmitter {
     const env: Record<string, string | undefined> = {
       ...process.env,
     };
+    // Keep SDK config isolated to Pocket Agent app data. Removing this makes
+    // SDK fall back to host-level ~/.claude (global config/skills).
+    // Do NOT forward CLAUDE_CONFIG_DIR — keeps SDK isolated from ~/.claude/
+    // so global CLAUDE.md (SEO skills, etc.) doesn't pollute agent sessions.
     delete env.CLAUDE_CONFIG_DIR;
     // Prevent "nested session" detection in Claude Code 2.1.42+
     delete env.CLAUDECODE;
@@ -1746,10 +1924,11 @@ class AgentManagerClass extends EventEmitter {
       'mcp__pocket-agent__research',
       'mcp__pocket-agent__research_status',
     ];
-    const noCodeTools = new Set(['Write', 'Edit', 'Bash', 'Task', 'TaskOutput', 'TaskStop', 'BashOutput', 'KillBash']);
-    const allowedTools = sessionMode === 'coder'
-      ? fullAllowedTools
-      : fullAllowedTools.filter(tool => !noCodeTools.has(tool));
+    const managerHardRestrictionsEnabled = SettingsManager.get('agent.managerHardToolRestrictions') === 'true';
+    const riskyManagerTools = new Set(['Write', 'Edit', 'Bash', 'Task', 'TaskOutput', 'TaskStop', 'BashOutput', 'KillBash']);
+    const allowedTools = sessionMode === 'manager' && managerHardRestrictionsEnabled
+      ? fullAllowedTools.filter(tool => !riskyManagerTools.has(tool))
+      : fullAllowedTools;
 
     const options: SDKOptions = {
       model,
@@ -1773,6 +1952,7 @@ class AgentManagerClass extends EventEmitter {
             const lastUserMsg = recentMsgs.find(m => m.role === 'user');
             const temporalContext = this.buildTemporalContext(lastUserMsg?.timestamp);
             dynamicParts.push(temporalContext);
+            dynamicParts.push(this.buildRuntimeModeToolCard(sessionId, channel, sessionMode, allowedTools));
 
             // Facts context
             const factsContext = memory.getFactsForContext();
@@ -1787,7 +1967,9 @@ class AgentManagerClass extends EventEmitter {
             }
 
             // Daily logs
-            const dailyLogsContext = memory.getDailyLogsContext(3);
+            const rawDays = Number(SettingsManager.get('dailyLogs.days') || 3);
+            const safeDays = Number.isFinite(rawDays) && rawDays > 0 ? Math.floor(rawDays) : 3;
+            const dailyLogsContext = memory.getDailyLogsContext(Math.max(3, safeDays));
             if (dailyLogsContext) {
               dynamicParts.push(dailyLogsContext);
             }
@@ -1834,7 +2016,7 @@ class AgentManagerClass extends EventEmitter {
             if (recentMessages.length > 0) {
               const historyLines = recentMessages.map(m => {
                 const role = m.role === 'user' ? 'User' : 'You';
-                const text = m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content;
+                const text = m.content.length > 1000 ? m.content.slice(0, 1000) + '...' : m.content;
                 return `${role}: ${text}`;
               });
               dynamicParts.push(`## Recent Conversation History (this session)\n${historyLines.join('\n')}`);
@@ -1970,6 +2152,11 @@ Use memory tools:
 - list_facts: List all facts or by category
 - memory_search: Search facts by keyword
 
+IMPORTANT:
+- These are direct MCP tools, not Pocket CLI commands.
+- Do NOT try to save memory via Bash using \`pocket ... remember\` (that CLI command does not exist).
+- For relationship/work-style preferences, use \`soul_set\` (also an MCP tool), not Pocket CLI.
+
 Categories: user_info, preferences, projects, people, work, notes, decisions
 
 IMPORTANT: Save facts PROACTIVELY when user mentions:
@@ -1978,6 +2165,12 @@ IMPORTANT: Save facts PROACTIVELY when user mentions:
 - Projects they're working on
 - People important to them
 - Work/job details
+
+### Save Destination Protocol
+When user asks to "save/store/remember/log" something:
+- Default: use the \`remember\` tool to save as a memory fact.
+- If destination names a project (example: "save to Kirby", "add to kanban"), call \`kanban_list_projects\` first and save into that project.
+- Never use host OS notes apps or \`pocket system notes\`.
 
 ### Browser Automation
 You have a browser tool for JS rendering and authenticated sessions:
@@ -2020,6 +2213,14 @@ You can send native desktop notifications:
 notify(title="Task Complete", body="Your download has finished")
 notify(title="Reminder", body="Meeting in 5 minutes", urgency="critical")
 \`\`\`
+
+### Host Integration Permission Rule
+For actions outside Pocket Agent data/tools (OS apps, AppleScript, system integrations):
+- Ask for explicit permission first.
+- Show the exact command you want to run.
+- Ask user to approve with: \`approve external: <exact command>\`
+- If permission is not given, do not run the action and clearly say it was not executed.
+- Prefer Pocket Agent internal tools (Kanban, memory, daily log) for saving user content.
 
 ### Voice Messages (Telegram)
 When voice mode is enabled (user sends /voice in Telegram), you automatically send a TTS voice
@@ -2347,6 +2548,8 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" -show th
             const toolInput = this.formatToolInput(block.input);
             const blockInput = block.input as Record<string, unknown>;
             const toolUseId = (block.id as string) || `bg-${Date.now()}`;
+            this.markToolAttemptedThisTurn(sessionId, rawName);
+            this.recordToolCall(sessionId, rawName, toolInput);
 
             // Detect background tasks (Bash or Task with run_in_background)
             if (blockInput?.run_in_background === true) {

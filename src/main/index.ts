@@ -1791,8 +1791,20 @@ function setupIPC(): void {
       }
     }
 
+    // Resolve session: if no explicit session given, prefer the linked Telegram session so
+    // desktop and Telegram share the same conversation history.
+    const resolvedSessionId = (() => {
+      if (sessionId && sessionId !== 'default') return sessionId;
+      const telegramSessions = memory?.getAllTelegramChatSessions();
+      if (telegramSessions && telegramSessions.length > 0) {
+        // Use the most recently created Telegram session (first row, ordered DESC)
+        return telegramSessions[0].session_id;
+      }
+      return sessionId || 'default';
+    })();
+
     // Set up status listener to forward to renderer
-    const effectiveSessionId = sessionId || 'default';
+    const effectiveSessionId = resolvedSessionId;
     const statusHandler = (status: { type: string; sessionId?: string; toolName?: string; toolInput?: string; message?: string }) => {
       // Only forward status events for this session (or events without sessionId for backward compat)
       if (status.sessionId && status.sessionId !== effectiveSessionId) return;
@@ -1807,7 +1819,7 @@ function setupIPC(): void {
     AgentManager.on('status', statusHandler);
 
     try {
-      const result = await AgentManager.processMessage(message, 'desktop', sessionId || 'default');
+      const result = await AgentManager.processMessage(message, 'desktop', resolvedSessionId);
       updateTrayMenu();
 
       // Optional sync Desktop -> Telegram (disabled by default to avoid duplicate/noisy updates)

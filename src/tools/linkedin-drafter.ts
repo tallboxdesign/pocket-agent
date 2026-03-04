@@ -14,6 +14,7 @@
 import { EventEmitter } from 'events';
 import Database from 'better-sqlite3';
 import path from 'path';
+import os from 'os';
 import fs from 'fs';
 import { SettingsManager } from '../settings';
 import { KanbanService } from '../kanban';
@@ -30,6 +31,7 @@ type SDKOptions = {
   tools?: { type: 'preset'; preset: 'claude_code' };
   allowedTools?: string[];
   systemPrompt?: string;
+  settingSources?: ('project' | 'user')[];
   cwd?: string;
   env?: Record<string, string | undefined>;
 };
@@ -233,6 +235,16 @@ function getAttemptModels(primaryModel: string, fallbackModel: string, fallbackM
   });
 }
 
+function pickResearchModel(primaryModel: string, config: LinkedInDraftConfig): string {
+  const candidates = getAttemptModels(primaryModel, config.fallbackModel, config.fallbackModel2, config.fallbackModel3);
+  const match = candidates.find((model) => {
+    const provider = getProviderForModel(model);
+    if (provider === 'openrouter' || provider === 'openai' || provider === 'gemini') return false;
+    return hasModelCredentials(model);
+  });
+  return match || '';
+}
+
 async function buildProviderEnv(model: string): Promise<Record<string, string | undefined>> {
   const provider = getProviderForModel(model);
   const env = getSdkEnv();
@@ -320,11 +332,29 @@ async function buildProviderEnv(model: string): Promise<Record<string, string | 
   throw new Error('No Anthropic API key configured. Add it in Settings.');
 }
 
-function getSdkCwd(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  const appSupportDir = path.join(homeDir, 'Library/Application Support/pocket-agent');
-  if (fs.existsSync(appSupportDir)) return appSupportDir;
+function getAgentWorkspace(): string {
+  return path.join(os.homedir(), 'Documents', 'Pocket-agent');
+}
+
+function getAppDataDir(): string {
+  const homeDir = os.homedir();
+  const candidates = [
+    path.join(homeDir, 'Library/Application Support/pocket-agent'),
+    path.join(homeDir, '.config/pocket-agent'),
+    path.join(homeDir, 'AppData/Roaming/pocket-agent'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
   return homeDir || process.cwd();
+}
+
+function getSdkCwd(): string {
+  const workspace = getAgentWorkspace();
+  if (fs.existsSync(path.join(workspace, 'CLAUDE.md'))) return workspace;
+  const appSupportDir = getAppDataDir();
+  if (fs.existsSync(appSupportDir)) return appSupportDir;
+  return workspace || process.cwd();
 }
 
 function getSdkEnv(): Record<string, string | undefined> {
@@ -334,7 +364,29 @@ function getSdkEnv(): Record<string, string | undefined> {
   };
   // Prevent nested-session and global config leakage that can crash child SDK runs.
   delete env.CLAUDECODE;
+  if (!env.CLAUDE_CONFIG_DIR) {
+    env.CLAUDE_CONFIG_DIR = path.join(getAppDataDir(), '.claude');
+  }
   return env;
+}
+
+function getPromptDateContext(): { isoDate: string; humanDate: string; year: number } {
+  const now = new Date();
+  const isoDate = now.toISOString().slice(0, 10);
+  const humanDate = now.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  return {
+    isoDate,
+    humanDate,
+    year: now.getFullYear(),
+  };
+}
+
+function extractYearTokens(text: string): string[] {
+  return Array.from(new Set((String(text || '').match(/\b20\d{2}\b/g) || []).map(String)));
 }
 
 function normalizeLinkedInPostText(raw: string): string {
@@ -358,10 +410,20 @@ type LinkedInPostImage = {
   dataUri: string;
 };
 
+type ImageAnalysisStatus = 'pending' | 'none' | 'analyzed' | 'skipped_no_model' | 'failed';
+
+type ImageAnalysisResult = {
+  context: string;
+  status: ImageAnalysisStatus;
+  note: string;
+};
+
 type LinkedInPostContent = {
   text: string;
   images: LinkedInPostImage[];
   imageContext: string;
+  imageAnalysisStatus: ImageAnalysisStatus;
+  imageAnalysisNote: string;
 };
 
 function normalizeImageDataUri(raw: string): string {
@@ -409,12 +471,20 @@ async function summarizeLinkedInPostImages(
   postPreview: string,
   postUrl: string,
   parentAbortController?: AbortController,
-): Promise<string> {
-  const modelCfg = getVisionModelConfig();
-  if (!modelCfg) return '';
-
+): Promise<ImageAnalysisResult> {
   const usable = images.filter(img => !!img.dataUri || /^https?:\/\//i.test(img.url || '')).slice(0, 2);
-  if (usable.length === 0) return '';
+  if (usable.length === 0) {
+    return { context: '', status: 'none', note: 'No images detected on post' };
+  }
+
+  const modelCfg = getVisionModelConfig();
+  if (!modelCfg) {
+    return {
+      context: '',
+      status: 'skipped_no_model',
+      note: 'Images found but no vision model key configured',
+    };
+  }
 
   const controller = new AbortController();
   const onParentAbort = () => controller.abort();
@@ -479,10 +549,22 @@ Post URL: ${postUrl}`,
 
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
     const raw = String(payload?.choices?.[0]?.message?.content || '').trim();
-    if (!raw) return '';
+    if (!raw) {
+      return {
+        context: '',
+        status: 'failed',
+        note: `Vision model returned empty output (${modelCfg.model})`,
+      };
+    }
 
     const parsed = extractJsonObject(raw);
-    if (!parsed) return clipForPrompt(raw, 260);
+    if (!parsed) {
+      return {
+        context: clipForPrompt(raw, 260),
+        status: 'analyzed',
+        note: `Image analysis completed with ${modelCfg.model}`,
+      };
+    }
 
     const narrative = normalizeLinkedInPostText(String(parsed.image_narrative || ''));
     const imageText = normalizeLinkedInPostText(String(parsed.image_text || ''));
@@ -493,10 +575,27 @@ Post URL: ${postUrl}`,
       narrative ? `Image narrative${confidenceLabel}: ${narrative}` : '',
       imageText ? `Image text signals: ${imageText}` : '',
     ].filter(Boolean);
-    return parts.join('\n');
+    const context = parts.join('\n');
+    if (!context) {
+      return {
+        context: '',
+        status: 'failed',
+        note: `Image analysis produced no usable context (${modelCfg.model})`,
+      };
+    }
+    return {
+      context,
+      status: 'analyzed',
+      note: `Analyzed ${usable.length} image${usable.length === 1 ? '' : 's'} with ${modelCfg.model}`,
+    };
   } catch (err) {
     console.warn('[LinkedInDrafter] Image vision analysis skipped:', err);
-    return '';
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      context: '',
+      status: 'failed',
+      note: `Image analysis failed: ${clipForPrompt(msg, 120)}`,
+    };
   } finally {
     clearTimeout(timeout);
     if (parentAbortController) {
@@ -507,13 +606,51 @@ Post URL: ${postUrl}`,
 
 async function readFullLinkedInPostContent(postUrl: string, abortController?: AbortController): Promise<LinkedInPostContent> {
   const url = String(postUrl || '').trim();
-  if (!url) return { text: '', images: [], imageContext: '' };
+  if (!url) {
+    return {
+      text: '',
+      images: [],
+      imageContext: '',
+      imageAnalysisStatus: 'none',
+      imageAnalysisNote: 'No post URL',
+    };
+  }
   const out = await linkedinExec('reply', ['--url', url, '--read-only'], 90000);
   const parsed = JSON.parse(out) as { text?: string; images?: unknown };
   const text = normalizeLinkedInPostText(String(parsed?.text || ''));
   const images = normalizeLinkedInPostImages(parsed?.images);
-  const imageContext = await summarizeLinkedInPostImages(images, text, url, abortController);
-  return { text, images, imageContext };
+  const imageAnalysis = await summarizeLinkedInPostImages(images, text, url, abortController);
+  return {
+    text,
+    images,
+    imageContext: imageAnalysis.context,
+    imageAnalysisStatus: imageAnalysis.status,
+    imageAnalysisNote: imageAnalysis.note,
+  };
+}
+
+function setImageAnalysisState(
+  postId: number,
+  status: ImageAnalysisStatus,
+  imageCount: number,
+  note?: string,
+): void {
+  const db = getDb();
+  if (!db) return;
+  try {
+    db.prepare(
+      `UPDATE linkedin_posts
+       SET image_analysis_status = ?,
+           image_count = ?,
+           image_analysis_note = ?,
+           image_analyzed_at = datetime('now')
+       WHERE id = ?`
+    ).run(status, Math.max(0, Number(imageCount || 0)), note || null, postId);
+  } catch (err) {
+    console.warn('[LinkedInDrafter] Failed to save image analysis state:', err);
+  } finally {
+    db.close();
+  }
 }
 
 function isWeakDraft(draft: string): boolean {
@@ -860,6 +997,33 @@ function evaluateDraftQuality(
   if (/\b(?:the\s+)?pattern in 20\d{2} is (?:pretty|very|quite)?\s*clear\b/i.test(draft)) {
     hardIssues.push('uses year-pattern boilerplate phrasing');
   }
+  const draftYears = extractYearTokens(draft);
+  if (draftYears.length > 0) {
+    const currentYear = getPromptDateContext().year;
+    const postYears = new Set([
+      ...extractYearTokens(preview),
+      ...extractYearTokens(evidence.postSummary),
+      ...extractYearTokens(evidence.keyPoint),
+    ]);
+    const sourceYears = new Set([
+      ...extractYearTokens(preview),
+      ...extractYearTokens(evidence.postSummary),
+      ...extractYearTokens(evidence.keyPoint),
+      ...extractYearTokens(evidence.statistic),
+      ...extractYearTokens(evidence.implication),
+      ...extractYearTokens(evidence.actionableAddOn),
+    ]);
+    const ungroundedYears = draftYears.filter((year) => !sourceYears.has(year));
+    if (ungroundedYears.length > 0) {
+      hardIssues.push(`introduces ungrounded year reference (${ungroundedYears.join(', ')})`);
+    }
+    if (postYears.size === 0) {
+      const nonCurrentYears = draftYears.filter((year) => Number.parseInt(year, 10) !== currentYear);
+      if (nonCurrentYears.length > 0) {
+        hardIssues.push(`uses non-current year without post evidence (${nonCurrentYears.join(', ')})`);
+      }
+    }
+  }
   if (/\b(?:more importantly|most importantly|importantly)\b/i.test(draft)) {
     hardIssues.push('uses emphasis filler wording');
   }
@@ -983,7 +1147,11 @@ function buildDeterministicFallbackDraft(
       .replace(/^that\s+/i, '')
       .replace(/\bALL\b/g, 'all')
       .replace(/[.?!]+$/, '');
-    return (cleaned || 'the point you shared').slice(0, 160);
+    const clipped = (cleaned || 'the point you shared').slice(0, 160).trim();
+    if (/^[A-Z][a-z]/.test(clipped)) {
+      return `${clipped.charAt(0).toLowerCase()}${clipped.slice(1)}`;
+    }
+    return clipped;
   };
 
   const toCasualEvidenceSentence = (ev: ResearchEvidence): string => {
@@ -1060,7 +1228,7 @@ function buildDeterministicFallbackDraft(
     .replace(/[.?!]+$/, '');
 
   const text = [
-    `${authorFirstName}, your point about ${anchor} is the part most teams underestimate.`,
+    `${authorFirstName}, the part that stood out to me is this: ${anchor}.`,
     statSentence.endsWith('.') ? statSentence : `${statSentence}.`,
     angleLine,
     actionLine.endsWith('.') ? actionLine : `${actionLine}.`,
@@ -1247,9 +1415,13 @@ async function runResearchPass(
 ): Promise<ResearchEvidence> {
   const fullTextForPrompt = clipForPrompt(fullPostText || post.text_preview || '', 10000);
   const fallbackIntent = detectPostIntent(fullTextForPrompt || post.text_preview);
+  const dateContext = getPromptDateContext();
   const researchSystemPrompt = `You are a focused research analyst for LinkedIn comments.
 
 Rules:
+- Today's date is ${dateContext.humanDate} (${dateContext.isoDate}). Current year is ${dateContext.year}.
+- Be strictly date-aware. If the post/research does not explicitly mention a year, do not invent one.
+- Never introduce outdated years unless they are explicitly present in the post or verified source.
 - Full post content is already provided below from a direct LinkedIn read-only fetch. Use that as the primary source of truth for what the author said.
 - If IMAGE CONTEXT is provided, treat it as additional source-of-truth for what the author is communicating.
 - Never invent visual details beyond IMAGE CONTEXT.
@@ -1297,7 +1469,11 @@ STEP 3: Return STRICT JSON:
   "implication": "why this matters in practice, in plain language",
   "post_intent": "educational|promotional|mixed",
   "confidence": "high|medium|low"
-}`;
+}
+
+Date discipline:
+- If any year appears in your JSON fields, it must come from FULL POST TEXT or verified sources from this run.
+- If uncertain, omit year references.`;
 
   const researchOptions: SDKOptions = {
     model,
@@ -1306,6 +1482,7 @@ STEP 3: Return STRICT JSON:
     tools: { type: 'preset', preset: 'claude_code' },
     allowedTools: ['WebSearch', 'WebFetch'],
     systemPrompt: researchSystemPrompt,
+    settingSources: ['project'],
     cwd: getSdkCwd(),
     env,
   };
@@ -1337,6 +1514,7 @@ async function runWritePass(
   const authorFirstName = getAuthorFirstName(post.author);
   const lengthPlan = getLengthPlan(post.text_preview, evidence, commentIntent);
   const fullTextForPrompt = clipForPrompt(fullPostText || post.text_preview || '', 10000);
+  const dateContext = getPromptDateContext();
   const avoidOpenings = diversity ? Array.from(diversity.usedOpeningSignatures).filter(Boolean).slice(-6) : [];
   const avoidLeadIns = diversity ? Array.from(diversity.usedLeadInSignatures).filter(Boolean).slice(-8) : [];
   const challengeInstruction = evidence.postIntent === 'promotional' || evidence.postIntent === 'mixed'
@@ -1355,11 +1533,14 @@ async function runWritePass(
 RESPONSE REQUIREMENTS:
 - Automatic length target for this post: around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords} acceptable). Content decides where it lands, never pad.
 - Sentence 1 must start with "${authorFirstName}," and reference a specific point from the post.
+- Today's date is ${dateContext.humanDate} (${dateContext.isoDate}); current year is ${dateContext.year}.
+- Be date/year aware: never add a year unless it exists in the post or the research notes provided below.
+- If a year is needed and source context is missing, omit the year instead of guessing.
 - Weave in ONE insight from the research naturally. Optional: one light source mention ("recently saw in [source]..."). No URLs or exact statistics.
 - If image context is available, incorporate one concrete visual/text detail naturally when relevant.
 - Use your own wording. Do not mirror long phrases from the author's original post.
 - Do not say "the author claims/says". Talk directly to the person ("you") or by name.
-- Avoid formula phrasing like "the pattern in 2025 is pretty clear".
+- Avoid formula phrasing like "the pattern this year is pretty clear" or any canned year statement.
 - Do not use filler emphasis words: "importantly", "more importantly", "most importantly".
 - Numbers are optional. If you use one, keep it rough and single (no stacked percentages).
 - Do NOT end with a question. End with a statement, a take, or an incomplete thought. Questions at the end feel like interview prompts, not real comments.
@@ -1371,7 +1552,7 @@ RESPONSE REQUIREMENTS:
 VOICE (critical - this is what makes it sound human):
 - Vary paragraph length: mix short punchy lines with longer thoughts. Never uniform blocks.
 - Lowercase generic acronyms casually: "seo", "ctr", "aio", "llm" (not SEO, CTR). Brand capitalization does not need to be perfect every time, but never use ALL CAPS brand names.
-- Mix sentence-start casing: ~50% capitalized, ~50% not.
+- Use normal sentence casing. Occasional lowercase starts are acceptable only when they feel natural, not forced.
 - Use one casual connector per comment max: "honestly", "the thing is", "tbh".
 - Leave 1-2 rough edges on purpose: lowercase starts, sentence fragment, or abrupt connector. Keep it readable, not polished.
 - If you use numbers, round casually: "around 60%" not "61%", "3-4x" not "3.7x".
@@ -1431,6 +1612,7 @@ Write the final comment now.`;
     maxTurns: config.writeMaxTurns,
     abortController,
     systemPrompt: writingSystemPrompt,
+    settingSources: ['project'],
     cwd: getSdkCwd(),
     env,
   };
@@ -1450,7 +1632,7 @@ Rewrite with strict compliance:
 - reference the post's key point explicitly
 - do not copy long phrases from the post; rephrase in your own words
 - do not use meta phrasing like "the author claims"
-- avoid formula phrasing like "the pattern in 2025 is pretty clear"
+- avoid canned year phrases and never guess a year
 - avoid emphasis filler words like "importantly" or "more importantly"
 - include one direct two-cents stance tied to the specific claim in the post
 - include actionable follow-through right after the stance (specific next step or mini tutorial)
@@ -1458,7 +1640,7 @@ Rewrite with strict compliance:
 - format as short paragraphs with line breaks, not one dense block
 - avoid stacked numbers/percentages (0-1 rough number max)
 - avoid hype/jargon and generic agreement
-- keep text human-imperfect: allow lowercase sentence starts, but avoid ALL CAPS
+- keep text natural and direct; avoid forced quirks or random capitalization
 - never use canned labels like "my two cents" or "practical move"`;
     draft = ensureReadableCommentLayout(cleanDraftText(await generateDraftFromSdk(queryFn, repairPrompt, writeOptions)));
   }
@@ -1479,13 +1661,13 @@ Final rewrite requirements:
 - Sentence 1 must start with "${authorFirstName},"
 - Use different phrasing from the original post (no close paraphrase)
 - Do not use wording like "the author claims/says"
-- Avoid formula phrasing like "the pattern in 2025 is pretty clear"
+- Avoid canned year phrasing and do not invent any year reference
 - Do not use filler emphasis words like "importantly", "more importantly", or "most importantly"
 - Include one clear two-cents stance, direct and specific
 - Include actionable follow-through after the stance, concrete and useful
 - Keep natural human tone and short paragraph formatting with line breaks
 - Source mention is optional and light; avoid URLs and stacked percentages
-- Keep slight human messiness (lowercase starts/fragments allowed), no ALL CAPS brand words
+- Keep the tone natural and readable; no random capitalization or ALL CAPS brand words
 - Never use the literal phrases "my two cents" or "practical move"
 - No generic praise and no jargon
 
@@ -1556,28 +1738,34 @@ async function generateDraftViaOpenAIModel(
   parentAbortController: AbortController,
   remainingMs: number,
   diversity?: DraftDiversityContext,
+  evidenceOverride?: ResearchEvidence | null,
+  commentIntentOverride?: CommentIntent | null,
 ): Promise<DraftGenerationResult> {
   const attempt = createAttemptAbortController(parentAbortController, remainingMs);
   const fullTextForPrompt = clipForPrompt(fullPostText || post.text_preview || '', 10000);
   const imageContextForPrompt = clipForPrompt(imageContext || '', 1200);
-  const evidence = buildFallbackEvidenceFromPost(post, fullTextForPrompt, imageContextForPrompt);
-  const commentIntent = chooseCommentIntent(post.id);
+  const dateContext = getPromptDateContext();
+  const evidence = evidenceOverride || buildFallbackEvidenceFromPost(post, fullTextForPrompt, imageContextForPrompt);
+  const commentIntent = commentIntentOverride || chooseCommentIntent(post.id);
   const authorFirstName = getAuthorFirstName(post.author);
   const lengthPlan = getLengthPlan(post.text_preview, evidence, commentIntent);
   const avoidOpenings = diversity ? Array.from(diversity.usedOpeningSignatures).filter(Boolean).slice(-5) : [];
   const avoidLeadIns = diversity ? Array.from(diversity.usedLeadInSignatures).filter(Boolean).slice(-6) : [];
+  const researchBrief = evidenceOverride ? evidenceToBrief(evidence) : '';
 
   const systemPrompt = `You write a LinkedIn reply comment.
 
 Rules:
 - Start sentence 1 with "${authorFirstName},"
 - Keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
+- Today's date is ${dateContext.humanDate} (${dateContext.isoDate}); current year is ${dateContext.year}.
+- Do not invent year references. If year is not present in the post text, avoid adding one.
 - Keep the comment specific to the post and add one practical two-cents stance.
 - Add one actionable follow-through after your stance.
 - Use short readable paragraph chunks (2-4), no hashtags, no emojis, no links.
 - Do not end with a question.
 - No generic praise, no AI jargon, no em dash.
-- Return ONLY the final comment text.${styleGuide ? `\n\nStyle guide:\n${styleGuide}` : ''}`;
+- Return ONLY the final comment text.${researchBrief ? `\n\nResearch brief (must be grounded in your response):\n${researchBrief}` : ''}${styleGuide ? `\n\nStyle guide:\n${styleGuide}` : ''}`;
 
   const userPrompt = `Author: ${post.author}
 Full post text:
@@ -1595,7 +1783,7 @@ ${post.text_preview}
 
 Draft a direct reply comment now.
 Avoid repeating these opening signatures: ${avoidOpenings.join(' | ') || 'none'}
-Avoid repeating these lead-ins: ${avoidLeadIns.join(' | ') || 'none'}`;
+Avoid repeating these lead-ins: ${avoidLeadIns.join(' | ') || 'none'}${researchBrief ? `\n\nResearch brief:\n${researchBrief}` : ''}`;
 
   const abortPromise = new Promise<never>((_, reject) => {
     attempt.controller.signal.addEventListener('abort', () => {
@@ -1652,7 +1840,43 @@ async function generateDraftForModel(
 ): Promise<DraftGenerationResult> {
   const provider = getProviderForModel(model);
   if (provider === 'openai' || provider === 'gemini') {
-    return generateDraftViaOpenAIModel(post, fullPostText, imageContext, styleGuide, model, parentAbortController, remainingMs, diversity);
+    let evidence: ResearchEvidence | null = null;
+    const commentIntent = chooseCommentIntent(post.id);
+    const researchModel = pickResearchModel(model, config);
+    if (researchModel) {
+      const researchBudgetMs = Math.max(5000, Math.floor(remainingMs * 0.6));
+      const researchAttempt = createAttemptAbortController(parentAbortController, researchBudgetMs);
+      try {
+        const env = await buildProviderEnv(researchModel);
+        evidence = await runResearchPass(
+          queryFn,
+          post,
+          fullPostText,
+          imageContext,
+          researchModel,
+          config,
+          researchAttempt.controller,
+          env,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[LinkedInDrafter] Research pass skipped for ${post.author} (${researchModel}): ${msg}`);
+      } finally {
+        researchAttempt.cleanup();
+      }
+    }
+    return generateDraftViaOpenAIModel(
+      post,
+      fullPostText,
+      imageContext,
+      styleGuide,
+      model,
+      parentAbortController,
+      remainingMs,
+      diversity,
+      evidence,
+      commentIntent,
+    );
   }
 
   const env = await buildProviderEnv(model);
@@ -1715,6 +1939,7 @@ export interface DraftPost {
   reactions: number;
   comments: number;
   kanban_task_id?: number;
+  comment_draft?: string | null;
   post_type?: string;
   voice_preset?: string;
 }
@@ -1741,6 +1966,55 @@ export const draftEvents = new EventEmitter();
 // Active job tracking
 let activeJob: AbortController | null = null;
 let jobRunning = false;
+const activeDraftPostIds = new Set<number>();
+const pendingDraftPostIds = new Set<number>();
+const pendingDraftOrder: number[] = [];
+
+function markPostsQueued(postIds: number[], note?: string): void {
+  if (postIds.length === 0) return;
+  const db = getDb();
+  if (!db) return;
+  try {
+    const update = db.prepare(
+      `UPDATE linkedin_posts
+       SET draft_state = 'queued',
+           draft_error = ?,
+           draft_started_at = datetime('now'),
+           draft_finished_at = NULL
+       WHERE id = ?`
+    );
+    const tx = db.transaction((ids: number[]) => {
+      for (const id of ids) update.run(note || null, id);
+    });
+    tx(postIds);
+  } catch (err) {
+    console.warn('[LinkedInDrafter] Failed to mark queued posts:', err);
+  } finally {
+    db.close();
+  }
+}
+
+function enqueuePendingDraftPostIds(postIds: number[]): number[] {
+  const accepted: number[] = [];
+  for (const rawId of postIds) {
+    const id = Number(rawId);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    if (activeDraftPostIds.has(id)) continue;
+    if (pendingDraftPostIds.has(id)) continue;
+    pendingDraftPostIds.add(id);
+    pendingDraftOrder.push(id);
+    accepted.push(id);
+  }
+  return accepted;
+}
+
+function drainPendingDraftPostIds(): number[] {
+  if (pendingDraftOrder.length === 0) return [];
+  const out = [...pendingDraftOrder];
+  pendingDraftOrder.length = 0;
+  pendingDraftPostIds.clear();
+  return out;
+}
 
 export function cancelDraftJob(): void {
   if (activeJob) {
@@ -1792,11 +2066,25 @@ export function recoverInterruptedDrafts(trigger: 'restart' | 'wake' = 'restart'
   if (!db) return { recoveredCount: 0, recoveredPostIds: [] };
 
   try {
+    // If a draft text already exists, treat interrupted states as completed.
+    db.prepare(
+      `UPDATE linkedin_posts
+       SET draft_state = 'success',
+           draft_error = NULL,
+           draft_finished_at = COALESCE(draft_finished_at, datetime('now'))
+       WHERE hidden = 0
+         AND commented = 0
+         AND draft_state IN ('queued', 'researching', 'writing')
+         AND comment_draft IS NOT NULL
+         AND trim(comment_draft) <> ''`
+    ).run();
+
     const rows = db.prepare(
       `SELECT id, post_url, draft_state
        FROM linkedin_posts
        WHERE hidden = 0
          AND commented = 0
+         AND (comment_draft IS NULL OR trim(comment_draft) = '')
          AND draft_state IN ('queued', 'researching', 'writing')
        ORDER BY id ASC`
     ).all() as Array<{ id: number; post_url: string; draft_state: string }>;
@@ -1965,6 +2253,7 @@ async function draftOnePost(
   if (!queryFn) throw new Error('Failed to load SDK');
 
   setDraftState(post.id, 'researching');
+  setImageAnalysisState(post.id, 'pending', 0, 'Reading full post and attached images');
 
   // Clear old draft so stale content doesn't persist if this attempt fails
   const clearDb = getDb();
@@ -1979,10 +2268,19 @@ async function draftOnePost(
   // Keep internal deadline aligned with outer batch timeout window (+20s grace).
   const effectiveTimeoutSec = computeEffectiveTimeoutSec(config.perPostTimeoutSec, model, post.text_preview) + 20;
   const deadline = Date.now() + (effectiveTimeoutSec * 1000);
-  const fullPost = await readFullLinkedInPostContent(post.post_url, abortController);
+  let fullPost: LinkedInPostContent;
+  try {
+    fullPost = await readFullLinkedInPostContent(post.post_url, abortController);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    setImageAnalysisState(post.id, 'failed', 0, `Post read failed: ${clipForPrompt(msg, 120)}`);
+    throw err;
+  }
+  setImageAnalysisState(post.id, fullPost.imageAnalysisStatus, fullPost.images.length, fullPost.imageAnalysisNote);
   const fullPostText = fullPost.text;
   const imageContext = fullPost.imageContext;
   if (!fullPostText) {
+    setImageAnalysisState(post.id, fullPost.imageAnalysisStatus, fullPost.images.length, `${fullPost.imageAnalysisNote}. Full text missing`);
     throw new Error(`Full post fetch failed for ${post.author}; drafting aborted to avoid summary-only output`);
   }
 
@@ -2070,10 +2368,18 @@ async function draftOnePost(
 
     db.prepare('UPDATE linkedin_posts SET comment_draft = ?, kanban_task_id = ? WHERE id = ?')
       .run(draft, taskId, post.id);
+    const imageReason = (() => {
+      const count = Number(fullPost.images?.length || 0);
+      if (fullPost.imageAnalysisStatus === 'analyzed') return `draft:ok:image_analyzed:${count}`;
+      if (fullPost.imageAnalysisStatus === 'none') return 'draft:ok:no_images';
+      if (fullPost.imageAnalysisStatus === 'pending') return 'draft:ok:image_pending';
+      if (fullPost.imageAnalysisStatus === 'skipped_no_model') return 'draft:ok:image_skipped_no_model';
+      return 'draft:ok:image_failed';
+    })();
     db.prepare(
       `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, comment_text)
-       VALUES (?, ?, 'drafted', 'draft:ok', ?)`
-    ).run(post.id, post.post_url, draft);
+       VALUES (?, ?, 'drafted', ?, ?)`
+    ).run(post.id, post.post_url, imageReason, draft);
     if (generation) {
       saveDraftEvidence(db, post.id, post.post_url, generation);
     }
@@ -2110,15 +2416,27 @@ async function draftOnePost(
 export async function draftBatch(
   postIds: number[],
   _batchSize: number = 1,
+  forceRedo: boolean = false,
 ): Promise<{ results: DraftResult[]; errors: string[] }> {
   if (jobRunning) {
     // If activeJob is null, this is a leaked state from a crashed previous run -reset it
     if (!activeJob) {
       jobRunning = false;
     } else {
+      const queued = enqueuePendingDraftPostIds(postIds);
+      if (queued.length > 0) {
+        markPostsQueued(queued, forceRedo ? 'Queued for redraft behind active draft job' : 'Queued behind active draft job');
+        draftEvents.emit('progress', {
+          type: 'progress',
+          total: queued.length,
+          completed: 0,
+          current: 'Queued behind active batch',
+          queued: queued.length,
+        });
+      }
       return {
         results: [],
-        errors: ['A draft job is already running. Wait for it to finish or cancel it first.'],
+        errors: [],
       };
     }
   }
@@ -2146,11 +2464,36 @@ export async function draftBatch(
     }
 
     const posts: DraftPost[] = [];
+    let reusedExistingCount = 0;
+    const markExistingSuccess = db.prepare(
+      `UPDATE linkedin_posts
+       SET draft_state = 'success',
+           draft_error = NULL,
+           draft_finished_at = COALESCE(draft_finished_at, datetime('now'))
+       WHERE id = ?`
+    );
     for (const id of postIds) {
       const row = db.prepare(
-        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, post_type, voice_preset FROM linkedin_posts WHERE id = ?'
+        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, comment_draft, post_type, voice_preset FROM linkedin_posts WHERE id = ?'
       ).get(id) as DraftPost | undefined;
-      if (row) posts.push(row);
+      if (!row) continue;
+      const existingDraft = String(row.comment_draft || '').trim();
+      if (existingDraft && !forceRedo) {
+        markExistingSuccess.run(row.id);
+        reusedExistingCount++;
+        results.push({
+          postId: row.id,
+          author: row.author,
+          draft: existingDraft,
+          kanbanTaskId: Number(row.kanban_task_id || 0),
+          researched: true,
+        });
+        continue;
+      }
+      if (existingDraft && forceRedo) {
+        db.prepare('UPDATE linkedin_posts SET comment_draft = NULL WHERE id = ?').run(row.id);
+      }
+      posts.push(row);
     }
 
     // Mark all posts as queued upfront
@@ -2159,12 +2502,18 @@ export async function draftBatch(
     }
     db.close();
 
-    if (posts.length === 0) {
+    if (posts.length === 0 && results.length === 0) {
       errors.push('No posts found');
       return { results, errors };
     }
+    if (posts.length === 0) {
+      totalPostsForCompletion = reusedExistingCount;
+      return { results, errors };
+    }
 
-    totalPostsForCompletion = posts.length;
+    for (const post of posts) activeDraftPostIds.add(post.id);
+
+    totalPostsForCompletion = posts.length + reusedExistingCount;
     const progress: DraftJobProgress = {
       total: posts.length,
       completed: 0,
@@ -2253,6 +2602,7 @@ export async function draftBatch(
     console.error('[LinkedInDrafter] Batch failure:', msg);
     return { results, errors };
   } finally {
+    for (const id of postIds) activeDraftPostIds.delete(Number(id));
     activeJob = null;
     jobRunning = false;
     draftEvents.emit('complete', {
@@ -2261,6 +2611,14 @@ export async function draftBatch(
       drafted: results.length,
       errors: errors.length,
     });
+    const queuedFollowUp = drainPendingDraftPostIds();
+    if (queuedFollowUp.length > 0) {
+      setTimeout(() => {
+        void draftBatch(queuedFollowUp, _batchSize, forceRedo).catch((err) => {
+          console.error('[LinkedInDrafter] Failed to run queued follow-up batch:', err);
+        });
+      });
+    }
   }
 }
 
@@ -2292,12 +2650,15 @@ export async function rewriteLinkedInDraftWithInstructions(options: {
     const provider = getProviderForModel(model);
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort('timeout'), 70_000);
+    const dateContext = getPromptDateContext();
     try {
       const systemPrompt = `You are editing a LinkedIn comment draft.
 
 Rules:
 - Apply only the requested changes.
 - Keep the original narrative, structure, and intent intact.
+- Today's date is ${dateContext.humanDate} (${dateContext.isoDate}); current year is ${dateContext.year}.
+- Do not invent year references. If year is not in provided text/instructions, avoid adding one.
 - Preserve any strong phrasing that is already good.
 - Do not add hashtags, emojis, URLs, or markdown.
 - Keep line breaks readable.
@@ -2340,6 +2701,7 @@ Rewrite now while preserving everything else as much as possible.`;
           maxTurns: 3,
           abortController,
           systemPrompt,
+          settingSources: ['project'],
           cwd: getSdkCwd(),
           env,
         });
