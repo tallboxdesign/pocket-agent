@@ -2032,6 +2032,14 @@ function setupIPC(): void {
       if (!dbPath) return [];
       const db = new Database(dbPath);
       db.pragma('journal_mode = WAL');
+      // eslint-disable-next-line no-empty
+      try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN hook_score INTEGER`); } catch {}
+      // eslint-disable-next-line no-empty
+      try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN emotion_tag TEXT`); } catch {}
+      // eslint-disable-next-line no-empty
+      try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN niche_target TEXT`); } catch {}
+      // eslint-disable-next-line no-empty
+      try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN authenticity_flag TEXT`); } catch {}
       try {
         const reconciled = reconcileLinkedInPostedState(db);
         if (reconciled > 0) {
@@ -2503,6 +2511,65 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('linkedin:updatePostMeta', async (_, postId: number, updates: Record<string, unknown>) => {
+    try {
+      markLinkedInControlSource('desktop');
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+
+      const fields: string[] = [];
+      const values: Array<string | number | null> = [];
+      const hookRaw = updates?.hook_score;
+      if (hookRaw !== undefined) {
+        const hookNum = Number(hookRaw);
+        const hookScore = Number.isFinite(hookNum) ? Math.max(0, Math.min(10, Math.round(hookNum))) : null;
+        fields.push('hook_score = ?');
+        values.push(hookScore);
+      }
+      if (updates?.emotion_tag !== undefined) {
+        const emotion = String(updates.emotion_tag || '').trim();
+        fields.push('emotion_tag = ?');
+        values.push(emotion ? emotion : null);
+      }
+      if (updates?.niche_target !== undefined) {
+        const niche = String(updates.niche_target || '').trim();
+        fields.push('niche_target = ?');
+        values.push(niche ? niche : null);
+      }
+      if (updates?.authenticity_flag !== undefined) {
+        const raw = String(updates.authenticity_flag || '').trim().toLowerCase();
+        const allowed = new Set(['human', 'assist', 'ai']);
+        const auth = allowed.has(raw) ? raw : '';
+        fields.push('authenticity_flag = ?');
+        values.push(auth ? auth : null);
+      }
+      if (!fields.length) {
+        db.close();
+        return { success: false, error: 'No fields to update' };
+      }
+
+      values.push(Number(postId));
+      db.prepare(`UPDATE linkedin_posts SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+      db.close();
+      return { success: true };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to update post meta:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle('linkedin:rewriteDraft', async (_, postId: number, currentText: string, instructions: string) => {
     try {
       markLinkedInControlSource('desktop');
@@ -2842,6 +2909,124 @@ function setupIPC(): void {
     } catch (err) {
       console.error('[LinkedIn] getDailyStats error:', err);
       return { postedToday: 0, dailyLimit: 0, pendingApproved: 0 };
+    }
+  });
+
+  ipcMain.handle('linkedin:getWeeklyReview', async (_event, days?: number) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+
+      const rawDays = Number(days || 0);
+      const safeDays = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(30, Math.floor(rawDays)) : 7;
+      const offsetDays = Math.max(0, safeDays - 1);
+
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      const rows = db.prepare(
+        `SELECT id, post_url, author, text_preview, reactions, comments, comment_draft,
+                hook_score, emotion_tag, niche_target, authenticity_flag,
+                scraped_date, approved, commented, scheduled_at
+         FROM linkedin_posts
+         WHERE hidden = 0
+           AND scraped_date >= date('now', 'localtime', ?)
+           AND scraped_date <= date('now', 'localtime')`
+      ).all(`-${offsetDays} days`) as Array<Record<string, unknown>>;
+      db.close();
+
+      const posts = rows.map((row) => ({
+        id: Number(row.id),
+        post_url: String(row.post_url || ''),
+        author: String(row.author || ''),
+        text_preview: String(row.text_preview || ''),
+        reactions: Number(row.reactions || 0),
+        comments: Number(row.comments || 0),
+        comment_draft: String(row.comment_draft || ''),
+        hook_score: row.hook_score === null || row.hook_score === undefined ? null : Number(row.hook_score),
+        emotion_tag: String(row.emotion_tag || ''),
+        niche_target: String(row.niche_target || ''),
+        authenticity_flag: String(row.authenticity_flag || ''),
+        scraped_date: String(row.scraped_date || ''),
+        approved: Number(row.approved || 0),
+        commented: Number(row.commented || 0),
+        scheduled_at: String(row.scheduled_at || ''),
+      }));
+
+      const engagementOf = (p: typeof posts[number]) => (p.reactions || 0) + (p.comments || 0);
+      const total = posts.length;
+      const drafted = posts.filter(p => p.comment_draft && p.comment_draft.trim()).length;
+      const approved = posts.filter(p => p.approved).length;
+      const scheduled = posts.filter(p => p.scheduled_at).length;
+      const published = posts.filter(p => p.commented).length;
+      const avgEngagement = total ? (posts.reduce((acc, p) => acc + engagementOf(p), 0) / total) : 0;
+
+      const top = [...posts].sort((a, b) => engagementOf(b) - engagementOf(a)).slice(0, 5);
+      const bottom = [...posts].sort((a, b) => engagementOf(a) - engagementOf(b)).slice(0, 5);
+
+      const byEmotion = new Map<string, { count: number; total: number }>();
+      const byAuth = new Map<string, { count: number; total: number }>();
+      const byHook = new Map<string, { count: number; total: number }>();
+      for (const p of posts) {
+        const engagement = engagementOf(p);
+        const emotion = p.emotion_tag.trim().toLowerCase();
+        if (emotion) {
+          const slot = byEmotion.get(emotion) || { count: 0, total: 0 };
+          slot.count += 1;
+          slot.total += engagement;
+          byEmotion.set(emotion, slot);
+        }
+        const auth = p.authenticity_flag.trim().toLowerCase();
+        if (auth) {
+          const slot = byAuth.get(auth) || { count: 0, total: 0 };
+          slot.count += 1;
+          slot.total += engagement;
+          byAuth.set(auth, slot);
+        }
+        const hook = Number(p.hook_score || 0);
+        if (Number.isFinite(hook) && hook > 0) {
+          const bucket = hook <= 4 ? '1-4' : hook <= 7 ? '5-7' : '8-10';
+          const slot = byHook.get(bucket) || { count: 0, total: 0 };
+          slot.count += 1;
+          slot.total += engagement;
+          byHook.set(bucket, slot);
+        }
+      }
+
+      const toBreakdown = (map: Map<string, { count: number; total: number }>) =>
+        Array.from(map.entries())
+          .map(([key, val]) => ({ key, count: val.count, avg: val.count ? val.total / val.count : 0 }))
+          .sort((a, b) => b.avg - a.avg);
+
+      return {
+        success: true,
+        days: safeDays,
+        stats: {
+          total,
+          drafted,
+          approved,
+          scheduled,
+          published,
+          avgEngagement,
+        },
+        top,
+        bottom,
+        byEmotion: toBreakdown(byEmotion),
+        byHook: toBreakdown(byHook),
+        byAuth: toBreakdown(byAuth),
+      };
+    } catch (err) {
+      console.error('[LinkedIn] getWeeklyReview error:', err);
+      return { success: false, error: String(err) };
     }
   });
 

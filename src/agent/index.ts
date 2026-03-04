@@ -1491,6 +1491,21 @@ class AgentManagerClass extends EventEmitter {
       // Log full error object for debugging
       console.error('[AgentManager] Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
 
+      // Check if this is a session-closed exception (race condition: isAlive() was true but send() threw)
+      // Retry once as a fresh session — same as the isSessionCrash path in turnResult handling.
+      const isThrownSessionClosed = !retryWithFallback &&
+        (errorMsg.toLowerCase().includes('session closed') ||
+         errorMsg.toLowerCase().includes('session error') ||
+         errorMsg.toLowerCase().includes('session not alive'));
+      if (isThrownSessionClosed) {
+        console.warn(`[AgentManager] Session closed exception caught, retrying as fresh session (${sessionId})`);
+        this.closePersistentSession(sessionId);
+        this.persistentSessions.delete(sessionId);
+        this.sdkSessionIdBySession.delete(sessionId);
+        memory.clearSdkSessionId(sessionId);
+        return this.executeMessage(userMessage, channel, sessionId, images, attachmentInfo, true, activeModel, turnContext);
+      }
+
       // Check if this is a model/quota issue and we have a fallback
       if (this.isAutoModelFallbackEnabled() && this.shouldFallbackForError(errorMsg) && !retryWithFallback) {
         const fallbackModel = this.getBestFallbackModel(activeModel);
