@@ -1004,6 +1004,98 @@
       color: var(--text-muted);
       margin: 0 0 6px 0;
     }
+    .bank-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 8px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(59,130,246,0.3);
+      background: rgba(59,130,246,0.1);
+      color: #93c5fd;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .bank-chip:hover { background: rgba(59,130,246,0.2); }
+    .post-bank-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 420px;
+      overflow: auto;
+      padding-right: 6px;
+    }
+    .post-bank-entry {
+      border: 1px solid rgba(148,163,184,0.2);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(15,23,42,0.5);
+    }
+    .post-bank-entry textarea {
+      width: 100%;
+      min-height: 90px;
+      resize: vertical;
+      background: rgba(15,23,42,0.6);
+      color: var(--text-primary);
+      border: 1px solid rgba(148,163,184,0.25);
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 12px;
+    }
+    .post-bank-entry input,
+    .post-bank-entry select {
+      width: 100%;
+      background: rgba(15,23,42,0.6);
+      color: var(--text-primary);
+      border: 1px solid rgba(148,163,184,0.25);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+    .post-bank-entry .row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0,1fr));
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .post-bank-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin: 6px 0 0 0;
+    }
+    .post-bank-tags label { display: inline-flex; gap: 6px; align-items: center; }
+    .post-bank-selector {
+      max-height: 420px;
+      overflow: auto;
+      border: 1px solid rgba(148,163,184,0.25);
+      border-radius: 8px;
+      padding: 8px;
+      background: rgba(15,23,42,0.4);
+    }
+    .post-bank-selector-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px;
+      border-bottom: 1px solid rgba(148,163,184,0.1);
+    }
+    .post-bank-selector-item:last-child { border-bottom: none; }
+    .post-bank-selector-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      max-height: 120px;
+      overflow: hidden;
+    }
+    .post-bank-warning {
+      font-size: 11px;
+      color: #fbbf24;
+      margin-top: 6px;
+    }
 
     @keyframes blinkText {
       0% { opacity: 1; }
@@ -1538,6 +1630,10 @@
               <option value="qwen3.5-plus-2026-02-15">qwen3.5-plus-2026-02-15</option>
             </select>
           </div>
+          <div class="li-quick-field span-2">
+            <label title="Manage Post Bank examples used as style references.">Post Bank</label>
+            <button class="action-btn" onclick="openPostBankManager()" style="width:100%;">Manage Post Bank</button>
+          </div>
         </div>
       </div>
 
@@ -1845,6 +1941,9 @@
     <button class="action-btn" id="bulk-meta-btn" onclick="openBulkMetaModal()" style="background:rgba(59,130,246,0.12);color:#93c5fd;border-color:rgba(59,130,246,0.3);display:none;">
       Set Targets
     </button>
+    <button class="action-btn" id="bulk-bank-btn" onclick="openPostBankSelectorForSelection()" style="background:rgba(14,165,233,0.12);color:#7dd3fc;border-color:rgba(14,165,233,0.3);display:none;">
+      Post Bank
+    </button>
     <button class="action-btn" onclick="researchDraftSelected()" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3);" title="Spawn parallel SDK agents to research and draft (2 at a time)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       Research &amp; Draft
@@ -1886,6 +1985,34 @@
       <div class="bulk-meta-actions">
         <button class="action-btn" onclick="closeBulkMetaModal()">Cancel</button>
         <button class="action-btn" onclick="applyBulkMeta()" style="background:rgba(59,130,246,0.12);color:#93c5fd;border-color:rgba(59,130,246,0.3);">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="post-bank-selector-modal" class="bulk-meta-modal">
+    <div class="bulk-meta-card" style="max-width:820px;">
+      <div class="bulk-meta-title">Select Post Bank entries</div>
+      <div style="margin:8px 0;">
+        <input id="post-bank-search" placeholder="Search entries..." style="width:100%;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text-primary);font-size:12px;">
+        <div class="post-bank-warning" id="post-bank-warning" style="display:none;"></div>
+      </div>
+      <div class="post-bank-selector" id="post-bank-selector-list"></div>
+      <div class="bulk-meta-actions">
+        <button class="action-btn" onclick="closePostBankSelector()">Cancel</button>
+        <button class="action-btn success" onclick="applyPostBankSelection()">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="post-bank-manager-modal" class="bulk-meta-modal">
+    <div class="bulk-meta-card" style="max-width:900px;">
+      <div class="bulk-meta-title">Post Bank Manager</div>
+      <div class="li-quick-help">Add posts/replies you like. They are used as style references only (no copying).</div>
+      <div class="post-bank-list" id="post-bank-manager-list"></div>
+      <div class="bulk-meta-actions">
+        <button class="action-btn" onclick="addPostBankEntry()">Add Entry</button>
+        <button class="action-btn" onclick="closePostBankManager()">Close</button>
+        <button class="action-btn success" onclick="savePostBankEntries()">Save</button>
       </div>
     </div>
   </div>
@@ -2020,6 +2147,10 @@
       { value: 'assist', label: 'AI Assist' },
       { value: 'ai', label: 'AI Only' },
     ];
+
+    let postBankEntries = [];
+    let postBankLoaded = false;
+    let postBankSelectorContext = { mode: 'post', postIds: [], presetIndex: null, selectedIds: [] };
     const EMOTION_KEYWORDS = [
       { value: 'conflict', words: ['vs', 'versus', 'debate', 'argument', 'pushback', 'disagree', 'controversy', 'fight'] },
       { value: 'frustration', words: ['annoy', 'frustrat', 'hate', 'pain', 'broken', 'mess', 'waste', 'stuck', 'bad', 'wrong'] },
@@ -2100,6 +2231,279 @@
       const div = document.createElement('div');
       div.textContent = text || '';
       return div.innerHTML;
+    }
+
+    function parsePostBankIds(raw) {
+      if (!raw) return [];
+      const text = String(raw || '').trim();
+      if (!text) return [];
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) return parsed.map(v => String(v)).filter(Boolean);
+      } catch {}
+      return text.split(',').map(v => v.trim()).filter(Boolean);
+    }
+
+    function parsePostBankEntries(raw) {
+      try {
+        const parsed = JSON.parse(raw || '[]');
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+          .filter(e => e && typeof e === 'object')
+          .map(e => ({
+            id: String(e.id || ''),
+            title: String(e.title || ''),
+            type: String(e.type || ''),
+            text: String(e.text || ''),
+            tags: Array.isArray(e.tags) ? e.tags.map(t => String(t)).filter(Boolean) : [],
+            functionTags: Array.isArray(e.functionTags) ? e.functionTags.map(t => String(t)).filter(Boolean) : [],
+            disabled: Boolean(e.disabled),
+          }))
+          .filter(e => e.id && e.text && !e.disabled);
+      } catch {
+        return [];
+      }
+    }
+
+    async function ensurePostBankEntries() {
+      if (postBankLoaded) return;
+      if (!window.pocketAgent?.getSetting) return;
+      try {
+        const raw = await window.pocketAgent.getSetting('linkedin.postBankEntries');
+        postBankEntries = parsePostBankEntries(raw || '[]');
+        postBankLoaded = true;
+      } catch {
+        postBankEntries = [];
+        postBankLoaded = true;
+      }
+    }
+
+    function openPostBankManager() {
+      ensurePostBankEntries().then(() => {
+        renderPostBankManager();
+        const modal = document.getElementById('post-bank-manager-modal');
+        if (modal) modal.classList.add('show');
+      });
+    }
+
+    function closePostBankManager() {
+      const modal = document.getElementById('post-bank-manager-modal');
+      if (modal) modal.classList.remove('show');
+    }
+
+    function addPostBankEntry() {
+      const id = `pb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      postBankEntries.push({
+        id,
+        title: '',
+        type: 'reply',
+        text: '',
+        tags: [],
+        functionTags: [],
+        disabled: false,
+      });
+      renderPostBankManager();
+    }
+
+    function renderPostBankManager() {
+      const host = document.getElementById('post-bank-manager-list');
+      if (!host) return;
+      if (!postBankEntries.length) {
+        host.innerHTML = '<div class="li-quick-help">No entries yet. Add the first example to get started.</div>';
+        return;
+      }
+      host.innerHTML = postBankEntries.map((entry, idx) => `
+        <div class="post-bank-entry" data-entry-id="${entry.id}">
+          <div class="row">
+            <div>
+              <label>Title</label>
+              <input id="pb-title-${idx}" value="${escapeHtml(entry.title || '')}" placeholder="Short label">
+            </div>
+            <div>
+              <label>Type</label>
+              <select id="pb-type-${idx}">
+                ${['post','reply','snippet'].map(t => `<option value="${t}" ${t === entry.type ? 'selected' : ''}>${t}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label>Tags (comma separated)</label>
+              <input id="pb-tags-${idx}" value="${escapeHtml((entry.tags || []).join(', '))}" placeholder="seo, product, growth">
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Function Tags</label>
+              <div class="post-bank-tags">
+                ${['voice','stance','closing'].map(tag => `
+                  <label><input type="checkbox" id="pb-fn-${idx}-${tag}" ${entry.functionTags?.includes(tag) ? 'checked' : ''}/> ${tag}</label>
+                `).join('')}
+              </div>
+            </div>
+            <div>
+              <label>Disable</label>
+              <select id="pb-disabled-${idx}">
+                <option value="false" ${entry.disabled ? '' : 'selected'}>Active</option>
+                <option value="true" ${entry.disabled ? 'selected' : ''}>Disabled</option>
+              </select>
+            </div>
+            <div>
+              <label>&nbsp;</label>
+              <button class="action-btn" onclick="removePostBankEntry('${entry.id}')">Remove</button>
+            </div>
+          </div>
+          <label>Text</label>
+          <textarea id="pb-text-${idx}" placeholder="Paste post/reply/snippet here">${escapeHtml(entry.text || '')}</textarea>
+        </div>
+      `).join('');
+    }
+
+    function removePostBankEntry(id) {
+      postBankEntries = postBankEntries.filter(e => e.id !== id);
+      renderPostBankManager();
+    }
+
+    function checkPostBankEntryQuality(entry) {
+      const warnings = [];
+      const text = String(entry.text || '');
+      if (/#[\\w-]+/.test(text)) warnings.push('Contains hashtag');
+      if (/\\p{Extended_Pictographic}/u.test(text)) warnings.push('Contains emoji');
+      if (/\\?\\s*$/.test(text.trim())) warnings.push('Ends with a question');
+      if (/\\bit's like\\b|\\blike a\\b|\\bkind of like\\b/i.test(text)) warnings.push('Metaphor phrasing');
+      const jargon = ['landscape','leverage','robust','holistic','transformative','game-changing','trajectory','paradigm','ecosystem','scalable','actionable','double down','institutionalizing','decoupling'];
+      const lower = text.toLowerCase();
+      if (jargon.some(j => lower.includes(j))) warnings.push('Contains AI-jargon');
+      return warnings;
+    }
+
+    async function savePostBankEntries() {
+      const entries = [];
+      const warnings = [];
+      const host = document.getElementById('post-bank-manager-list');
+      if (!host) return;
+      const nodes = Array.from(host.querySelectorAll('.post-bank-entry'));
+      nodes.forEach((node, idx) => {
+        const id = String(node.getAttribute('data-entry-id') || `pb_${idx}`);
+        const title = (document.getElementById(`pb-title-${idx}`) || {}).value || '';
+        const type = (document.getElementById(`pb-type-${idx}`) || {}).value || 'reply';
+        const tags = String((document.getElementById(`pb-tags-${idx}`) || {}).value || '')
+          .split(',').map(t => t.trim()).filter(Boolean);
+        const functionTags = ['voice','stance','closing'].filter(tag => {
+          const el = document.getElementById(`pb-fn-${idx}-${tag}`);
+          return el && el.checked;
+        });
+        const disabled = String((document.getElementById(`pb-disabled-${idx}`) || {}).value || 'false') === 'true';
+        const text = (document.getElementById(`pb-text-${idx}`) || {}).value || '';
+        const entry = { id, title, type, tags, functionTags, disabled, text };
+        entries.push(entry);
+        const issues = checkPostBankEntryQuality(entry);
+        if (issues.length) warnings.push(`${title || id}: ${issues.join(', ')}`);
+      });
+      postBankEntries = entries;
+      await window.pocketAgent.setSetting('linkedin.postBankEntries', JSON.stringify(entries));
+      postBankLoaded = true;
+      if (warnings.length) {
+        showToast(`Post Bank warnings: ${warnings[0]}${warnings.length > 1 ? ` (+${warnings.length - 1} more)` : ''}`, 'error');
+      } else {
+        showToast('Post Bank saved', 'success');
+      }
+      closePostBankManager();
+    }
+
+    function openPostBankSelector(postId) {
+      openPostBankSelectorInternal('post', [Number(postId || 0)]);
+    }
+
+    function openPostBankSelectorForSelection() {
+      const ids = getSelectedIds();
+      if (!ids.length) {
+        showToast('Select posts first', 'error');
+        return;
+      }
+      openPostBankSelectorInternal('bulk', ids);
+    }
+
+    function openPostBankSelectorForPreset(index) {
+      openPostBankSelectorInternal('preset', [], index);
+    }
+
+    function openPostBankSelectorInternal(mode, postIds = [], presetIndex = null) {
+      ensurePostBankEntries().then(() => {
+        postBankSelectorContext = { mode, postIds, presetIndex, selectedIds: [] };
+        if (mode === 'preset' && presetIndex !== null) {
+          postBankSelectorContext.selectedIds = Array.isArray(draftPresets[presetIndex]?.bankIds)
+            ? [...draftPresets[presetIndex].bankIds]
+            : [];
+        } else if (mode === 'post' && postIds.length === 1) {
+          const post = getPostById(postIds[0]);
+          postBankSelectorContext.selectedIds = parsePostBankIds(post?.post_bank_ids || '');
+        }
+        renderPostBankSelector();
+        const modal = document.getElementById('post-bank-selector-modal');
+        if (modal) modal.classList.add('show');
+        const search = document.getElementById('post-bank-search');
+        if (search) {
+          search.value = '';
+          search.oninput = () => renderPostBankSelector(search.value || '');
+        }
+      });
+    }
+
+    function closePostBankSelector() {
+      const modal = document.getElementById('post-bank-selector-modal');
+      if (modal) modal.classList.remove('show');
+    }
+
+    function renderPostBankSelector(filterText = '') {
+      const host = document.getElementById('post-bank-selector-list');
+      if (!host) return;
+      const q = String(filterText || '').trim().toLowerCase();
+      const entries = postBankEntries.filter(entry => {
+        if (!q) return true;
+        return entry.title.toLowerCase().includes(q) || entry.text.toLowerCase().includes(q) || (entry.tags || []).join(',').toLowerCase().includes(q);
+      });
+      host.innerHTML = entries.map(entry => {
+        const checked = postBankSelectorContext.selectedIds.includes(entry.id) ? 'checked' : '';
+        return `
+          <div class="post-bank-selector-item">
+            <input type="checkbox" data-entry-id="${entry.id}" ${checked} onchange="togglePostBankSelection('${entry.id}', this.checked)">
+            <div>
+              <div style="font-weight:600;font-size:12px;color:var(--text-primary);">${escapeHtml(entry.title || entry.id)} <span style="color:var(--text-muted);font-size:11px;">${escapeHtml(entry.type || '')}</span></div>
+              <div class="post-bank-selector-text">${escapeHtml(entry.text || '')}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      const warningEl = document.getElementById('post-bank-warning');
+      if (warningEl) warningEl.style.display = 'none';
+    }
+
+    function togglePostBankSelection(entryId, checked) {
+      const ids = new Set(postBankSelectorContext.selectedIds || []);
+      if (checked) ids.add(entryId);
+      else ids.delete(entryId);
+      postBankSelectorContext.selectedIds = Array.from(ids);
+    }
+
+    async function applyPostBankSelection() {
+      const selectedIds = postBankSelectorContext.selectedIds || [];
+      if (postBankSelectorContext.mode === 'preset' && postBankSelectorContext.presetIndex !== null) {
+        draftPresets[postBankSelectorContext.presetIndex].bankIds = selectedIds;
+        renderPresetEditor();
+        closePostBankSelector();
+        return;
+      }
+      const ids = postBankSelectorContext.postIds || [];
+      if (!ids.length) return;
+      const payload = JSON.stringify(selectedIds);
+      for (const id of ids) {
+        await updatePostMeta(id, { post_bank_ids: payload });
+      }
+      if (postBankEntries.length < 6 && ids.length > 3 && selectedIds.length) {
+        showToast('Your Post Bank has fewer than 6 entries. Some posts may reuse style references.', 'error');
+      }
+      showToast(`Applied Post Bank (${selectedIds.length}) to ${ids.length} post${ids.length === 1 ? '' : 's'}`, 'success');
+      loadPosts(true);
+      closePostBankSelector();
     }
 
     function truncate(text, max) {
@@ -2449,6 +2853,7 @@
       const bar = document.getElementById('selection-bar');
       const countEl = document.getElementById('sel-count');
       const bulkBtn = document.getElementById('bulk-meta-btn');
+      const bankBtn = document.getElementById('bulk-bank-btn');
       const presetBar = document.getElementById('preset-bar');
       if (selectedIds.size > 0) {
         bar.classList.add('visible');
@@ -2457,8 +2862,10 @@
         bar.classList.remove('visible');
       }
       const allowBulk = activePanel === 'drafted';
+      const allowBank = activePanel === 'drafted' || activePanel === 'queue';
       const allowPresets = activePanel === 'drafted' || activePanel === 'queue';
       if (bulkBtn) bulkBtn.style.display = allowBulk && selectedIds.size > 0 ? 'inline-flex' : 'none';
+      if (bankBtn) bankBtn.style.display = allowBank && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (presetBar) presetBar.style.display = allowPresets && selectedIds.size > 0 ? 'inline-flex' : 'none';
     }
 
@@ -2678,9 +3085,9 @@
     }
 
     let draftPresets = [
-      { name: 'Preset 1', hook: '', emotion: '', niche: '', auth: '' },
-      { name: 'Preset 2', hook: '', emotion: '', niche: '', auth: '' },
-      { name: 'Preset 3', hook: '', emotion: '', niche: '', auth: '' },
+      { name: 'Preset 1', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
+      { name: 'Preset 2', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
+      { name: 'Preset 3', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
     ];
     let draftPresetDefault = 'none';
 
@@ -2701,6 +3108,7 @@
                 emotion: String(p?.emotion || ''),
                 niche: String(p?.niche || ''),
                 auth: String(p?.auth || ''),
+                bankIds: Array.isArray(p?.bankIds) ? p.bankIds.map(v => String(v)).filter(Boolean) : [],
               }));
             }
           } catch { /* ignore */ }
@@ -2718,7 +3126,7 @@
       });
     }
 
-    function openPresetEditor() {
+    function renderPresetEditor() {
       ensureBulkMetaOptions();
       const grid = document.getElementById('preset-editor-grid');
       if (!grid) return;
@@ -2749,12 +3157,20 @@
               <label>Authenticity</label>
               <select id="preset-auth-${idx}">${['<option value="">(empty)</option>'].concat(AUTH_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === p.auth ? 'selected' : ''}>${opt.label}</option>`)).join('')}</select>
             </div>
+            <div>
+              <label>Post Bank</label>
+              <button class="action-btn" onclick="openPostBankSelectorForPreset(${idx})">Select (${Array.isArray(p.bankIds) ? p.bankIds.length : 0})</button>
+            </div>
           </div>
         `;
         grid.appendChild(wrap);
       });
       const defEl = document.getElementById('preset-default');
       if (defEl) defEl.value = draftPresetDefault || 'none';
+    }
+
+    function openPresetEditor() {
+      renderPresetEditor();
       const modal = document.getElementById('preset-editor-modal');
       if (modal) modal.classList.add('show');
     }
@@ -2772,6 +3188,7 @@
         emotion: String((document.getElementById(`preset-emotion-${idx}`) || {}).value || ''),
         niche: String((document.getElementById(`preset-niche-${idx}`) || {}).value || ''),
         auth: String((document.getElementById(`preset-auth-${idx}`) || {}).value || ''),
+        bankIds: Array.isArray(p.bankIds) ? p.bankIds : [],
       }));
       draftPresets = next;
       const defEl = document.getElementById('preset-default');
@@ -2789,6 +3206,7 @@
         showToast('Select posts first', 'error');
         return;
       }
+      await ensurePostBankEntries();
       const preset = draftPresets[index];
       if (!preset) return;
       const updates = {};
@@ -2796,6 +3214,7 @@
       if (preset.emotion) updates.emotion_tag = preset.emotion;
       if (preset.niche) updates.niche_target = preset.niche;
       if (preset.auth) updates.authenticity_flag = preset.auth;
+      if (Array.isArray(preset.bankIds) && preset.bankIds.length) updates.post_bank_ids = JSON.stringify(preset.bankIds);
       if (Object.keys(updates).length === 0) {
         showToast('Preset is empty', 'error');
         return;
@@ -2805,6 +3224,9 @@
       }
       if (activePanel === 'queue') {
         showToast(`Applied ${preset.name}. Starting Draft + Research...`, 'success');
+        if (postBankEntries.length < 6 && ids.length > 3 && Array.isArray(preset.bankIds) && preset.bankIds.length) {
+          showToast('Your Post Bank has fewer than 6 entries. Some posts may reuse style references.', 'error');
+        }
         try {
           const hasDraft = currentPosts.some(p => ids.includes(p.id) && String(p.comment_draft || '').trim());
           await runBatchDraft(ids, 'Drafted', 'Draft failed', hasDraft);
@@ -3650,6 +4072,13 @@
         showToast('Select posts first', 'error');
         return;
       }
+      await ensurePostBankEntries();
+      if (postBankEntries.length < 6 && ids.length > 3) {
+        const hasBank = currentPosts.some(p => ids.includes(p.id) && parsePostBankIds(p.post_bank_ids || '').length > 0);
+        if (hasBank) {
+          showToast('Your Post Bank has fewer than 6 entries. Some posts may reuse style references.', 'error');
+        }
+      }
       showToast(`Spawning ${ids.length} research agents (${currentDraftMode()}, 2 parallel)...`, 'success');
       clearSelection();
       try {
@@ -4007,6 +4436,7 @@
     async function loadPosts(force = false) {
       if (!force && isDraftEditActive()) return;
       try {
+        await ensurePostBankEntries();
         await refreshQualityGateSettings(false);
         let dailyStats = null;
         if (window.pocketAgent.getLinkedInDailyStats) {
@@ -4535,7 +4965,13 @@
       const emotionDisplay = emotionValue || (autoEmotionValue ? `auto ${autoEmotionValue}` : 'auto');
       const nicheDisplay = nicheValue || (autoNicheValue ? `auto ${autoNicheValue}` : 'auto');
       const authDisplay = authValue || (autoAuthValue ? `auto ${autoAuthValue}` : 'auto');
-      const targetsLine = `<div class="draft-targets">Targets: Hook ${escapeHtml(hookDisplay)} · Emotion ${escapeHtml(emotionDisplay)} · Niche ${escapeHtml(nicheDisplay)} · Auth ${escapeHtml(authDisplay)}</div>`;
+      const bankIds = parsePostBankIds(p.post_bank_ids);
+      const bankCount = bankIds.length;
+      const showBankChip = activePanel === 'drafted' || activePanel === 'queue';
+      const bankChip = showBankChip
+        ? `<span class="bank-chip" onclick="openPostBankSelector(${p.id})" title="Select Post Bank entries">Bank ${bankCount || 0}</span>`
+        : '';
+      const targetsLine = `<div class="draft-targets">Targets: Hook ${escapeHtml(hookDisplay)} · Emotion ${escapeHtml(emotionDisplay)} · Niche ${escapeHtml(nicheDisplay)} · Auth ${escapeHtml(authDisplay)} ${bankChip}</div>`;
       const hookOptions = [''].concat(Array.from({ length: 10 }, (_, i) => String(i + 1)));
       const emotionOptions = EMOTION_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === emotionValue ? 'selected' : ''}>${opt.label}</option>`).join('');
       const authOptions = AUTH_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === authValue ? 'selected' : ''}>${opt.label}</option>`).join('');

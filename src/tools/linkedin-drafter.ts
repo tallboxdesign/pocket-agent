@@ -82,6 +82,7 @@ type ResearchEvidence = {
 type DraftDiversityContext = {
   usedOpeningSignatures: Set<string>;
   usedLeadInSignatures: Set<string>;
+  postBankState?: PostBankRotationState;
 };
 
 type DraftPreset = {
@@ -90,6 +91,24 @@ type DraftPreset = {
   emotion: string;
   niche: string;
   auth: string;
+  bankIds?: string[];
+};
+
+type PostBankEntry = {
+  id: string;
+  title?: string;
+  type?: string;
+  text: string;
+  tags?: string[];
+  functionTags?: string[];
+  disabled?: boolean;
+};
+
+type PostBankRotationState = {
+  entries: PostBankEntry[];
+  recentSets: string[][];
+  lastUsed: Map<string, number>;
+  sequence: number;
 };
 
 const MODEL_PROVIDERS: Record<string, ProviderType> = {
@@ -1565,6 +1584,8 @@ async function runWritePass(
   const emotionTag = String(post.emotion_tag || '').trim().toLowerCase();
   const nicheTarget = String(post.niche_target || '').trim();
   const authenticityFlag = String(post.authenticity_flag || '').trim().toLowerCase();
+  const postBankSelection = diversity?.postBankState ? selectPostBankEntries(post, diversity.postBankState) : [];
+  const postBankBlock = buildPostBankBlock(postBankSelection);
 
   const intentInstructionMap: Record<typeof commentIntent, string> = {
     tradeoff: 'Prioritize a concrete tradeoff the author should consider.',
@@ -1641,6 +1662,7 @@ HARD RULES:
 - End with a statement, a take, or an incomplete thought. Never a question.
 - No formula phrasing like "the pattern this year is pretty clear."
 - Do not use: "importantly", "more importantly", "most importantly."${styleGuide ? `\nADDITIONAL STYLE GUIDE:\n${styleGuide}` : ''}
+${postBankBlock}
 
 OUTPUT:
 Return only the final comment text.`;
@@ -2011,6 +2033,7 @@ export interface DraftPost {
   emotion_tag?: string | null;
   niche_target?: string | null;
   authenticity_flag?: string | null;
+  post_bank_ids?: string | null;
 }
 
 export interface DraftResult {
@@ -2389,13 +2412,14 @@ function getDraftPresets(): DraftPreset[] {
         emotion: String(p?.emotion || ''),
         niche: String(p?.niche || ''),
         auth: String(p?.auth || ''),
+        bankIds: Array.isArray(p?.bankIds) ? p.bankIds.map((v: unknown) => String(v)).filter(Boolean) : [],
       }));
     }
   } catch { /* ignore */ }
   return [
-    { name: 'Preset 1', hook: '', emotion: '', niche: '', auth: '' },
-    { name: 'Preset 2', hook: '', emotion: '', niche: '', auth: '' },
-    { name: 'Preset 3', hook: '', emotion: '', niche: '', auth: '' },
+    { name: 'Preset 1', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
+    { name: 'Preset 2', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
+    { name: 'Preset 3', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
   ];
 }
 
@@ -2415,12 +2439,156 @@ function applyDraftPresetToPost(db: Database.Database, post: DraftPost, preset: 
   if (preset.emotion && (overwrite || !String(post.emotion_tag || '').trim())) updates.emotion_tag = preset.emotion;
   if (preset.niche && (overwrite || !String(post.niche_target || '').trim())) updates.niche_target = preset.niche;
   if (preset.auth && (overwrite || !String(post.authenticity_flag || '').trim())) updates.authenticity_flag = preset.auth;
+  if (Array.isArray(preset.bankIds) && preset.bankIds.length) {
+    const current = String(post.post_bank_ids || '').trim();
+    if (overwrite || !current) updates.post_bank_ids = JSON.stringify(preset.bankIds);
+  }
   if (Object.keys(updates).length === 0) return;
   const fields = Object.keys(updates).map(k => `${k} = ?`);
   const values = Object.keys(updates).map(k => updates[k]);
   values.push(post.id);
   db.prepare(`UPDATE linkedin_posts SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   Object.assign(post, updates);
+}
+
+function parsePostBankIds(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const text = String(raw).trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      return parsed.map((v) => String(v)).filter(Boolean);
+    }
+  } catch { /* fall through */ }
+  return text.split(',').map((v) => v.trim()).filter(Boolean);
+}
+
+function loadPostBankEntries(): PostBankEntry[] {
+  try {
+    const raw = SettingsManager.get('linkedin.postBankEntries') || '[]';
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry) => entry && typeof entry === 'object')
+      .map((entry) => ({
+        id: String((entry as PostBankEntry).id || ''),
+        title: String((entry as PostBankEntry).title || ''),
+        type: String((entry as PostBankEntry).type || ''),
+        text: String((entry as PostBankEntry).text || ''),
+        tags: Array.isArray((entry as PostBankEntry).tags)
+          ? (entry as PostBankEntry).tags!.map((t) => String(t)).filter(Boolean)
+          : [],
+        functionTags: Array.isArray((entry as PostBankEntry).functionTags)
+          ? (entry as PostBankEntry).functionTags!.map((t) => String(t)).filter(Boolean)
+          : [],
+        disabled: Boolean((entry as PostBankEntry).disabled),
+      }))
+      .filter((entry) => entry.id && entry.text && !entry.disabled);
+  } catch {
+    return [];
+  }
+}
+
+function ensurePostBankState(entries: PostBankEntry[]): PostBankRotationState {
+  return {
+    entries,
+    recentSets: [],
+    lastUsed: new Map<string, number>(),
+    sequence: 0,
+  };
+}
+
+function getEntrySignature(entry: PostBankEntry) {
+  const words = String(entry.text || '').trim().split(/\s+/);
+  const opener = words.slice(0, 3).join(' ').toLowerCase();
+  const count = words.filter(Boolean).length;
+  const bucket = count < 60 ? 'short' : count < 120 ? 'medium' : 'long';
+  return { opener, bucket };
+}
+
+function pickVariedEntries(pool: PostBankEntry[], count: number, state: PostBankRotationState): PostBankEntry[] {
+  const selected: PostBankEntry[] = [];
+  const openerSet = new Set<string>();
+  const bucketSet = new Set<string>();
+  const byRecency = [...pool].sort((a, b) => {
+    const aUsed = state.lastUsed.get(a.id) ?? -1;
+    const bUsed = state.lastUsed.get(b.id) ?? -1;
+    return aUsed - bUsed;
+  });
+
+  for (const entry of byRecency) {
+    if (selected.length >= count) break;
+    const sig = getEntrySignature(entry);
+    const openerOk = !openerSet.has(sig.opener);
+    const bucketOk = !bucketSet.has(sig.bucket);
+    if (selected.length === 0 || openerOk || bucketOk) {
+      selected.push(entry);
+      openerSet.add(sig.opener);
+      bucketSet.add(sig.bucket);
+    }
+  }
+
+  if (selected.length < count) {
+    for (const entry of byRecency) {
+      if (selected.length >= count) break;
+      if (selected.some((s) => s.id === entry.id)) continue;
+      selected.push(entry);
+    }
+  }
+
+  return selected;
+}
+
+function selectPostBankEntries(post: DraftPost, state: PostBankRotationState): PostBankEntry[] {
+  const postBankIds = parsePostBankIds(post.post_bank_ids || '');
+  if (!postBankIds.length) return [];
+  const allEntries = state.entries.filter((entry) => postBankIds.includes(entry.id));
+  if (!allEntries.length) return [];
+
+  const recentExclude = new Set(state.recentSets.slice(-2).flat());
+  let pool = allEntries.filter((entry) => !recentExclude.has(entry.id));
+  if (pool.length === 0) pool = allEntries.slice();
+
+  const functionTags = ['voice', 'stance', 'closing'];
+  const taggedPool = pool.filter((entry) => entry.functionTags && entry.functionTags.length > 0);
+  const selected: PostBankEntry[] = [];
+
+  if (taggedPool.length) {
+    for (const tag of functionTags) {
+      const candidates = pool.filter((entry) => entry.functionTags?.includes(tag));
+      if (!candidates.length) continue;
+      const pick = pickVariedEntries(candidates, 1, state)[0];
+      if (pick) selected.push(pick);
+    }
+  }
+
+  const remainingPool = pool.filter((entry) => !selected.some((s) => s.id === entry.id));
+  const needed = Math.max(0, 3 - selected.length);
+  if (needed > 0) {
+    const fill = pickVariedEntries(remainingPool, needed, state);
+    selected.push(...fill);
+  }
+
+  const finalSelection = selected.slice(0, 3);
+  if (finalSelection.length) {
+    state.recentSets.push(finalSelection.map((e) => e.id));
+    if (state.recentSets.length > 2) state.recentSets.shift();
+    for (const entry of finalSelection) {
+      state.lastUsed.set(entry.id, state.sequence++);
+    }
+  }
+  return finalSelection;
+}
+
+function buildPostBankBlock(entries: PostBankEntry[]): string {
+  if (!entries.length) return '';
+  const blocks = entries.map((entry) => {
+    const title = entry.title ? ` (${entry.title})` : '';
+    const type = entry.type ? ` [${entry.type}]` : '';
+    return `---\n${entry.text.trim()}${title}${type}\n---`;
+  });
+  return `\nVOICE EXAMPLES (rhythm only, not content):\n${blocks.join('\n')}\n\nDo not reuse any opener, sentence pattern, or phrase from these examples.\nUse only to calibrate tone, rhythm, and human texture.\n`;
 }
 
 /**
@@ -2848,7 +3016,7 @@ export async function draftBatch(
     );
     for (const id of postIds) {
       const row = db.prepare(
-        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, comment_draft, post_type, voice_preset, hook_score, emotion_tag, niche_target, authenticity_flag FROM linkedin_posts WHERE id = ?'
+        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, comment_draft, post_type, voice_preset, hook_score, emotion_tag, niche_target, authenticity_flag, post_bank_ids FROM linkedin_posts WHERE id = ?'
       ).get(id) as DraftPost | undefined;
       if (!row) continue;
       if (defaultPreset) {
@@ -2902,6 +3070,10 @@ export async function draftBatch(
       usedOpeningSignatures: new Set<string>(),
       usedLeadInSignatures: new Set<string>(),
     };
+    const postBankEntries = loadPostBankEntries();
+    if (postBankEntries.length) {
+      diversity.postBankState = ensurePostBankState(postBankEntries);
+    }
 
     draftEvents.emit('start', { total: posts.length });
 
@@ -3036,7 +3208,7 @@ export async function redraftBatch(
     const posts: DraftPost[] = [];
     for (const id of postIds) {
       const row = db.prepare(
-        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, comment_draft, post_type, voice_preset, hook_score, emotion_tag, niche_target, authenticity_flag FROM linkedin_posts WHERE id = ?'
+        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, comment_draft, post_type, voice_preset, hook_score, emotion_tag, niche_target, authenticity_flag, post_bank_ids FROM linkedin_posts WHERE id = ?'
       ).get(id) as DraftPost | undefined;
       if (!row) continue;
       if (defaultPreset) {
@@ -3162,6 +3334,7 @@ export async function rewriteLinkedInDraftWithInstructions(options: {
   author?: string;
   postPreview?: string;
   postUrl?: string;
+  postBankIds?: string;
 }): Promise<{ rewritten: string; model: string }> {
   const original = String(options.draftText || '').trim();
   const rawInstructions = String(options.instructions || '').trim();
@@ -3174,6 +3347,12 @@ export async function rewriteLinkedInDraftWithInstructions(options: {
   const author = String(options.author || '').trim();
   const preview = String(options.postPreview || '').trim();
   const postUrl = String(options.postUrl || '').trim();
+  const bankIds = parsePostBankIds(options.postBankIds || '');
+  const bankEntriesPool = bankIds.length ? loadPostBankEntries().filter((entry) => bankIds.includes(entry.id)) : [];
+  const bankSelection = bankEntriesPool.length
+    ? selectPostBankEntries({ post_bank_ids: JSON.stringify(bankIds) } as DraftPost, ensurePostBankState(bankEntriesPool))
+    : [];
+  const postBankBlock = buildPostBankBlock(bankSelection);
   const primaryModel = getDraftModel();
   const config = getLinkedInDraftConfig();
   const attemptModels = getAttemptModels(primaryModel, config.fallbackModel, config.fallbackModel2, config.fallbackModel3);
@@ -3218,6 +3397,7 @@ Rules:
 - ${forceRephrase ? 'Always rewrite the opening line. Change the first 8-12 words and the sentence order.' : "Keep the opening line strong. If the instructions don't touch the opening, leave it alone unless it's weak."}
 - End with a statement, not a question.
 - Return only the revised comment text.
+${postBankBlock}
 ${forceRephrase ? '- Rephrase substantially. Do not reuse any full sentence from the original. Change the opening and sentence order.' : ''}
 ${strictRephrase ? '- At least 30% of words must change. No sentence may start with the same first 3 words as the original.' : ''}`;
 

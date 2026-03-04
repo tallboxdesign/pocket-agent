@@ -412,6 +412,11 @@ export class MemoryManager {
         reactions INTEGER DEFAULT 0,
         comments INTEGER DEFAULT 0,
         post_type TEXT,
+        hook_score INTEGER,
+        emotion_tag TEXT,
+        niche_target TEXT,
+        authenticity_flag TEXT,
+        post_bank_ids TEXT,
         source_tag TEXT DEFAULT 'feed:home',
         scraped_date TEXT NOT NULL,
         first_seen_at TEXT DEFAULT (datetime('now')),
@@ -543,6 +548,9 @@ export class MemoryManager {
     // Mode cleanup: "general" has been merged into "manager"
     this.db.exec(`UPDATE sessions SET mode = 'manager' WHERE lower(trim(mode)) = 'general'`);
     this.db.exec(`UPDATE sessions SET mode = 'coder' WHERE mode IS NULL OR lower(trim(mode)) NOT IN ('coder', 'manager')`);
+
+    // Migration: shift daily_logs date keys to local time (pre-UTC bug)
+    this.migrateDailyLogsToLocalDates();
   }
 
   /**
@@ -726,6 +734,26 @@ export class MemoryManager {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN image_analyzed_at TEXT`);
       console.log('[Memory] Migrated linkedin_posts: added image_analyzed_at column');
     }
+    if (!hasColumn('linkedin_posts', 'hook_score')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN hook_score INTEGER`);
+      console.log('[Memory] Migrated linkedin_posts: added hook_score column');
+    }
+    if (!hasColumn('linkedin_posts', 'emotion_tag')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN emotion_tag TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added emotion_tag column');
+    }
+    if (!hasColumn('linkedin_posts', 'niche_target')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN niche_target TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added niche_target column');
+    }
+    if (!hasColumn('linkedin_posts', 'authenticity_flag')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN authenticity_flag TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added authenticity_flag column');
+    }
+    if (!hasColumn('linkedin_posts', 'post_bank_ids')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_ids TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added post_bank_ids column');
+    }
 
     // LinkedIn activity log (auto-poster audit trail)
     this.db.exec(`
@@ -771,6 +799,50 @@ export class MemoryManager {
         baseline INTEGER DEFAULT 0
       )
     `);
+  }
+
+  private migrateDailyLogsToLocalDates(): void {
+    const rows = this.db.prepare(`
+      SELECT id, date, content, updated_at
+      FROM daily_logs
+      ORDER BY date ASC, id ASC
+    `).all() as Array<{ id: number; date: string; content: string; updated_at: string }>;
+
+    if (rows.length === 0) return;
+
+    const merged = new Map<string, { content: string; updated_at: string }>();
+    let needsMigration = false;
+
+    for (const row of rows) {
+      const localDate = this.coerceLocalDateFromUpdatedAt(row.updated_at, row.date);
+      if (localDate !== row.date) needsMigration = true;
+
+      const existing = merged.get(localDate);
+      if (existing) {
+        existing.content = existing.content + '\n' + row.content;
+        if (row.updated_at > existing.updated_at) {
+          existing.updated_at = row.updated_at;
+        }
+      } else {
+        merged.set(localDate, { content: row.content, updated_at: row.updated_at });
+      }
+    }
+
+    if (!needsMigration) return;
+
+    const tx = this.db.transaction(() => {
+      this.db.exec('DELETE FROM daily_logs');
+      const insert = this.db.prepare(`
+        INSERT INTO daily_logs (date, content, updated_at)
+        VALUES (?, ?, ?)
+      `);
+      for (const [date, data] of merged.entries()) {
+        insert.run(date, data.content, data.updated_at);
+      }
+    });
+
+    tx();
+    console.log(`[Memory] Migrated daily_logs to local dates (${rows.length} rows -> ${merged.size} days)`);
   }
 
   /**
@@ -1128,10 +1200,34 @@ export class MemoryManager {
   // ============ DAILY LOG METHODS ============
 
   /**
-   * Get today's date in YYYY-MM-DD format
+   * Get today's local date in YYYY-MM-DD format
    */
   private getTodayDate(): string {
-    return new Date().toISOString().split('T')[0];
+    return this.formatLocalDate(new Date());
+  }
+
+  private formatLocalDate(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private getLocalDateNDaysAgo(daysAgo: number): string {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - daysAgo);
+    return this.formatLocalDate(date);
+  }
+
+  private coerceLocalDateFromUpdatedAt(updatedAt: string | null | undefined, fallbackDate: string): string {
+    if (updatedAt) {
+      const parsed = new Date(updatedAt);
+      if (!Number.isNaN(parsed.getTime())) {
+        return this.formatLocalDate(parsed);
+      }
+    }
+    return fallbackDate;
   }
 
   /**
@@ -1205,12 +1301,14 @@ export class MemoryManager {
    * Get daily logs from the last N calendar days
    */
   getDailyLogsSince(days: number = 3): DailyLog[] {
+    const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 3;
+    const startDate = this.getLocalDateNDaysAgo(Math.max(0, safeDays - 1));
     return this.db.prepare(`
       SELECT id, date, content, updated_at
       FROM daily_logs
-      WHERE date >= date('now', ?)
+      WHERE date >= ?
       ORDER BY date DESC
-    `).all(`-${days} days`) as DailyLog[];
+    `).all(startDate) as DailyLog[];
   }
 
   /**
@@ -2451,7 +2549,7 @@ export class MemoryManager {
       return '';
     }
 
-    const lines: string[] = ['## Soul'];
+    const lines: string[] = ['## Working Preferences'];
     for (const aspect of aspects) {
       lines.push(`\n### ${aspect.aspect}`);
       lines.push(aspect.content);

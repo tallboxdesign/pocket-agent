@@ -715,6 +715,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     type: 'string',
   },
   {
+    key: 'linkedin.postBankEntries',
+    defaultValue: '[]',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Post Bank Entries',
+    description: 'JSON array of post/reply examples used as style references',
+    type: 'textarea',
+  },
+  {
     key: 'linkedin.contentDirection',
     defaultValue: 'seo, ai search, web development. practical takes from someone who builds stuff daily.',
     encrypted: false,

@@ -2040,6 +2040,8 @@ function setupIPC(): void {
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN niche_target TEXT`); } catch {}
       // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN authenticity_flag TEXT`); } catch {}
+      // eslint-disable-next-line no-empty
+      try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_ids TEXT`); } catch {}
       try {
         const reconciled = reconcileLinkedInPostedState(db);
         if (reconciled > 0) {
@@ -2555,6 +2557,17 @@ function setupIPC(): void {
         fields.push('authenticity_flag = ?');
         values.push(auth ? auth : null);
       }
+      if (updates?.post_bank_ids !== undefined) {
+        let bankValue: string | null = null;
+        if (Array.isArray(updates.post_bank_ids)) {
+          bankValue = JSON.stringify(updates.post_bank_ids.map(v => String(v)).filter(Boolean));
+        } else {
+          const raw = String(updates.post_bank_ids || '').trim();
+          bankValue = raw ? raw : null;
+        }
+        fields.push('post_bank_ids = ?');
+        values.push(bankValue);
+      }
       if (!fields.length) {
         db.close();
         return { success: false, error: 'No fields to update' };
@@ -2599,8 +2612,8 @@ function setupIPC(): void {
       const db = new Database(dbPath);
       db.pragma('journal_mode = WAL');
       const row = db.prepare(
-        'SELECT author, text_preview, post_url, comment_draft FROM linkedin_posts WHERE id = ?'
-      ).get(normalizedPostId) as { author?: string; text_preview?: string; post_url?: string; comment_draft?: string | null } | undefined;
+        'SELECT author, text_preview, post_url, comment_draft, post_bank_ids FROM linkedin_posts WHERE id = ?'
+      ).get(normalizedPostId) as { author?: string; text_preview?: string; post_url?: string; comment_draft?: string | null; post_bank_ids?: string | null } | undefined;
       db.close();
       if (!row) return { success: false, error: 'Post not found' };
 
@@ -2614,6 +2627,7 @@ function setupIPC(): void {
         author: String(row.author || ''),
         postPreview: String(row.text_preview || ''),
         postUrl: String(row.post_url || ''),
+        postBankIds: String(row.post_bank_ids || ''),
       });
 
       return {
