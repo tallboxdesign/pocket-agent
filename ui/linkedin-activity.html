@@ -1052,6 +1052,22 @@
       color: var(--text-primary);
       font-size: 12px;
     }
+    .post-bank-group-create {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .post-bank-group-create input {
+      flex: 1 1 220px;
+      min-width: 160px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(148,163,184,0.25);
+      background: rgba(15,23,42,0.6);
+      color: var(--text-primary);
+      font-size: 12px;
+    }
     .post-bank-entry {
       border: 1px solid rgba(148,163,184,0.2);
       border-radius: 8px;
@@ -2359,6 +2375,28 @@
       renderPostBankManager();
     }
 
+    function createPostBankGroup() {
+      const input = document.getElementById('post-bank-new-group');
+      const name = String(input?.value || '').trim();
+      if (!name) {
+        showToast('Enter a group name first', 'error');
+        return;
+      }
+      const id = `pb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      postBankEntries.push({
+        id,
+        title: name,
+        type: 'reply',
+        text: '',
+        tags: [],
+        functionTags: [],
+        group: name,
+        disabled: false,
+      });
+      if (input) input.value = '';
+      renderPostBankManager();
+    }
+
     function duplicatePostBankEntry(id) {
       const original = postBankEntries.find(e => e.id === id);
       if (!original) return;
@@ -2399,11 +2437,17 @@
       if (!host) return;
       const groups = getPostBankGroups();
       postBankGroupIndex = groups.map(g => g.name);
+      const createRow = `
+        <div class="post-bank-group-create">
+          <input id="post-bank-new-group" placeholder="New group name">
+          <button class="action-btn" onclick="createPostBankGroup()">Create Group</button>
+        </div>
+      `;
       if (!groups.length) {
-        host.innerHTML = '<div class="li-quick-help">No groups yet. Add a group name on entries to see them here.</div>';
+        host.innerHTML = `${createRow}<div class="li-quick-help">No groups yet. Create one or add a group name on entries to see them here.</div>`;
         return;
       }
-      host.innerHTML = groups.map((group, idx) => `
+      host.innerHTML = createRow + groups.map((group, idx) => `
         <div class="post-bank-group-row">
           <input id="pb-group-name-${idx}" value="${escapeHtml(group.name)}" />
           <span class="badge" style="margin-left:6px;">${group.count}</span>
