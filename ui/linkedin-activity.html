@@ -1406,11 +1406,22 @@
   <div id="filter-bar">
     <select id="filter-status" onchange="loadPosts()">
       <option value="">All Status</option>
-      <option value="undrafted">Undrafted</option>
+      <option value="queued">Queued</option>
+      <option value="researching">Researching</option>
+      <option value="writing">Writing</option>
       <option value="draft">Draft</option>
       <option value="approved">Approved</option>
-      <option value="commented">Commented</option>
+      <option value="awaiting_schedule">Awaiting Schedule</option>
+      <option value="scheduled">Scheduled</option>
+      <option value="due">Due</option>
+      <option value="posting">Posting</option>
+      <option value="published">Published</option>
       <option value="failed">Failed</option>
+      <option value="cancelled">Cancelled</option>
+      <option value="recheck">Recheck</option>
+      <option value="delayed">Delayed</option>
+      <option value="recovered">Recovered</option>
+      <option value="undrafted">Undrafted</option>
     </select>
     <select id="filter-priority" onchange="loadPosts()">
       <option value="">All Priority</option>
@@ -1445,6 +1456,13 @@
       <option value="frequent">Frequent</option>
       <option value="core">Core</option>
     </select>
+    <select id="filter-engagement" onchange="loadPosts()" title="Filter by engagement level">
+      <option value="">All Engagement</option>
+      <option value="engaged">Engaged (reactions or comments)</option>
+      <option value="comments">Has comments</option>
+      <option value="reactions">Has reactions</option>
+      <option value="zero">Zero engagement</option>
+    </select>
     <select id="preview-mode" onchange="changePreviewMode()" title="Switch post preview style">
       <option value="summary">Summary (2 lines)</option>
       <option value="full">Full post</option>
@@ -1473,13 +1491,14 @@
     <button class="action-btn" onclick="approveSelected()" style="background:rgba(34,197,94,0.12);color:#4ade80;border-color:rgba(34,197,94,0.25);">Approve Selected</button>
     <button class="action-btn" onclick="postNowSelected()" style="background:rgba(34,197,94,0.18);color:#4ade80;border-color:rgba(34,197,94,0.4);font-weight:600;">Post Now</button>
     <button class="action-btn" onclick="rejectSelected()" style="background:rgba(239,68,68,0.12);color:#f87171;border-color:rgba(239,68,68,0.25);">Reject Selected</button>
-    <button class="action-btn" onclick="hideSelected()">Hide Selected</button>
+    <button class="action-btn" onclick="hideSelected()">Delete Selected</button>
     <button class="action-btn" onclick="researchDraftSelected()" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3);" title="Spawn parallel SDK agents to research and draft (2 at a time)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       Research &amp; Draft
     </button>
     <div class="spacer"></div>
     <button class="action-btn" onclick="selectUndrafted()" style="font-size:11px;color:var(--text-muted)">Select Undrafted</button>
+    <button class="action-btn" onclick="selectZeroEngagement()" style="font-size:11px;color:var(--text-muted)">Select Zero Engagement</button>
     <button class="action-btn" onclick="clearSelection()" style="font-size:11px;color:var(--text-muted)">Clear</button>
   </div>
 
@@ -2342,7 +2361,7 @@
         if (!next) continue;
         try {
           draftQueueStartedCount++;
-          const value = await runBatchDraftNow(next.ids, next.successLabel, next.failureLabel);
+          const value = await runBatchDraftNow(next.ids, next.successLabel, next.failureLabel, next.forceRedo);
           next.resolve(value);
         } catch (err) {
           next.reject(err);
@@ -2355,7 +2374,7 @@
       draftQueueProcessing = false;
     }
 
-    async function runBatchDraftNow(ids, successLabel, failureLabel) {
+    async function runBatchDraftNow(ids, successLabel, failureLabel, forceRedo = false) {
       const batchFn = window.pocketAgent && window.pocketAgent.draftLinkedInBatch;
       if (typeof batchFn !== 'function') {
         throw new Error('Batch draft API unavailable in this build. Run npm run build and restart the app.');
@@ -2367,7 +2386,7 @@
 
       let result;
       try {
-        result = await batchFn(ids, 1);
+        result = await batchFn(ids, 1, forceRedo);
       } catch (err) {
         await loadPosts();
         throw err;
@@ -2397,7 +2416,7 @@
       showToast(`${failureLabel}: ${shortError(errText)}`, 'error');
     }
 
-    async function runBatchDraft(ids, successLabel, failureLabel) {
+    async function runBatchDraft(ids, successLabel, failureLabel, forceRedo = false) {
       const cleanIds = normalizeDraftIds(ids);
       if (cleanIds.length === 0) throw new Error('No valid post IDs selected');
 
@@ -2405,7 +2424,7 @@
         const queuedBehindActive = draftQueueProcessing || draftRequestQueue.length > 0 || draftQueueStartedCount > 0;
         for (const id of cleanIds) locallyQueuedDraftPostIds.add(id);
         void loadPosts();
-        draftRequestQueue.push({ ids: cleanIds, successLabel, failureLabel, resolve, reject });
+        draftRequestQueue.push({ ids: cleanIds, successLabel, failureLabel, forceRedo, resolve, reject });
         if (queuedBehindActive) {
           const count = cleanIds.length;
           showToast(`Queued ${count} post${count === 1 ? '' : 's'} for drafting`, 'success');
@@ -2420,7 +2439,7 @@
       showToast(`Redrafting ${ids.length} posts sequentially (${currentDraftMode()})...`, 'success');
       clearSelection();
       try {
-        await runBatchDraft(ids, 'Redrafted', 'Redo failed');
+        await runBatchDraft(ids, 'Redrafted', 'Redo failed', true);
         loadPosts();
       } catch (err) {
         showToast(`Batch redo failed: ${shortError(err)}`, 'error');
@@ -2480,7 +2499,7 @@
       for (const id of ids) {
         try { await window.pocketAgent.hideLinkedInPost(id); } catch {}
       }
-      showToast(`Hidden ${ids.length} posts`, 'success');
+      showToast(`Deleted ${ids.length} posts`, 'success');
       clearSelection();
       loadPosts();
     }
@@ -2493,7 +2512,8 @@
       }
       showToast(`Researching + drafting ${post.author}...`, 'success');
       try {
-        await runBatchDraft([postId], 'Drafted 1 post', 'Draft failed');
+        const forceRedo = !!String(post.comment_draft || '').trim();
+        await runBatchDraft([postId], 'Drafted 1 post', 'Draft failed', forceRedo);
         loadPosts();
       } catch (err) {
         showToast(`Draft failed: ${shortError(err)}`, 'error');
@@ -2514,6 +2534,18 @@
       updateSelection();
     }
 
+    function selectZeroEngagement() {
+      const zeroIds = new Set(
+        currentPosts
+          .filter(p => Number(p.reactions || 0) + Number(p.comments || 0) === 0)
+          .map(p => Number(p.id))
+      );
+      document.querySelectorAll('.posts-table tbody input[type="checkbox"]').forEach(cb => {
+        cb.checked = zeroIds.has(Number(cb.value));
+      });
+      updateSelection();
+    }
+
     async function researchDraftSelected() {
       const ids = getSelectedIds();
       if (ids.length === 0) {
@@ -2523,7 +2555,8 @@
       showToast(`Spawning ${ids.length} research agents (${currentDraftMode()}, 2 parallel)...`, 'success');
       clearSelection();
       try {
-        await runBatchDraft(ids, 'Drafted', 'Draft failed');
+        const hasDraft = currentPosts.some(p => ids.includes(p.id) && String(p.comment_draft || '').trim());
+        await runBatchDraft(ids, 'Drafted', 'Draft failed', hasDraft);
         loadPosts();
       } catch (err) {
         showToast(`Batch draft failed: ${shortError(err)}`, 'error');
@@ -2579,10 +2612,10 @@
     async function hidePost(postId) {
       try {
         await window.pocketAgent.hideLinkedInPost(postId);
-        showToast('Post hidden', 'success');
+        showToast('Post deleted', 'success');
         loadPosts();
       } catch (err) {
-        showToast('Failed to hide post', 'error');
+        showToast('Failed to delete post', 'error');
       }
     }
 
@@ -2764,6 +2797,7 @@
       const type = getInputValue('filter-type');
       const intent = getInputValue('filter-intent');
       const relationship = getInputValue('filter-relationship');
+      const engagement = getInputValue('filter-engagement');
       const author = getInputValue('filter-author').toLowerCase();
 
       return posts.filter(p => {
@@ -2788,15 +2822,41 @@
         if (activePanel === 'attention' && !needsAttention) return false;
         if (activePanel === 'failed' && !hasFailed) return false;
 
-        if (status === 'undrafted' && (hasDraft || isPublished)) return false;
+        const isApproved = !!(p.approved || approvedIds.has(p.id));
+        const isScheduled = !!(isApproved && p.scheduled_at && !isPublished);
+        const isDueScheduled = isScheduled && Number.isFinite(parseUtcDateMs(p.scheduled_at)) && parseUtcDateMs(p.scheduled_at) <= Date.now();
+        const isCancelled = ds.startsWith('cancelled_');
+        const isDelayed = !isPublished && lastAction === 'delayed' && !!p.scheduled_at;
+        const isRecovered = !isPublished && lastAction === 'recovered';
+        if (status === 'queued' && (ds !== 'queued' || hasDraft || isPublished)) return false;
+        if (status === 'researching' && (ds !== 'researching' || hasDraft || isPublished)) return false;
+        if (status === 'writing' && (ds !== 'writing' || hasDraft || isPublished)) return false;
         if (status === 'draft' && (!hasDraft || isPublished)) return false;
-        if (status === 'approved' && (!p.approved || isPublished)) return false;
-        if (status === 'commented' && !isPublished) return false;
+        if (status === 'approved' && (!isApproved || isPublished)) return false;
+        if (status === 'awaiting_schedule' && (!isApproved || isScheduled || isPublished)) return false;
+        if (status === 'scheduled' && (!isScheduled || isPublished)) return false;
+        if (status === 'due' && (!isDueScheduled || isPublished)) return false;
+        if (status === 'posting' && !isPostingNow) return false;
+        if (status === 'published' && !isPublished) return false;
         if (status === 'failed' && !hasFailed) return false;
+        if (status === 'cancelled' && !isCancelled) return false;
+        if (status === 'recheck' && !recheckCandidate) return false;
+        if (status === 'delayed' && !isDelayed) return false;
+        if (status === 'recovered' && !isRecovered) return false;
+        if (status === 'undrafted' && (hasDraft || isPublished)) return false;
         if (priority && (p.priority || 'normal') !== priority) return false;
         if (type && normalizePostType(p.post_type) !== type) return false;
         if (intent && getContentIntentKey(p) !== intent) return false;
         if (relationship && getAuthorRelationship(p).key !== relationship) return false;
+        if (engagement) {
+          const reactions = Number(p.reactions || 0);
+          const comments = Number(p.comments || 0);
+          const hasEngagement = (reactions + comments) > 0;
+          if (engagement === 'engaged' && !hasEngagement) return false;
+          if (engagement === 'zero' && hasEngagement) return false;
+          if (engagement === 'comments' && comments <= 0) return false;
+          if (engagement === 'reactions' && reactions <= 0) return false;
+        }
         if (author && !(p.author || '').toLowerCase().includes(author)) return false;
         return true;
       });
@@ -2826,6 +2886,14 @@
         const snoozed = Array.isArray(result) ? [] : (result.snoozed || []);
         currentPosts = posts;
         currentSnoozed = snoozed;
+        // Clear stale local queue markers once a post is no longer actively queued/researching/writing.
+        for (const p of posts) {
+          const ds = String(p.draft_state || '').trim().toLowerCase();
+          const hasDraft = !!String(p.comment_draft || '').trim();
+          if (hasDraft || !['queued', 'researching', 'writing'].includes(ds)) {
+            locallyQueuedDraftPostIds.delete(Number(p.id));
+          }
+        }
         void checkCacheHealth(true);
         // Keep only selections that still exist in the current table snapshot.
         const validIds = new Set(posts.map(p => Number(p.id)));
@@ -3083,9 +3151,9 @@
 
       const ds = p.draft_state || '';
       const hasDraft = !!String(p.comment_draft || '').trim();
-      const isQueued = ds === 'queued' || locallyQueuedDraftPostIds.has(p.id);
-      const isResearching = ds === 'researching';
-      const isWriting = ds === 'writing';
+      const isQueued = (ds === 'queued' || locallyQueuedDraftPostIds.has(p.id)) && !hasDraft;
+      const isResearching = ds === 'researching' && !hasDraft;
+      const isWriting = ds === 'writing' && !hasDraft;
       const isDraftFailed = ds.startsWith('failed_');
       const isDraftCancelled = ds.startsWith('cancelled_');
       const isPublished = isPublishedPost(p);
@@ -3326,7 +3394,7 @@
               <button class="icon-btn" onclick="draftSinglePost(${p.id})" title="Research and draft this post now">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 3.7L18 8.5l-3 2.9.7 4.1L12 13.8 8.3 15.5l.7-4.1-3-2.9 4.2-.8L12 3z"/></svg>
               </button>
-              <button class="icon-btn danger" onclick="hidePost(${p.id})" title="Delete/hide post">
+              <button class="icon-btn danger" onclick="hidePost(${p.id})" title="Delete post">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               </button>
               <button class="icon-btn snooze-btn" onclick="showSnoozeDropdown(${p.id}, this)" title="Snooze post">
@@ -3758,7 +3826,7 @@
     async function redoDraft(postId) {
       try {
         showToast(`Redrafting 1 post (${currentDraftMode()})...`, 'success');
-        await runBatchDraft([postId], 'Redrafted', 'Redo failed');
+        await runBatchDraft([postId], 'Redrafted', 'Redo failed', true);
         await loadPosts();
       } catch (err) {
         console.error('Failed to redo draft:', err);

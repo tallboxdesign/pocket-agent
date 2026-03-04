@@ -16,6 +16,12 @@ import { loadWorkflowCommands } from '../config/commands-loader';
 import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
 import { setLinkedInTelegramBot, notifyTelegram, rescheduleStalePosts, rebalancePendingSchedules, markLinkedInControlSource } from '../tools/linkedin-autoposter';
 import { linkedinExec } from '../tools/linkedin-wrapper';
+import {
+  clearExternalActionAudit,
+  getExternalActionAudit,
+  getExternalSafetyState,
+  runExternalActionRegression,
+} from '../agent/safety';
 import { KanbanService, type KanbanStatus, migrateTasksToKanban } from '../kanban';
 import { getBrowserManager } from '../browser';
 import { WAQManager } from '../queue/processor';
@@ -1279,7 +1285,7 @@ function openSoulWindow(): void {
   let windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 700,
     height: 550,
-    title: 'My Approach - Pocket Agent',
+    title: 'Agent Soul - Pocket Agent',
     backgroundColor: '#0a0a0b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -1928,6 +1934,23 @@ function setupIPC(): void {
     return { success: stopped };
   });
 
+  ipcMain.handle('agent:getExternalSafetyState', async () => {
+    return getExternalSafetyState();
+  });
+
+  ipcMain.handle('agent:getExternalAudit', async (_evt, limit: number = 50) => {
+    return getExternalActionAudit(limit);
+  });
+
+  ipcMain.handle('agent:clearExternalAudit', async () => {
+    clearExternalActionAudit();
+    return { success: true };
+  });
+
+  ipcMain.handle('agent:runExternalRegression', async () => {
+    return runExternalActionRegression();
+  });
+
   // Facts
   ipcMain.handle('facts:list', async () => {
     return AgentManager.getAllFacts();
@@ -2004,6 +2027,22 @@ function setupIPC(): void {
         }
       } catch (reconcileErr) {
         console.warn('[LinkedIn] Reconcile posted state failed:', reconcileErr);
+      }
+      try {
+        const cleaned = db.prepare(
+          `UPDATE linkedin_posts
+             SET draft_state = 'success',
+                 draft_error = NULL,
+                 draft_finished_at = COALESCE(draft_finished_at, datetime('now'))
+           WHERE comment_draft IS NOT NULL
+             AND TRIM(comment_draft) != ''
+             AND draft_state IN ('queued', 'researching', 'writing')`
+        ).run();
+        if (cleaned.changes > 0) {
+          console.log(`[LinkedIn] Cleaned ${cleaned.changes} stale draft_state rows`);
+        }
+      } catch (cleanupErr) {
+        console.warn('[LinkedIn] Cleanup draft_state failed:', cleanupErr);
       }
       const hasEvidenceTable = !!db.prepare(
         `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'linkedin_draft_evidence' LIMIT 1`
@@ -2086,11 +2125,35 @@ function setupIPC(): void {
 
       const activeWhere = useAuthorSearch
         ? `lp.hidden = 0 AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now')) AND LOWER(lp.author) LIKE LOWER(?)`
-        : `lp.scraped_date = ? AND lp.hidden = 0 AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now'))`;
+        : `
+          lp.hidden = 0
+          AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now'))
+          AND (
+            -- Scheduled work is shown on the day it is scheduled to run (local time).
+            (lp.commented = 0 AND lp.scheduled_at IS NOT NULL AND date(lp.scheduled_at, 'localtime') = ?)
+            OR
+            -- Everything else stays anchored to scrape date.
+            (((lp.scheduled_at IS NULL OR lp.scheduled_at = '') OR lp.commented = 1) AND lp.scraped_date = ?)
+            OR
+            -- Carry-over backlog: unscheduled pending items from previous days appear in today's view.
+            (? = date('now', 'localtime')
+             AND lp.commented = 0
+             AND (lp.scheduled_at IS NULL OR lp.scheduled_at = '')
+             AND lp.scraped_date < ?)
+          )
+        `;
       const snoozedWhere = useAuthorSearch
         ? `hidden = 0 AND snoozed_until > datetime('now') AND LOWER(author) LIKE LOWER(?)`
-        : `scraped_date = ? AND hidden = 0 AND snoozed_until > datetime('now')`;
-      const queryArg = useAuthorSearch ? authorLike : date;
+        : `
+          hidden = 0
+          AND snoozed_until > datetime('now')
+          AND (
+            scraped_date = ?
+            OR (scheduled_at IS NOT NULL AND date(scheduled_at, 'localtime') = ?)
+          )
+        `;
+      const activeParams = useAuthorSearch ? [authorLike] : [date, date, date, date];
+      const snoozedParams = useAuthorSearch ? [authorLike] : [date, date];
 
       const posts = db.prepare(
         `SELECT lp.*, lp.draft_state, lp.draft_error${evidenceSelect}
@@ -2160,10 +2223,10 @@ function setupIPC(): void {
          ${contentJoin}
          WHERE ${activeWhere}
          ORDER BY ${priorityOrder}, (lp.reactions + lp.comments) DESC`
-      ).all(queryArg);
+      ).all(...activeParams);
       const snoozed = db.prepare(
         `SELECT * FROM linkedin_posts WHERE ${snoozedWhere} ORDER BY snoozed_until ASC`
-      ).all(queryArg);
+      ).all(...snoozedParams);
       db.close();
       return { posts, snoozed };
     } catch (err) {
@@ -2681,7 +2744,7 @@ function setupIPC(): void {
     }
   });
 
-  ipcMain.handle('linkedin:draftBatch', async (_, postIds: number[], batchSize?: number) => {
+  ipcMain.handle('linkedin:draftBatch', async (_, postIds: number[], batchSize?: number, forceRedo?: boolean) => {
     const safeSendProgress = (payload: unknown): void => {
       try {
         if (!linkedInActivityWindow || linkedInActivityWindow.isDestroyed()) return;
@@ -2712,7 +2775,7 @@ function setupIPC(): void {
       draftEvents.on('progress', typedProgressHandler);
 
       try {
-        const result = await draftBatch(cleanIds, batchSize || 2);
+        const result = await draftBatch(cleanIds, batchSize || 2, !!forceRedo);
         const drafted = result.results.length;
         const errors = result.errors;
         const queued = drafted === 0 && errors.length === 0 ? cleanIds.length : 0;
@@ -2774,8 +2837,10 @@ function setupIPC(): void {
     openDailyLogsWindow();
   });
 
-  ipcMain.handle('dailyLogs:list', async () => {
-    return AgentManager.getDailyLogsSince(3);
+  ipcMain.handle('dailyLogs:list', async (_event, days?: number) => {
+    const raw = typeof days === 'number' ? days : Number(days || 0);
+    const safeDays = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 3;
+    return AgentManager.getDailyLogsSince(Math.max(3, safeDays));
   });
 
   ipcMain.handle('app:openSoul', async () => {
