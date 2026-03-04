@@ -518,10 +518,21 @@ export class CronScheduler {
     const count = staleJobs.length;
     const message = `🔴 OVERDUE — ${count} task${count > 1 ? 's were' : ' was'} scheduled but never completed:\n\n${lines.join('\n')}\nThese tasks are still pending. Should I execute ${count > 1 ? 'them' : 'it'} now, or dismiss?`;
 
-    // Route to the first stale job's channel/session as representative
+    // Process through agent so the exchange enters conversation history.
+    // This ensures the agent remembers surfacing these reminders when the user replies.
     const representative = staleJobs[0];
     const sessionId = representative.session_id || 'default';
-    await this.routeJobResponse('stale_reminders', '', message, representative.channel, sessionId);
+    if (AgentManager.isInitialized()) {
+      try {
+        const result = await AgentManager.processMessage(message, `cron:stale_reminders`, sessionId);
+        await this.routeJobResponse('stale_reminders', '', result.response, representative.channel, sessionId);
+      } catch (err) {
+        console.error('[Scheduler] Failed to process stale reminders through agent:', err);
+        await this.routeJobResponse('stale_reminders', '', message, representative.channel, sessionId);
+      }
+    } else {
+      await this.routeJobResponse('stale_reminders', '', message, representative.channel, sessionId);
+    }
 
     // Mark all as stale
     const ids = staleJobs.map(j => j.id);
