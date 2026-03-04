@@ -2309,6 +2309,22 @@
       renderPostBankManager();
     }
 
+    function duplicatePostBankEntry(id) {
+      const original = postBankEntries.find(e => e.id === id);
+      if (!original) return;
+      const copyId = `pb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      postBankEntries.push({
+        id: copyId,
+        title: original.title ? `${original.title} (copy)` : 'Copy',
+        type: original.type || 'reply',
+        text: original.text || '',
+        tags: Array.isArray(original.tags) ? [...original.tags] : [],
+        functionTags: Array.isArray(original.functionTags) ? [...original.functionTags] : [],
+        disabled: false,
+      });
+      renderPostBankManager();
+    }
+
     function renderPostBankManager() {
       const host = document.getElementById('post-bank-manager-list');
       if (!host) return;
@@ -2353,6 +2369,7 @@
             <div>
               <label>&nbsp;</label>
               <button class="action-btn" onclick="removePostBankEntry('${entry.id}')">Remove</button>
+              <button class="action-btn" onclick="duplicatePostBankEntry('${entry.id}')" style="margin-left:6px;">Duplicate</button>
             </div>
           </div>
           <label>Text</label>
@@ -2418,7 +2435,6 @@
       } else {
         showToast('Post Bank saved', 'success');
       }
-      closePostBankManager();
     }
 
     function openPostBankSelector(postId) {
