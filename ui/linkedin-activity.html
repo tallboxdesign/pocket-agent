@@ -2362,11 +2362,19 @@
       renderPostBankManager();
     }
 
+    const emojiRegex = (() => {
+      try {
+        return new RegExp('\\p{Extended_Pictographic}', 'u');
+      } catch {
+        return /[\uD83C-\uDBFF][\uDC00-\uDFFF]/;
+      }
+    })();
+
     function checkPostBankEntryQuality(entry) {
       const warnings = [];
       const text = String(entry.text || '');
       if (/#[\\w-]+/.test(text)) warnings.push('Contains hashtag');
-      if (/\\p{Extended_Pictographic}/u.test(text)) warnings.push('Contains emoji');
+      if (emojiRegex.test(text)) warnings.push('Contains emoji');
       if (/\\?\\s*$/.test(text.trim())) warnings.push('Ends with a question');
       if (/\\bit's like\\b|\\blike a\\b|\\bkind of like\\b/i.test(text)) warnings.push('Metaphor phrasing');
       const jargon = ['landscape','leverage','robust','holistic','transformative','game-changing','trajectory','paradigm','ecosystem','scalable','actionable','double down','institutionalizing','decoupling'];
