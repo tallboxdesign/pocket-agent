@@ -92,6 +92,7 @@ type DraftPreset = {
   niche: string;
   auth: string;
   bankIds?: string[];
+  bankGroup?: string;
 };
 
 type PostBankEntry = {
@@ -101,6 +102,7 @@ type PostBankEntry = {
   text: string;
   tags?: string[];
   functionTags?: string[];
+  group?: string;
   disabled?: boolean;
 };
 
@@ -2034,6 +2036,7 @@ export interface DraftPost {
   niche_target?: string | null;
   authenticity_flag?: string | null;
   post_bank_ids?: string | null;
+  post_bank_group?: string | null;
 }
 
 export interface DraftResult {
@@ -2413,13 +2416,14 @@ function getDraftPresets(): DraftPreset[] {
         niche: String(p?.niche || ''),
         auth: String(p?.auth || ''),
         bankIds: Array.isArray(p?.bankIds) ? p.bankIds.map((v: unknown) => String(v)).filter(Boolean) : [],
+        bankGroup: String(p?.bankGroup || ''),
       }));
     }
   } catch { /* ignore */ }
   return [
-    { name: 'Preset 1', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
-    { name: 'Preset 2', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
-    { name: 'Preset 3', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
+    { name: 'Preset 1', hook: '', emotion: '', niche: '', auth: '', bankIds: [], bankGroup: '' },
+    { name: 'Preset 2', hook: '', emotion: '', niche: '', auth: '', bankIds: [], bankGroup: '' },
+    { name: 'Preset 3', hook: '', emotion: '', niche: '', auth: '', bankIds: [], bankGroup: '' },
   ];
 }
 
@@ -2439,7 +2443,12 @@ function applyDraftPresetToPost(db: Database.Database, post: DraftPost, preset: 
   if (preset.emotion && (overwrite || !String(post.emotion_tag || '').trim())) updates.emotion_tag = preset.emotion;
   if (preset.niche && (overwrite || !String(post.niche_target || '').trim())) updates.niche_target = preset.niche;
   if (preset.auth && (overwrite || !String(post.authenticity_flag || '').trim())) updates.authenticity_flag = preset.auth;
-  if (Array.isArray(preset.bankIds) && preset.bankIds.length) {
+  const presetGroup = String(preset.bankGroup || '').trim();
+  if (presetGroup) {
+    const currentGroup = String(post.post_bank_group || '').trim();
+    if (overwrite || !currentGroup) updates.post_bank_group = presetGroup;
+    if (overwrite || !String(post.post_bank_ids || '').trim()) updates.post_bank_ids = null;
+  } else if (Array.isArray(preset.bankIds) && preset.bankIds.length) {
     const current = String(post.post_bank_ids || '').trim();
     if (overwrite || !current) updates.post_bank_ids = JSON.stringify(preset.bankIds);
   }
@@ -2482,6 +2491,7 @@ function loadPostBankEntries(): PostBankEntry[] {
         functionTags: Array.isArray((entry as PostBankEntry).functionTags)
           ? (entry as PostBankEntry).functionTags!.map((t) => String(t)).filter(Boolean)
           : [],
+        group: String((entry as PostBankEntry).group || '').trim(),
         disabled: Boolean((entry as PostBankEntry).disabled),
       }))
       .filter((entry) => entry.id && entry.text && !entry.disabled);
@@ -2541,9 +2551,12 @@ function pickVariedEntries(pool: PostBankEntry[], count: number, state: PostBank
 }
 
 function selectPostBankEntries(post: DraftPost, state: PostBankRotationState): PostBankEntry[] {
+  const group = String(post.post_bank_group || '').trim();
   const postBankIds = parsePostBankIds(post.post_bank_ids || '');
-  if (!postBankIds.length) return [];
-  const allEntries = state.entries.filter((entry) => postBankIds.includes(entry.id));
+  if (!group && !postBankIds.length) return [];
+  const allEntries = group
+    ? state.entries.filter((entry) => String(entry.group || '').trim() === group)
+    : state.entries.filter((entry) => postBankIds.includes(entry.id));
   if (!allEntries.length) return [];
 
   const recentExclude = new Set(state.recentSets.slice(-2).flat());
@@ -3016,7 +3029,7 @@ export async function draftBatch(
     );
     for (const id of postIds) {
       const row = db.prepare(
-        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, comment_draft, post_type, voice_preset, hook_score, emotion_tag, niche_target, authenticity_flag, post_bank_ids FROM linkedin_posts WHERE id = ?'
+        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, comment_draft, post_type, voice_preset, hook_score, emotion_tag, niche_target, authenticity_flag, post_bank_ids, post_bank_group FROM linkedin_posts WHERE id = ?'
       ).get(id) as DraftPost | undefined;
       if (!row) continue;
       if (defaultPreset) {
@@ -3208,7 +3221,7 @@ export async function redraftBatch(
     const posts: DraftPost[] = [];
     for (const id of postIds) {
       const row = db.prepare(
-        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, comment_draft, post_type, voice_preset, hook_score, emotion_tag, niche_target, authenticity_flag, post_bank_ids FROM linkedin_posts WHERE id = ?'
+        'SELECT id, post_url, author, text_preview, reactions, comments, kanban_task_id, comment_draft, post_type, voice_preset, hook_score, emotion_tag, niche_target, authenticity_flag, post_bank_ids, post_bank_group FROM linkedin_posts WHERE id = ?'
       ).get(id) as DraftPost | undefined;
       if (!row) continue;
       if (defaultPreset) {
@@ -3335,6 +3348,7 @@ export async function rewriteLinkedInDraftWithInstructions(options: {
   postPreview?: string;
   postUrl?: string;
   postBankIds?: string;
+  postBankGroup?: string;
 }): Promise<{ rewritten: string; model: string }> {
   const original = String(options.draftText || '').trim();
   const rawInstructions = String(options.instructions || '').trim();
@@ -3347,10 +3361,17 @@ export async function rewriteLinkedInDraftWithInstructions(options: {
   const author = String(options.author || '').trim();
   const preview = String(options.postPreview || '').trim();
   const postUrl = String(options.postUrl || '').trim();
+  const bankGroup = String(options.postBankGroup || '').trim();
   const bankIds = parsePostBankIds(options.postBankIds || '');
-  const bankEntriesPool = bankIds.length ? loadPostBankEntries().filter((entry) => bankIds.includes(entry.id)) : [];
+  const bankEntriesPool = loadPostBankEntries().filter((entry) => {
+    if (bankGroup) return String(entry.group || '').trim() === bankGroup;
+    return bankIds.includes(entry.id);
+  });
   const bankSelection = bankEntriesPool.length
-    ? selectPostBankEntries({ post_bank_ids: JSON.stringify(bankIds) } as DraftPost, ensurePostBankState(bankEntriesPool))
+    ? selectPostBankEntries(
+        { post_bank_ids: JSON.stringify(bankIds), post_bank_group: bankGroup } as DraftPost,
+        ensurePostBankState(bankEntriesPool)
+      )
     : [];
   const postBankBlock = buildPostBankBlock(bankSelection);
   const primaryModel = getDraftModel();

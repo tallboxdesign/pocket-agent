@@ -1026,6 +1026,32 @@
       overflow: auto;
       padding-right: 6px;
     }
+    .post-bank-groups {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding: 10px;
+      border: 1px solid rgba(148,163,184,0.2);
+      border-radius: 8px;
+      background: rgba(15,23,42,0.45);
+    }
+    .post-bank-group-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .post-bank-group-row input {
+      flex: 1 1 200px;
+      min-width: 140px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(148,163,184,0.25);
+      background: rgba(15,23,42,0.6);
+      color: var(--text-primary);
+      font-size: 12px;
+    }
     .post-bank-entry {
       border: 1px solid rgba(148,163,184,0.2);
       border-radius: 8px;
@@ -1055,7 +1081,7 @@
     }
     .post-bank-entry .row {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0,1fr));
+      grid-template-columns: repeat(4, minmax(0,1fr));
       gap: 8px;
       margin-bottom: 8px;
     }
@@ -1095,6 +1121,22 @@
       font-size: 11px;
       color: #fbbf24;
       margin-top: 6px;
+    }
+    .post-bank-group-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .post-bank-group-bar select {
+      min-width: 200px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-primary);
+      font-size: 12px;
     }
 
     @keyframes blinkText {
@@ -1998,6 +2040,11 @@
       <div class="bulk-meta-title">Select Post Bank entries</div>
       <div style="margin:8px 0;">
         <input id="post-bank-search" placeholder="Search entries..." style="width:100%;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text-primary);font-size:12px;">
+        <div class="post-bank-group-bar">
+          <select id="post-bank-group-filter"></select>
+          <button class="action-btn" onclick="selectPostBankGroup()">Select Group</button>
+          <button class="action-btn" onclick="clearPostBankGroupSelection()">Clear Group</button>
+        </div>
         <div class="post-bank-warning" id="post-bank-warning" style="display:none;"></div>
       </div>
       <div class="post-bank-selector" id="post-bank-selector-list"></div>
@@ -2012,6 +2059,7 @@
     <div class="bulk-meta-card" style="max-width:900px;">
       <div class="bulk-meta-title">Post Bank Manager</div>
       <div class="li-quick-help">Add posts/replies you like. They are used as style references only (no copying).</div>
+      <div class="post-bank-groups" id="post-bank-group-list"></div>
       <div class="post-bank-list" id="post-bank-manager-list"></div>
       <div class="bulk-meta-actions">
         <button class="action-btn" onclick="addPostBankEntry()">Add Entry</button>
@@ -2154,7 +2202,7 @@
 
     let postBankEntries = [];
     let postBankLoaded = false;
-    let postBankSelectorContext = { mode: 'post', postIds: [], presetIndex: null, selectedIds: [] };
+    let postBankSelectorContext = { mode: 'post', postIds: [], presetIndex: null, selectedIds: [], selectedGroup: '' };
     const EMOTION_KEYWORDS = [
       { value: 'conflict', words: ['vs', 'versus', 'debate', 'argument', 'pushback', 'disagree', 'controversy', 'fight'] },
       { value: 'frustration', words: ['annoy', 'frustrat', 'hate', 'pain', 'broken', 'mess', 'waste', 'stuck', 'bad', 'wrong'] },
@@ -2261,6 +2309,7 @@
             text: String(e.text || ''),
             tags: Array.isArray(e.tags) ? e.tags.map(t => String(t)).filter(Boolean) : [],
             functionTags: Array.isArray(e.functionTags) ? e.functionTags.map(t => String(t)).filter(Boolean) : [],
+            group: String(e.group || ''),
             disabled: Boolean(e.disabled),
           }))
           .filter(e => e.id && e.text && !e.disabled);
@@ -2304,6 +2353,7 @@
         text: '',
         tags: [],
         functionTags: [],
+        group: '',
         disabled: false,
       });
       renderPostBankManager();
@@ -2320,7 +2370,67 @@
         text: original.text || '',
         tags: Array.isArray(original.tags) ? [...original.tags] : [],
         functionTags: Array.isArray(original.functionTags) ? [...original.functionTags] : [],
+        group: String(original.group || ''),
         disabled: false,
+      });
+      renderPostBankManager();
+    }
+
+    let postBankGroupIndex = [];
+
+    function getPostBankGroups() {
+      const groups = new Map();
+      postBankEntries.forEach(entry => {
+        const name = String(entry.group || '').trim();
+        if (!name) return;
+        groups.set(name, (groups.get(name) || 0) + 1);
+      });
+      return Array.from(groups.entries()).map(([name, count]) => ({ name, count }));
+    }
+
+    function getPostBankIdsForGroup(name) {
+      const group = String(name || '').trim();
+      if (!group) return [];
+      return postBankEntries.filter(entry => String(entry.group || '').trim() === group).map(entry => entry.id);
+    }
+
+    function renderPostBankGroups() {
+      const host = document.getElementById('post-bank-group-list');
+      if (!host) return;
+      const groups = getPostBankGroups();
+      postBankGroupIndex = groups.map(g => g.name);
+      if (!groups.length) {
+        host.innerHTML = '<div class="li-quick-help">No groups yet. Add a group name on entries to see them here.</div>';
+        return;
+      }
+      host.innerHTML = groups.map((group, idx) => `
+        <div class="post-bank-group-row">
+          <input id="pb-group-name-${idx}" value="${escapeHtml(group.name)}" />
+          <span class="badge" style="margin-left:6px;">${group.count}</span>
+          <button class="action-btn" onclick="renamePostBankGroup(${idx})">Rename</button>
+          <button class="action-btn" onclick="clearPostBankGroup(${idx})">Clear</button>
+        </div>
+      `).join('');
+    }
+
+    function renamePostBankGroup(index) {
+      const oldName = postBankGroupIndex[index];
+      if (!oldName) return;
+      const input = document.getElementById(`pb-group-name-${index}`);
+      const nextName = String(input?.value || '').trim();
+      postBankEntries = postBankEntries.map(entry => {
+        if (String(entry.group || '').trim() !== oldName) return entry;
+        return { ...entry, group: nextName };
+      });
+      renderPostBankManager();
+    }
+
+    function clearPostBankGroup(index) {
+      const name = postBankGroupIndex[index];
+      if (!name) return;
+      postBankEntries = postBankEntries.map(entry => {
+        if (String(entry.group || '').trim() !== name) return entry;
+        return { ...entry, group: '' };
       });
       renderPostBankManager();
     }
@@ -2328,6 +2438,7 @@
     function renderPostBankManager() {
       const host = document.getElementById('post-bank-manager-list');
       if (!host) return;
+      renderPostBankGroups();
       if (!postBankEntries.length) {
         host.innerHTML = '<div class="li-quick-help">No entries yet. Add the first example to get started.</div>';
         return;
@@ -2348,6 +2459,10 @@
             <div>
               <label>Tags (comma separated)</label>
               <input id="pb-tags-${idx}" value="${escapeHtml((entry.tags || []).join(', '))}" placeholder="seo, product, growth">
+            </div>
+            <div>
+              <label>Group</label>
+              <input id="pb-group-${idx}" value="${escapeHtml(entry.group || '')}" placeholder="e.g. SEO Voice A">
             </div>
           </div>
           <div class="row">
@@ -2416,13 +2531,14 @@
         const type = (document.getElementById(`pb-type-${idx}`) || {}).value || 'reply';
         const tags = String((document.getElementById(`pb-tags-${idx}`) || {}).value || '')
           .split(',').map(t => t.trim()).filter(Boolean);
+        const group = String((document.getElementById(`pb-group-${idx}`) || {}).value || '').trim();
         const functionTags = ['voice','stance','closing'].filter(tag => {
           const el = document.getElementById(`pb-fn-${idx}-${tag}`);
           return el && el.checked;
         });
         const disabled = String((document.getElementById(`pb-disabled-${idx}`) || {}).value || 'false') === 'true';
         const text = (document.getElementById(`pb-text-${idx}`) || {}).value || '';
-        const entry = { id, title, type, tags, functionTags, disabled, text };
+        const entry = { id, title, type, tags, group, functionTags, disabled, text };
         entries.push(entry);
         const issues = checkPostBankEntryQuality(entry);
         if (issues.length) warnings.push(`${title || id}: ${issues.join(', ')}`);
@@ -2456,14 +2572,24 @@
 
     function openPostBankSelectorInternal(mode, postIds = [], presetIndex = null) {
       ensurePostBankEntries().then(() => {
-        postBankSelectorContext = { mode, postIds, presetIndex, selectedIds: [] };
+        postBankSelectorContext = { mode, postIds, presetIndex, selectedIds: [], selectedGroup: '' };
         if (mode === 'preset' && presetIndex !== null) {
-          postBankSelectorContext.selectedIds = Array.isArray(draftPresets[presetIndex]?.bankIds)
-            ? [...draftPresets[presetIndex].bankIds]
-            : [];
+          const presetGroup = String(draftPresets[presetIndex]?.bankGroup || '').trim();
+          postBankSelectorContext.selectedGroup = presetGroup;
+          if (presetGroup) {
+            postBankSelectorContext.selectedIds = getPostBankIdsForGroup(presetGroup);
+          } else {
+            postBankSelectorContext.selectedIds = Array.isArray(draftPresets[presetIndex]?.bankIds)
+              ? [...draftPresets[presetIndex].bankIds]
+              : [];
+          }
         } else if (mode === 'post' && postIds.length === 1) {
           const post = getPostById(postIds[0]);
-          postBankSelectorContext.selectedIds = parsePostBankIds(post?.post_bank_ids || '');
+          const postGroup = String(post?.post_bank_group || '').trim();
+          postBankSelectorContext.selectedGroup = postGroup;
+          postBankSelectorContext.selectedIds = postGroup
+            ? getPostBankIdsForGroup(postGroup)
+            : parsePostBankIds(post?.post_bank_ids || '');
         }
         renderPostBankSelector();
         const modal = document.getElementById('post-bank-selector-modal');
@@ -2484,8 +2610,20 @@
     function renderPostBankSelector(filterText = '') {
       const host = document.getElementById('post-bank-selector-list');
       if (!host) return;
+      const groupSelect = document.getElementById('post-bank-group-filter');
+      const groups = getPostBankGroups();
+      if (groupSelect) {
+        const options = ['<option value="">All groups</option>']
+          .concat(groups.map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)} (${g.count})</option>`));
+        groupSelect.innerHTML = options.join('');
+        groupSelect.value = postBankSelectorContext.selectedGroup || '';
+      }
       const q = String(filterText || '').trim().toLowerCase();
       const entries = postBankEntries.filter(entry => {
+        if (postBankSelectorContext.selectedGroup) {
+          const groupName = String(entry.group || '').trim();
+          if (groupName !== postBankSelectorContext.selectedGroup) return false;
+        }
         if (!q) return true;
         return entry.title.toLowerCase().includes(q) || entry.text.toLowerCase().includes(q) || (entry.tags || []).join(',').toLowerCase().includes(q);
       });
@@ -2505,31 +2643,61 @@
       if (warningEl) warningEl.style.display = 'none';
     }
 
+    function selectPostBankGroup() {
+      const groupSelect = document.getElementById('post-bank-group-filter');
+      const group = String(groupSelect?.value || '').trim();
+      postBankSelectorContext.selectedGroup = group;
+      if (group) {
+        postBankSelectorContext.selectedIds = getPostBankIdsForGroup(group);
+      }
+      renderPostBankSelector((document.getElementById('post-bank-search') || {}).value || '');
+    }
+
+    function clearPostBankGroupSelection() {
+      postBankSelectorContext.selectedGroup = '';
+      renderPostBankSelector((document.getElementById('post-bank-search') || {}).value || '');
+    }
+
     function togglePostBankSelection(entryId, checked) {
       const ids = new Set(postBankSelectorContext.selectedIds || []);
       if (checked) ids.add(entryId);
       else ids.delete(entryId);
+      if (postBankSelectorContext.selectedGroup) {
+        postBankSelectorContext.selectedGroup = '';
+      }
       postBankSelectorContext.selectedIds = Array.from(ids);
     }
 
     async function applyPostBankSelection() {
       const selectedIds = postBankSelectorContext.selectedIds || [];
+      const selectedGroup = String(postBankSelectorContext.selectedGroup || '').trim();
       if (postBankSelectorContext.mode === 'preset' && postBankSelectorContext.presetIndex !== null) {
-        draftPresets[postBankSelectorContext.presetIndex].bankIds = selectedIds;
+        if (selectedGroup) {
+          draftPresets[postBankSelectorContext.presetIndex].bankGroup = selectedGroup;
+          draftPresets[postBankSelectorContext.presetIndex].bankIds = [];
+        } else {
+          draftPresets[postBankSelectorContext.presetIndex].bankGroup = '';
+          draftPresets[postBankSelectorContext.presetIndex].bankIds = selectedIds;
+        }
         renderPresetEditor();
         closePostBankSelector();
         return;
       }
       const ids = postBankSelectorContext.postIds || [];
       if (!ids.length) return;
-      const payload = JSON.stringify(selectedIds);
       for (const id of ids) {
-        await updatePostMeta(id, { post_bank_ids: payload });
+        if (selectedGroup) {
+          await updatePostMeta(id, { post_bank_group: selectedGroup, post_bank_ids: null });
+        } else {
+          const payload = JSON.stringify(selectedIds);
+          await updatePostMeta(id, { post_bank_ids: payload, post_bank_group: null });
+        }
       }
-      if (postBankEntries.length < 6 && ids.length > 3 && selectedIds.length) {
+      if (postBankEntries.length < 6 && ids.length > 3 && (selectedIds.length || selectedGroup)) {
         showToast('Your Post Bank has fewer than 6 entries. Some posts may reuse style references.', 'error');
       }
-      showToast(`Applied Post Bank (${selectedIds.length}) to ${ids.length} post${ids.length === 1 ? '' : 's'}`, 'success');
+      const label = selectedGroup ? `Group ${selectedGroup}` : `${selectedIds.length}`;
+      showToast(`Applied Post Bank (${label}) to ${ids.length} post${ids.length === 1 ? '' : 's'}`, 'success');
       loadPosts(true);
       closePostBankSelector();
     }
@@ -3113,9 +3281,9 @@
     }
 
     let draftPresets = [
-      { name: 'Preset 1', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
-      { name: 'Preset 2', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
-      { name: 'Preset 3', hook: '', emotion: '', niche: '', auth: '', bankIds: [] },
+      { name: 'Preset 1', hook: '', emotion: '', niche: '', auth: '', bankIds: [], bankGroup: '' },
+      { name: 'Preset 2', hook: '', emotion: '', niche: '', auth: '', bankIds: [], bankGroup: '' },
+      { name: 'Preset 3', hook: '', emotion: '', niche: '', auth: '', bankIds: [], bankGroup: '' },
     ];
     let draftPresetDefault = 'none';
 
@@ -3137,6 +3305,7 @@
                 niche: String(p?.niche || ''),
                 auth: String(p?.auth || ''),
                 bankIds: Array.isArray(p?.bankIds) ? p.bankIds.map(v => String(v)).filter(Boolean) : [],
+                bankGroup: String(p?.bankGroup || ''),
               }));
             }
           } catch { /* ignore */ }
@@ -3156,10 +3325,14 @@
 
     function renderPresetEditor() {
       ensureBulkMetaOptions();
+      const groupList = getPostBankGroups();
       const grid = document.getElementById('preset-editor-grid');
       if (!grid) return;
       grid.innerHTML = '';
       draftPresets.forEach((p, idx) => {
+        const groupOptions = ['<option value="">(none)</option>']
+          .concat(groupList.map(g => `<option value="${escapeHtml(g.name)}" ${String(p.bankGroup || '') === g.name ? 'selected' : ''}>${escapeHtml(g.name)} (${g.count})</option>`))
+          .join('');
         const wrap = document.createElement('div');
         wrap.style.gridColumn = '1 / -1';
         wrap.innerHTML = `
@@ -3186,7 +3359,11 @@
               <select id="preset-auth-${idx}">${['<option value="">(empty)</option>'].concat(AUTH_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === p.auth ? 'selected' : ''}>${opt.label}</option>`)).join('')}</select>
             </div>
             <div>
-              <label>Post Bank</label>
+              <label>Post Bank Group</label>
+              <select id="preset-bank-group-${idx}">${groupOptions}</select>
+            </div>
+            <div>
+              <label>Post Bank (Manual)</label>
               <button class="action-btn" onclick="openPostBankSelectorForPreset(${idx})">Select (${Array.isArray(p.bankIds) ? p.bankIds.length : 0})</button>
             </div>
           </div>
@@ -3198,9 +3375,11 @@
     }
 
     function openPresetEditor() {
-      renderPresetEditor();
-      const modal = document.getElementById('preset-editor-modal');
-      if (modal) modal.classList.add('show');
+      ensurePostBankEntries().then(() => {
+        renderPresetEditor();
+        const modal = document.getElementById('preset-editor-modal');
+        if (modal) modal.classList.add('show');
+      });
     }
 
     function closePresetEditor() {
@@ -3217,6 +3396,7 @@
         niche: String((document.getElementById(`preset-niche-${idx}`) || {}).value || ''),
         auth: String((document.getElementById(`preset-auth-${idx}`) || {}).value || ''),
         bankIds: Array.isArray(p.bankIds) ? p.bankIds : [],
+        bankGroup: String((document.getElementById(`preset-bank-group-${idx}`) || {}).value || ''),
       }));
       draftPresets = next;
       const defEl = document.getElementById('preset-default');
@@ -3242,7 +3422,14 @@
       if (preset.emotion) updates.emotion_tag = preset.emotion;
       if (preset.niche) updates.niche_target = preset.niche;
       if (preset.auth) updates.authenticity_flag = preset.auth;
-      if (Array.isArray(preset.bankIds) && preset.bankIds.length) updates.post_bank_ids = JSON.stringify(preset.bankIds);
+      const presetGroup = String(preset.bankGroup || '').trim();
+      if (presetGroup) {
+        updates.post_bank_group = presetGroup;
+        updates.post_bank_ids = null;
+      } else if (Array.isArray(preset.bankIds) && preset.bankIds.length) {
+        updates.post_bank_ids = JSON.stringify(preset.bankIds);
+        updates.post_bank_group = null;
+      }
       if (Object.keys(updates).length === 0) {
         showToast('Preset is empty', 'error');
         return;
@@ -3252,7 +3439,7 @@
       }
       if (activePanel === 'queue') {
         showToast(`Applied ${preset.name}. Starting Draft + Research...`, 'success');
-        if (postBankEntries.length < 6 && ids.length > 3 && Array.isArray(preset.bankIds) && preset.bankIds.length) {
+        if (postBankEntries.length < 6 && ids.length > 3 && (presetGroup || (Array.isArray(preset.bankIds) && preset.bankIds.length))) {
           showToast('Your Post Bank has fewer than 6 entries. Some posts may reuse style references.', 'error');
         }
         try {

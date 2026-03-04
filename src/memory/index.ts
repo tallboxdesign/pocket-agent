@@ -417,6 +417,7 @@ export class MemoryManager {
         niche_target TEXT,
         authenticity_flag TEXT,
         post_bank_ids TEXT,
+        post_bank_group TEXT,
         source_tag TEXT DEFAULT 'feed:home',
         scraped_date TEXT NOT NULL,
         first_seen_at TEXT DEFAULT (datetime('now')),
@@ -753,6 +754,10 @@ export class MemoryManager {
     if (!hasColumn('linkedin_posts', 'post_bank_ids')) {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_ids TEXT`);
       console.log('[Memory] Migrated linkedin_posts: added post_bank_ids column');
+    }
+    if (!hasColumn('linkedin_posts', 'post_bank_group')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_group TEXT`);
+      console.log('[Memory] Migrated linkedin_posts: added post_bank_group column');
     }
 
     // LinkedIn activity log (auto-poster audit trail)
