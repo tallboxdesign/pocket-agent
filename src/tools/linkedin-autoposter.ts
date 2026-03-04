@@ -746,11 +746,11 @@ export async function checkAndPostNext(): Promise<void> {
     if (todayCount >= dailyLimit) {
       // Reschedule remaining posts to tomorrow or night window
       const remaining = db.prepare(
-        `SELECT id, author FROM linkedin_posts
+        `SELECT id, author, post_url FROM linkedin_posts
          WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL
            AND scheduled_at IS NOT NULL AND hidden = 0
          ORDER BY scheduled_at ASC`
-      ).all() as Array<{ id: number; author: string }>;
+      ).all() as Array<{ id: number; author: string; post_url: string }>;
 
       if (remaining.length > 0) {
         const nightEnabled = SettingsManager.get('linkedin.nightWindowEnabled') === 'true';
@@ -758,6 +758,10 @@ export async function checkAndPostNext(): Promise<void> {
         const [nh, nm] = nightStart.split(':').map(Number);
 
         const update = db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?');
+        const logDelayed = db.prepare(
+          `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+           VALUES (?, ?, 'delayed', ?, ?, ?)`
+        );
         const tx = db.transaction(() => {
           let cumulativeMs = 0;
           for (const post of remaining) {
@@ -777,8 +781,18 @@ export async function checkAndPostNext(): Promise<void> {
               baseTime.setDate(baseTime.getDate() + 1);
               baseTime.setHours(9, 0, 0, 0);
             }
-            const newTime = new Date(baseTime.getTime() + cumulativeMs).toISOString().replace('T', ' ').slice(0, 19);
+            const targetTime = new Date(baseTime.getTime() + cumulativeMs);
+            const newTime = targetTime.toISOString().replace('T', ' ').slice(0, 19);
+            const targetDay = localDayKeyFromMs(targetTime.getTime());
+            const normalizedUrl = normalizeLinkedInPostUrl(post.post_url);
             update.run(newTime, post.id);
+            logDelayed.run(
+              post.id,
+              normalizedUrl,
+              `daily_limit_rollover:${todayStr}->${targetDay}`,
+              dailyLimit,
+              todayCount
+            );
           }
         });
         tx();

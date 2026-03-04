@@ -46,6 +46,10 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   getHistory: (limit?: number, sessionId?: string) => ipcRenderer.invoke('agent:history', limit, sessionId),
   getStats: (sessionId?: string) => ipcRenderer.invoke('agent:stats', sessionId),
   clearConversation: (sessionId?: string) => ipcRenderer.invoke('agent:clear', sessionId),
+  getExternalSafetyState: () => ipcRenderer.invoke('agent:getExternalSafetyState'),
+  getExternalAudit: (limit?: number) => ipcRenderer.invoke('agent:getExternalAudit', limit),
+  clearExternalAudit: () => ipcRenderer.invoke('agent:clearExternalAudit'),
+  runExternalRegression: () => ipcRenderer.invoke('agent:runExternalRegression'),
 
   // Sessions
   getSessions: () => ipcRenderer.invoke('sessions:list'),
@@ -66,7 +70,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   deleteSoulAspect: (id: number) => ipcRenderer.invoke('soul:delete', id),
 
   // Daily Logs
-  listDailyLogs: () => ipcRenderer.invoke('dailyLogs:list'),
+  listDailyLogs: (days?: number) => ipcRenderer.invoke('dailyLogs:list', days),
 
   // App windows
   openFactsGraph: () => ipcRenderer.invoke('app:openFactsGraph'),
@@ -76,17 +80,23 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   openCustomize: () => ipcRenderer.invoke('app:openCustomize'),
   openRoutines: () => ipcRenderer.invoke('app:openRoutines'),
   openLinkedInActivity: () => ipcRenderer.invoke('app:openLinkedInActivity'),
-  listLinkedInPosts: (date: string) => ipcRenderer.invoke('linkedin:listPosts', date),
+  listLinkedInPosts: (date: string, authorFilter?: string) => ipcRenderer.invoke('linkedin:listPosts', date, authorFilter),
+  getLinkedInPostingDays: (month?: string) => ipcRenderer.invoke('linkedin:getPostingDays', month),
+  getLinkedInPostContent: (postId: number, forceRefresh?: boolean) => ipcRenderer.invoke('linkedin:getPostContent', postId, forceRefresh),
   approveLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:approveDraft', id),
   rejectLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:rejectDraft', id),
   updateLinkedInDraft: (id: number, text: string) => ipcRenderer.invoke('linkedin:updateDraft', id, text),
+  updateLinkedInPostMeta: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('linkedin:updatePostMeta', id, updates),
+  rewriteLinkedInDraft: (id: number, currentText: string, instructions: string) => ipcRenderer.invoke('linkedin:rewriteDraft', id, currentText, instructions),
   hideLinkedInPost: (id: number) => ipcRenderer.invoke('linkedin:hidePost', id),
   snoozeLinkedInPost: (id: number, days: number) => ipcRenderer.invoke('linkedin:snoozePost', id, days),
   setLinkedInPriority: (id: number, priority: string) => ipcRenderer.invoke('linkedin:setPriority', id, priority),
   scheduleLinkedInPost: (id: number, datetime: string) => ipcRenderer.invoke('linkedin:schedulePost', id, datetime),
-  draftLinkedInBatch: (postIds: number[], batchSize?: number) => ipcRenderer.invoke('linkedin:draftBatch', postIds, batchSize),
+  draftLinkedInBatch: (postIds: number[], batchSize?: number, forceRedo?: boolean) => ipcRenderer.invoke('linkedin:draftBatch', postIds, batchSize, forceRedo),
+  redraftLinkedInBatch: (postIds: number[], batchSize?: number) => ipcRenderer.invoke('linkedin:redraftBatch', postIds, batchSize),
   cancelLinkedInDraftJob: () => ipcRenderer.invoke('linkedin:cancelDraftJob'),
   getLinkedInDailyStats: () => ipcRenderer.invoke('linkedin:getDailyStats'),
+  getLinkedInWeeklyReview: (days?: number) => ipcRenderer.invoke('linkedin:getWeeklyReview', days),
   onLinkedInDraftProgress: (callback: (data: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
     ipcRenderer.on('linkedin:draftProgress', listener);
@@ -122,6 +132,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
 
   // App info
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
+  getCacheStats: () => ipcRenderer.invoke('app:getCacheStats'),
+  clearSafeCache: () => ipcRenderer.invoke('app:clearSafeCache'),
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:getAll'),
@@ -136,6 +148,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   validateMoonshotKey: (key: string) => ipcRenderer.invoke('settings:validateMoonshot', key),
   validateGlmKey: (key: string) => ipcRenderer.invoke('settings:validateGlm', key),
   validateMinimaxKey: (key: string) => ipcRenderer.invoke('settings:validateMinimax', key),
+  validateQwenKey: (key: string) => ipcRenderer.invoke('settings:validateQwen', key),
+  validateOpenRouterKey: (key: string) => ipcRenderer.invoke('settings:validateOpenRouter', key),
   validateTelegramToken: (token: string) => ipcRenderer.invoke('settings:validateTelegram', token),
   getAvailableModels: () => ipcRenderer.invoke('settings:getAvailableModels'),
   restartAgent: () => ipcRenderer.invoke('agent:restart'),
@@ -337,6 +351,28 @@ declare global {
       getHistory: (limit?: number, sessionId?: string) => Promise<Array<{ role: string; content: string; timestamp: string; metadata?: { source?: string; jobName?: string } }>>;
       getStats: (sessionId?: string) => Promise<{ messageCount: number; factCount: number; estimatedTokens: number; sessionCount?: number; contextTokens?: number; contextWindow?: number } | null>;
       clearConversation: (sessionId?: string) => Promise<{ success: boolean }>;
+      getExternalSafetyState: () => Promise<{
+        allowHostIntegrations: boolean;
+        pendingApprovals: Array<{ sessionId: string; toolName: string; command: string; requestedAt: number }>;
+        oneShotApprovals: number;
+        auditEntries: number;
+      }>;
+      getExternalAudit: (limit?: number) => Promise<Array<{
+        id: number;
+        status: string;
+        sessionId: string;
+        toolName: string;
+        command: string;
+        reason?: string;
+        createdAt: number;
+      }>>;
+      clearExternalAudit: () => Promise<{ success: boolean }>;
+      runExternalRegression: () => Promise<{
+        generatedAt: string;
+        passed: number;
+        failed: number;
+        checks: Array<{ id: string; label: string; pass: boolean; details: string }>;
+      }>;
       // Sessions
       getSessions: () => Promise<Session[]>;
       createSession: (name: string) => Promise<{ success: boolean; session?: Session; error?: string }>;
@@ -355,7 +391,7 @@ declare global {
       getSoulAspect: (aspect: string) => Promise<{ id: number; aspect: string; content: string; created_at: string; updated_at: string } | null>;
       deleteSoulAspect: (id: number) => Promise<{ success: boolean }>;
       // Daily Logs
-      listDailyLogs: () => Promise<Array<{ id: number; date: string; content: string; updated_at: string }>>;
+      listDailyLogs: (days?: number) => Promise<Array<{ id: number; date: string; content: string; updated_at: string }>>;
       // App windows
       openFactsGraph: () => Promise<void>;
       openFacts: () => Promise<void>;
@@ -364,15 +400,19 @@ declare global {
       openCustomize: () => Promise<void>;
       openRoutines: () => Promise<void>;
       openLinkedInActivity: () => Promise<void>;
-      listLinkedInPosts: (date: string) => Promise<{ posts: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; posted_logged?: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string; priority: string; scheduled_at: string | null; snoozed_until: string | null; hidden: number }>; snoozed: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; snoozed_until: string; priority: string }> }>;
+      listLinkedInPosts: (date: string, authorFilter?: string) => Promise<{ posts: Array<{ id: number; post_url: string; author: string; text_preview: string; full_post_text?: string | null; full_post_summary?: string | null; full_post_updated_at?: string | null; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; posted_logged?: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string; priority: string; scheduled_at: string | null; snoozed_until: string | null; hidden: number }>; snoozed: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; snoozed_until: string; priority: string }> }>;
+      getLinkedInPostingDays: (month?: string) => Promise<Array<{ date: string; count: number }>>;
+      getLinkedInPostContent: (postId: number, forceRefresh?: boolean) => Promise<{ success: boolean; error?: string; warning?: string; postId?: number; postUrl?: string; author?: string; fullText?: string; summary?: string; cached?: boolean; fetchedAt?: string | null }>;
       approveLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string; postUrl?: string; draft?: string }>;
       rejectLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string }>;
       updateLinkedInDraft: (id: number, text: string) => Promise<{ success: boolean; error?: string }>;
+      rewriteLinkedInDraft: (id: number, currentText: string, instructions: string) => Promise<{ success: boolean; error?: string; rewritten?: string; model?: string }>;
       hideLinkedInPost: (id: number) => Promise<{ success: boolean; error?: string }>;
       snoozeLinkedInPost: (id: number, days: number) => Promise<{ success: boolean; error?: string }>;
       setLinkedInPriority: (id: number, priority: string) => Promise<{ success: boolean; error?: string }>;
       scheduleLinkedInPost: (id: number, datetime: string) => Promise<{ success: boolean; error?: string; scheduledAt?: string; adjustedOthers?: number; warning?: string }>;
-      draftLinkedInBatch: (postIds: number[], batchSize?: number) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
+      draftLinkedInBatch: (postIds: number[], batchSize?: number, forceRedo?: boolean) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
+      redraftLinkedInBatch: (postIds: number[], batchSize?: number) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
       cancelLinkedInDraftJob: () => Promise<{ success: boolean }>;
       getLinkedInDailyStats: () => Promise<{ postedToday: number; dailyLimit: number; pendingApproved: number }>;
       onLinkedInDraftProgress: (callback: (data: unknown) => void) => () => void;
@@ -399,6 +439,8 @@ declare global {
       getCronHistory: (limit?: number) => Promise<Array<{ jobName: string; response: string; success: boolean; timestamp: string }>>;
       // App info
       getAppVersion: () => Promise<string>;
+      getCacheStats: () => Promise<{ success: boolean; error?: string; userDataPath?: string; safeCacheBytes?: number; appDataBytes?: number; appBundleBytes?: number; dbBytes?: number; dbWalBytes?: number; thresholdBytes?: number; overThreshold?: boolean }>;
+      clearSafeCache: () => Promise<{ success: boolean; error?: string; before?: { safeCacheBytes: number }; after?: { safeCacheBytes: number }; clearedBytes?: number }>;
       // Settings
       getSettings: () => Promise<Record<string, string>>;
       getSetting: (key: string) => Promise<string>;
@@ -412,6 +454,8 @@ declare global {
       validateMoonshotKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       validateGlmKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       validateMinimaxKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
+      validateQwenKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
+      validateOpenRouterKey: (key: string) => Promise<{ valid: boolean; error?: string }>;
       validateTelegramToken: (token: string) => Promise<{ valid: boolean; error?: string; botInfo?: unknown }>;
       getAvailableModels: () => Promise<Array<{ id: string; name: string; provider: string }>>;
       restartAgent: () => Promise<{ success: boolean }>;

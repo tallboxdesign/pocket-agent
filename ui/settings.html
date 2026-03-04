@@ -1051,6 +1051,142 @@
     }
     .model-fav-chip button:hover { color: #fca5a5; }
 
+    .external-audit-panel {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg-secondary);
+      overflow: hidden;
+    }
+
+    .external-audit-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-tertiary);
+      flex-wrap: wrap;
+    }
+
+    .external-audit-stats {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .external-audit-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg-primary);
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .external-audit-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .external-audit-actions button {
+      padding: 6px 10px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .external-audit-actions button:hover {
+      border-color: var(--accent);
+      color: var(--text-primary);
+    }
+
+    .external-audit-list {
+      max-height: 220px;
+      overflow: auto;
+      font-size: 11px;
+    }
+
+    .external-audit-item {
+      display: grid;
+      grid-template-columns: 130px 90px 1fr;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      align-items: start;
+    }
+
+    .external-audit-item:last-child {
+      border-bottom: none;
+    }
+
+    .external-audit-time {
+      color: var(--text-muted);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .external-audit-status {
+      text-transform: uppercase;
+      letter-spacing: 0.35px;
+      font-weight: 600;
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .external-audit-command {
+      color: var(--text-primary);
+      line-height: 1.4;
+      word-break: break-word;
+      font-family: 'SF Mono', monospace;
+      font-size: 10px;
+    }
+
+    .external-regression-bar {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      background: var(--bg-secondary);
+    }
+
+    .external-regression-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .external-regression-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    .external-regression-check {
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-primary);
+      color: var(--text-secondary);
+    }
+
     /* Email Processing */
     .ep-subsection {
       margin-top: 20px;
@@ -1875,6 +2011,53 @@
               <option value="extended">Extended</option>
             </select>
           </div>
+          <div class="setting-row">
+            <div>
+              <label>Allow Host Integrations</label>
+              <span class="setting-desc">Lets Bash run commands that touch host apps/system integrations (disabled by default)</span>
+            </div>
+            <div class="toggle" id="agent.allowHostIntegrations-toggle" onclick="toggleSetting('agent.allowHostIntegrations')"></div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <label>Manager Hard Tool Restrictions</label>
+              <span class="setting-desc">If ON, Manager mode hard-blocks risky coding/shell tools. If OFF, mode behavior is guided by prompt first.</span>
+            </div>
+            <div class="toggle" id="agent.managerHardToolRestrictions-toggle" onclick="toggleSetting('agent.managerHardToolRestrictions')"></div>
+          </div>
+        </div>
+
+        <h3 class="subsection-title" style="margin-top: 24px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">External Action Audit</h3>
+        <div class="external-audit-panel">
+          <div class="external-audit-toolbar">
+            <div class="external-audit-stats" id="external-audit-stats">
+              <span class="external-audit-pill" id="external-audit-host-toggle">Host Integrations: OFF</span>
+              <span class="external-audit-pill" id="external-audit-pending">Pending: 0</span>
+              <span class="external-audit-pill" id="external-audit-oneshot">One-shot approvals: 0</span>
+              <span class="external-audit-pill" id="external-audit-count">Audit events: 0</span>
+            </div>
+            <div class="external-audit-actions">
+              <button onclick="refreshExternalAuditPanel()">Refresh</button>
+              <button onclick="clearExternalAuditPanel()">Clear Audit</button>
+            </div>
+          </div>
+          <div class="external-audit-list" id="external-audit-list">
+            <div class="external-audit-item">
+              <div class="external-audit-time">-</div>
+              <div class="external-audit-status">idle</div>
+              <div class="external-audit-command">No external actions recorded yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="external-regression-bar">
+          <div class="external-regression-summary">
+            <span>Regression Test Bar (external-action guardrails)</span>
+            <button onclick="runExternalRegression()">Run checks</button>
+          </div>
+          <div class="external-regression-list" id="external-regression-list">
+            <div class="external-regression-check">Run checks to verify approval + blocking behavior after updates.</div>
+          </div>
         </div>
       </section>
 
@@ -1983,6 +2166,13 @@
           <div class="setting-row">
             <label>Auto Reactions</label>
             <div class="toggle" id="telegram.reactionAckEnabled-toggle" onclick="toggleSetting('telegram.reactionAckEnabled')"></div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <label>Strict Telegram Heuristics</label>
+              <span class="setting-desc">Emergency switch for extra parser rules. Keep OFF for normal LLM-first behavior.</span>
+            </div>
+            <div class="toggle" id="telegram.strictHeuristics-toggle" onclick="toggleSetting('telegram.strictHeuristics')"></div>
           </div>
           <div class="setting-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
             <label>Ack Emoji</label>
@@ -2610,6 +2800,33 @@
         </div>
 
         <div id="linkedin-config" style="margin-top: 12px;">
+          <div class="li-subsection">Quality Gate</div>
+          <div class="settings-grid" style="margin-bottom: 14px;">
+            <div class="setting-row">
+              <label title="Block approve/schedule until quality metadata is set.">Enable Quality Gate</label>
+              <div class="toggle" id="linkedin.qualityGateEnabled-toggle" onclick="toggleSetting('linkedin.qualityGateEnabled')" title="Require quality metadata before approval or scheduling"></div>
+            </div>
+            <div class="setting-row">
+              <label title="Minimum hook score required before approving or scheduling.">Min Hook Score</label>
+              <div class="key-input" style="width: 140px;">
+                <input type="number" id="linkedin-quality-min-hook" min="1" max="10" placeholder="7" style="width: 60px; text-align: center;">
+                <button onclick="saveLinkedInSetting('linkedin.qualityGateMinHook', 'linkedin-quality-min-hook')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Require an emotion tag on every post before approval or scheduling.">Require Emotion Tag</label>
+              <div class="toggle" id="linkedin.qualityGateRequireEmotion-toggle" onclick="toggleSetting('linkedin.qualityGateRequireEmotion')"></div>
+            </div>
+            <div class="setting-row">
+              <label title="Require a niche target on every post before approval or scheduling.">Require Niche Target</label>
+              <div class="toggle" id="linkedin.qualityGateRequireNiche-toggle" onclick="toggleSetting('linkedin.qualityGateRequireNiche')"></div>
+            </div>
+            <div class="setting-row">
+              <label title="Require marking a post as human or AI-assist before approval or scheduling.">Require Authenticity Flag</label>
+              <div class="toggle" id="linkedin.qualityGateRequireAuthenticity-toggle" onclick="toggleSetting('linkedin.qualityGateRequireAuthenticity')"></div>
+            </div>
+          </div>
+
           <div class="settings-grid">
             <div class="setting-row">
               <label title="Optional comma-separated topics to prioritize while scraping and filtering your feed.">Feed Keywords</label>
@@ -2850,6 +3067,42 @@
               <div class="li-actions">
                 <button onclick="saveLinkedInSetting('linkedin.writingRules', 'linkedin-writing-rules')">Save</button>
                 <button class="ai-btn" onclick="expandWithAI('linkedin-writing-rules', 'Expand these rough writing rules into a clear, comprehensive set of LinkedIn content guidelines. Cover sentence structure, formatting, paragraph length, what to avoid, and what to always include. NEVER use em-dashes or en-dashes. Use commas or periods instead. Keep it under 200 words.')">AI Expand</button>
+              </div>
+            </div>
+
+            <div class="li-field">
+              <label title="Controls how intentionally imperfect the writing should feel. Higher = more raw.">Writing Roughness</label>
+              <div class="li-actions" style="align-items:center;">
+                <select id="linkedin-roughness-level" style="flex:0 0 160px;">
+                  <option value="0">0 - Polished</option>
+                  <option value="1">1 - Subtle</option>
+                  <option value="2">2 - Raw</option>
+                  <option value="3">3 - Very Raw</option>
+                </select>
+                <button onclick="saveLinkedInSetting('linkedin.roughnessLevel', 'linkedin-roughness-level')">Save</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);line-height:1.4;">
+                Roughness tweaks rhythm and phrasing without adding typos. Use 1-2 for human tone, 3 for very raw.
+              </div>
+            </div>
+
+            <div class="li-field">
+              <label title="Allow a small amount of informal discourse markers (casual pivots).">Allow Discourse Markers</label>
+              <div class="li-actions" style="align-items:center;">
+                <div class="toggle" id="linkedin.roughnessAllowDiscourse-toggle" onclick="toggleSetting('linkedin.roughnessAllowDiscourse')"></div>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);line-height:1.4;">
+                When enabled, roughness levels may use light informal pivots. Turn off for stricter tone.
+              </div>
+            </div>
+
+            <div class="li-field">
+              <label title="Prefer present simple tense in replies.">Present Simple Tense</label>
+              <div class="li-actions" style="align-items:center;">
+                <div class="toggle" id="linkedin.presentSimple-toggle" onclick="toggleSetting('linkedin.presentSimple')"></div>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);line-height:1.4;">
+                When enabled, replies favor present simple and avoid future or progressive tense.
               </div>
             </div>
 
@@ -3142,6 +3395,7 @@
       checkGlmStatus();
       checkGogStatus();
       setInterval(() => { void refreshCacheStats(true); }, 5 * 60 * 1000);
+      setInterval(() => { void refreshExternalAuditPanel(true); }, 30 * 1000);
       epInit();
 
       // Listen for tab navigation from main process
@@ -3286,9 +3540,141 @@
         updateAuthStatus();
         updateDeleteButtons();
         await refreshModelDropdown();
+        await refreshExternalAuditPanel(true);
       } catch (err) {
         console.error('Failed to load settings:', err);
         showToast('Hmm, couldn\'t grab settings', 'error');
+      }
+    }
+
+    function escapeHtmlText(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatAuditTimestamp(ms) {
+      const n = Number(ms || 0);
+      if (!Number.isFinite(n) || n <= 0) return '-';
+      return new Date(n).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    }
+
+    function externalStatusLabel(status) {
+      const text = String(status || 'unknown').replace(/_/g, ' ');
+      return text;
+    }
+
+    function externalStatusColor(status) {
+      const value = String(status || '').toLowerCase();
+      if (value.includes('approved') || value.includes('allowed')) return 'var(--success)';
+      if (value.includes('denied') || value.includes('mismatch') || value.includes('expired')) return 'var(--error)';
+      if (value.includes('requested')) return 'var(--warning)';
+      return 'var(--text-secondary)';
+    }
+
+    async function refreshExternalAuditPanel(silent = false) {
+      if (!window.pocketAgent?.getExternalSafetyState || !window.pocketAgent?.getExternalAudit) return;
+      try {
+        const [state, audit] = await Promise.all([
+          window.pocketAgent.getExternalSafetyState(),
+          window.pocketAgent.getExternalAudit(80),
+        ]);
+
+        const hostEl = document.getElementById('external-audit-host-toggle');
+        const pendingEl = document.getElementById('external-audit-pending');
+        const oneShotEl = document.getElementById('external-audit-oneshot');
+        const countEl = document.getElementById('external-audit-count');
+        const listEl = document.getElementById('external-audit-list');
+
+        if (hostEl) hostEl.textContent = `Host Integrations: ${state.allowHostIntegrations ? 'ON' : 'OFF'}`;
+        if (pendingEl) pendingEl.textContent = `Pending: ${state.pendingApprovals?.length || 0}`;
+        if (oneShotEl) oneShotEl.textContent = `One-shot approvals: ${state.oneShotApprovals || 0}`;
+        if (countEl) countEl.textContent = `Audit events: ${state.auditEntries || 0}`;
+
+        if (listEl) {
+          if (!Array.isArray(audit) || audit.length === 0) {
+            listEl.innerHTML = `
+              <div class="external-audit-item">
+                <div class="external-audit-time">-</div>
+                <div class="external-audit-status">idle</div>
+                <div class="external-audit-command">No external actions recorded yet.</div>
+              </div>
+            `;
+          } else {
+            listEl.innerHTML = audit.map((entry) => {
+              const time = formatAuditTimestamp(entry.createdAt);
+              const status = externalStatusLabel(entry.status);
+              const statusColor = externalStatusColor(entry.status);
+              const command = escapeHtmlText(entry.command || '');
+              const reason = entry.reason ? `\nReason: ${entry.reason}` : '';
+              const session = entry.sessionId ? `Session: ${entry.sessionId}` : '';
+              return `
+                <div class="external-audit-item">
+                  <div class="external-audit-time">${time}</div>
+                  <div class="external-audit-status" style="color:${statusColor}">${escapeHtmlText(status)}</div>
+                  <div class="external-audit-command">${command}${reason ? `<br><span style="color:var(--text-muted)">${escapeHtmlText(reason.trim())}</span>` : ''}${session ? `<br><span style="color:var(--text-muted)">${escapeHtmlText(session)}</span>` : ''}</div>
+                </div>
+              `;
+            }).join('');
+          }
+        }
+      } catch (err) {
+        if (!silent) {
+          showToast(`Could not load external action audit: ${err.message || err}`, 'error');
+        }
+      }
+    }
+
+    async function clearExternalAuditPanel() {
+      if (!window.pocketAgent?.clearExternalAudit) return;
+      try {
+        const result = await window.pocketAgent.clearExternalAudit();
+        if (!result?.success) throw new Error('Clear failed');
+        await refreshExternalAuditPanel(true);
+        showToast('External action audit cleared', 'success');
+      } catch (err) {
+        showToast(`Could not clear external audit: ${err.message || err}`, 'error');
+      }
+    }
+
+    async function runExternalRegression() {
+      if (!window.pocketAgent?.runExternalRegression) return;
+      const list = document.getElementById('external-regression-list');
+      if (list) {
+        list.innerHTML = '<div class="external-regression-check">Running checks...</div>';
+      }
+      try {
+        const result = await window.pocketAgent.runExternalRegression();
+        if (!result || !Array.isArray(result.checks)) {
+          throw new Error('Invalid regression result');
+        }
+        const generatedAt = result.generatedAt ? new Date(result.generatedAt).toLocaleTimeString() : 'now';
+        if (list) {
+          const checksHtml = result.checks.map((check) => {
+            const color = check.pass ? 'var(--success)' : 'var(--error)';
+            const symbol = check.pass ? 'PASS' : 'FAIL';
+            return `<div class="external-regression-check"><strong style="color:${color}">${symbol}</strong> ${escapeHtmlText(check.label)}<br><span style="color:var(--text-muted)">${escapeHtmlText(check.details || '')}</span></div>`;
+          }).join('');
+          list.innerHTML = `
+            <div class="external-regression-check"><strong>${result.passed}</strong> passed, <strong>${result.failed}</strong> failed (${generatedAt})</div>
+            ${checksHtml}
+          `;
+        }
+        showToast(`Regression checks: ${result.passed} passed / ${result.failed} failed`, result.failed > 0 ? 'error' : 'success');
+      } catch (err) {
+        if (list) {
+          list.innerHTML = '<div class="external-regression-check">Regression check failed to run.</div>';
+        }
+        showToast(`Regression check failed: ${err.message || err}`, 'error');
       }
     }
 
@@ -3613,6 +3999,15 @@
     }
 
     function updateToggles() {
+      const hostIntegrationsToggle = document.getElementById('agent.allowHostIntegrations-toggle');
+      if (hostIntegrationsToggle) {
+        hostIntegrationsToggle.classList.toggle('active', settings['agent.allowHostIntegrations'] === 'true');
+      }
+      const managerHardToolsToggle = document.getElementById('agent.managerHardToolRestrictions-toggle');
+      if (managerHardToolsToggle) {
+        managerHardToolsToggle.classList.toggle('active', settings['agent.managerHardToolRestrictions'] === 'true');
+      }
+
       // Telegram toggle
       const telegramToggle = document.getElementById('telegram.enabled-toggle');
       const telegramEnabled = settings['telegram.enabled'] === 'true';
@@ -3644,6 +4039,14 @@
       if (linkedinAutoConfirm) linkedinAutoConfirm.classList.toggle('active', settings['linkedin.autoConfirm'] === 'true');
       const linkedinAutoScrapeToggle = document.getElementById('linkedin.autoScrapeEnabled-toggle');
       if (linkedinAutoScrapeToggle) linkedinAutoScrapeToggle.classList.toggle('active', settings['linkedin.autoScrapeEnabled'] === 'true');
+      const linkedinQualityGateToggle = document.getElementById('linkedin.qualityGateEnabled-toggle');
+      if (linkedinQualityGateToggle) linkedinQualityGateToggle.classList.toggle('active', settings['linkedin.qualityGateEnabled'] === 'true');
+      const linkedinRequireEmotionToggle = document.getElementById('linkedin.qualityGateRequireEmotion-toggle');
+      if (linkedinRequireEmotionToggle) linkedinRequireEmotionToggle.classList.toggle('active', settings['linkedin.qualityGateRequireEmotion'] === 'true');
+      const linkedinRequireNicheToggle = document.getElementById('linkedin.qualityGateRequireNiche-toggle');
+      if (linkedinRequireNicheToggle) linkedinRequireNicheToggle.classList.toggle('active', settings['linkedin.qualityGateRequireNiche'] === 'true');
+      const linkedinRequireAuthToggle = document.getElementById('linkedin.qualityGateRequireAuthenticity-toggle');
+      if (linkedinRequireAuthToggle) linkedinRequireAuthToggle.classList.toggle('active', settings['linkedin.qualityGateRequireAuthenticity'] === 'true');
       const linkedinDiscoveryToggle = document.getElementById('linkedin.discoveryModeEnabled-toggle');
       if (linkedinDiscoveryToggle) linkedinDiscoveryToggle.classList.toggle('active', settings['linkedin.discoveryModeEnabled'] === 'true');
       const linkedinDayWindowToggle = document.getElementById('linkedin.dayWindowEnabled-toggle');
@@ -3652,10 +4055,18 @@
       if (linkedinNightWindowToggle) linkedinNightWindowToggle.classList.toggle('active', settings['linkedin.nightWindowEnabled'] === 'true');
       const linkedinKeywords = document.getElementById('linkedin-feed-keywords');
       if (linkedinKeywords && settings['linkedin.feedKeywords']) linkedinKeywords.value = settings['linkedin.feedKeywords'];
+      const linkedinQualityMinHook = document.getElementById('linkedin-quality-min-hook');
+      if (linkedinQualityMinHook) linkedinQualityMinHook.value = settings['linkedin.qualityGateMinHook'] || '7';
       const linkedinVoice = document.getElementById('linkedin-voice-style');
       if (linkedinVoice && settings['linkedin.voiceStyle']) linkedinVoice.value = settings['linkedin.voiceStyle'];
       const linkedinRules = document.getElementById('linkedin-writing-rules');
       if (linkedinRules && settings['linkedin.writingRules']) linkedinRules.value = settings['linkedin.writingRules'];
+      const linkedinRoughness = document.getElementById('linkedin-roughness-level');
+      if (linkedinRoughness) linkedinRoughness.value = settings['linkedin.roughnessLevel'] || '0';
+      const linkedinRoughnessDiscourse = document.getElementById('linkedin.roughnessAllowDiscourse-toggle');
+      if (linkedinRoughnessDiscourse) linkedinRoughnessDiscourse.classList.toggle('active', settings['linkedin.roughnessAllowDiscourse'] !== 'false');
+      const linkedinPresentSimple = document.getElementById('linkedin.presentSimple-toggle');
+      if (linkedinPresentSimple) linkedinPresentSimple.classList.toggle('active', settings['linkedin.presentSimple'] !== 'false');
       const linkedinDirection = document.getElementById('linkedin-content-direction');
       if (linkedinDirection && settings['linkedin.contentDirection']) linkedinDirection.value = settings['linkedin.contentDirection'];
       const linkedinPostTargets = document.getElementById('linkedin-post-targets');
@@ -3732,6 +4143,10 @@
       if (reactionToggle) {
         const reactionsEnabled = settings['telegram.reactionAckEnabled'] !== 'false';
         reactionToggle.classList.toggle('active', reactionsEnabled);
+      }
+      const strictHeuristicsToggle = document.getElementById('telegram.strictHeuristics-toggle');
+      if (strictHeuristicsToggle) {
+        strictHeuristicsToggle.classList.toggle('active', settings['telegram.strictHeuristics'] === 'true');
       }
 
       // Pocket CLI auto-check toggle (defaults to true)
@@ -6776,6 +7191,9 @@ Never mention internal labels, automation, or filtering.`;
         await window.pocketAgent.setSetting(key, newValue);
         settings[key] = newValue;
         updateToggles();
+        if (key === 'agent.allowHostIntegrations') {
+          await refreshExternalAuditPanel(true);
+        }
         showToast('Got it!', 'success');
       } catch (err) {
         console.error('Failed to toggle setting:', err);

@@ -2882,6 +2882,68 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('linkedin:redraftBatch', async (_, postIds: number[], batchSize?: number) => {
+    const safeSendProgress = (payload: unknown): void => {
+      try {
+        if (!linkedInActivityWindow || linkedInActivityWindow.isDestroyed()) return;
+        linkedInActivityWindow.webContents.send('linkedin:draftProgress', payload);
+      } catch (sendErr) {
+        console.warn('[LinkedIn] Failed to send redraft progress event:', sendErr);
+      }
+    };
+
+    try {
+      markLinkedInControlSource('desktop');
+      const cleanIds = Array.isArray(postIds)
+        ? postIds.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0)
+        : [];
+      if (cleanIds.length === 0) {
+        return { success: false, error: 'No valid post IDs selected', errors: ['No valid post IDs selected'] };
+      }
+
+      const { redraftBatch, draftEvents } = await import('../tools/linkedin-drafter');
+      const progressHandler = (data: unknown) => safeSendProgress(data);
+      const typedProgressHandler = (data: unknown) =>
+        safeSendProgress({ type: 'progress', ...(data as Record<string, unknown>) });
+
+      draftEvents.on('drafted', progressHandler);
+      draftEvents.on('error', progressHandler);
+      draftEvents.on('researching', progressHandler);
+      draftEvents.on('complete', progressHandler);
+      draftEvents.on('progress', typedProgressHandler);
+
+      try {
+        const result = await redraftBatch(cleanIds, batchSize || 1);
+        const drafted = result.results.length;
+        const errors = result.errors;
+
+        if (drafted === 0 && errors.length > 0) {
+          return {
+            success: false,
+            error: errors[0],
+            drafted,
+            errors,
+          };
+        }
+
+        return {
+          success: true,
+          drafted,
+          errors,
+        };
+      } finally {
+        draftEvents.off('drafted', progressHandler);
+        draftEvents.off('error', progressHandler);
+        draftEvents.off('researching', progressHandler);
+        draftEvents.off('complete', progressHandler);
+        draftEvents.off('progress', typedProgressHandler);
+      }
+    } catch (err) {
+      console.error('[LinkedIn] Failed to redraft batch:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
   // Telegram notification when batch drafting completes
   import('../tools/linkedin-drafter').then(({ draftEvents }) => {
     draftEvents.on('complete', (data: { total?: number; drafted?: number }) => {

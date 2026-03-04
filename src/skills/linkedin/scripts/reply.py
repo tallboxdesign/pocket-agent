@@ -5,6 +5,7 @@ Read a post's content and optionally post a comment
 """
 
 import argparse
+import base64
 import json
 import os
 import sys
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
     PAGE_LOAD_TIMEOUT, DATA_DIR,
+    FEED_POST_SELECTORS,
     POST_AUTHOR_SELECTORS, POST_TEXT_SELECTORS,
     COMMENT_BOX_SELECTORS, COMMENT_SUBMIT_SELECTORS,
     COMMENT_BUTTON_SELECTORS
@@ -51,6 +53,83 @@ def extract_post_content(page) -> dict:
         "text": text or "",
         "url": page.url
     }
+
+
+def _is_noise_image(alt: str, src: str, cls: str) -> bool:
+    low = f"{alt} {src} {cls}".lower()
+    noise_terms = [
+        "profile", "avatar", "logo", "reaction", "emoji", "icon",
+        "badge", "presence-entity", "company-logo", "mini-profile",
+    ]
+    return any(term in low for term in noise_terms)
+
+
+def _pick_post_root(page):
+    for sel in FEED_POST_SELECTORS:
+        root = page.query_selector(sel)
+        if root:
+            return root
+    return page.query_selector("article") or page.query_selector("main") or page
+
+
+def extract_post_images(page, limit: int = 2) -> list:
+    """Extract image metadata and a compact data URI snapshot for vision/OCR."""
+    root = _pick_post_root(page)
+    if not root:
+        return []
+
+    images = root.query_selector_all("img")
+    out = []
+    seen = set()
+
+    for img in images:
+        if len(out) >= limit:
+            break
+
+        src = (
+            img.get_attribute("src")
+            or img.get_attribute("data-delayed-url")
+            or img.get_attribute("data-ghost-url")
+            or ""
+        ).strip()
+        alt = (img.get_attribute("alt") or "").strip()
+        cls = (img.get_attribute("class") or "").strip()
+
+        if not src and not alt:
+            continue
+        if _is_noise_image(alt, src, cls):
+            continue
+
+        try:
+            bbox = img.bounding_box()
+        except Exception:
+            bbox = None
+        if bbox and (bbox.get("width", 0) < 120 or bbox.get("height", 0) < 120):
+            continue
+
+        dedupe_key = (src or f"alt:{alt}").strip().lower()
+        if not dedupe_key or dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+
+        data_uri = ""
+        try:
+            snap = img.screenshot(type="jpeg", quality=42, timeout=5000)
+            if snap:
+                b64 = base64.b64encode(snap).decode("ascii")
+                # Keep JSON payload bounded (stdout has a hard cap upstream)
+                if len(b64) <= 550000:
+                    data_uri = f"data:image/jpeg;base64,{b64}"
+        except Exception:
+            data_uri = ""
+
+        out.append({
+            "url": src,
+            "alt": alt,
+            "data_uri": data_uri,
+        })
+
+    return out
 
 
 def post_comment(page, comment_text: str) -> bool:
@@ -166,8 +245,9 @@ def main():
         # Wait for page to fully render (LinkedIn loads content dynamically)
         StealthUtils.random_delay(3000, 5000)
 
-        # Extract post content
+        # Extract post content + media context for image-aware drafting
         post = extract_post_content(page)
+        post["images"] = extract_post_images(page, limit=2)
         print(json.dumps(post, indent=2, ensure_ascii=False))
 
         if args.read_only or not args.comment:

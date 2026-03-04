@@ -164,6 +164,15 @@ function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function dateAwarenessContext(): { isoDate: string; humanDate: string; year: number } {
+  const now = new Date();
+  return {
+    isoDate: now.toISOString().slice(0, 10),
+    humanDate: now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+    year: now.getFullYear(),
+  };
+}
+
 function normalizeLinkedInPostType(raw: unknown): string | null {
   const v = String(raw || '').trim().toLowerCase().replace(/[_\s]+/g, '-');
   if (!v) return null;
@@ -523,7 +532,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
         if (html.includes('login') || html.includes('session_redirect')) {
           hint = ' Session expired -re-authentication needed.';
         } else if (html.length < 5000) {
-          hint = ` Page was mostly empty (${html.length} bytes) -possible rate limit or blocked.`;
+          hint = ` Page was mostly empty (${html.length} bytes) -possible block or empty feed.`;
         } else {
           hint = ` Page loaded (${html.length} bytes) but CSS selectors matched nothing -LinkedIn may have changed their markup.`;
         }
@@ -1676,6 +1685,7 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
 
   const style = (p.style && LINKEDIN_STYLES.includes(p.style as typeof LINKEDIN_STYLES[number]))
     ? p.style : 'insight';
+  const dateContext = dateAwarenessContext();
 
   // Load user's voice/rules/direction from settings
   const voiceStyle = selectVoiceForPost(style);
@@ -1685,6 +1695,9 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
   let systemPrompt = `You are writing a LinkedIn post as a seasoned practitioner. You sound like someone who has done the work, not someone who researched it. Write from experience and conviction.
 
 Rules:
+- Today's date is ${dateContext.humanDate} (${dateContext.isoDate}). Current year is ${dateContext.year}.
+- Be strictly date-aware: do not invent month/day/year references.
+- If no source context provides a year, avoid using a year in the post.
 - Strong hook in the first 1-2 lines
 - Short paragraphs (1-3 sentences each), line breaks between them
 - NO emojis, NO em-dashes, NO en-dashes. Use commas, periods, or "..." instead
@@ -1811,6 +1824,7 @@ async function handleDraftCommentTool(input: unknown): Promise<string> {
 
   const tone = (p.tone && p.tone in COMMENT_TONES) ? p.tone : 'insightful';
   const authorFirstName = getAuthorFirstName(p.post_author);
+  const dateContext = dateAwarenessContext();
   const authorOpeningRule = authorFirstName
     ? `Start sentence 1 with "${authorFirstName}," and then acknowledge a concrete point from their post.`
     : 'Start sentence 1 by acknowledging a concrete point from the post.';
@@ -1826,6 +1840,7 @@ ABSOLUTE RULES (violating any = failure):
 2. BANNED WORDS (never use any of these): crucial, mastery, landscape, leverage, comprehensive, cutting-edge, game-changer, robust, harness, elevate, delve, foster, transformative, revolutionize, unleash, paradigm, synergy, holistic, pivotal, invaluable, navigate, realm, streamline, optimize, facilitate, enhance, innovative, empower, insightful, groundbreaking, remarkable, impressive, prevalent, crucial, utilize, ecosystem, unprecedented
 3. NO emojis, NO hashtags
 4. Never start with "Great post", "Thanks for sharing", "This is so important", "Absolutely", "100%"
+5. Today's date is ${dateContext.humanDate} (${dateContext.isoDate}); current year is ${dateContext.year}. Never invent year/month/day references. If year is not in the post context, do not add one.
 
 STYLE:
 - 2-4 sentences. Be specific to what the author actually said.
