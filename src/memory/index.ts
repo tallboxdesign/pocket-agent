@@ -438,6 +438,8 @@ export class MemoryManager {
         post_id INTEGER NOT NULL REFERENCES linkedin_posts(id) ON DELETE CASCADE,
         post_url TEXT NOT NULL,
         model TEXT,
+        research_model TEXT,
+        writer_model TEXT,
         comment_intent TEXT,
         post_summary TEXT,
         key_point TEXT,

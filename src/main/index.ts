@@ -2044,6 +2044,8 @@ function setupIPC(): void {
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_ids TEXT`); } catch {}
       // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_group TEXT`); } catch {}
+      try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN research_model TEXT`); } catch {}
+      try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN writer_model TEXT`); } catch {}
       try {
         const reconciled = reconcileLinkedInPostedState(db);
         if (reconciled > 0) {
@@ -2078,6 +2080,8 @@ function setupIPC(): void {
       const evidenceSelect = hasEvidenceTable
         ? `,
            de.model AS evidence_model,
+           de.research_model AS evidence_research_model,
+           COALESCE(de.writer_model, de.model) AS evidence_writer_model,
            de.comment_intent AS evidence_comment_intent,
            de.post_summary AS evidence_post_summary,
            de.key_point AS evidence_key_point,
@@ -2115,6 +2119,8 @@ function setupIPC(): void {
          LEFT JOIN (
            SELECT ev.post_id,
                   ev.model,
+                  ev.research_model,
+                  ev.writer_model,
                   ev.comment_intent,
                   ev.post_summary,
                   ev.key_point,

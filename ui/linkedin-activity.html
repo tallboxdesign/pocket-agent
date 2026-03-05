@@ -1642,6 +1642,7 @@
     .action-group.model-group .action-btn:hover {
       background: rgba(96, 165, 250, 0.18);
     }
+    #research-model,
     #draft-model {
       min-width: 210px;
       max-width: 320px;
@@ -2141,11 +2142,20 @@
       </select>
     </div>
     <div class="action-group model-group">
-      <button class="action-btn" onclick="saveDraftModel()" title="Save model used for LinkedIn drafting only">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 4.5v9L12 21l-9-4.5v-9L12 3z"/><path d="M12 3v18"/></svg>
-        Model
+      <button class="action-btn" onclick="saveResearchModel()" title="Save model used for LinkedIn research, web search, and evidence">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Research
       </button>
-      <select id="draft-model" title="LinkedIn drafting model (separate from chat)">
+      <select id="research-model" title="LinkedIn research model for web search, evidence, and grounding">
+        <option value="">Auto (best available)</option>
+      </select>
+    </div>
+    <div class="action-group model-group">
+      <button class="action-btn" onclick="saveDraftModel()" title="Save model used for LinkedIn writing only">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 4.5v9L12 21l-9-4.5v-9L12 3z"/><path d="M12 3v18"/></svg>
+        Writer
+      </button>
+      <select id="draft-model" title="LinkedIn writer model (separate from research)">
         <option value="">Use chat model</option>
       </select>
     </div>
@@ -2545,9 +2555,13 @@
     }
 
     const draftModeSelect = document.getElementById('draft-mode');
+    const researchModelSelect = document.getElementById('research-model');
     const draftModelSelect = document.getElementById('draft-model');
     if (draftModeSelect) {
       draftModeSelect.addEventListener('change', () => { saveDraftMode(true); });
+    }
+    if (researchModelSelect) {
+      researchModelSelect.addEventListener('change', () => { saveResearchModel(true); });
     }
     if (draftModelSelect) {
       draftModelSelect.addEventListener('change', () => { saveDraftModel(true); });
@@ -4409,13 +4423,13 @@
       } catch {}
     }
 
-    async function loadDraftModelOptions() {
-      const el = document.getElementById('draft-model');
+    async function loadLinkedInModelOptions(selectId, settingKey, emptyLabel) {
+      const el = document.getElementById(selectId);
       if (!el || !window.pocketAgent?.getAvailableModels || !window.pocketAgent?.getSetting) return;
       try {
         const [models, savedModel] = await Promise.all([
           window.pocketAgent.getAvailableModels(),
-          window.pocketAgent.getSetting('linkedin.postModel'),
+          window.pocketAgent.getSetting(settingKey),
         ]);
 
         const providerOrder = ['anthropic', 'moonshot', 'glm', 'minimax', 'gemini', 'openai', 'qwen'];
@@ -4428,7 +4442,7 @@
           return String(a.name || a.id).localeCompare(String(b.name || b.id));
         });
 
-        el.innerHTML = '<option value="">Use chat model</option>';
+        el.innerHTML = `<option value="">${escapeHtml(emptyLabel)}</option>`;
         for (const model of sortedModels) {
           const opt = document.createElement('option');
           opt.value = model.id;
@@ -4452,6 +4466,14 @@
       }
     }
 
+    async function loadResearchModelOptions() {
+      return loadLinkedInModelOptions('research-model', 'linkedin.researchModel', 'Auto (best available)');
+    }
+
+    async function loadDraftModelOptions() {
+      return loadLinkedInModelOptions('draft-model', 'linkedin.postModel', 'Use chat model');
+    }
+
     async function saveDraftMode(silent = false) {
       const mode = currentDraftMode();
       if (!window.pocketAgent?.setSetting) return mode;
@@ -4463,6 +4485,26 @@
         if (!silent) showToast(`Failed to save draft mode: ${shortError(err)}`, 'error');
       }
       return mode;
+    }
+
+    function currentResearchModel() {
+      const el = document.getElementById('research-model');
+      return el ? String(el.value || '').trim() : '';
+    }
+
+    async function saveResearchModel(silent = false) {
+      const model = currentResearchModel();
+      if (!window.pocketAgent?.setSetting) return model;
+      try {
+        await window.pocketAgent.setSetting('linkedin.researchModel', model);
+        if (!silent) {
+          const label = model ? `LinkedIn research model saved: ${model}` : 'LinkedIn research model saved: auto';
+          showToast(label, 'success');
+        }
+      } catch (err) {
+        if (!silent) showToast(`Failed to save LinkedIn research model: ${shortError(err)}`, 'error');
+      }
+      return model;
     }
 
     function currentDraftModel() {
@@ -4529,7 +4571,7 @@
       }
 
       const mode = await saveDraftMode(true);
-      const model = await saveDraftModel(true);
+      const [researchModel, model] = await Promise.all([saveResearchModel(true), saveDraftModel(true)]);
       await loadPosts();
 
       let result;
@@ -4552,9 +4594,9 @@
         if (queued > 0 && drafted === 0 && failed === 0) {
           showToast(`Queued ${queued} post${queued === 1 ? '' : 's'} behind active draft job`, 'success');
         } else if (failed > 0) {
-          showToast(`${successLabel} (${mode}): ${drafted} drafted, ${failed} failed`, failed === drafted ? 'error' : 'success');
+          showToast(`${successLabel} (${mode}; research ${researchModel || 'auto'}; writer ${model || 'chat'}): ${drafted} drafted, ${failed} failed`, failed === drafted ? 'error' : 'success');
         } else {
-          showToast(`${successLabel} (${mode}): ${drafted} comments`, 'success');
+          showToast(`${successLabel} (${mode}; research ${researchModel || 'auto'}; writer ${model || 'chat'}): ${drafted} comments`, 'success');
         }
         return;
       }
@@ -4571,7 +4613,7 @@
       }
 
       const mode = await saveDraftMode(true);
-      const model = await saveDraftModel(true);
+      const [researchModel, model] = await Promise.all([saveResearchModel(true), saveDraftModel(true)]);
       await loadPosts();
 
       let result;
@@ -4591,9 +4633,9 @@
         const failed = Array.isArray(result.errors) ? result.errors.length : 0;
         await loadPosts();
         if (failed > 0) {
-          showToast(`${successLabel} (${mode}): ${drafted} redrafted, ${failed} failed`, failed === drafted ? 'error' : 'success');
+          showToast(`${successLabel} (${mode}; research ${researchModel || 'auto'}; writer ${model || 'chat'}): ${drafted} redrafted, ${failed} failed`, failed === drafted ? 'error' : 'success');
         } else {
-          showToast(`${successLabel} (${mode}): ${drafted} comments`, 'success');
+          showToast(`${successLabel} (${mode}; research ${researchModel || 'auto'}; writer ${model || 'chat'}): ${drafted} comments`, 'success');
         }
         return;
       }
@@ -5736,7 +5778,8 @@
         : '<div class="draft-evidence-line">No sources recorded.</div>';
 
       const evidenceMeta = [];
-      if (p.evidence_model) evidenceMeta.push(`Model: ${escapeHtml(p.evidence_model)}`);
+      if (p.evidence_research_model) evidenceMeta.push(`Research: ${escapeHtml(p.evidence_research_model)}`);
+      if (p.evidence_writer_model || p.evidence_model) evidenceMeta.push(`Writer: ${escapeHtml(p.evidence_writer_model || p.evidence_model)}`);
       if (p.evidence_created_at) evidenceMeta.push(`Evidence: ${escapeHtml(formatEvidenceTimestamp(p.evidence_created_at))}`);
       if (Number(p.evidence_full_post_word_count || 0) > 0) evidenceMeta.push(`Full post: ${Number(p.evidence_full_post_word_count)} words`);
       const evidenceMetaHtml = evidenceMeta.length ? `<div class="evidence-meta">${evidenceMeta.map(m => `<span>${m}</span>`).join('')}</div>` : '';
@@ -6702,6 +6745,7 @@
 
     refreshPanelTabs();
     loadDraftMode();
+    loadResearchModelOptions();
     loadDraftModelOptions();
     loadPosts();
   </script>
