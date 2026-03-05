@@ -311,7 +311,7 @@ export async function handleTextMessage(
     // Notify callback for cross-channel sync (to desktop)
     if (onMessageCallback) {
       onMessageCallback({
-        userMessage: message,
+        userMessage: originalMessage,
         response: result.response,
         channel: 'telegram',
         chatId,
