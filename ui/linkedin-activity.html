@@ -1068,6 +1068,22 @@
       color: var(--text-primary);
       font-size: 12px;
     }
+    .post-bank-manager-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin: 8px 0 10px 0;
+    }
+    .post-bank-manager-controls select {
+      min-width: 220px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-primary);
+      font-size: 12px;
+    }
     .post-bank-entry {
       border: 1px solid rgba(148,163,184,0.2);
       border-radius: 8px;
@@ -2043,6 +2059,10 @@
           <label>Authenticity</label>
           <select id="bulk-meta-auth"></select>
         </div>
+        <div>
+          <label>Group</label>
+          <select id="bulk-meta-group"></select>
+        </div>
       </div>
       <div class="bulk-meta-actions">
         <button class="action-btn" onclick="closeBulkMetaModal()">Cancel</button>
@@ -2075,10 +2095,13 @@
     <div class="bulk-meta-card" style="max-width:900px;">
       <div class="bulk-meta-title">Post Bank Manager</div>
       <div class="li-quick-help">Add posts/replies you like. They are used as style references only (no copying).</div>
+      <div class="post-bank-manager-controls">
+        <select id="post-bank-manager-group-filter" onchange="setPostBankManagerGroupFilter(this.value)"></select>
+        <button class="action-btn" onclick="addPostBankEntry()">Add Entry</button>
+      </div>
       <div class="post-bank-groups" id="post-bank-group-list"></div>
       <div class="post-bank-list" id="post-bank-manager-list"></div>
       <div class="bulk-meta-actions">
-        <button class="action-btn" onclick="addPostBankEntry()">Add Entry</button>
         <button class="action-btn" onclick="closePostBankManager()">Close</button>
         <button class="action-btn success" onclick="savePostBankEntries()">Save</button>
       </div>
@@ -2219,6 +2242,7 @@
     let postBankEntries = [];
     let postBankLoaded = false;
     let postBankSelectorContext = { mode: 'post', postIds: [], presetIndex: null, selectedIds: [], selectedGroup: '' };
+    let postBankManagerGroupFilter = '';
     const EMOTION_KEYWORDS = [
       { value: 'conflict', words: ['vs', 'versus', 'debate', 'argument', 'pushback', 'disagree', 'controversy', 'fight'] },
       { value: 'frustration', words: ['annoy', 'frustrat', 'hate', 'pain', 'broken', 'mess', 'waste', 'stuck', 'bad', 'wrong'] },
@@ -2362,6 +2386,7 @@
 
     function addPostBankEntry() {
       const id = `pb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const group = String(postBankManagerGroupFilter || '').trim();
       postBankEntries.push({
         id,
         title: '',
@@ -2369,7 +2394,7 @@
         text: '',
         tags: [],
         functionTags: [],
-        group: '',
+        group,
         disabled: false,
       });
       renderPostBankManager();
@@ -2393,6 +2418,7 @@
         group: name,
         disabled: false,
       });
+      postBankManagerGroupFilter = name;
       if (input) input.value = '';
       renderPostBankManager();
     }
@@ -2466,6 +2492,7 @@
         if (String(entry.group || '').trim() !== oldName) return entry;
         return { ...entry, group: nextName };
       });
+      if (postBankManagerGroupFilter === oldName) postBankManagerGroupFilter = nextName;
       renderPostBankManager();
     }
 
@@ -2476,6 +2503,12 @@
         if (String(entry.group || '').trim() !== name) return entry;
         return { ...entry, group: '' };
       });
+      if (postBankManagerGroupFilter === name) postBankManagerGroupFilter = '';
+      renderPostBankManager();
+    }
+
+    function setPostBankManagerGroupFilter(value) {
+      postBankManagerGroupFilter = String(value || '').trim();
       renderPostBankManager();
     }
 
@@ -2483,12 +2516,24 @@
       const host = document.getElementById('post-bank-manager-list');
       if (!host) return;
       renderPostBankGroups();
+      const groupFilter = document.getElementById('post-bank-manager-group-filter');
+      if (groupFilter) {
+        const groups = getPostBankGroups();
+        const options = ['<option value=\"\">All groups</option>']
+          .concat(groups.map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)} (${g.count})</option>`));
+        groupFilter.innerHTML = options.join('');
+        groupFilter.value = postBankManagerGroupFilter || '';
+      }
       if (!postBankEntries.length) {
         host.innerHTML = '<div class="li-quick-help">No entries yet. Add the first example to get started.</div>';
         return;
       }
-      host.innerHTML = postBankEntries.map((entry, idx) => `
-        <div class="post-bank-entry" data-entry-id="${entry.id}">
+      const filteredGroup = String(postBankManagerGroupFilter || '').trim();
+      host.innerHTML = postBankEntries.map((entry, idx) => {
+        const hide = filteredGroup && String(entry.group || '').trim() !== filteredGroup;
+        const hideStyle = hide ? 'style="display:none;"' : '';
+        return `
+        <div class="post-bank-entry" data-entry-id="${entry.id}" ${hideStyle}>
           <div class="row">
             <div>
               <label>Title</label>
@@ -2534,7 +2579,8 @@
           <label>Text</label>
           <textarea id="pb-text-${idx}" placeholder="Paste post/reply/snippet here">${escapeHtml(entry.text || '')}</textarea>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
 
     function removePostBankEntry(id) {
@@ -3247,6 +3293,7 @@
       const hookEl = document.getElementById('bulk-meta-hook');
       const emotionEl = document.getElementById('bulk-meta-emotion');
       const authEl = document.getElementById('bulk-meta-auth');
+      const groupEl = document.getElementById('bulk-meta-group');
       if (hookEl && !hookEl.dataset.ready) {
         hookEl.innerHTML = ['<option value="">No change</option>']
           .concat(Array.from({ length: 10 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`))
@@ -3264,6 +3311,12 @@
           .concat(AUTH_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`));
         authEl.innerHTML = opts.join('');
         authEl.dataset.ready = '1';
+      }
+      if (groupEl) {
+        const groups = getPostBankGroups();
+        const opts = ['<option value="">No change</option>']
+          .concat(groups.map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)}</option>`));
+        groupEl.innerHTML = opts.join('');
       }
     }
 
@@ -3286,9 +3339,11 @@
       const hookEl = document.getElementById('bulk-meta-hook');
       const emotionEl = document.getElementById('bulk-meta-emotion');
       const authEl = document.getElementById('bulk-meta-auth');
+      const groupEl = document.getElementById('bulk-meta-group');
       if (hookEl) hookEl.value = '';
       if (emotionEl) emotionEl.value = '';
       if (authEl) authEl.value = '';
+      if (groupEl) groupEl.value = '';
       if (modal) modal.classList.add('show');
     }
 
@@ -3307,11 +3362,16 @@
       const emotionVal = (document.getElementById('bulk-meta-emotion') || {}).value || '';
       const nicheVal = (document.getElementById('bulk-meta-niche') || {}).value || '';
       const authVal = (document.getElementById('bulk-meta-auth') || {}).value || '';
+      const groupVal = (document.getElementById('bulk-meta-group') || {}).value || '';
       const updates = {};
       if (hookVal) updates.hook_score = hookVal;
       if (emotionVal) updates.emotion_tag = emotionVal;
       if (nicheVal.trim()) updates.niche_target = nicheVal.trim();
       if (authVal) updates.authenticity_flag = authVal;
+      if (groupVal) {
+        updates.post_bank_group = groupVal;
+        updates.post_bank_ids = null;
+      }
       if (Object.keys(updates).length === 0) {
         showToast('Choose at least one target to apply', 'error');
         return;
@@ -3354,7 +3414,7 @@
             }
           } catch { /* ignore */ }
         }
-        draftPresetDefault = rawDefault ? String(rawDefault) : 'none';
+        draftPresetDefault = rawDefault ? String(rawDefault) : '0';
       } catch {}
       updatePresetButtons();
     }
@@ -5219,21 +5279,26 @@
       const autoNicheValue = String(autoMeta.niche_target || '').trim();
       const authValue = String(p.authenticity_flag || '').trim().toLowerCase();
       const autoAuthValue = String(autoMeta.authenticity_flag || '').trim().toLowerCase();
+      const groupValue = String(p.post_bank_group || '').trim();
       const showAdvancedDraftActions = ['drafted', 'scheduled', 'needs_attention', 'failed'].includes(activePanel);
       const hookDisplay = hookValue || (autoHookValue ? `auto ${autoHookValue}` : 'auto');
       const emotionDisplay = emotionValue || (autoEmotionValue ? `auto ${autoEmotionValue}` : 'auto');
       const nicheDisplay = nicheValue || (autoNicheValue ? `auto ${autoNicheValue}` : 'auto');
       const authDisplay = authValue || (autoAuthValue ? `auto ${autoAuthValue}` : 'auto');
+      const groupDisplay = groupValue || 'none';
       const bankIds = parsePostBankIds(p.post_bank_ids);
       const bankCount = bankIds.length;
       const showBankChip = activePanel === 'drafted' || activePanel === 'queue';
       const bankChip = showBankChip
         ? `<span class="bank-chip" onclick="openPostBankSelector(${p.id})" title="Select Post Bank entries">Bank ${bankCount || 0}</span>`
         : '';
-      const targetsLine = `<div class="draft-targets">Targets: Hook ${escapeHtml(hookDisplay)} · Emotion ${escapeHtml(emotionDisplay)} · Niche ${escapeHtml(nicheDisplay)} · Auth ${escapeHtml(authDisplay)} ${bankChip}</div>`;
+      const targetsLine = `<div class="draft-targets">Targets: Hook ${escapeHtml(hookDisplay)} · Emotion ${escapeHtml(emotionDisplay)} · Niche ${escapeHtml(nicheDisplay)} · Auth ${escapeHtml(authDisplay)} · Group ${escapeHtml(groupDisplay)} ${bankChip}</div>`;
       const hookOptions = [''].concat(Array.from({ length: 10 }, (_, i) => String(i + 1)));
       const emotionOptions = EMOTION_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === emotionValue ? 'selected' : ''}>${opt.label}</option>`).join('');
       const authOptions = AUTH_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === authValue ? 'selected' : ''}>${opt.label}</option>`).join('');
+      const groupOptions = ['<option value="">(none)</option>']
+        .concat(getPostBankGroups().map(g => `<option value="${escapeHtml(g.name)}" ${g.name === groupValue ? 'selected' : ''}>${escapeHtml(g.name)}</option>`))
+        .join('');
 
       const qualityMetaHtml = `
             <div class="quality-meta">
@@ -5252,6 +5317,10 @@
               <label>Auth <span class="meta-help" data-tip="How human it feels: Human, AI Assist, or AI Only.">?</span>${!authValue && autoAuthValue ? `<span class="meta-auto-hint">auto ${escapeHtml(autoAuthValue)}</span>` : ''}</label>
               <select onchange="updatePostMeta(${p.id}, { authenticity_flag: this.value })">
                 ${authOptions}
+              </select>
+              <label>Group <span class="meta-help" data-tip="Post Bank group to use for style references.">?</span></label>
+              <select onchange="updatePostMeta(${p.id}, { post_bank_group: this.value, post_bank_ids: null })">
+                ${groupOptions}
               </select>
               <button class="meta-auto" onclick="autoTagPostMeta(${p.id})" title="Auto-fill from post text">Auto</button>
               ${gateBadge}
