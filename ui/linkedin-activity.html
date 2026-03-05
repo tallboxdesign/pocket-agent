@@ -293,6 +293,33 @@
       overflow: hidden;
     }
     .posts-table td { vertical-align: top; }
+    .posts-table th {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--bg-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      user-select: none;
+    }
+    .th-draggable { cursor: grab; }
+    .th-drag-over { background: rgba(59,130,246,0.16); }
+    .th-filter {
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2px 4px;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+    }
+    .th-filter:hover {
+      background: rgba(96, 165, 250, 0.18);
+      color: #c7d2fe;
+    }
     .posts-table th,
     .posts-table td {
       border-right: 1px solid rgba(148, 163, 184, 0.08);
@@ -4914,7 +4941,25 @@
     const PRIORITY_LABELS = { low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent' };
     function priorityDot(postId, priority) {
       const p = priority || 'normal';
-      return `<span class="priority-badge priority-${p}" onclick="cyclePriority(${postId}, '${p}')" title="Click to cycle priority">${PRIORITY_LABELS[p] || p}</span>`;
+      return `<span class="priority-badge priority-${p}" onclick="setPriorityFilter('${p}')" oncontextmenu="event.preventDefault(); cyclePriority(${postId}, '${p}')" title="Click to filter by ${p}, right-click to cycle">${PRIORITY_LABELS[p] || p}</span>`;
+    }
+
+    function setPriorityFilter(val) {
+      const el = document.getElementById('filter-priority');
+      if (!el) return;
+      const current = String(el.value || '');
+      const next = String(val || '');
+      el.value = current === next ? '' : next;
+      loadPosts();
+    }
+
+    function setEngagementFilter(val) {
+      const el = document.getElementById('filter-engagement');
+      if (!el) return;
+      const current = String(el.value || '');
+      const next = String(val || '');
+      el.value = current === next ? '' : next;
+      loadPosts();
     }
 
     function formatScheduleTime(iso) {
@@ -5210,6 +5255,7 @@
         const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
         const needsAttention = (!!(p.approved && !isPublished && (!p.scheduled_at || hasFailed)) && !isPostingNow) || recheckCandidate;
 
+        if (hasFailed && panel !== 'failed') return false;
         if (panel === 'queue' && !isQueuePanel) return false;
         if (panel === 'drafted' && !isDraftedPanel) return false;
         if (panel === 'scheduled' && !isScheduledPanel) return false;
@@ -5396,6 +5442,15 @@
           scheduled: true,
           author: true,
         };
+        const safeRows = filtered.map((p, i) => {
+          try {
+            return renderPostRow(p, i + 1);
+          } catch (err) {
+            console.error('Failed to render LinkedIn row:', err, p);
+            const idLabel = Number(p?.id || 0) ? `#${p.id}` : 'unknown post';
+            return `<tr class="row-error"><td colspan="12" style="color:#fca5a5;padding:10px 12px;">Row render failed for ${idLabel}. Open dev tools for details.</td></tr>`;
+          }
+        }).join('');
         let html = `
           <table class="posts-table" id="main-table">
             <colgroup>
@@ -5423,8 +5478,14 @@
                 <th class="col-priority ${col.pri ? '' : 'column-hidden'}" data-col="pri">PRI<span class="th-resize-handle" data-col="pri"></span></th>
                 <th data-col="quality" class="${col.quality ? '' : 'column-hidden'}">Quality<span class="th-resize-handle" data-col="quality"></span></th>
                 <th class="col-actions ${col.actions ? '' : 'column-hidden'}" data-col="actions"><span class="th-resize-handle" data-col="actions"></span></th>
-                <th class="col-stats ${col.reacts ? '' : 'column-hidden'}" data-col="reacts" title="Reactions">❤️<span class="th-resize-handle" data-col="reacts"></span></th>
-                <th class="col-stats ${col.cmts ? '' : 'column-hidden'}" data-col="cmts" title="Comments">💬<span class="th-resize-handle" data-col="cmts"></span></th>
+                <th class="col-stats ${col.reacts ? '' : 'column-hidden'}" data-col="reacts" title="Reactions">
+                  <span class="th-filter" onclick="toggleSort('reactions'); loadPosts();" title="Sort by reactions (toggle)">❤️</span>
+                  <span class="th-resize-handle" data-col="reacts"></span>
+                </th>
+                <th class="col-stats ${col.cmts ? '' : 'column-hidden'}" data-col="cmts" title="Comments">
+                  <span class="th-filter" onclick="toggleSort('comments'); loadPosts();" title="Sort by comments (toggle)">💬</span>
+                  <span class="th-resize-handle" data-col="cmts"></span>
+                </th>
                 <th class="col-type ${col.type ? '' : 'column-hidden'}" data-col="type">Type<span class="th-resize-handle" data-col="type"></span></th>
                 <th class="col-status ${col.status ? '' : 'column-hidden'}" data-col="status">Status<span class="th-resize-handle" data-col="status"></span></th>
                 <th class="col-scheduled ${col.scheduled ? '' : 'column-hidden'}" data-col="scheduled">Scheduled<span class="th-resize-handle" data-col="scheduled"></span></th>
@@ -5433,7 +5494,7 @@
               </tr>
             </thead>
             <tbody>
-              ${filtered.map((p, i) => renderPostRow(p, i + 1)).join('')}
+              ${safeRows}
             </tbody>
           </table>
         `;
@@ -5528,6 +5589,9 @@
       const isWriting = ds === 'writing' && !hasDraft;
       const lastAction = String(p.last_activity_action || '').toLowerCase();
       const isPostingNow = !isPublished && lastAction === 'posting_attempt' && !p.scheduled_at;
+      const hasPostingFail = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
+      const hasDraftFailure = String(ds || '').startsWith('failed_');
+      const hasFailed = !isPublished && !hasDraft && (hasDraftFailure || Number(p.failed_attempts || 0) > 0 || hasPostingFail) && !p.scheduled_at;
       
       const aiSummaryText = normalizePreviewText(p.evidence_post_summary || p.full_post_summary || '');
       const summaryText = getPostSummary(p);
@@ -5693,21 +5757,22 @@
       const authorLabel = escapeHtml(p.author || p.author_name || 'Unknown');
       const hasDraftError = !!String(p.draft_error || '').trim();
       const showReject = !isPublished && (hasDraft || hasDraftError);
+      const draftStartLabel = hasFailed ? 'Re-Research + Draft' : 'Research + Draft';
       const actionBarHtml = hasDraft
         ? `
           <div class="post-actions-bar">
             <button class="action-btn" onclick="setPostTab(${p.id}, 'draft')">${draftExpanded ? 'Hide draft' : 'Show draft'}</button>
-            <button class="action-btn" onclick="redoDraft(${p.id})">New research</button>
+            <button class="action-btn" onclick="redoDraft(${p.id})">Re-Research + Draft</button>
             <button class="action-btn" onclick="redraftDraft(${p.id})">Redraft</button>
             <button class="action-btn" onclick="rewriteDraft(${p.id})">Rewrite</button>
+            <button class="action-btn" style="background:rgba(96,165,250,0.1);color:#93c5fd;border-color:rgba(96,165,250,0.3);" onclick="editDraft(${p.id})">Edit</button>
             ${showReject ? `<button class="action-btn" style="background:rgba(248,113,113,0.12);color:#fca5a5;border-color:rgba(248,113,113,0.3);" onclick="rejectDraft(${p.id})">Reject</button>` : ''}
             ${rowActionsHtml}
           </div>
         `
         : `
           <div class="post-actions-bar">
-            <button class="action-btn" onclick="redoDraft(${p.id})">New research</button>
-            <button class="action-btn success" onclick="draftSinglePost(${p.id})">Create Draft</button>
+            <button class="action-btn success" onclick="draftSinglePost(${p.id})">${draftStartLabel}</button>
             ${showReject ? `<button class="action-btn" style="background:rgba(248,113,113,0.12);color:#fca5a5;border-color:rgba(248,113,113,0.3);" onclick="rejectDraft(${p.id})">Reject</button>` : ''}
           </div>
         `;
@@ -6261,7 +6326,8 @@
         existingEditor.focus();
         return;
       }
-      const contentEl = document.getElementById('draft-content-' + postId);
+      setPostTab(postId, 'draft');
+      const contentEl = document.getElementById('draft-' + postId);
       if (!contentEl) return;
       if (editingDraftPostId && editingDraftPostId !== postId) {
         showToast('Finish or cancel the current edit first', 'error');
@@ -6272,10 +6338,12 @@
       const extraEl = document.getElementById('draft-extra-' + postId);
       if (extraEl) extraEl.innerHTML = '';
       const currentText = contentEl.textContent || '';
+      contentEl.classList.add('expanded');
+      expandedDraftId = postId;
       contentEl.innerHTML = `<textarea class="draft-edit-area" id="draft-edit-${postId}">${escapeHtml(currentText)}</textarea>
         <textarea class="draft-edit-area" id="draft-edit-instructions-${postId}" style="margin-top:8px;min-height:72px" placeholder="AI helper: describe exactly what to add/change (it will keep the rest intact)"></textarea>
         <div class="draft-actions" style="margin-top:6px">
-          <button class="btn-edit" onclick="aiAssistDraftEdit(${postId})">AI Apply</button>
+          <button class="btn-edit" onclick="aiAssistDraftEdit(${postId})">AI Improve</button>
           <button class="btn-approve" onclick="saveDraftEdit(${postId})">Save</button>
           <button onclick="cancelDraftEdit(${postId})">Cancel</button>
         </div>`;
@@ -6331,7 +6399,7 @@
       const textarea = document.getElementById('draft-edit-' + postId);
       if (!textarea) return;
       const newText = textarea.value
-        .replace(/\n?\s*AI Apply\s*Save\s*Cancel\s*$/i, '')
+        .replace(/\n?\s*AI Improve\s*Save\s*Cancel\s*$/i, '')
         .trim();
       if (!newText) return;
       try {
@@ -6539,8 +6607,10 @@
         if (!key) return;
         th.setAttribute('draggable', 'true');
         th.classList.add('th-draggable');
+        th.style.userSelect = 'none';
         th.addEventListener('dragstart', (e) => {
           e.dataTransfer?.setData('text/plain', key);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
         });
         th.addEventListener('dragover', (e) => {
           e.preventDefault();
