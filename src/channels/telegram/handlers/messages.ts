@@ -197,7 +197,8 @@ export async function handleTextMessage(
     }
   }
 
-  if (recent.length > 0) {
+  const shouldIncludeContext = isShortFollowUp(originalMessage) || !!replyTo;
+  if (recent.length > 0 && shouldIncludeContext) {
     const snippet = buildRecentContextSnippet(recent.slice(-4));
     if (snippet) {
       message = `[Recent context]\n${snippet}\n\n${message}`;
