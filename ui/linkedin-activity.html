@@ -3184,8 +3184,8 @@
       const allowBulk = activePanel === 'drafted';
       const allowBank = activePanel === 'drafted' || activePanel === 'queue';
       const allowPresets = activePanel === 'drafted' || activePanel === 'queue';
-      const allowRewrite = activePanel === 'drafted';
-      const allowRedraft = activePanel === 'drafted';
+      const allowRewrite = activePanel === 'drafted' || activePanel === 'queue';
+      const allowRedraft = activePanel === 'drafted' || activePanel === 'queue';
       if (bulkBtn) bulkBtn.style.display = allowBulk && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (bankBtn) bankBtn.style.display = allowBank && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (rewriteBtn) rewriteBtn.style.display = allowRewrite && selectedIds.size > 0 ? 'inline-flex' : 'none';
@@ -4216,13 +4216,14 @@
     }
 
     function rewriteSelected() {
-      if (activePanel !== 'drafted') {
-        showToast('Bulk rewrite is available in Drafted only', 'error');
-        return;
-      }
       const ids = getSelectedIds();
       if (!ids.length) {
         showToast('Select posts first', 'error');
+        return;
+      }
+      if (activePanel === 'queue') {
+        showToast('Queue has no drafts yet. Running Research & Draft instead.', 'success');
+        researchDraftSelected();
         return;
       }
       ids.forEach(id => enqueueRewrite(id));
@@ -4230,13 +4231,14 @@
     }
 
     async function redraftSelected() {
-      if (activePanel !== 'drafted') {
-        showToast('Bulk redraft is available in Drafted only', 'error');
-        return;
-      }
       const ids = getSelectedIds();
       if (!ids.length) {
         showToast('Select posts first', 'error');
+        return;
+      }
+      if (activePanel === 'queue') {
+        showToast('Queue has no drafts yet. Running Research & Draft instead.', 'success');
+        researchDraftSelected();
         return;
       }
       showToast(`Redrafting ${ids.length} post${ids.length === 1 ? '' : 's'} with cached research...`, 'success');
