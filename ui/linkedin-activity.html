@@ -1091,12 +1091,36 @@
       background: rgba(15,23,42,0.5);
       position: relative;
     }
+    .post-bank-entry-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .post-bank-select {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      user-select: none;
+    }
     .post-bank-entry-actions {
-      position: absolute;
-      top: 8px;
-      right: 8px;
       display: flex;
       gap: 6px;
+    }
+    .post-bank-bulk-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 10px 0 12px;
+      flex-wrap: wrap;
+    }
+    .post-bank-bulk-actions .count {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-right: auto;
     }
     .post-bank-entry textarea {
       width: 100%;
@@ -2257,6 +2281,7 @@
     let postBankLoaded = false;
     let postBankSelectorContext = { mode: 'post', postIds: [], presetIndex: null, selectedIds: [], selectedGroup: '' };
     let postBankManagerGroupFilter = '';
+    let postBankSelectedIds = new Set();
     const EMOTION_KEYWORDS = [
       { value: 'conflict', words: ['vs', 'versus', 'debate', 'argument', 'pushback', 'disagree', 'controversy', 'fight'] },
       { value: 'frustration', words: ['annoy', 'frustrat', 'hate', 'pain', 'broken', 'mess', 'waste', 'stuck', 'bad', 'wrong'] },
@@ -2532,11 +2557,13 @@
 
     function viewPostBankGroup(name) {
       postBankManagerGroupFilter = String(name || '').trim();
+      postBankSelectedIds = new Set();
       renderPostBankManager();
     }
 
     function setPostBankManagerGroupFilter(value) {
       postBankManagerGroupFilter = String(value || '').trim();
+      postBankSelectedIds = new Set();
       renderPostBankManager();
     }
 
@@ -2559,17 +2586,33 @@
         return;
       }
       const filteredGroup = String(postBankManagerGroupFilter || '').trim();
-      host.innerHTML = postBankEntries.map((entry, idx) => {
+      const showHint = !filteredGroup;
+      const hint = showHint ? '<div class="li-quick-help" style="margin-bottom:8px;">Select a group above to view and edit its entries.</div>' : '';
+      const visibleEntryIds = [];
+      const bulkActions = !showHint ? `
+        <div class="post-bank-bulk-actions">
+          <div class="count">${postBankSelectedIds.size} selected</div>
+          <button class="action-btn" onclick="selectAllVisiblePostBankEntries()">Select all in group</button>
+          <button class="action-btn" onclick="clearPostBankSelection()">Clear</button>
+          <button class="action-btn" onclick="removeSelectedPostBankEntries()" style="background:rgba(248,113,113,0.12);color:#fca5a5;border-color:rgba(248,113,113,0.3);">Remove selected</button>
+        </div>
+      ` : '';
+      host.innerHTML = hint + bulkActions + postBankEntries.map((entry, idx) => {
         const entryGroup = String(entry.group || '').trim();
-        const hide = filteredGroup
-          ? (filteredGroup === '__ungrouped__' ? !!entryGroup : entryGroup !== filteredGroup)
-          : false;
+        const hide = showHint
+          ? true
+          : (filteredGroup === '__ungrouped__' ? !!entryGroup : entryGroup !== filteredGroup);
         const hideStyle = hide ? 'style="display:none;"' : '';
+        if (!hide) visibleEntryIds.push(entry.id);
+        const selected = postBankSelectedIds.has(entry.id);
         return `
         <div class="post-bank-entry" data-entry-id="${entry.id}" ${hideStyle}>
-          <div class="post-bank-entry-actions">
-            <button class="action-btn" onclick="duplicatePostBankEntry('${entry.id}')">Duplicate</button>
-            <button class="action-btn" onclick="removePostBankEntry('${entry.id}')">Remove</button>
+          <div class="post-bank-entry-header">
+            <label class="post-bank-select"><input type="checkbox" ${selected ? 'checked' : ''} onchange="togglePostBankSelect('${entry.id}', this.checked)"> Select</label>
+            <div class="post-bank-entry-actions">
+              <button class="action-btn" onclick="duplicatePostBankEntry('${entry.id}')">Duplicate</button>
+              <button class="action-btn" onclick="removePostBankEntry('${entry.id}')">Remove</button>
+            </div>
           </div>
           <div class="row">
             <div>
@@ -2615,8 +2658,54 @@
       }).join('');
     }
 
+    function getVisiblePostBankEntryIds() {
+      const filteredGroup = String(postBankManagerGroupFilter || '').trim();
+      if (!filteredGroup) return [];
+      return postBankEntries
+        .filter(entry => {
+          const entryGroup = String(entry.group || '').trim();
+          return filteredGroup === '__ungrouped__' ? !entryGroup : entryGroup === filteredGroup;
+        })
+        .map(entry => entry.id);
+    }
+
+    function togglePostBankSelect(id, checked) {
+      if (checked) postBankSelectedIds.add(id);
+      else postBankSelectedIds.delete(id);
+      renderPostBankManager();
+    }
+
+    function selectAllVisiblePostBankEntries() {
+      const ids = getVisiblePostBankEntryIds();
+      ids.forEach(id => postBankSelectedIds.add(id));
+      renderPostBankManager();
+    }
+
+    function clearPostBankSelection() {
+      postBankSelectedIds = new Set();
+      renderPostBankManager();
+    }
+
+    function removeSelectedPostBankEntries() {
+      if (!postBankSelectedIds.size) return;
+      const ids = new Set(postBankSelectedIds);
+      const count = ids.size;
+      const group = String(postBankManagerGroupFilter || '').trim();
+      const groupLabel = group ? (group === '__ungrouped__' ? 'Ungrouped' : group) : 'all groups';
+      const confirmText = `Remove ${count} post bank entr${count === 1 ? 'y' : 'ies'} from ${groupLabel}? This cannot be undone.`;
+      if (!confirm(confirmText)) return;
+      postBankEntries = postBankEntries.filter(e => !ids.has(e.id));
+      postBankSelectedIds = new Set();
+      renderPostBankManager();
+    }
+
     function removePostBankEntry(id) {
+      const entry = postBankEntries.find(e => e.id === id);
+      const title = entry?.title ? `“${entry.title}”` : 'this entry';
+      const group = entry?.group ? ` from ${entry.group}` : '';
+      if (!confirm(`Remove ${title}${group}? This cannot be undone.`)) return;
       postBankEntries = postBankEntries.filter(e => e.id !== id);
+      postBankSelectedIds.delete(id);
       renderPostBankManager();
     }
 
