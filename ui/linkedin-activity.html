@@ -1089,6 +1089,14 @@
       border-radius: 8px;
       padding: 10px;
       background: rgba(15,23,42,0.5);
+      position: relative;
+    }
+    .post-bank-entry-actions {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      display: flex;
+      gap: 6px;
     }
     .post-bank-entry textarea {
       width: 100%;
@@ -2394,7 +2402,7 @@
         text: '',
         tags: [],
         functionTags: [],
-        group,
+        group: group === '__ungrouped__' ? '' : group,
         disabled: false,
       });
       renderPostBankManager();
@@ -2463,20 +2471,29 @@
       if (!host) return;
       const groups = getPostBankGroups();
       postBankGroupIndex = groups.map(g => g.name);
+      const ungroupedCount = postBankEntries.filter(entry => !String(entry.group || '').trim()).length;
       const createRow = `
         <div class="post-bank-group-create">
           <input id="post-bank-new-group" placeholder="New group name">
           <button class="action-btn" onclick="createPostBankGroup()">Create Group</button>
         </div>
       `;
-      if (!groups.length) {
+      const ungroupedRow = ungroupedCount
+        ? `<div class="post-bank-group-row">
+            <input value="Ungrouped" disabled />
+            <span class="badge" style="margin-left:6px;">${ungroupedCount}</span>
+            <button class="action-btn" onclick="viewPostBankGroup('__ungrouped__')">Open</button>
+          </div>`
+        : '';
+      if (!groups.length && !ungroupedCount) {
         host.innerHTML = `${createRow}<div class="li-quick-help">No groups yet. Create one or add a group name on entries to see them here.</div>`;
         return;
       }
-      host.innerHTML = createRow + groups.map((group, idx) => `
+      host.innerHTML = createRow + ungroupedRow + groups.map((group, idx) => `
         <div class="post-bank-group-row">
           <input id="pb-group-name-${idx}" value="${escapeHtml(group.name)}" />
           <span class="badge" style="margin-left:6px;">${group.count}</span>
+          <button class="action-btn" onclick="viewPostBankGroup('${escapeHtml(group.name)}')">Open</button>
           <button class="action-btn" onclick="renamePostBankGroup(${idx})">Rename</button>
           <button class="action-btn" onclick="clearPostBankGroup(${idx})">Clear</button>
         </div>
@@ -2507,6 +2524,11 @@
       renderPostBankManager();
     }
 
+    function viewPostBankGroup(name) {
+      postBankManagerGroupFilter = String(name || '').trim();
+      renderPostBankManager();
+    }
+
     function setPostBankManagerGroupFilter(value) {
       postBankManagerGroupFilter = String(value || '').trim();
       renderPostBankManager();
@@ -2519,7 +2541,9 @@
       const groupFilter = document.getElementById('post-bank-manager-group-filter');
       if (groupFilter) {
         const groups = getPostBankGroups();
+        const ungroupedCount = postBankEntries.filter(entry => !String(entry.group || '').trim()).length;
         const options = ['<option value=\"\">All groups</option>']
+          .concat(ungroupedCount ? [`<option value="__ungrouped__">Ungrouped (${ungroupedCount})</option>`] : [])
           .concat(groups.map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)} (${g.count})</option>`));
         groupFilter.innerHTML = options.join('');
         groupFilter.value = postBankManagerGroupFilter || '';
@@ -2530,33 +2554,40 @@
       }
       const filteredGroup = String(postBankManagerGroupFilter || '').trim();
       host.innerHTML = postBankEntries.map((entry, idx) => {
-        const hide = filteredGroup && String(entry.group || '').trim() !== filteredGroup;
+        const entryGroup = String(entry.group || '').trim();
+        const hide = filteredGroup
+          ? (filteredGroup === '__ungrouped__' ? !!entryGroup : entryGroup !== filteredGroup)
+          : false;
         const hideStyle = hide ? 'style="display:none;"' : '';
         return `
         <div class="post-bank-entry" data-entry-id="${entry.id}" ${hideStyle}>
+          <div class="post-bank-entry-actions">
+            <button class="action-btn" onclick="duplicatePostBankEntry('${entry.id}')">Duplicate</button>
+            <button class="action-btn" onclick="removePostBankEntry('${entry.id}')">Remove</button>
+          </div>
           <div class="row">
             <div>
-              <label>Title</label>
+              <label title="Short label for this example.">Title</label>
               <input id="pb-title-${idx}" value="${escapeHtml(entry.title || '')}" placeholder="Short label">
             </div>
             <div>
-              <label>Type</label>
+              <label title="Post = full post, Reply = comment style, Snippet = small fragment for tone.">Type</label>
               <select id="pb-type-${idx}">
                 ${['post','reply','snippet'].map(t => `<option value="${t}" ${t === entry.type ? 'selected' : ''}>${t}</option>`).join('')}
               </select>
             </div>
             <div>
-              <label>Tags (comma separated)</label>
+              <label title="Optional tags for search/filter only.">Tags (comma separated)</label>
               <input id="pb-tags-${idx}" value="${escapeHtml((entry.tags || []).join(', '))}" placeholder="seo, product, growth">
             </div>
             <div>
-              <label>Group</label>
+              <label title="Group = voice pack. Presets can use a whole group.">Group</label>
               <input id="pb-group-${idx}" value="${escapeHtml(entry.group || '')}" placeholder="e.g. SEO Voice A">
             </div>
           </div>
           <div class="row">
             <div>
-              <label>Function Tags</label>
+              <label title="Used for rotation: voice = rhythm, stance = pushback, closing = ending style.">Function Tags</label>
               <div class="post-bank-tags">
                 ${['voice','stance','closing'].map(tag => `
                   <label><input type="checkbox" id="pb-fn-${idx}-${tag}" ${entry.functionTags?.includes(tag) ? 'checked' : ''}/> ${tag}</label>
@@ -2564,16 +2595,11 @@
               </div>
             </div>
             <div>
-              <label>Disable</label>
+              <label title="Disabled entries are ignored by the model.">Disable</label>
               <select id="pb-disabled-${idx}">
                 <option value="false" ${entry.disabled ? '' : 'selected'}>Active</option>
                 <option value="true" ${entry.disabled ? 'selected' : ''}>Disabled</option>
               </select>
-            </div>
-            <div>
-              <label>&nbsp;</label>
-              <button class="action-btn" onclick="removePostBankEntry('${entry.id}')">Remove</button>
-              <button class="action-btn" onclick="duplicatePostBankEntry('${entry.id}')" style="margin-left:6px;">Duplicate</button>
             </div>
           </div>
           <label>Text</label>
