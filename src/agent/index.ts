@@ -2028,6 +2028,17 @@ class AgentManagerClass extends EventEmitter {
               }
             }
 
+            // Recent conversation history (critical for context after session restarts or compaction)
+            const recentMessages = memory.getRecentMessages(20, sessionId);
+            if (recentMessages.length > 0) {
+              const historyLines = recentMessages.map(m => {
+                const role = m.role === 'user' ? 'User' : 'You';
+                const text = m.content.length > 1000 ? m.content.slice(0, 1000) + '...' : m.content;
+                return `${role}: ${text}`;
+              });
+              dynamicParts.push(`## Recent Conversation History (this session)\n${historyLines.join('\n')}`);
+            }
+
             return {
               hookSpecificOutput: {
                 hookEventName: 'UserPromptSubmit' as const,

@@ -197,13 +197,6 @@ export async function handleTextMessage(
     }
   }
 
-  if (recent.length > 0) {
-    const snippet = buildRecentContextSnippet(recent.slice(-4));
-    if (snippet) {
-      message = `[Recent context]\n${snippet}\n\n${message}`;
-    }
-  }
-
   const { onMessageCallback, sendResponse } = deps;
 
   if (messageId) setTelegramMessageContext({ chatId, messageId });
