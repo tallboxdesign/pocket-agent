@@ -3608,11 +3608,14 @@
       } else {
         bar.classList.remove('visible');
       }
+      const selectedPosts = (currentPosts || []).filter(p => selectedIds.has(Number(p.id)));
+      const selectedHasDraft = selectedPosts.some(p => !!String(p.comment_draft || '').trim());
+      const selectedHasNonDraft = selectedPosts.some(p => !String(p.comment_draft || '').trim());
       const allowBulk = activePanel !== 'published';
       const allowBank = true;
       const allowPresets = true;
-      const allowRewrite = activePanel !== 'published';
-      const allowRedraft = activePanel !== 'published';
+      const allowRewrite = activePanel !== 'published' && selectedHasDraft;
+      const allowRedraft = activePanel !== 'published' && (selectedHasDraft || selectedHasNonDraft);
       if (bulkBtn) bulkBtn.style.display = allowBulk && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (bankBtn) bankBtn.style.display = allowBank && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (rewriteBtn) rewriteBtn.style.display = allowRewrite && selectedIds.size > 0 ? 'inline-flex' : 'none';
@@ -4660,13 +4663,20 @@
         showToast('Select posts first', 'error');
         return;
       }
-      if (activePanel === 'queue') {
-        showToast('Queue has no drafts yet. Running Research & Draft instead.', 'success');
+      const selectedPosts = (currentPosts || []).filter(p => ids.includes(Number(p.id)));
+      const rewriteIds = selectedPosts.filter(p => !!String(p.comment_draft || '').trim()).map(p => Number(p.id));
+      const noDraftIds = selectedPosts.filter(p => !String(p.comment_draft || '').trim()).map(p => Number(p.id));
+      if (!rewriteIds.length) {
+        showToast('No drafts selected. Running Research + Draft instead.', 'success');
         researchDraftSelected();
         return;
       }
-      ids.forEach(id => enqueueRewrite(id));
-      showToast(`Queued rewrite for ${ids.length} post${ids.length === 1 ? '' : 's'}`, 'success');
+      rewriteIds.forEach(id => enqueueRewrite(id));
+      if (noDraftIds.length) {
+        showToast(`Queued rewrite for ${rewriteIds.length}. ${noDraftIds.length} without drafts were skipped.`, 'info');
+      } else {
+        showToast(`Queued rewrite for ${rewriteIds.length} post${rewriteIds.length === 1 ? '' : 's'}`, 'success');
+      }
     }
 
     async function redraftSelected() {
@@ -4675,21 +4685,27 @@
         showToast('Select posts first', 'error');
         return;
       }
-      if (activePanel === 'queue') {
-        showToast('Queue has no drafts yet. Running Research & Draft instead.', 'success');
+      const selectedPosts = (currentPosts || []).filter(p => ids.includes(Number(p.id)));
+      const redraftIds = selectedPosts.filter(p => !!String(p.comment_draft || '').trim()).map(p => Number(p.id));
+      const noDraftIds = selectedPosts.filter(p => !String(p.comment_draft || '').trim()).map(p => Number(p.id));
+      if (!redraftIds.length) {
+        showToast('No drafts selected. Running Research + Draft instead.', 'success');
         researchDraftSelected();
         return;
       }
-      showToast(`Redrafting ${ids.length} post${ids.length === 1 ? '' : 's'} with cached research...`, 'success');
-      ids.forEach(id => redraftInFlightIds.add(Number(id)));
+      showToast(`Redrafting ${redraftIds.length} post${redraftIds.length === 1 ? '' : 's'} with cached research...`, 'success');
+      redraftIds.forEach(id => redraftInFlightIds.add(Number(id)));
       void loadPosts(true);
       try {
-        await runBatchRedraft(ids, 'Redrafted', 'Redraft failed');
+        await runBatchRedraft(redraftIds, 'Redrafted', 'Redraft failed');
         loadPosts();
+        if (noDraftIds.length) {
+          showToast(`${noDraftIds.length} without drafts were skipped. Use Research + Draft for those.`, 'info');
+        }
       } catch (err) {
         showToast(`Redraft failed: ${shortError(err)}`, 'error');
       } finally {
-        ids.forEach(id => redraftInFlightIds.delete(Number(id)));
+        redraftIds.forEach(id => redraftInFlightIds.delete(Number(id)));
         void loadPosts(true);
       }
     }
