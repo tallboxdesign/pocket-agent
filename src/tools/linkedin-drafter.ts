@@ -264,6 +264,33 @@ function getAttemptModels(primaryModel: string, fallbackModel: string, fallbackM
   });
 }
 
+type ModelFailureReason = 'quota' | 'auth' | 'rate_limit' | 'unavailable' | 'other';
+
+function classifyModelFailure(message: string): ModelFailureReason {
+  const msg = String(message || '').toLowerCase();
+  if (!msg) return 'other';
+  if (msg.includes('insufficient balance') || msg.includes('exceeded current quota')
+    || msg.includes('quota') || msg.includes('billing') || msg.includes('payment')
+    || msg.includes('suspended')) {
+    return 'quota';
+  }
+  if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests')) {
+    return 'rate_limit';
+  }
+  if (msg.includes('invalid api key') || msg.includes('invalid x-api-key')
+    || msg.includes('unauthorized') || msg.includes('401') || msg.includes('403')) {
+    return 'auth';
+  }
+  if (msg.includes('model not found') || msg.includes('model unavailable') || msg.includes('unavailable')) {
+    return 'unavailable';
+  }
+  return 'other';
+}
+
+function shouldAutoSwitchModel(reason: ModelFailureReason): boolean {
+  return reason !== 'other';
+}
+
 function pickResearchModel(primaryModel: string, config: LinkedInDraftConfig): string {
   const candidates = getAttemptModels(primaryModel, config.fallbackModel, config.fallbackModel2, config.fallbackModel3);
   const match = candidates.find((model) => {
@@ -2045,6 +2072,8 @@ export interface DraftResult {
   draft: string;
   kanbanTaskId: number;
   researched: boolean;
+  modelUsed?: string;
+  primaryModel?: string;
 }
 
 export interface DraftJobProgress {
@@ -2629,6 +2658,7 @@ async function draftOnePost(
   }
 
   const config = getLinkedInDraftConfig();
+  const primaryModel = model;
   const attemptModels = getAttemptModels(model, config.fallbackModel, config.fallbackModel2, config.fallbackModel3);
   // Keep internal deadline aligned with outer batch timeout window (+20s grace).
   const effectiveTimeoutSec = computeEffectiveTimeoutSec(config.perPostTimeoutSec, model, post.text_preview) + 20;
@@ -2651,6 +2681,8 @@ async function draftOnePost(
 
   let draft = '';
   let generation: DraftGenerationResult | null = null;
+  let usedModel = primaryModel;
+  let primaryFailure: { reason: ModelFailureReason; message: string } | null = null;
   const attemptErrors: string[] = [];
 
   for (const attemptModel of attemptModels) {
@@ -2674,10 +2706,14 @@ async function draftOnePost(
         diversity,
       );
       draft = generation.draft;
+      usedModel = attemptModel;
       break;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       attemptErrors.push(`${attemptModel}: ${msg}`);
+      if (attemptModel === primaryModel && !primaryFailure) {
+        primaryFailure = { reason: classifyModelFailure(msg), message: msg };
+      }
       if (abortController.signal.aborted) throw new Error('Draft job cancelled');
       continue;
     }
@@ -2686,6 +2722,26 @@ async function draftOnePost(
   if (!draft) {
     const detail = attemptErrors.length ? ` (${attemptErrors.join(' | ')})` : '';
     throw new Error(`No draft generated for post by ${post.author}${detail}`);
+  }
+
+  if (usedModel && usedModel !== primaryModel) {
+    const reason = primaryFailure?.reason || 'other';
+    if (shouldAutoSwitchModel(reason)) {
+      try {
+        SettingsManager.set('linkedin.postModel', usedModel);
+      } catch (err) {
+        console.warn('[LinkedInDrafter] Failed to persist model fallback:', err);
+      }
+    }
+    draftEvents.emit('model_fallback', {
+      type: 'model_fallback',
+      postId: post.id,
+      author: post.author,
+      primaryModel,
+      fallbackModel: usedModel,
+      reason,
+      error: primaryFailure?.message || '',
+    });
   }
 
   setDraftState(post.id, 'writing');
@@ -2767,6 +2823,8 @@ async function draftOnePost(
       draft,
       kanbanTaskId: taskId,
       researched: true,
+      modelUsed: usedModel,
+      primaryModel,
     };
   } finally {
     db.close();
@@ -2797,6 +2855,7 @@ async function redraftOnePost(
   setImageAnalysisState(post.id, 'pending', 0, 'Redraft: reading full post and attached images');
 
   const config = getLinkedInDraftConfig();
+  const primaryModel = model;
   const attemptModels = getAttemptModels(model, config.fallbackModel, config.fallbackModel2, config.fallbackModel3);
   const effectiveTimeoutSec = computeEffectiveTimeoutSec(config.perPostTimeoutSec, model, post.text_preview) + 20;
   const deadline = Date.now() + (effectiveTimeoutSec * 1000);
@@ -2819,6 +2878,8 @@ async function redraftOnePost(
 
   let draft = '';
   let generation: DraftGenerationResult | null = null;
+  let usedModel = primaryModel;
+  let primaryFailure: { reason: ModelFailureReason; message: string } | null = null;
   const attemptErrors: string[] = [];
 
   for (const attemptModel of attemptModels) {
@@ -2844,6 +2905,7 @@ async function redraftOnePost(
           commentIntent,
         );
         draft = generation.draft;
+        usedModel = attemptModel;
       } else {
         const env = await buildProviderEnv(attemptModel);
         const attempt = createAttemptAbortController(abortController, remainingMs);
@@ -2863,6 +2925,7 @@ async function redraftOnePost(
             diversity,
           );
           generation = { draft, evidence, commentIntent, model: attemptModel };
+          usedModel = attemptModel;
         } finally {
           attempt.cleanup();
         }
@@ -2871,6 +2934,9 @@ async function redraftOnePost(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       attemptErrors.push(`${attemptModel}: ${msg}`);
+      if (attemptModel === primaryModel && !primaryFailure) {
+        primaryFailure = { reason: classifyModelFailure(msg), message: msg };
+      }
       if (abortController.signal.aborted) throw new Error('Draft job cancelled');
       continue;
     }
@@ -2879,6 +2945,26 @@ async function redraftOnePost(
   if (!draft) {
     const detail = attemptErrors.length ? ` (${attemptErrors.join(' | ')})` : '';
     throw new Error(`No draft generated for post by ${post.author}${detail}`);
+  }
+
+  if (usedModel && usedModel !== primaryModel) {
+    const reason = primaryFailure?.reason || 'other';
+    if (shouldAutoSwitchModel(reason)) {
+      try {
+        SettingsManager.set('linkedin.postModel', usedModel);
+      } catch (err) {
+        console.warn('[LinkedInDrafter] Failed to persist model fallback:', err);
+      }
+    }
+    draftEvents.emit('model_fallback', {
+      type: 'model_fallback',
+      postId: post.id,
+      author: post.author,
+      primaryModel,
+      fallbackModel: usedModel,
+      reason,
+      error: primaryFailure?.message || '',
+    });
   }
 
   const db = getDb();
@@ -2956,6 +3042,8 @@ async function redraftOnePost(
       draft,
       kanbanTaskId: taskId,
       researched: false,
+      modelUsed: usedModel,
+      primaryModel,
     };
   } finally {
     db.close();
@@ -3136,7 +3224,14 @@ export async function draftBatch(
         results.push(result);
         progress.completed++;
         progress.results.push(result);
-        draftEvents.emit('drafted', { type: 'drafted', postId: post.id, author: post.author, draft: result.draft });
+        draftEvents.emit('drafted', {
+          type: 'drafted',
+          postId: post.id,
+          author: post.author,
+          draft: result.draft,
+          modelUsed: result.modelUsed,
+          primaryModel: result.primaryModel,
+        });
       } catch (err) {
         const failState = classifyDraftError(err, jobAbort);
         const msg = `Failed for ${post.author}: ${err instanceof Error ? err.message : String(err)}`;
@@ -3301,7 +3396,14 @@ export async function redraftBatch(
         results.push(result);
         progress.completed++;
         progress.results.push(result);
-        draftEvents.emit('drafted', { type: 'drafted', postId: post.id, author: post.author, draft: result.draft });
+        draftEvents.emit('drafted', {
+          type: 'drafted',
+          postId: post.id,
+          author: post.author,
+          draft: result.draft,
+          modelUsed: result.modelUsed,
+          primaryModel: result.primaryModel,
+        });
       } catch (err) {
         const failState = classifyDraftError(err, jobAbort);
         const msg = `Failed for ${post.author}: ${err instanceof Error ? err.message : String(err)}`;

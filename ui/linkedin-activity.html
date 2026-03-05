@@ -5187,6 +5187,7 @@
         if (row.evidence_stance_basis) tags.push(`<span class="draft-evidence-tag">basis: ${escapeHtml(String(row.evidence_stance_basis))}</span>`);
         if (row.evidence_comment_intent) tags.push(`<span class="draft-evidence-tag">intent: ${escapeHtml(String(row.evidence_comment_intent))}</span>`);
         if (row.evidence_confidence) tags.push(`<span class="draft-evidence-tag">confidence: ${escapeHtml(String(row.evidence_confidence))}</span>`);
+        if (row.evidence_model) tags.push(`<span class="draft-evidence-tag">model: ${escapeHtml(String(row.evidence_model))}</span>`);
 
         const sourceBits = [];
         if (row.evidence_source_1_name || row.evidence_source_1_url) {
@@ -6137,6 +6138,21 @@
         if (d && typeof d === 'object') {
           if ('type' in d && d.type === 'researching') {
             showToast(`Researching ${d.author}...`, 'success');
+            loadPosts();
+          } else if ('type' in d && d.type === 'model_fallback') {
+            const primary = String(d.primaryModel || '').trim();
+            const fallback = String(d.fallbackModel || '').trim();
+            const reason = String(d.reason || '').trim();
+            const modelSelect = document.getElementById('draft-model');
+            if (modelSelect && fallback) {
+              modelSelect.value = fallback;
+              void saveDraftModel(true);
+            }
+            const reasonLabel = reason ? ` (${reason})` : '';
+            const label = primary && fallback
+              ? `LinkedIn fallback: ${primary} → ${fallback}${reasonLabel}`
+              : `LinkedIn fallback: ${fallback || 'fallback model'}${reasonLabel}`;
+            showToast(label, 'error');
             loadPosts();
           } else if (('type' in d && d.type === 'drafted') || ('draft' in d && 'author' in d)) {
             showToast(`Drafted: ${d.author}`, 'success');

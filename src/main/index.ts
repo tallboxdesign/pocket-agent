@@ -2810,11 +2810,27 @@ function setupIPC(): void {
       const db = new Database(dbPath);
       db.pragma('journal_mode = WAL');
       const post = db.prepare('SELECT post_url, comment_draft FROM linkedin_posts WHERE id = ?').get(postId) as { post_url: string; comment_draft: string | null } | undefined;
+      const logScheduleFailure = (reason: string) => {
+        if (!post?.post_url) return;
+        try {
+          db.prepare(
+            `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
+             VALUES (?, ?, 'error', ?)`
+          ).run(postId, post.post_url, reason);
+        } catch (err) {
+          console.warn('[LinkedIn] Failed to log schedule error:', err);
+        }
+      };
       if (!post) { db.close(); return { success: false, error: 'Post not found' }; }
-      if (!post.comment_draft) { db.close(); return { success: false, error: 'No draft to schedule' }; }
+      if (!post.comment_draft) {
+        logScheduleFailure('schedule:no_draft');
+        db.close();
+        return { success: false, error: 'No draft to schedule' };
+      }
       const alreadyPosted = hasPostedLinkedInUrl(db, post.post_url);
       if (alreadyPosted.matched) {
         db.prepare('UPDATE linkedin_posts SET commented = 1, approved = 0, scheduled_at = NULL WHERE id = ?').run(postId);
+        logScheduleFailure('schedule:duplicate_post_url');
         db.close();
         return {
           success: false,
