@@ -681,11 +681,41 @@ async function readFullLinkedInPostContent(postUrl: string, abortController?: Ab
       imageAnalysisNote: 'No post URL',
     };
   }
-  const out = await linkedinExec('reply', ['--url', url, '--read-only'], 90000);
-  const parsed = JSON.parse(out) as { text?: string; images?: unknown };
-  const text = normalizeLinkedInPostText(String(parsed?.text || ''));
-  const images = normalizeLinkedInPostImages(parsed?.images);
+
+  let cachedText = '';
+  try {
+    const db = getDb();
+    if (db) {
+      const row = db.prepare(
+        'SELECT full_text FROM linkedin_post_content WHERE post_url = ? ORDER BY updated_at DESC LIMIT 1'
+      ).get(url) as { full_text?: string } | undefined;
+      cachedText = normalizeLinkedInPostText(String(row?.full_text || ''));
+      db.close();
+    }
+  } catch (err) {
+    console.warn('[LinkedInDrafter] Failed to read cached full post:', err);
+  }
+
+  let parsedText = '';
+  let parsedImages: unknown = [];
+  let fetchError: string | null = null;
+  try {
+    const out = await linkedinExec('reply', ['--url', url, '--read-only'], 90000);
+    const parsed = JSON.parse(out) as { text?: string; images?: unknown };
+    parsedText = normalizeLinkedInPostText(String(parsed?.text || ''));
+    parsedImages = parsed?.images;
+  } catch (err) {
+    fetchError = err instanceof Error ? err.message : String(err);
+  }
+
+  const text = parsedText || cachedText;
+  const images = normalizeLinkedInPostImages(parsedImages);
   const imageAnalysis = await summarizeLinkedInPostImages(images, text, url, abortController);
+  if (!parsedText && cachedText) {
+    imageAnalysis.note = `${imageAnalysis.note}. Using cached full text${fetchError ? ` (live fetch failed: ${clipForPrompt(fetchError, 80)})` : ''}`;
+  } else if (!parsedText && !cachedText && fetchError) {
+    imageAnalysis.note = `${imageAnalysis.note}. Full text missing (live fetch failed: ${clipForPrompt(fetchError, 80)})`;
+  }
   return {
     text,
     images,
