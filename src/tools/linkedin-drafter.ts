@@ -117,9 +117,13 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   'claude-opus-4-6': 'anthropic',
   'claude-sonnet-4-6': 'anthropic',
   'claude-haiku-4-5-20251001': 'anthropic',
+  'gpt-4o': 'openai',
+  'gpt-4o-mini': 'openai',
   'gpt-4.1': 'openai',
   'gpt-4.1-mini': 'openai',
   'gpt-4.1-nano': 'openai',
+  'o3-mini': 'openai',
+  'o4-mini': 'openai',
   'gemini-2.5-pro': 'gemini',
   'gemini-2.5-flash': 'gemini',
   'gemini-2.5-flash-lite': 'gemini',
@@ -292,6 +296,12 @@ function shouldAutoSwitchModel(reason: ModelFailureReason): boolean {
 }
 
 function pickResearchModel(primaryModel: string, config: LinkedInDraftConfig): string {
+  // Prefer Anthropic SDK-capable models for research when available.
+  const preferred = ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-opus-4-6'];
+  for (const model of preferred) {
+    if (hasModelCredentials(model)) return model;
+  }
+
   const candidates = getAttemptModels(primaryModel, config.fallbackModel, config.fallbackModel2, config.fallbackModel3);
   const match = candidates.find((model) => {
     const provider = getProviderForModel(model);
@@ -1959,6 +1969,9 @@ async function generateDraftForModel(
     let evidence: ResearchEvidence | null = null;
     const commentIntent = chooseCommentIntent(post.id);
     const researchModel = pickResearchModel(model, config);
+    if (!researchModel) {
+      throw new Error('No research-capable model configured. Add an Anthropic API key or set a LinkedIn research fallback model.');
+    }
     if (researchModel) {
       const researchBudgetMs = Math.max(5000, Math.floor(remainingMs * 0.6));
       const researchAttempt = createAttemptAbortController(parentAbortController, researchBudgetMs);
@@ -1976,7 +1989,7 @@ async function generateDraftForModel(
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[LinkedInDrafter] Research pass skipped for ${post.author} (${researchModel}): ${msg}`);
+        throw new Error(`Research failed for ${post.author} (${researchModel}): ${msg}`);
       } finally {
         researchAttempt.cleanup();
       }
@@ -3059,6 +3072,7 @@ export async function draftBatch(
   postIds: number[],
   _batchSize: number = 1,
   forceRedo: boolean = false,
+  targetModel?: string,
 ): Promise<{ results: DraftResult[]; errors: string[] }> {
   if (jobRunning) {
     // If activeJob is null, this is a leaked state from a crashed previous run -reset it
@@ -3097,7 +3111,7 @@ export async function draftBatch(
       writingRules = SettingsManager.get('linkedin.writingRules') || '';
       contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
     } catch { /* ok */ }
-    const draftModel = getDraftModel();
+    const draftModel = targetModel || getDraftModel();
 
     const db = getDb();
     if (!db) {
@@ -3285,6 +3299,7 @@ export async function draftBatch(
 export async function redraftBatch(
   postIds: number[],
   _batchSize: number = 1,
+  targetModel?: string,
 ): Promise<{ results: DraftResult[]; errors: string[] }> {
   if (jobRunning) {
     return { results: [], errors: ['Draft job already running. Try again after it finishes.'] };
@@ -3304,7 +3319,7 @@ export async function redraftBatch(
       writingRules = SettingsManager.get('linkedin.writingRules') || '';
       contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
     } catch { /* ok */ }
-    const draftModel = getDraftModel();
+    const draftModel = targetModel || getDraftModel();
 
     const db = getDb();
     if (!db) {

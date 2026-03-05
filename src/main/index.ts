@@ -2861,7 +2861,7 @@ function setupIPC(): void {
     }
   });
 
-  ipcMain.handle('linkedin:draftBatch', async (_, postIds: number[], batchSize?: number, forceRedo?: boolean) => {
+  ipcMain.handle('linkedin:draftBatch', async (_, postIds: number[], batchSize?: number, forceRedo?: boolean, targetModel?: string) => {
     const safeSendProgress = (payload: unknown): void => {
       try {
         if (!linkedInActivityWindow || linkedInActivityWindow.isDestroyed()) return;
@@ -2892,7 +2892,7 @@ function setupIPC(): void {
       draftEvents.on('progress', typedProgressHandler);
 
       try {
-        const result = await draftBatch(cleanIds, batchSize || 2, !!forceRedo);
+        const result = await draftBatch(cleanIds, batchSize || 2, !!forceRedo, targetModel);
         const drafted = result.results.length;
         const errors = result.errors;
         const queued = drafted === 0 && errors.length === 0 ? cleanIds.length : 0;
@@ -2920,7 +2920,7 @@ function setupIPC(): void {
     }
   });
 
-  ipcMain.handle('linkedin:redraftBatch', async (_, postIds: number[], batchSize?: number) => {
+  ipcMain.handle('linkedin:redraftBatch', async (_, postIds: number[], batchSize?: number, targetModel?: string) => {
     const safeSendProgress = (payload: unknown): void => {
       try {
         if (!linkedInActivityWindow || linkedInActivityWindow.isDestroyed()) return;
@@ -2951,8 +2951,9 @@ function setupIPC(): void {
       draftEvents.on('progress', typedProgressHandler);
 
       try {
-        const result = await redraftBatch(cleanIds, batchSize || 1);
+        const result = await redraftBatch(cleanIds, batchSize || 2, targetModel);
         const drafted = result.results.length;
+
         const errors = result.errors;
 
         if (drafted === 0 && errors.length > 0) {
@@ -3674,6 +3675,20 @@ function setupIPC(): void {
         { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini' },
         { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'gemini' },
         { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', provider: 'gemini' }
+      );
+    }
+
+    // Check for OpenAI key
+    const hasOpenAIKey = SettingsManager.get('openai.apiKey');
+    if (hasOpenAIKey) {
+      models.push(
+        { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
+        { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai' },
+        { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'openai' },
+        { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'openai' },
+        { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano', provider: 'openai' },
+        { id: 'o4-mini', name: 'o4-mini', provider: 'openai' },
+        { id: 'o3-mini', name: 'o3-mini', provider: 'openai' }
       );
     }
 

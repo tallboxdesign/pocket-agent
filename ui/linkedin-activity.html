@@ -281,111 +281,93 @@
 
     .posts-table {
       width: 100%;
-      min-width: 1280px;
       border-collapse: collapse;
       table-layout: fixed;
     }
 
     .posts-table th,
     .posts-table td {
-      padding: 10px 12px;
+      padding: 10px 8px;
       text-align: left;
       border-bottom: 1px solid var(--border);
-    }
-
-    .posts-table th {
-      background: var(--bg-secondary);
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-secondary);
-      position: sticky;
-      top: 0;
-      z-index: 10;
       overflow: hidden;
     }
-    .th-draggable { cursor: grab; }
-    .th-drag-over { background: rgba(59,130,246,0.12); }
+    .posts-table td { vertical-align: top; }
+    .posts-table th,
+    .posts-table td {
+      border-right: 1px solid rgba(148, 163, 184, 0.08);
+    }
+    .posts-table th:last-child,
+    .posts-table td:last-child {
+      border-right: none;
+    }
 
     .th-resize-handle {
       position: absolute;
       right: 0;
       top: 4px;
       bottom: 4px;
-      width: 7px;
+      width: 8px;
       cursor: col-resize;
       z-index: 11;
-      border-right: 2px dotted var(--text-muted);
+      border-right: 2px dotted rgba(148, 163, 184, 0.6);
       transition: border-color 0.15s;
     }
     .th-resize-handle::before {
-      content: '⋮';
+      content: '';
       position: absolute;
-      top: 50%;
-      right: 0;
-      transform: translate(50%, -50%);
-      font-size: 10px;
-      color: var(--text-muted);
+      right: 2px;
+      top: 6px;
+      bottom: 6px;
+      width: 2px;
+      background: rgba(148, 163, 184, 0.35);
+      border-radius: 1px;
       pointer-events: none;
-      transition: color 0.15s;
     }
     .th-resize-handle:hover {
-      border-color: var(--accent);
+      border-color: rgba(96, 165, 250, 0.9);
     }
     .th-resize-handle:hover::before {
-      color: var(--accent);
+      background: rgba(96, 165, 250, 0.6);
     }
     .th-resize-handle.active {
-      border-color: var(--accent-secondary);
+      border-color: rgba(147, 197, 253, 0.9);
     }
     .th-resize-handle.active::before {
-      color: var(--accent-secondary);
+      background: rgba(147, 197, 253, 0.75);
     }
 
-    .posts-table td {
-      font-size: 13px;
-      vertical-align: top;
-    }
+    .column-hidden { display: none !important; }
 
-    .posts-table tbody tr {
-      transition: background 0.1s ease;
-    }
+    /* Narrow Column Styles */
+    .col-check { width: 32px; text-align: center; }
+    .col-num { width: 24px; color: var(--text-muted); text-align: center; font-size: 10px; }
+    .col-priority { width: 44px; text-align: center; }
+    .col-stat { width: 36px; text-align: center; color: var(--text-muted); }
+    .col-quality { width: 245px; }
+    .col-actions { width: 40px; text-align: center; }
+    .col-type { width: 100px; font-size: 11px; }
+    .col-status { width: 90px; }
+    .col-scheduled { width: 100px; }
+    .col-author { width: 120px; font-weight: 500; }
 
-    .posts-table tbody tr:hover {
-      background: var(--bg-secondary);
+    .posts-table tbody tr.researching {
+      background: rgba(168, 85, 247, 0.08) !important;
+      border-left: 3px solid var(--accent);
     }
-
-    .posts-table tbody tr.commented {
-      border-left: 3px solid var(--success);
-    }
-
-    .col-check { width: 44px; text-align: center; }
-    .col-check input[type="checkbox"] {
-      width: 14px; height: 14px; cursor: pointer;
-      accent-color: var(--accent);
-    }
-    .select-all {
+    .researching-indicator {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      width: 24px;
-      height: 24px;
-      padding: 0;
+      gap: 8px;
+      color: var(--accent-hover);
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 8px;
+      padding: 4px 10px;
+      background: rgba(168, 85, 247, 0.12);
       border-radius: 6px;
-      background: rgba(96,165,250,0.1);
-      border: 1px solid rgba(96,165,250,0.3);
-      cursor: pointer;
+      border: 1px solid rgba(168, 85, 247, 0.2);
     }
-    .select-all input[type="checkbox"] { margin: 0; }
-    .select-all span { display: none; }
-    .select-all:hover { background: rgba(96,165,250,0.24); }
-    .col-num { width: 24px; color: var(--text-muted); text-align: center; font-size: 10px; }
-    .col-priority { width: 50px; text-align: center; }
-    .col-author { width: 140px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .col-quality { width: 260px; }
-    .col-preview { color: var(--text-secondary); line-height: 1.4; word-break: break-word; }
-    .col-quality .quality-meta { margin: 0; }
 
     /* Compact Preview and Row Meta */
     .row-meta-strip {
@@ -788,11 +770,14 @@
       font-size: 10px;
       color: var(--text-muted);
     }
-    .col-stats { width: 38px; text-align: center; color: var(--text-muted); font-size: 12px; }
+    .col-stats { width: 38px; text-align: center; color: #e2e8f0; font-size: 13px; font-weight: 700; }
+    .col-stat { width: 36px; text-align: center; color: #e2e8f0; font-size: 13px; font-weight: 700; }
     .col-type { width: 150px; }
     .col-status { width: 130px; text-align: left; }
     .col-scheduled { width: 84px; text-align: center; color: var(--text-secondary); font-size: 12px; }
-    .col-actions { width: 80px; text-align: center; }
+    .col-actions { width: 40px; text-align: center; }
+    .col-actions .icon-btn { padding: 1px; }
+    .col-actions svg { width: 14px; height: 14px; }
 
     .status-badges {
       display: flex;
@@ -906,16 +891,16 @@
     /* Priority badge */
     .priority-badge {
       display: inline-block;
-      padding: 2px 6px;
-      min-width: 68px;
+      padding: 1px 4px;
+      min-width: 48px;
       text-align: center;
       border-radius: 4px;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 700;
       cursor: pointer;
       transition: all 0.15s ease;
       text-transform: uppercase;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.02em;
       user-select: none;
     }
     .priority-badge:hover { filter: brightness(1.3); }
@@ -1455,8 +1440,10 @@
     .preset-bar {
       display: none;
       align-items: center;
+      flex-wrap: wrap;
       gap: 6px;
       margin-left: 8px;
+      max-width: 100%;
     }
     .preset-bar .label {
       font-size: 11px;
@@ -1683,13 +1670,13 @@
       background: transparent;
       border-bottom: 1px solid transparent;
       align-items: center;
+      flex-wrap: wrap;
       flex-shrink: 0;
       min-height: 44px;
-      height: 44px;
-      overflow-x: auto;
-      overflow-y: hidden;
-      white-space: nowrap;
-      scrollbar-gutter: stable both-edges;
+      height: auto;
+      overflow: visible;
+      white-space: normal;
+      row-gap: 6px;
       visibility: hidden;
       opacity: 0;
       pointer-events: none;
@@ -1710,10 +1697,7 @@
     }
     .selection-bar .action-btn { font-size: 11px; padding: 4px 10px; white-space: nowrap; }
     .selection-bar > * { flex-shrink: 0; }
-    .selection-bar .spacer { flex: 1 0 12px; min-width: 12px; }
-    .selection-bar::-webkit-scrollbar { height: 5px; }
-    .selection-bar::-webkit-scrollbar-track { background: transparent; }
-    .selection-bar::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.3); border-radius: 3px; }
+    .selection-bar .spacer { flex: 1 1 12px; min-width: 12px; }
 
     /* Snoozed section */
     .snoozed-section {
@@ -2398,6 +2382,64 @@
   <audio id="normal-click-sound" preload="auto" src="../assets/normal-click.mp3"></audio>
 
   <script>
+    let visibleColumns = {
+      pri: true,
+      quality: true,
+      actions: true,
+      preview: true,
+      author: false,
+      status: false,
+      scheduled: false,
+      type: false,
+      reacts: false,
+      cmts: false
+    };
+
+    // Load saved column preferences
+    try {
+      const savedCols = localStorage.getItem('linkedin.visibleColumns');
+      if (savedCols) Object.assign(visibleColumns, JSON.parse(savedCols));
+    } catch(e) {}
+
+    function toggleColumnPicker() {
+      const modal = document.getElementById('column-picker');
+      const isVisible = modal.classList.contains('visible');
+      if (!isVisible) {
+        renderColumnPicker();
+        modal.classList.add('visible');
+      } else {
+        modal.classList.remove('visible');
+      }
+    }
+
+    function renderColumnPicker() {
+      const host = document.getElementById('column-picker-list');
+      const labels = {
+        pri: 'PRI (Priority)',
+        quality: 'Quality Metrics',
+        actions: 'Favorite/Delete',
+        preview: 'Post Summary & Draft',
+        author: 'Raw Author',
+        status: 'Raw Status',
+        scheduled: 'Scheduled Time',
+        type: 'Post Type',
+        reacts: 'Reaction Count',
+        cmts: 'Comment Count'
+      };
+      host.innerHTML = Object.keys(visibleColumns).map(key => `
+        <label class="column-picker-item">
+          <input type="checkbox" ${visibleColumns[key] ? 'checked' : ''} onchange="updateColumnVisibility('${key}', this.checked)">
+          <span>${labels[key]}</span>
+        </label>
+      `).join('');
+    }
+
+    function updateColumnVisibility(key, visible) {
+      visibleColumns[key] = visible;
+      localStorage.setItem('linkedin.visibleColumns', JSON.stringify(visibleColumns));
+      loadPosts();
+    }
+
     const normalClickSound = document.getElementById('normal-click-sound');
     function playNormalClick() {
       if (normalClickSound) { normalClickSound.currentTime = 0; normalClickSound.play().catch(() => {}); }
@@ -4457,12 +4499,12 @@
       }
 
       const mode = await saveDraftMode(true);
-      await saveDraftModel(true);
+      const model = await saveDraftModel(true);
       await loadPosts();
 
       let result;
       try {
-        result = await batchFn(ids, 1, forceRedo);
+        result = await batchFn(ids, 1, forceRedo, model);
       } catch (err) {
         await loadPosts();
         throw err;
@@ -4499,12 +4541,12 @@
       }
 
       const mode = await saveDraftMode(true);
-      await saveDraftModel(true);
+      const model = await saveDraftModel(true);
       await loadPosts();
 
       let result;
       try {
-        result = await batchFn(ids, 1);
+        result = await batchFn(ids, 1, model);
       } catch (err) {
         await loadPosts();
         throw err;
@@ -5343,21 +5385,32 @@
           return;
         }
 
+        const col = {
+          pri: true,
+          quality: true,
+          actions: true,
+          reacts: true,
+          cmts: true,
+          type: true,
+          status: true,
+          scheduled: true,
+          author: true,
+        };
         let html = `
           <table class="posts-table" id="main-table">
             <colgroup>
-              <col id="col-w-check" data-col="check" style="width:44px">
+              <col id="col-w-check" data-col="check" style="width:32px">
               <col id="col-w-num" data-col="num" style="width:24px">
-              <col id="col-w-pri" data-col="pri" style="width:60px">
-              <col id="col-w-author" data-col="author" style="width:140px">
-              <col id="col-w-quality" data-col="quality" style="width:220px">
+              <col id="col-w-pri" data-col="pri" style="width:44px" class="${col.pri ? '' : 'column-hidden'}">
+              <col id="col-w-quality" data-col="quality" style="width:260px" class="${col.quality ? '' : 'column-hidden'}">
+              <col id="col-w-actions" data-col="actions" style="width:44px" class="${col.actions ? '' : 'column-hidden'}">
+              <col id="col-w-reacts" data-col="reacts" style="width:36px" class="${col.reacts ? '' : 'column-hidden'}">
+              <col id="col-w-cmts" data-col="cmts" style="width:36px" class="${col.cmts ? '' : 'column-hidden'}">
+              <col id="col-w-type" data-col="type" style="width:100px" class="${col.type ? '' : 'column-hidden'}">
+              <col id="col-w-status" data-col="status" style="width:90px" class="${col.status ? '' : 'column-hidden'}">
+              <col id="col-w-scheduled" data-col="scheduled" style="width:100px" class="${col.scheduled ? '' : 'column-hidden'}">
+              <col id="col-w-author" data-col="author" style="width:120px" class="${col.author ? '' : 'column-hidden'}">
               <col id="col-w-preview" data-col="preview">
-              <col id="col-w-reacts" data-col="reacts" style="width:35px">
-              <col id="col-w-cmts" data-col="cmts" style="width:35px">
-              <col id="col-w-type" data-col="type" style="width:130px">
-              <col id="col-w-status" data-col="status" style="width:120px">
-              <col id="col-w-scheduled" data-col="scheduled" style="width:84px">
-              <col id="col-w-actions" data-col="actions" style="width:75px">
             </colgroup>
             <thead>
               <tr>
@@ -5367,16 +5420,16 @@
                   </label>
                 </th>
                 <th class="col-num" data-col="num">#</th>
-                <th class="col-priority" data-col="pri">Priority<span class="th-resize-handle" data-col="pri"></span></th>
-                <th class="col-author" data-col="author">Author<span class="th-resize-handle" data-col="author"></span></th>
-                <th data-col="quality">Quality Metrics<span class="th-resize-handle" data-col="quality"></span></th>
+                <th class="col-priority ${col.pri ? '' : 'column-hidden'}" data-col="pri">PRI<span class="th-resize-handle" data-col="pri"></span></th>
+                <th data-col="quality" class="${col.quality ? '' : 'column-hidden'}">Quality<span class="th-resize-handle" data-col="quality"></span></th>
+                <th class="col-actions ${col.actions ? '' : 'column-hidden'}" data-col="actions"><span class="th-resize-handle" data-col="actions"></span></th>
+                <th class="col-stats ${col.reacts ? '' : 'column-hidden'}" data-col="reacts" title="Reactions">❤️<span class="th-resize-handle" data-col="reacts"></span></th>
+                <th class="col-stats ${col.cmts ? '' : 'column-hidden'}" data-col="cmts" title="Comments">💬<span class="th-resize-handle" data-col="cmts"></span></th>
+                <th class="col-type ${col.type ? '' : 'column-hidden'}" data-col="type">Type<span class="th-resize-handle" data-col="type"></span></th>
+                <th class="col-status ${col.status ? '' : 'column-hidden'}" data-col="status">Status<span class="th-resize-handle" data-col="status"></span></th>
+                <th class="col-scheduled ${col.scheduled ? '' : 'column-hidden'}" data-col="scheduled">Scheduled<span class="th-resize-handle" data-col="scheduled"></span></th>
+                <th class="col-author ${col.author ? '' : 'column-hidden'}" data-col="author">Author<span class="th-resize-handle" data-col="author"></span></th>
                 <th data-col="preview">Post Summary & Draft<span class="th-resize-handle" data-col="preview"></span></th>
-                <th class="col-stats" data-col="reacts">❤<span class="th-resize-handle" data-col="reacts"></span></th>
-                <th class="col-stats" data-col="cmts">💬<span class="th-resize-handle" data-col="cmts"></span></th>
-                <th class="col-type" data-col="type">Type<span class="th-resize-handle" data-col="type"></span></th>
-                <th class="col-status" data-col="status">Status<span class="th-resize-handle" data-col="status"></span></th>
-                <th class="col-scheduled" data-col="scheduled">Scheduled<span class="th-resize-handle" data-col="scheduled"></span></th>
-                <th class="col-actions" data-col="actions">Actions<span class="th-resize-handle" data-col="actions"></span></th>
               </tr>
             </thead>
             <tbody>
@@ -5394,35 +5447,35 @@
               <table class="posts-table" id="snoozed-table">
                 <colgroup>
                   <col data-col="num" style="width:24px">
-                  <col id="col-s-pri" data-col="pri" style="width:60px">
-                  <col id="col-s-author" data-col="author" style="width:120px">
-                  <col id="col-s-quality" data-col="quality" style="width:210px">
-                  <col id="col-s-preview" data-col="preview">
-                  <col id="col-s-reacts" data-col="reacts" style="width:35px">
-                  <col id="col-s-cmts" data-col="cmts" style="width:35px">
-                  <col id="col-s-type" data-col="type" style="width:130px">
-                  <col id="col-s-status" data-col="status" style="width:90px">
-                  <col id="col-s-scheduled" data-col="scheduled" style="width:84px">
-                  <col id="col-s-actions" data-col="actions" style="width:75px">
+                  <col id="col-s-pri" data-col="pri" style="width:44px" class="${col.pri ? '' : 'column-hidden'}">
+                  <col id="col-s-quality" data-col="quality" style="width:260px" class="${col.quality ? '' : 'column-hidden'}">
+                  <col id="col-s-actions" data-col="actions" style="width:44px" class="${col.actions ? '' : 'column-hidden'}">
+                  <col id="col-s-reacts" data-col="reacts" style="width:36px" class="${col.reacts ? '' : 'column-hidden'}">
+                  <col id="col-s-cmts" data-col="cmts" style="width:36px" class="${col.cmts ? '' : 'column-hidden'}">
+                  <col id="col-s-type" data-col="type" style="width:100px" class="${col.type ? '' : 'column-hidden'}">
+                  <col id="col-s-status" data-col="status" style="width:90px" class="${col.status ? '' : 'column-hidden'}">
+                  <col id="col-s-scheduled" data-col="scheduled" style="width:100px" class="${col.scheduled ? '' : 'column-hidden'}">
+                  <col id="col-s-author" data-col="author" style="width:120px" class="${col.author ? '' : 'column-hidden'}">
+                  <col id="col-s-preview">
                 </colgroup>
                 <tbody>
                   ${filteredSnoozed.map((p, i) => `
                     <tr>
                       <td class="col-num" data-col="num" style="color:var(--text-muted)">${i + 1}</td>
-                      <td class="col-priority" data-col="pri">${priorityDot(p.id, p.priority)}</td>
-                      <td class="col-author" data-col="author" title="${escapeHtml(p.author || '')}">${escapeHtml(p.author || '')}</td>
-                      <td class="col-quality" data-col="quality"></td>
-                      <td class="col-preview" data-col="preview">${escapeHtml(truncate(p.text_preview, 80))}</td>
-                      <td class="col-stats" data-col="reacts">${p.reactions || 0}</td>
-                      <td class="col-stats" data-col="cmts">${p.comments || 0}</td>
-                      <td class="col-type" data-col="type"><span class="badge badge-snoozed">Until ${new Date(p.snoozed_until + 'Z').toLocaleDateString()}</span></td>
-                      <td class="col-status" data-col="status"></td>
-                      <td class="col-scheduled" data-col="scheduled">-</td>
-                      <td class="col-actions" data-col="actions">
+                      <td class="col-priority ${col.pri ? '' : 'column-hidden'}" data-col="pri">${priorityDot(p.id, p.priority)}</td>
+                      <td class="col-quality ${col.quality ? '' : 'column-hidden'}" data-col="quality"></td>
+                      <td class="col-actions ${col.actions ? '' : 'column-hidden'}" data-col="actions">
                         <button class="icon-btn" onclick="openPostUrl(${p.id})" title="Open in browser">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                         </button>
                       </td>
+                      <td class="col-stat ${col.reacts ? '' : 'column-hidden'}" data-col="reacts">${p.reactions || 0}</td>
+                      <td class="col-stat ${col.cmts ? '' : 'column-hidden'}" data-col="cmts">${p.comments || 0}</td>
+                      <td class="col-type ${col.type ? '' : 'column-hidden'}" data-col="type"><span class="badge badge-snoozed">Until ${new Date(p.snoozed_until + 'Z').toLocaleDateString()}</span></td>
+                      <td class="col-status ${col.status ? '' : 'column-hidden'}" data-col="status"></td>
+                      <td class="col-scheduled ${col.scheduled ? '' : 'column-hidden'}" data-col="scheduled">-</td>
+                      <td class="col-author ${col.author ? '' : 'column-hidden'}" data-col="author" title="${escapeHtml(p.author || '')}">${escapeHtml(p.author || '')}</td>
+                      <td class="col-preview" data-col="preview">${escapeHtml(truncate(p.text_preview, 80))}</td>
                     </tr>
                   `).join('')}
                 </tbody>
@@ -6336,18 +6389,13 @@
       window.pocketAgent.onLinkedInDraftProgress((data) => {
         const d = data;
         if (d && typeof d === 'object') {
-          if ('type' in d && d.type === 'researching') {
-            showToast(`Researching ${d.author}...`, 'success');
+          if ('type' in d && (d.type === 'researching' || d.type === 'progress')) {
             loadPosts();
           } else if ('type' in d && d.type === 'model_fallback') {
+
             const primary = String(d.primaryModel || '').trim();
             const fallback = String(d.fallbackModel || '').trim();
             const reason = String(d.reason || '').trim();
-            const modelSelect = document.getElementById('draft-model');
-            if (modelSelect && fallback) {
-              modelSelect.value = fallback;
-              void saveDraftModel(true);
-            }
             const reasonLabel = reason ? ` (${reason})` : '';
             const label = primary && fallback
               ? `LinkedIn fallback: ${primary} → ${fallback}${reasonLabel}`
