@@ -5286,11 +5286,11 @@
       const nicheDisplay = nicheValue || (autoNicheValue ? `auto ${autoNicheValue}` : 'auto');
       const authDisplay = authValue || (autoAuthValue ? `auto ${autoAuthValue}` : 'auto');
       const groupDisplay = groupValue || 'none';
-      const bankIds = parsePostBankIds(p.post_bank_ids);
+      const bankIds = groupValue ? getPostBankIdsForGroup(groupValue) : parsePostBankIds(p.post_bank_ids);
       const bankCount = bankIds.length;
       const showBankChip = activePanel === 'drafted' || activePanel === 'queue';
       const bankChip = showBankChip
-        ? `<span class="bank-chip" onclick="openPostBankSelector(${p.id})" title="Select Post Bank entries">Bank ${bankCount || 0}</span>`
+        ? `<span class="bank-chip" onclick="openPostBankSelector(${p.id})" title="${groupValue ? 'Select Post Bank group' : 'Select Post Bank entries'}">${groupValue ? `Group ${escapeHtml(groupValue)} (${bankCount || 0})` : `Bank ${bankCount || 0}`}</span>`
         : '';
       const targetsLine = `<div class="draft-targets">Targets: Hook ${escapeHtml(hookDisplay)} · Emotion ${escapeHtml(emotionDisplay)} · Niche ${escapeHtml(nicheDisplay)} · Auth ${escapeHtml(authDisplay)} · Group ${escapeHtml(groupDisplay)} ${bankChip}</div>`;
       const hookOptions = [''].concat(Array.from({ length: 10 }, (_, i) => String(i + 1)));
