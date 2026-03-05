@@ -360,7 +360,7 @@
       border-left: 3px solid var(--success);
     }
 
-    .col-check { width: 104px; text-align: center; }
+    .col-check { width: 44px; text-align: center; }
     .col-check input[type="checkbox"] {
       width: 14px; height: 14px; cursor: pointer;
       accent-color: var(--accent);
@@ -369,55 +369,220 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 4px;
-      font-size: 11px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #e2e8f0;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border-radius: 6px;
+      background: rgba(96,165,250,0.1);
+      border: 1px solid rgba(96,165,250,0.3);
       cursor: pointer;
-      white-space: nowrap;
-      padding: 4px 10px;
-      border: 1px solid rgba(96,165,250,0.5);
-      border-radius: 8px;
-      background: rgba(96,165,250,0.16);
     }
     .select-all input[type="checkbox"] { margin: 0; }
-    .select-all span { font-weight: 700; letter-spacing: 0.04em; }
+    .select-all span { display: none; }
     .select-all:hover { background: rgba(96,165,250,0.24); }
-    .col-num { width: 28px; color: var(--text-muted); text-align: center; }
-    .col-priority { width: 70px; text-align: center; }
-    .col-author { width: 130px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .col-quality { width: 210px; }
+    .col-num { width: 24px; color: var(--text-muted); text-align: center; font-size: 10px; }
+    .col-priority { width: 50px; text-align: center; }
+    .col-author { width: 140px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .col-quality { width: 260px; }
     .col-preview { color: var(--text-secondary); line-height: 1.4; word-break: break-word; }
     .col-quality .quality-meta { margin: 0; }
-    .quality-meta {
+
+    /* Compact Preview and Row Meta */
+    .row-meta-strip {
       display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      align-items: center;
-      margin: 6px 0 10px 0;
+      gap: 12px;
       font-size: 11px;
       color: var(--text-muted);
-    }
-    .quality-meta label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      display: inline-flex;
+      margin-bottom: 8px;
       align-items: center;
+      flex-wrap: wrap;
+    }
+    .meta-tag {
+      background: rgba(148, 163, 184, 0.1);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .post-content-block {
+      background: rgba(15, 23, 42, 0.3);
+      border-radius: 8px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      margin-top: 6px;
+    }
+    .content-label {
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent-hover);
+      margin-bottom: 4px;
+      display: block;
+      opacity: 0.9;
+    }
+    .ai-overview-text {
+      font-size: 12px;
+      color: var(--text-primary);
+      line-height: 1.5;
+      font-weight: 500;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .draft-text-preview {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-top: 8px;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+    }
+    .post-tabs {
+      display: inline-flex;
+      gap: 6px;
+      margin: 6px 0 10px;
+      flex-wrap: wrap;
+    }
+    .post-tab-btn {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: rgba(148, 163, 184, 0.08);
+      color: var(--text-secondary);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+    }
+    .post-tab-btn.active {
+      color: var(--text-primary);
+      border-color: rgba(96, 165, 250, 0.5);
+      background: rgba(96, 165, 250, 0.2);
+    }
+    .full-post-block {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .full-post-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      white-space: pre-wrap;
+      max-height: 220px;
+      overflow: auto;
+      padding-right: 6px;
+    }
+    .evidence-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .evidence-link {
+      border: 1px solid rgba(191, 219, 254, 0.28);
+      background: rgba(59, 130, 246, 0.08);
+      color: #bfdbfe;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .evidence-link:hover { background: rgba(59, 130, 246, 0.18); }
+    .evidence-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+      font-size: 10px;
+      color: #bfdbfe;
+    }
+    .post-actions-inline {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .post-actions-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 8px 0 6px;
+    }
+    .draft-text.expanded {
+      max-height: 2000px !important;
+    }
+    .quality-meta {
+      display: grid;
+      grid-template-columns: 90px 1fr;
+      gap: 10px;
+      padding: 4px 0;
+    }
+    .quality-item {
+      display: flex;
+      flex-direction: column;
       gap: 4px;
     }
-    .quality-meta select,
-    .quality-meta input {
-      background: var(--bg-secondary);
+    .quality-item label {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .quality-item select,
+    .quality-item input {
+      width: 100%;
+      background: var(--bg-primary);
       border: 1px solid var(--border);
       color: var(--text-primary);
       border-radius: 6px;
       padding: 2px 6px;
       font-size: 11px;
-      height: 22px;
+      height: 24px;
+      transition: all 0.2s;
     }
-    .quality-meta input { width: 110px; }
+    .quality-item select:hover,
+    .quality-item input:focus {
+      border-color: var(--accent);
+      background: var(--bg-secondary);
+    }
+    .quality-item.span-2 { grid-column: span 2; }
+    .quality-footer {
+      grid-column: span 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 4px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .meta-auto {
+      background: rgba(168, 85, 247, 0.15);
+      color: var(--accent-hover);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .meta-auto:hover {
+      background: rgba(168, 85, 247, 0.25);
+    }
+    .meta-auto-hint {
+      font-size: 9px;
+      color: var(--accent-hover);
+      opacity: 0.8;
+    }
     .meta-help {
       display: inline-flex;
       align-items: center;
@@ -878,6 +1043,18 @@
       max-width: 100%;
       animation: blinkText 1.1s step-end infinite;
     }
+    .draft-error {
+      margin-top: 6px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      background: rgba(239, 68, 68, 0.08);
+      color: #fca5a5;
+      font-size: 11px;
+      line-height: 1.4;
+      width: min(620px, 100%);
+      max-width: 100%;
+    }
 
     .draft-text.expanded { display: block; }
 
@@ -1018,79 +1195,95 @@
       cursor: pointer;
     }
     .bank-chip:hover { background: rgba(59,130,246,0.2); }
-    .post-bank-list {
+    .post-bank-manager-body {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 20px;
+      height: 520px;
+      margin: 16px 0;
+    }
+    .post-bank-sidebar {
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      max-height: 420px;
-      overflow: auto;
-      padding-right: 6px;
+      gap: 4px;
+      border-right: 1px solid var(--border);
+      padding-right: 12px;
+      overflow-y: auto;
     }
-    .post-bank-groups {
+    .post-bank-sidebar-header {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .group-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+      color: var(--text-secondary);
+      border: 1px solid transparent;
+    }
+    .group-item:hover {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+    .group-item.active {
+      background: rgba(168, 85, 247, 0.12);
+      color: var(--accent-hover);
+      border-color: rgba(168, 85, 247, 0.2);
+      font-weight: 600;
+    }
+    .group-item .badge {
+      font-size: 10px;
+      opacity: 0.7;
+    }
+    .group-actions {
+      display: none;
+      gap: 4px;
+    }
+    .group-item:hover .group-actions {
+      display: flex;
+    }
+    .group-action-btn {
+      padding: 2px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      border-radius: 4px;
+    }
+    .group-action-btn:hover {
+      color: var(--text-primary);
+      background: rgba(255,255,255,0.1);
+    }
+    .post-bank-main {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      margin-bottom: 10px;
-      padding: 10px;
-      border: 1px solid rgba(148,163,184,0.2);
-      border-radius: 8px;
-      background: rgba(15,23,42,0.45);
-    }
-    .post-bank-group-row {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .post-bank-group-row input {
-      flex: 1 1 200px;
-      min-width: 140px;
-      padding: 6px 8px;
-      border-radius: 6px;
-      border: 1px solid rgba(148,163,184,0.25);
-      background: rgba(15,23,42,0.6);
-      color: var(--text-primary);
-      font-size: 12px;
-    }
-    .post-bank-group-create {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .post-bank-group-create input {
-      flex: 1 1 220px;
-      min-width: 160px;
-      padding: 6px 8px;
-      border-radius: 6px;
-      border: 1px solid rgba(148,163,184,0.25);
-      background: rgba(15,23,42,0.6);
-      color: var(--text-primary);
-      font-size: 12px;
-    }
-    .post-bank-manager-controls {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      margin: 8px 0 10px 0;
-    }
-    .post-bank-manager-controls select {
-      min-width: 220px;
-      padding: 6px 8px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--bg);
-      color: var(--text-primary);
-      font-size: 12px;
+      gap: 12px;
+      overflow-y: auto;
+      padding-right: 4px;
     }
     .post-bank-entry {
-      border: 1px solid rgba(148,163,184,0.2);
-      border-radius: 8px;
-      padding: 10px;
-      background: rgba(15,23,42,0.5);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      background: var(--bg-secondary);
       position: relative;
+      transition: border-color 0.2s;
     }
+    .post-bank-entry:hover { border-color: var(--accent); }
     .post-bank-entry-header {
       display: flex;
       align-items: center;
@@ -1596,28 +1789,43 @@
     }
     #filter-bar {
       display: flex;
-      gap: 8px;
-      padding: 8px 16px;
+      gap: 10px;
+      padding: 10px 16px;
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border);
       align-items: center;
       flex-shrink: 0;
+      flex-wrap: wrap;
     }
     #filter-bar select,
     #filter-bar input {
+      flex: 1 1 auto;
+      min-width: 120px;
+      max-width: 180px;
       background: var(--bg-tertiary);
       color: var(--text-primary);
       border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 4px 8px;
+      border-radius: 8px;
+      padding: 6px 10px;
       font-size: 12px;
       font-family: inherit;
       color-scheme: dark;
+      transition: border-color 0.2s;
+    }
+    #filter-bar select:hover,
+    #filter-bar input:hover {
+      border-color: var(--accent);
+    }
+    #filter-bar input#filter-author {
+      min-width: 160px;
+      max-width: 240px;
     }
     #filter-count {
       font-size: 12px;
-      color: var(--text-muted);
+      font-weight: 600;
+      color: var(--accent);
       margin-left: auto;
+      white-space: nowrap;
     }
   </style>
 </head>
@@ -2130,18 +2338,37 @@
   </div>
 
   <div id="post-bank-manager-modal" class="bulk-meta-modal">
-    <div class="bulk-meta-card" style="max-width:900px;">
-      <div class="bulk-meta-title">Post Bank Manager</div>
-      <div class="li-quick-help">Add posts/replies you like. They are used as style references only (no copying).</div>
-      <div class="post-bank-manager-controls">
-        <select id="post-bank-manager-group-filter" onchange="setPostBankManagerGroupFilter(this.value)"></select>
-        <button class="action-btn" onclick="addPostBankEntry()">Add Entry</button>
+    <div class="bulk-meta-card" style="max-width:1100px; width:96vw; max-height:90vh;">
+      <div class="bulk-meta-title" style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Post Bank Manager</span>
+        <button class="action-btn" onclick="addPostBankEntry()" style="background:rgba(34,197,94,0.12); color:#86efac; border-color:rgba(34,197,94,0.25);">+ Add Entry</button>
       </div>
-      <div class="post-bank-groups" id="post-bank-group-list"></div>
-      <div class="post-bank-list" id="post-bank-manager-list"></div>
+      <div class="li-quick-help" style="margin-bottom:12px;">Add posts/replies you like. They are used as style references only.</div>
+      
+      <div class="post-bank-manager-body">
+        <div class="post-bank-sidebar">
+          <div class="post-bank-sidebar-header">Groups</div>
+          <div id="post-bank-group-list">
+            <!-- Rendered via JS -->
+          </div>
+          <div style="margin-top:auto; padding-top:12px; border-top:1px solid var(--border);">
+            <div class="post-bank-sidebar-header">New Group</div>
+            <div style="display:flex; gap:6px;">
+              <input id="post-bank-new-group" placeholder="Name..." style="width:100%; font-size:11px; padding:4px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg-tertiary); color:var(--text-primary);">
+              <button class="group-action-btn" onclick="createPostBankGroup()" title="Create Group" style="border:1px solid var(--border); padding:4px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="post-bank-main" id="post-bank-manager-list">
+          <!-- Rendered via JS -->
+        </div>
+      </div>
+
       <div class="bulk-meta-actions">
         <button class="action-btn" onclick="closePostBankManager()">Close</button>
-        <button class="action-btn success" onclick="savePostBankEntries()">Save</button>
+        <button class="action-btn success" onclick="savePostBankEntries()">Save Changes</button>
       </div>
     </div>
   </div>
@@ -2345,6 +2572,7 @@
     }
 
     let expandedDraftId = null;
+    const postTabState = new Map();
 
     function startAutoRefresh() {
       if (refreshInterval) return;
@@ -2362,6 +2590,23 @@
       const div = document.createElement('div');
       div.textContent = text || '';
       return div.innerHTML;
+    }
+
+    function openExternalUrl(url) {
+      const target = String(url || '').trim();
+      if (!target) return;
+      if (window.pocketAgent?.openExternal) {
+        window.pocketAgent.openExternal(target);
+      }
+    }
+
+    function setPostTab(postId, tab) {
+      if (!postId) return;
+      const allowed = ['overview', 'draft', 'evidence'];
+      if (!allowed.includes(tab)) return;
+      postTabState.set(Number(postId), tab);
+      if (tab === 'draft') expandedDraftId = Number(postId);
+      loadPosts();
     }
 
     function parsePostBankIds(raw) {
@@ -2503,56 +2748,47 @@
       const groups = getPostBankGroups();
       postBankGroupIndex = groups.map(g => g.name);
       const ungroupedCount = postBankEntries.filter(entry => !String(entry.group || '').trim()).length;
-      const createRow = `
-        <div class="post-bank-group-create">
-          <input id="post-bank-new-group" placeholder="New group name">
-          <button class="action-btn" onclick="createPostBankGroup()">Create Group</button>
+      
+      const filteredGroup = String(postBankManagerGroupFilter || '').trim();
+      
+      const ungroupedRow = `
+        <div class="group-item ${!filteredGroup ? 'active' : ''}" onclick="viewPostBankGroup('')">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span>All entries</span>
+          </div>
+          <span class="badge">${postBankEntries.length}</span>
         </div>
+        ${ungroupedCount > 0 ? `
+          <div class="group-item ${filteredGroup === '__ungrouped__' ? 'active' : ''}" onclick="viewPostBankGroup('__ungrouped__')">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span>Ungrouped</span>
+            </div>
+            <span class="badge">${ungroupedCount}</span>
+          </div>
+        ` : ''}
       `;
-      const ungroupedRow = ungroupedCount
-        ? `<div class="post-bank-group-row">
-            <input value="Ungrouped" disabled />
-            <span class="badge" style="margin-left:6px;">${ungroupedCount}</span>
-            <button class="action-btn" onclick="viewPostBankGroup('__ungrouped__')">Open</button>
-          </div>`
-        : '';
-      if (!groups.length && !ungroupedCount) {
-        host.innerHTML = `${createRow}<div class="li-quick-help">No groups yet. Create one or add a group name on entries to see them here.</div>`;
-        return;
-      }
-      host.innerHTML = createRow + ungroupedRow + groups.map((group, idx) => `
-        <div class="post-bank-group-row">
-          <input id="pb-group-name-${idx}" value="${escapeHtml(group.name)}" />
-          <span class="badge" style="margin-left:6px;">${group.count}</span>
-          <button class="action-btn" onclick="viewPostBankGroup('${escapeHtml(group.name)}')">Open</button>
-          <button class="action-btn" onclick="renamePostBankGroup(${idx})">Rename</button>
-          <button class="action-btn" onclick="clearPostBankGroup(${idx})">Clear</button>
+
+      host.innerHTML = ungroupedRow + groups.map((group, idx) => `
+        <div class="group-item ${filteredGroup === group.name ? 'active' : ''}" onclick="viewPostBankGroup('${escapeHtml(group.name)}')">
+          <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(group.name)}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="badge">${group.count}</span>
+            <div class="group-actions" onclick="event.stopPropagation()">
+              <button class="group-action-btn" onclick="promptRenameGroup(${idx})" title="Rename">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+              <button class="group-action-btn" onclick="clearPostBankGroup(${idx})" title="Clear Group (move to ungrouped)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
       `).join('');
-    }
-
-    function renamePostBankGroup(index) {
-      const oldName = postBankGroupIndex[index];
-      if (!oldName) return;
-      const input = document.getElementById(`pb-group-name-${index}`);
-      const nextName = String(input?.value || '').trim();
-      postBankEntries = postBankEntries.map(entry => {
-        if (String(entry.group || '').trim() !== oldName) return entry;
-        return { ...entry, group: nextName };
-      });
-      if (postBankManagerGroupFilter === oldName) postBankManagerGroupFilter = nextName;
-      renderPostBankManager();
-    }
-
-    function clearPostBankGroup(index) {
-      const name = postBankGroupIndex[index];
-      if (!name) return;
-      postBankEntries = postBankEntries.map(entry => {
-        if (String(entry.group || '').trim() !== name) return entry;
-        return { ...entry, group: '' };
-      });
-      if (postBankManagerGroupFilter === name) postBankManagerGroupFilter = '';
-      renderPostBankManager();
     }
 
     function viewPostBankGroup(name) {
@@ -2561,9 +2797,19 @@
       renderPostBankManager();
     }
 
-    function setPostBankManagerGroupFilter(value) {
-      postBankManagerGroupFilter = String(value || '').trim();
-      postBankSelectedIds = new Set();
+    function promptRenameGroup(index) {
+      const oldName = postBankGroupIndex[index];
+      if (!oldName) return;
+      const nextName = prompt(`Rename group "${oldName}" to:`, oldName);
+      if (nextName === null) return;
+      const cleanNext = nextName.trim();
+      if (!cleanNext) return;
+      
+      postBankEntries = postBankEntries.map(entry => {
+        if (String(entry.group || '').trim() !== oldName) return entry;
+        return { ...entry, group: cleanNext };
+      });
+      if (postBankManagerGroupFilter === oldName) postBankManagerGroupFilter = cleanNext;
       renderPostBankManager();
     }
 
@@ -2571,42 +2817,41 @@
       const host = document.getElementById('post-bank-manager-list');
       if (!host) return;
       renderPostBankGroups();
-      const groupFilter = document.getElementById('post-bank-manager-group-filter');
-      if (groupFilter) {
-        const groups = getPostBankGroups();
-        const ungroupedCount = postBankEntries.filter(entry => !String(entry.group || '').trim()).length;
-        const options = ['<option value=\"\">All groups</option>']
-          .concat(ungroupedCount ? [`<option value="__ungrouped__">Ungrouped (${ungroupedCount})</option>`] : [])
-          .concat(groups.map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)} (${g.count})</option>`));
-        groupFilter.innerHTML = options.join('');
-        groupFilter.value = postBankManagerGroupFilter || '';
-      }
+      
       if (!postBankEntries.length) {
-        host.innerHTML = '<div class="li-quick-help">No entries yet. Add the first example to get started.</div>';
+        host.innerHTML = '<div class="li-quick-help" style="padding:40px; text-align:center;">No entries yet. Add your first style reference to get started.</div>';
         return;
       }
       const filteredGroup = String(postBankManagerGroupFilter || '').trim();
-      const showHint = !filteredGroup;
-      const hint = showHint ? '<div class="li-quick-help" style="margin-bottom:8px;">Select a group above to view and edit its entries.</div>' : '';
-      const visibleEntryIds = [];
-      const bulkActions = !showHint ? `
-        <div class="post-bank-bulk-actions">
+      const showAll = filteredGroup === '';
+      const showUngrouped = filteredGroup === '__ungrouped__';
+      
+      const visibleEntries = postBankEntries.filter(entry => {
+        if (showAll) return true;
+        const entryGroup = String(entry.group || '').trim();
+        if (showUngrouped) return entryGroup === '';
+        return entryGroup === filteredGroup;
+      });
+
+      if (visibleEntries.length === 0 && !showAll) {
+        host.innerHTML = `<div class="li-quick-help" style="padding:40px; text-align:center;">Group "${filteredGroup}" is empty.</div>`;
+        return;
+      }
+
+      const bulkActions = `
+        <div class="post-bank-bulk-actions" style="margin-bottom:12px;">
           <div class="count">${postBankSelectedIds.size} selected</div>
-          <button class="action-btn" onclick="selectAllVisiblePostBankEntries()">Select all in group</button>
+          <button class="action-btn" onclick="selectAllVisiblePostBankEntries()">Select all</button>
           <button class="action-btn" onclick="clearPostBankSelection()">Clear</button>
           <button class="action-btn" onclick="removeSelectedPostBankEntries()" style="background:rgba(248,113,113,0.12);color:#fca5a5;border-color:rgba(248,113,113,0.3);">Remove selected</button>
         </div>
-      ` : '';
-      host.innerHTML = hint + bulkActions + postBankEntries.map((entry, idx) => {
-        const entryGroup = String(entry.group || '').trim();
-        const hide = showHint
-          ? true
-          : (filteredGroup === '__ungrouped__' ? !!entryGroup : entryGroup !== filteredGroup);
-        const hideStyle = hide ? 'style="display:none;"' : '';
-        if (!hide) visibleEntryIds.push(entry.id);
+      `;
+
+      host.innerHTML = bulkActions + visibleEntries.map((entry, idx) => {
         const selected = postBankSelectedIds.has(entry.id);
+        const actualIdx = postBankEntries.findIndex(e => e.id === entry.id);
         return `
-        <div class="post-bank-entry" data-entry-id="${entry.id}" ${hideStyle}>
+        <div class="post-bank-entry" data-entry-id="${entry.id}">
           <div class="post-bank-entry-header">
             <label class="post-bank-select"><input type="checkbox" ${selected ? 'checked' : ''} onchange="togglePostBankSelect('${entry.id}', this.checked)"> Select</label>
             <div class="post-bank-entry-actions">
@@ -2614,45 +2859,26 @@
               <button class="action-btn" onclick="removePostBankEntry('${entry.id}')">Remove</button>
             </div>
           </div>
-          <div class="row">
-            <div>
-              <label title="Short label for this example.">Title</label>
-              <input id="pb-title-${idx}" value="${escapeHtml(entry.title || '')}" placeholder="Short label">
+          <div class="row" style="gap:8px;">
+            <div style="flex:2;">
+              <label>Title</label>
+              <input id="pb-title-${actualIdx}" value="${escapeHtml(entry.title || '')}" placeholder="Label">
             </div>
-            <div>
-              <label title="Post = full post, Reply = comment style, Snippet = small fragment for tone.">Type</label>
-              <select id="pb-type-${idx}">
+            <div style="flex:1;">
+              <label>Type</label>
+              <select id="pb-type-${actualIdx}">
                 ${['post','reply','snippet'].map(t => `<option value="${t}" ${t === entry.type ? 'selected' : ''}>${t}</option>`).join('')}
               </select>
             </div>
-            <div>
-              <label title="Optional tags for search/filter only.">Tags (comma separated)</label>
-              <input id="pb-tags-${idx}" value="${escapeHtml((entry.tags || []).join(', '))}" placeholder="seo, product, growth">
-            </div>
-            <div>
-              <label title="Group = voice pack. Presets can use a whole group.">Group</label>
-              <input id="pb-group-${idx}" value="${escapeHtml(entry.group || '')}" placeholder="e.g. SEO Voice A">
+            <div style="flex:1.5;">
+              <label>Group</label>
+              <input id="pb-group-${actualIdx}" value="${escapeHtml(entry.group || '')}" placeholder="SEO, Product...">
             </div>
           </div>
-          <div class="row">
-            <div>
-              <label title="Used for rotation: voice = rhythm, stance = pushback, closing = ending style.">Function Tags</label>
-              <div class="post-bank-tags">
-                ${['voice','stance','closing'].map(tag => `
-                  <label><input type="checkbox" id="pb-fn-${idx}-${tag}" ${entry.functionTags?.includes(tag) ? 'checked' : ''}/> ${tag}</label>
-                `).join('')}
-              </div>
-            </div>
-            <div>
-              <label title="Disabled entries are ignored by the model.">Disable</label>
-              <select id="pb-disabled-${idx}">
-                <option value="false" ${entry.disabled ? '' : 'selected'}>Active</option>
-                <option value="true" ${entry.disabled ? 'selected' : ''}>Disabled</option>
-              </select>
-            </div>
+          <div style="margin-top:8px;">
+            <label>Reference Text</label>
+            <textarea id="pb-text-${actualIdx}" placeholder="Paste example text here..." style="min-height:80px;">${escapeHtml(entry.text || '')}</textarea>
           </div>
-          <label>Text</label>
-          <textarea id="pb-text-${idx}" placeholder="Paste post/reply/snippet here">${escapeHtml(entry.text || '')}</textarea>
         </div>
       `;
       }).join('');
@@ -2660,7 +2886,7 @@
 
     function getVisiblePostBankEntryIds() {
       const filteredGroup = String(postBankManagerGroupFilter || '').trim();
-      if (!filteredGroup) return [];
+      if (!filteredGroup) return postBankEntries.map(entry => entry.id);
       return postBankEntries
         .filter(entry => {
           const entryGroup = String(entry.group || '').trim();
@@ -2735,25 +2961,40 @@
       const warnings = [];
       const host = document.getElementById('post-bank-manager-list');
       if (!host) return;
-      const nodes = Array.from(host.querySelectorAll('.post-bank-entry'));
-      nodes.forEach((node, idx) => {
-        const id = String(node.getAttribute('data-entry-id') || `pb_${idx}`);
-        const title = (document.getElementById(`pb-title-${idx}`) || {}).value || '';
-        const type = (document.getElementById(`pb-type-${idx}`) || {}).value || 'reply';
-        const tags = String((document.getElementById(`pb-tags-${idx}`) || {}).value || '')
-          .split(',').map(t => t.trim()).filter(Boolean);
-        const group = String((document.getElementById(`pb-group-${idx}`) || {}).value || '').trim();
-        const functionTags = ['voice','stance','closing'].filter(tag => {
-          const el = document.getElementById(`pb-fn-${idx}-${tag}`);
-          return el && el.checked;
-        });
-        const disabled = String((document.getElementById(`pb-disabled-${idx}`) || {}).value || 'false') === 'true';
-        const text = (document.getElementById(`pb-text-${idx}`) || {}).value || '';
-        const entry = { id, title, type, tags, group, functionTags, disabled, text };
-        entries.push(entry);
-        const issues = checkPostBankEntryQuality(entry);
-        if (issues.length) warnings.push(`${title || id}: ${issues.join(', ')}`);
+
+      // 1. Capture current edits from the visible rows first
+      const visibleNodes = Array.from(host.querySelectorAll('.post-bank-entry'));
+      const visibleEdits = new Map();
+      visibleNodes.forEach((node) => {
+        const id = node.getAttribute('data-entry-id');
+        if (!id) return;
+        
+        // Find the index in the original array to get the correct element IDs
+        const originalIdx = postBankEntries.findIndex(e => e.id === id);
+        if (originalIdx === -1) return;
+
+        const title = (document.getElementById(`pb-title-${originalIdx}`) || {}).value || '';
+        const type = (document.getElementById(`pb-type-${originalIdx}`) || {}).value || 'reply';
+        const group = String((document.getElementById(`pb-group-${originalIdx}`) || {}).value || '').trim();
+        const text = (document.getElementById(`pb-text-${originalIdx}`) || {}).value || '';
+        
+        visibleEdits.set(id, { title, type, group, text });
       });
+
+      // 2. Reconstruct the full list, applying edits to visible ones and keeping the rest intact
+      postBankEntries.forEach((existingEntry) => {
+        const edit = visibleEdits.get(existingEntry.id);
+        if (edit) {
+          const entry = { ...existingEntry, ...edit };
+          entries.push(entry);
+          const issues = checkPostBankEntryQuality(entry);
+          if (issues.length) warnings.push(`${entry.title || entry.id}: ${issues.join(', ')}`);
+        } else {
+          // If it wasn't visible, keep it as is (no edits possible)
+          entries.push(existingEntry);
+        }
+      });
+
       postBankEntries = entries;
       await window.pocketAgent.setSetting('linkedin.postBankEntries', JSON.stringify(entries));
       postBankLoaded = true;
@@ -2762,6 +3003,7 @@
       } else {
         showToast('Post Bank saved', 'success');
       }
+      renderPostBankManager();
     }
 
     function openPostBankSelector(postId) {
@@ -2952,6 +3194,19 @@
       if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
       if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
       return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+
+    function formatConfidence(raw) {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return '';
+      const pct = n <= 1 ? Math.round(n * 100) : Math.round(n);
+      return `${Math.max(0, Math.min(100, pct))}%`;
+    }
+
+    function formatEvidenceTimestamp(raw) {
+      const text = String(raw || '').trim();
+      if (!text) return '';
+      return text.replace('T', ' ').replace('Z', '');
     }
 
     async function checkCacheHealth(silent = true) {
@@ -3250,9 +3505,23 @@
     function getSelectedIds() {
       const ids = [];
       document.querySelectorAll('.posts-table tbody input[type="checkbox"]:checked').forEach(cb => {
-        ids.push(Number(cb.value));
+        const raw = Number(cb.value);
+        if (Number.isFinite(raw)) {
+          ids.push(raw);
+          return;
+        }
+        const rowId = Number(cb.closest('tr')?.dataset?.postId);
+        if (Number.isFinite(rowId)) ids.push(rowId);
       });
       return ids;
+    }
+
+    function toggleSelect(id, checked) {
+      const postId = Number(id);
+      if (!Number.isFinite(postId)) return;
+      if (checked) selectedIds.add(postId);
+      else selectedIds.delete(postId);
+      updateSelection();
     }
 
     function updateSelection() {
@@ -3270,11 +3539,11 @@
       } else {
         bar.classList.remove('visible');
       }
-      const allowBulk = activePanel === 'drafted';
-      const allowBank = activePanel === 'drafted' || activePanel === 'queue';
-      const allowPresets = activePanel === 'drafted' || activePanel === 'queue';
-      const allowRewrite = activePanel === 'drafted' || activePanel === 'queue';
-      const allowRedraft = activePanel === 'drafted' || activePanel === 'queue';
+      const allowBulk = activePanel !== 'published';
+      const allowBank = true;
+      const allowPresets = true;
+      const allowRewrite = activePanel !== 'published';
+      const allowRedraft = activePanel !== 'published';
       if (bulkBtn) bulkBtn.style.display = allowBulk && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (bankBtn) bankBtn.style.display = allowBank && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (rewriteBtn) rewriteBtn.style.display = allowRewrite && selectedIds.size > 0 ? 'inline-flex' : 'none';
@@ -4148,6 +4417,7 @@
 
     const draftRequestQueue = [];
     const locallyQueuedDraftPostIds = new Set();
+    const researchInFlightIds = new Set();
     let draftQueueProcessing = false;
     let draftQueueStartedCount = 0;
 
@@ -4170,7 +4440,10 @@
           next.reject(err);
         } finally {
           draftQueueStartedCount = Math.max(0, draftQueueStartedCount - 1);
-          for (const id of next.ids) locallyQueuedDraftPostIds.delete(id);
+          for (const id of next.ids) {
+            locallyQueuedDraftPostIds.delete(id);
+            researchInFlightIds.delete(id);
+          }
           void loadPosts();
         }
       }
@@ -4264,8 +4537,11 @@
 
       return new Promise((resolve, reject) => {
         const queuedBehindActive = draftQueueProcessing || draftRequestQueue.length > 0 || draftQueueStartedCount > 0;
-        for (const id of cleanIds) locallyQueuedDraftPostIds.add(id);
-        void loadPosts();
+      for (const id of cleanIds) {
+        locallyQueuedDraftPostIds.add(id);
+        researchInFlightIds.add(id);
+      }
+      void loadPosts();
         draftRequestQueue.push({ ids: cleanIds, successLabel, failureLabel, forceRedo, resolve, reject });
         if (queuedBehindActive) {
           const count = cleanIds.length;
@@ -4296,11 +4572,16 @@
 
     async function redraftDraft(postId) {
       showToast('Redrafting 1 post with cached research...', 'success');
+      redraftInFlightIds.add(Number(postId));
+      void loadPosts(true);
       try {
         await runBatchRedraft([postId], 'Redrafted', 'Redraft failed');
         loadPosts();
       } catch (err) {
         showToast(`Redraft failed: ${shortError(err)}`, 'error');
+      } finally {
+        redraftInFlightIds.delete(Number(postId));
+        void loadPosts(true);
       }
     }
 
@@ -4331,11 +4612,16 @@
         return;
       }
       showToast(`Redrafting ${ids.length} post${ids.length === 1 ? '' : 's'} with cached research...`, 'success');
+      ids.forEach(id => redraftInFlightIds.add(Number(id)));
+      void loadPosts(true);
       try {
         await runBatchRedraft(ids, 'Redrafted', 'Redraft failed');
         loadPosts();
       } catch (err) {
         showToast(`Redraft failed: ${shortError(err)}`, 'error');
+      } finally {
+        ids.forEach(id => redraftInFlightIds.delete(Number(id)));
+        void loadPosts(true);
       }
     }
 
@@ -4425,6 +4711,7 @@
     const rewriteQueued = new Set();
     const rewriteInFlightIds = new Set();
     let rewriteInFlight = false;
+    const redraftInFlightIds = new Set();
 
     function enqueueRewrite(postId) {
       if (rewriteQueued.has(postId)) {
@@ -4460,10 +4747,9 @@
     }
 
     async function performRewrite(postId) {
-      const contentEl = document.getElementById('draft-content-' + postId);
-      const host = document.getElementById(`draft-actions-${postId}`);
-      if (!contentEl) return;
-      const currentText = (contentEl.textContent || '').trim();
+      const draftEl = document.getElementById('draft-' + postId);
+      const post = getPostById(postId);
+      const currentText = String(post?.comment_draft || '').trim();
       if (!currentText) {
         showToast('Draft text is empty', 'error');
         return;
@@ -4472,7 +4758,7 @@
         showToast('Rewrite helper unavailable in this build', 'error');
         return;
       }
-      const post = getPostById(postId);
+      if (draftEl) draftEl.classList.add('loading');
       const angleLines = [];
       if (post?.hook_score) angleLines.push(`Hook target: ${post.hook_score}/10. Make lines 1-2 sharper to match.`);
       if (post?.emotion_tag) angleLines.push(`Emotion: ${post.emotion_tag}. Trigger it in the first 2 lines, do not label it.`);
@@ -4513,12 +4799,18 @@
         const changed = await waitForChange();
         if (changed) {
           showToast(`Rewrite applied (${result.model || 'model'})`, 'success');
+          const selected = currentDraftModel();
+          if (result.model && selected && result.model !== selected) {
+            showToast(`Rewrite used ${result.model} (selected ${selected}). Check provider credentials/fallbacks.`, 'error');
+          }
         } else {
           showToast('Rewrite saved but no visible change yet', 'error');
         }
       } catch (err) {
         showToast(`Rewrite failed: ${shortError(err)}`, 'error');
-      } finally {}
+      } finally {
+        if (draftEl) draftEl.classList.remove('loading');
+      }
     }
 
     // Store current posts data for filtering
@@ -4870,8 +5162,8 @@
         const hasPostingFail = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
         const hasDraftFailure = ds.startsWith('failed_');
         const hasFailed = !isPublished && !hasDraft && (hasDraftFailure || Number(p.failed_attempts || 0) > 0 || hasPostingFail) && !p.scheduled_at;
-        const isScheduledPanel = !isPublished && !!((p.approved || approvedIds.has(p.id)) && p.scheduled_at);
-        const isDraftedPanel = !isPublished && hasDraft && !isScheduledPanel;
+      const isScheduledPanel = !isPublished && !!((p.approved || approvedIds.has(p.id)) && p.scheduled_at);
+      const isDraftedPanel = !isPublished && hasDraft && !isScheduledPanel && !p.approved;
         const isQueuePanel = !isPublished && !hasFailed && !isScheduledPanel && !hasDraft;
         const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
         const needsAttention = (!!(p.approved && !isPublished && (!p.scheduled_at || hasFailed)) && !isPostingNow) || recheckCandidate;
@@ -4937,7 +5229,7 @@
         for (const p of posts) {
           const ds = String(p.draft_state || '').trim().toLowerCase();
           const hasDraft = !!String(p.comment_draft || '').trim();
-          if (hasDraft || !['queued', 'researching', 'writing'].includes(ds)) {
+          if ((hasDraft || !['queued', 'researching', 'writing'].includes(ds)) && !researchInFlightIds.has(Number(p.id))) {
             locallyQueuedDraftPostIds.delete(Number(p.id));
           }
         }
@@ -4946,7 +5238,7 @@
         const validIds = new Set(posts.map(p => Number(p.id)));
         selectedIds = new Set(Array.from(selectedIds).filter(id => validIds.has(id)));
         const scheduledCount = posts.filter(p => !isPublishedPost(p) && !!(p.approved && p.scheduled_at)).length;
-        const draftedCount = posts.filter(p => !isPublishedPost(p) && !!p.comment_draft && !(p.approved && p.scheduled_at)).length;
+        const draftedCount = posts.filter(p => !isPublishedPost(p) && !!p.comment_draft && !(p.approved && p.scheduled_at) && !p.approved).length;
         const publishedCount = posts.filter(p => isPublishedPost(p)).length;
         const failedCount = posts.filter(p => {
           if (isPublishedPost(p)) return false;
@@ -4975,6 +5267,11 @@
           const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
           return (!!(p.approved && !isPublished && (!p.scheduled_at || hf)) && !isPostingNow) || recheckCandidate;
         }).length;
+        const filtered = applySorting(applyFilters(posts));
+        const filteredSnoozed = applyFilters(snoozed, 'all');
+        const snoozedLabel = filteredSnoozed.length === snoozed.length
+          ? String(snoozed.length)
+          : `${filteredSnoozed.length} of ${snoozed.length}`;
         const tabQueue = document.getElementById('tab-queue');
         const tabDrafted = document.getElementById('tab-drafted');
         const tabScheduled = document.getElementById('tab-scheduled');
@@ -4988,33 +5285,28 @@
         if (tabAttention) tabAttention.textContent = `Needs Attention (${attentionCount})`;
         if (tabFailed) tabFailed.textContent = `Failed (${failedCount})`;
         if (tabPublished) tabPublished.textContent = `Published (${publishedCount})`;
+        const publishedInViewCount = filtered.filter(p => isPublishedPost(p)).length;
         if (dailyStatsEl) {
           const todayIso = new Date().toISOString().split('T')[0];
           if (dailyStats && Number(dailyStats.dailyLimit || 0) > 0) {
             if (date === todayIso) {
-              dailyStatsEl.textContent = `${dailyStats.postedToday}/${dailyStats.dailyLimit} posted today (all) | ${publishedCount} in this view`;
+              dailyStatsEl.textContent = `${dailyStats.postedToday}/${dailyStats.dailyLimit} posted today (all) | ${publishedInViewCount} in this view`;
               dailyStatsEl.title = 'The first number is today total across all scraped dates. The second is this current filtered date/view.';
             } else {
-              dailyStatsEl.textContent = `${publishedCount} published in this view`;
+              dailyStatsEl.textContent = `${publishedInViewCount} published in this view`;
               dailyStatsEl.title = 'Published count for the currently selected date and filters.';
             }
           } else {
-            dailyStatsEl.textContent = `${publishedCount} published in this view`;
+            dailyStatsEl.textContent = `${publishedInViewCount} published in this view`;
             dailyStatsEl.title = 'Published count for the currently selected date and filters.';
           }
         }
         refreshPanelTabs();
         // Draft state is read from DB (p.draft_state) — no transient pruning needed
-
-        const filtered = applySorting(applyFilters(posts));
-        const filteredSnoozed = applyFilters(snoozed, 'all');
-        const snoozedLabel = filteredSnoozed.length === snoozed.length
-          ? String(snoozed.length)
-          : `${filteredSnoozed.length} of ${snoozed.length}`;
         const content = document.getElementById('content');
         const countEl = document.getElementById('post-count');
 
-        const drafted = posts.filter(p => p.comment_draft && !isPublishedPost(p)).length;
+        const drafted = posts.filter(p => p.comment_draft && !isPublishedPost(p) && !p.approved).length;
         const commented = posts.filter(p => isPublishedPost(p)).length;
         const approvedPending = posts.filter(p => p.approved && !isPublishedPost(p)).length;
         const delayedCount = posts.filter(p => {
@@ -5054,16 +5346,16 @@
         let html = `
           <table class="posts-table" id="main-table">
             <colgroup>
-              <col id="col-w-check" data-col="check" style="width:104px">
+              <col id="col-w-check" data-col="check" style="width:44px">
               <col id="col-w-num" data-col="num" style="width:24px">
               <col id="col-w-pri" data-col="pri" style="width:60px">
-              <col id="col-w-author" data-col="author" style="width:120px">
-              <col id="col-w-quality" data-col="quality" style="width:210px">
+              <col id="col-w-author" data-col="author" style="width:140px">
+              <col id="col-w-quality" data-col="quality" style="width:220px">
               <col id="col-w-preview" data-col="preview">
               <col id="col-w-reacts" data-col="reacts" style="width:35px">
               <col id="col-w-cmts" data-col="cmts" style="width:35px">
               <col id="col-w-type" data-col="type" style="width:130px">
-              <col id="col-w-status" data-col="status" style="width:90px">
+              <col id="col-w-status" data-col="status" style="width:120px">
               <col id="col-w-scheduled" data-col="scheduled" style="width:84px">
               <col id="col-w-actions" data-col="actions" style="width:75px">
             </colgroup>
@@ -5072,20 +5364,19 @@
                 <th class="col-check" data-col="check">
                   <label class="select-all" title="Select all visible posts">
                     <input type="checkbox" onchange="toggleSelectAll(this.checked)" />
-                    <span>Select All</span>
                   </label>
                 </th>
                 <th class="col-num" data-col="num">#</th>
-                <th class="col-priority" data-col="pri" style="cursor:pointer;position:relative" onclick="toggleSort('priority')" title="Manual posting priority order: urgent, high, normal, low">Pri<div class="th-resize-handle" data-col="pri"></div></th>
-                <th data-col="author" style="cursor:pointer;position:relative" onclick="toggleSort('author')">Author<div class="th-resize-handle" data-col="author"></div></th>
-                <th data-col="quality" style="position:relative">Quality<div class="th-resize-handle" data-col="quality"></div></th>
-                <th data-col="preview" style="position:relative">Preview<div class="th-resize-handle" data-col="preview"></div></th>
-                <th class="col-stats" data-col="reacts" style="cursor:pointer;position:relative" onclick="toggleSort('reactions')">Reacts<div class="th-resize-handle" data-col="reacts"></div></th>
-                <th class="col-stats" data-col="cmts" style="cursor:pointer;position:relative" onclick="toggleSort('comments')">Cmts<div class="th-resize-handle" data-col="cmts"></div></th>
-                <th data-col="type" style="cursor:pointer;position:relative" onclick="toggleSort('type')" title="Post type plus inferred information intent">Type/Intent<div class="th-resize-handle" data-col="type"></div></th>
-                <th class="col-status" data-col="status" style="cursor:pointer;position:relative" onclick="toggleSort('status')">Status<div class="th-resize-handle" data-col="status"></div></th>
-                <th class="col-scheduled" data-col="scheduled" style="cursor:pointer;position:relative" onclick="toggleSort('scheduled')">Scheduled<div class="th-resize-handle" data-col="scheduled"></div></th>
-                <th class="col-actions" data-col="actions">Actions</th>
+                <th class="col-priority" data-col="pri">Priority<span class="th-resize-handle" data-col="pri"></span></th>
+                <th class="col-author" data-col="author">Author<span class="th-resize-handle" data-col="author"></span></th>
+                <th data-col="quality">Quality Metrics<span class="th-resize-handle" data-col="quality"></span></th>
+                <th data-col="preview">Post Summary & Draft<span class="th-resize-handle" data-col="preview"></span></th>
+                <th class="col-stats" data-col="reacts">❤<span class="th-resize-handle" data-col="reacts"></span></th>
+                <th class="col-stats" data-col="cmts">💬<span class="th-resize-handle" data-col="cmts"></span></th>
+                <th class="col-type" data-col="type">Type<span class="th-resize-handle" data-col="type"></span></th>
+                <th class="col-status" data-col="status">Status<span class="th-resize-handle" data-col="status"></span></th>
+                <th class="col-scheduled" data-col="scheduled">Scheduled<span class="th-resize-handle" data-col="scheduled"></span></th>
+                <th class="col-actions" data-col="actions">Actions<span class="th-resize-handle" data-col="actions"></span></th>
               </tr>
             </thead>
             <tbody>
@@ -5102,24 +5393,24 @@
               </div>
               <table class="posts-table" id="snoozed-table">
                 <colgroup>
-                  <col style="width:24px">
-                  <col id="col-s-pri" style="width:60px">
-                  <col id="col-s-author" style="width:120px">
-                  <col id="col-s-quality" style="width:210px">
-                  <col id="col-s-preview">
-                  <col id="col-s-reacts" style="width:35px">
-                  <col id="col-s-cmts" style="width:35px">
-                  <col id="col-s-type" style="width:130px">
-                  <col id="col-s-status" style="width:90px">
-                  <col id="col-s-scheduled" style="width:84px">
-                  <col id="col-s-actions" style="width:75px">
+                  <col data-col="num" style="width:24px">
+                  <col id="col-s-pri" data-col="pri" style="width:60px">
+                  <col id="col-s-author" data-col="author" style="width:120px">
+                  <col id="col-s-quality" data-col="quality" style="width:210px">
+                  <col id="col-s-preview" data-col="preview">
+                  <col id="col-s-reacts" data-col="reacts" style="width:35px">
+                  <col id="col-s-cmts" data-col="cmts" style="width:35px">
+                  <col id="col-s-type" data-col="type" style="width:130px">
+                  <col id="col-s-status" data-col="status" style="width:90px">
+                  <col id="col-s-scheduled" data-col="scheduled" style="width:84px">
+                  <col id="col-s-actions" data-col="actions" style="width:75px">
                 </colgroup>
                 <tbody>
                   ${filteredSnoozed.map((p, i) => `
                     <tr>
                       <td class="col-num" data-col="num" style="color:var(--text-muted)">${i + 1}</td>
                       <td class="col-priority" data-col="pri">${priorityDot(p.id, p.priority)}</td>
-                      <td class="col-author" data-col="author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}</td>
+                      <td class="col-author" data-col="author" title="${escapeHtml(p.author || '')}">${escapeHtml(p.author || '')}</td>
                       <td class="col-quality" data-col="quality"></td>
                       <td class="col-preview" data-col="preview">${escapeHtml(truncate(p.text_preview, 80))}</td>
                       <td class="col-stats" data-col="reacts">${p.reactions || 0}</td>
@@ -5175,385 +5466,294 @@
     }
 
     function renderPostRow(p, idx) {
-      const renderEvidenceBlock = (row) => {
-        const hasEvidence = !!(
-          row.evidence_stance_basis || row.evidence_actionable_add_on || row.evidence_key_point
-          || row.evidence_statistic || row.evidence_source_1_name || row.evidence_source_1_url
-          || row.evidence_source_2_name || row.evidence_source_2_url
-        );
-        if (!hasEvidence) return '';
-
-        const tags = [];
-        if (row.evidence_stance_basis) tags.push(`<span class="draft-evidence-tag">basis: ${escapeHtml(String(row.evidence_stance_basis))}</span>`);
-        if (row.evidence_comment_intent) tags.push(`<span class="draft-evidence-tag">intent: ${escapeHtml(String(row.evidence_comment_intent))}</span>`);
-        if (row.evidence_confidence) tags.push(`<span class="draft-evidence-tag">confidence: ${escapeHtml(String(row.evidence_confidence))}</span>`);
-        if (row.evidence_model) tags.push(`<span class="draft-evidence-tag">model: ${escapeHtml(String(row.evidence_model))}</span>`);
-
-        const sourceBits = [];
-        if (row.evidence_source_1_name || row.evidence_source_1_url) {
-          const n = escapeHtml(String(row.evidence_source_1_name || 'source 1'));
-          const u = escapeHtml(String(row.evidence_source_1_url || ''));
-          sourceBits.push(u ? `${n} (${u})` : n);
-        }
-        if (row.evidence_source_2_name || row.evidence_source_2_url) {
-          const n = escapeHtml(String(row.evidence_source_2_name || 'source 2'));
-          const u = escapeHtml(String(row.evidence_source_2_url || ''));
-          sourceBits.push(u ? `${n} (${u})` : n);
-        }
-        const evidenceAt = row.evidence_created_at ? formatShortDateTime(row.evidence_created_at) : '';
-
-        return `
-          <div class="draft-evidence">
-            <div class="draft-evidence-title">
-              <span>Why this draft</span>
-              ${evidenceAt ? `<span style="opacity:.75;font-weight:500">${escapeHtml(evidenceAt)}</span>` : ''}
-            </div>
-            ${tags.length ? `<div class="draft-evidence-tags">${tags.join('')}</div>` : ''}
-            ${row.evidence_key_point ? `<div class="draft-evidence-line"><strong>Anchor:</strong> ${escapeHtml(truncate(String(row.evidence_key_point), 220))}</div>` : ''}
-            ${row.evidence_statistic ? `<div class="draft-evidence-line"><strong>Research cue:</strong> ${escapeHtml(truncate(String(row.evidence_statistic), 240))}</div>` : ''}
-            ${row.evidence_actionable_add_on ? `<div class="draft-evidence-line"><strong>Action add-on:</strong> ${escapeHtml(truncate(String(row.evidence_actionable_add_on), 220))}</div>` : ''}
-            ${sourceBits.length ? `<div class="draft-evidence-line"><strong>Sources:</strong> ${sourceBits.join(' | ')}</div>` : ''}
-          </div>
-        `;
-      };
-
       const ds = p.draft_state || '';
       const hasDraft = !!String(p.comment_draft || '').trim();
+      const isPublished = isPublishedPost(p);
+      const isScheduled = !!(p.approved && p.scheduled_at && !isPublished);
       const isQueued = (ds === 'queued' || locallyQueuedDraftPostIds.has(p.id)) && !hasDraft;
       const isResearching = ds === 'researching' && !hasDraft;
       const isWriting = ds === 'writing' && !hasDraft;
-      const isDraftFailed = ds.startsWith('failed_');
-      const isDraftCancelled = ds.startsWith('cancelled_');
-      const isPublished = isPublishedPost(p);
-      const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
-      const gainReactions = Number(p.reactions_gain_since_first || 0);
-      const gainComments = Number(p.comments_gain_since_first || 0);
-      const seenDays = Number(p.days_since_first_seen || 0);
       const lastAction = String(p.last_activity_action || '').toLowerCase();
       const isPostingNow = !isPublished && lastAction === 'posting_attempt' && !p.scheduled_at;
-      const isDelayed = !isPublished && lastAction === 'delayed' && !!p.scheduled_at;
-      const isRecovered = !isPublished && lastAction === 'recovered';
-      const hasPostingFailure = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
-      const hasFailed = !hasDraft && (isDraftFailed || hasPostingFailure);
-      const statusBadges = [];
-      if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
-      else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
-      else if (isQueued) statusBadges.push('<span class="badge badge-queued">Queued</span>');
-      if (isPostingNow) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Posting...</span>');
-      if (recheckCandidate) {
-        const ageHint = seenDays > 0 ? ` (${seenDays}d)` : '';
-        statusBadges.push(`<span class="badge" style="background:rgba(59,130,246,0.14);color:#60a5fa;border:1px solid rgba(96,165,250,0.32)" title="This post gained engagement since first seen and is worth re-checking">Recheck +${Math.max(0, gainReactions)}r +${Math.max(0, gainComments)}c${ageHint}</span>`);
-      }
-      if (isDraftCancelled) statusBadges.push('<span class="badge badge-rejected">Cancelled</span>');
-      const isScheduled = !!(p.approved && p.scheduled_at && !isPublished);
-      const scheduledAtMs = parseUtcDateMs(p.scheduled_at);
-      const isDueScheduled = isScheduled && Number.isFinite(scheduledAtMs) && scheduledAtMs <= Date.now();
-      const activityTime = p.last_activity_at ? formatShortDateTime(p.last_activity_at) : '';
-      const tsSuffix = activityTime ? ` <span style="opacity:0.7;font-size:10px">${activityTime}</span>` : '';
-      const schTime = formatShortDateTime(p.scheduled_at);
-      if (isPublished) statusBadges.push(`<span class="badge badge-commented">Published${tsSuffix}</span>`);
-      else if (isDueScheduled) statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)" title="Scheduled time passed; waiting for auto-poster window/slot">Due</span>');
-      else if (isScheduled) statusBadges.push('<span class="badge badge-scheduled">Scheduled</span>');
-      if (isDelayed) {
-        const delayedHint = escapeHtml(String(p.last_activity_reason || 'Delayed and rescheduled'));
-        statusBadges.push(`<span class="badge" style="background:rgba(245,222,179,0.14);color:#f6ddbc;border:1px solid rgba(245,222,179,0.35)" title="${delayedHint}">Delayed</span>`);
-      }
-      if (isRecovered) {
-        const recoveredHint = escapeHtml(String(p.last_activity_reason || 'Recovered after restart and auto-retried'));
-        statusBadges.push(`<span class="badge" style="background:rgba(245,222,179,0.14);color:#f6ddbc;border:1px solid rgba(245,222,179,0.35)" title="${recoveredHint}">Recovered</span>`);
-      }
-      if (!isPublished && !isScheduled && !isDueScheduled && (p.approved || approvedIds.has(p.id))) statusBadges.push(`<span class="badge badge-approved">Approved${tsSuffix}</span>`);
-      else if (rejectedIds.has(p.id)) statusBadges.push(`<span class="badge badge-rejected">Rejected${tsSuffix}</span>`);
-      else if (hasDraft) statusBadges.push(`<span class="badge badge-draft">Draft${tsSuffix}</span>`);
-      if (!isPublished && p.approved && !p.scheduled_at && !isPostingNow) {
-        statusBadges.push('<span class="badge" style="background:rgba(251,146,60,0.14);color:#fb923c;border:1px solid rgba(251,146,60,0.32)">Awaiting schedule</span>');
-      }
-      if (!isPublished && hasFailed) {
-        const failReason = String(p.draft_error || p.last_activity_reason || 'Recent failure')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;');
-        const failLabel = lastAction === 'verify_needed'
-          ? 'Verify'
-          : ds === 'failed_timeout'
-            ? 'Timed out'
-            : ds === 'failed_quality'
-              ? 'Quality fail'
-              : ds === 'failed_provider'
-                ? 'Provider error'
-                : 'Failed';
-        statusBadges.push(`<span class="badge badge-rejected" title="${failReason}">${failLabel}</span>`);
-      }
-
-      const imageCount = Math.max(0, Number(p.image_count || 0));
-      const imageStatus = String(p.image_analysis_status || '').trim().toLowerCase();
-      const imageNote = escapeHtml(String(p.image_analysis_note || '').slice(0, 220));
-      if (imageStatus === 'analyzed') {
-        const label = `Img analyzed${imageCount > 0 ? ` (${imageCount})` : ''}`;
-        statusBadges.push(`<span class="badge badge-image-ok" title="${imageNote || 'Images analyzed during draft/research'}">${label}</span>`);
-      } else if (imageStatus === 'pending' || (imageCount > 0 && (isQueued || isResearching || isWriting))) {
-        statusBadges.push('<span class="badge badge-image-warn" title="Image analysis queued for draft/research">Img pending</span>');
-      } else if (imageStatus === 'skipped_no_model') {
-        statusBadges.push(`<span class="badge badge-image-warn" title="${imageNote || 'Images found but no vision model configured'}">Img no model</span>`);
-      } else if (imageStatus === 'failed') {
-        statusBadges.push(`<span class="badge badge-image-err" title="${imageNote || 'Image analysis failed'}">Img failed</span>`);
-      }
-
-      // Engagement delta badge
-      const engagementBadge = (p.engagement_checked && (p.reactions_delta || p.comments_delta))
-        ? `<span class="badge" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3)">+${p.reactions_delta || 0}r +${p.comments_delta || 0}c</span>`
-        : '';
-
-      // Relationship badge (5 levels)
-      const relationship = getAuthorRelationship(p);
-      const relationBadge = `<span class="badge" style="${relationship.style}" title="${escapeHtml(relationship.title)}">${escapeHtml(relationship.label)}</span>`;
-
-      // Weekly warning
-      const weeklyWarn = (p.author_weekly_comments >= 2) ? `<span style="color:var(--warning);font-size:10px">${p.author_weekly_comments}x this week</span>` : '';
-
-      // Reconnect hint
-      let reconnectHint = '';
-      const tc = Number(p.author_total_comments || 0);
-      if (tc >= 5 && p.author_last_commented) {
-        const daysSince = Math.floor((Date.now() - new Date(p.author_last_commented).getTime()) / (1000 * 60 * 60 * 24));
-        if (daysSince >= 14) reconnectHint = `<span style="color:var(--text-muted);font-size:10px">${daysSince}d ago</span>`;
-      }
-
-      const inflightHint = isResearching
-        ? '<div class="draft-inflight"><span class="mini-spinner"></span>Researching this post now...</div>'
-        : isWriting
-        ? '<div class="draft-inflight"><span class="mini-spinner"></span>Writing draft now...</div>'
-        : (isQueued ? '<div class="draft-inflight"><span class="mini-spinner"></span>Queued for research and drafting...</div>' : '');
-      const failureNote = (!isPublished && hasFailed && p.last_activity_reason)
-        ? `<div style="margin-top:6px;font-size:11px;color:#f87171;line-height:1.4">Last error: ${escapeHtml(String(p.last_activity_reason).slice(0, 220))}</div>`
-        : '';
-      const evidenceBlock = renderEvidenceBlock(p);
-      const scheduledCell = isScheduled
-        ? `<span title="${escapeHtml(String(p.scheduled_at || ''))}" style="${isDueScheduled ? 'color:#fb923c;font-weight:700' : ''}">${escapeHtml(schTime || '-')}</span>`
-        : '-';
-      const hasFullPostText = getPostFullText(p).length > 0;
-      const loadingFullPost = fullPostLoadInFlight.has(Number(p.id));
-      const fetchedAt = p.full_post_updated_at ? formatShortDateTime(p.full_post_updated_at) : '';
-      const contentSummarySource = String(p.full_post_source || '').trim().toLowerCase();
-      const hasAiContentSummary = (
-        contentSummarySource === 'feed_ai_summary'
-        || contentSummarySource === 'linkedin_read_post_ai'
-        || contentSummarySource === 'linkedin_read_post'
-      );
-      const aiSummaryText = normalizePreviewText(
-        p.evidence_post_summary || (hasAiContentSummary ? p.full_post_summary : '')
-      );
+      
+      const aiSummaryText = normalizePreviewText(p.evidence_post_summary || p.full_post_summary || '');
       const summaryText = getPostSummary(p);
-      const fullText = getPostFullText(p);
       const draftText = normalizePreviewText(p.comment_draft || '');
-      const draftLead = truncate(draftText.replace(/\s+/g, ' ').trim(), 170);
-      const aiSmell = detectAiSmell(p.comment_draft || '');
-      if (aiSmell.flagged) {
-        const reason = aiSmell.reasons.length ? `AI smell: ${aiSmell.reasons.slice(0, 2).join(', ')}` : 'AI smell detected';
-        statusBadges.push(`<span class="badge" style="background:rgba(239,68,68,0.16);color:#f87171;border:1px solid rgba(248,113,113,0.35)" title="${escapeHtml(reason)}">AI-smell</span>`);
-      }
-      const sourceText = fullText || summaryText;
-      const isQueueLikePanel = activePanel === 'queue' || activePanel === 'failed';
-      const isAdvancedLifecycle = hasDraft && (activePanel === 'drafted' || activePanel === 'scheduled' || activePanel === 'published' || isScheduled || isPublished);
-      const fullPostExpanded = isQueueLikePanel && expandedFullPostIds.has(Number(p.id));
-      let previewMainHtml = '';
-      if (isAdvancedLifecycle && draftLead) {
-        previewMainHtml = `<div class="post-preview-draft"><span class="preview-label">Draft:</span>${escapeHtml(draftLead).replace(/\n/g, '<br>')}</div>`;
-        const overviewLabel = aiSummaryText ? 'AI Overview:' : 'Overview:';
-        const overviewBase = aiSummaryText || summaryText || normalizePreviewText(p.text_preview || '');
-        if (overviewBase) {
-          previewMainHtml += `<div class="post-preview-overview"><span class="preview-label">${overviewLabel}</span>${escapeHtml(truncate(overviewBase, 190)).replace(/\n/g, '<br>')}</div>`;
-        }
-        if (sourceText) {
-          previewMainHtml += `<div class="post-preview-source"><span class="preview-label">Post:</span>${escapeHtml(truncate(sourceText, 220)).replace(/\n/g, '<br>')}</div>`;
-        }
-      } else if (isQueueLikePanel) {
-        const feedOverview = normalizePreviewText(p.text_preview || '');
-        const hasAiOverview = !!aiSummaryText || hasAiContentSummary;
-        let overviewBase = aiSummaryText || summaryText || feedOverview;
-        if (!hasAiOverview && fullText && isNearDuplicateText(overviewBase, fullText) && feedOverview) {
-          overviewBase = feedOverview;
-        }
-        const overview = truncate(overviewBase || 'Overview pending while full post loads...', 180);
-        previewMainHtml = `<div class="post-preview-overview"><span class="preview-label">${hasAiOverview ? 'AI Overview:' : 'Overview:'}</span>${escapeHtml(overview).replace(/\n/g, '<br>')}</div>`;
-        if (fullPostExpanded) {
-          if (fullText) {
-            const fullPostHtml = escapeHtml(fullText).replace(/\n/g, '<br>');
-            previewMainHtml += `<div class="post-preview-source"><span class="preview-label">Real post:</span>${fullPostHtml}</div>`;
-          } else {
-            previewMainHtml += `<div class="post-preview-source"><span class="preview-label">Real post:</span>Loading full post...</div>`;
-          }
-        }
-      } else {
-        const previewTextRaw = getDisplayPreviewText(p);
-        const previewText = previewMode === 'full'
-          ? previewTextRaw
-          : truncate(previewTextRaw, previewMode === 'summary' ? 170 : 120);
-        const previewHtml = escapeHtml(previewText || '').replace(/\n/g, '<br>');
-        previewMainHtml = `<div class="post-preview-text ${previewMode === 'full' ? 'full' : ''}">${previewHtml}</div>`;
-      }
-      const previewTools = isQueueLikePanel
-        ? `<div class="preview-tools">
-            <span class="draft-toggle" onclick="toggleQueueFullPost(${p.id})" style="margin:0">
-              ${loadingFullPost ? 'Loading full post...' : (fullPostExpanded ? 'Hide full post' : 'Show full post')}
-            </span>
-            <span class="preview-meta" style="cursor:pointer" onclick="fetchFullPost(${p.id}, true, true)">${hasFullPostText ? 'Refresh from LinkedIn' : 'Fetch from LinkedIn'}</span>
-            ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">AI overview shown until full post is fetched</span>'}
-          </div>`
-        : previewMode === 'full'
-        ? `<div class="preview-tools">
-            <span class="draft-toggle" onclick="fetchFullPost(${p.id}, ${hasFullPostText ? 'true' : 'false'})" style="margin:0">
-              ${loadingFullPost ? 'Loading full post...' : (hasFullPostText ? 'Refresh from LinkedIn' : 'Fetch from LinkedIn')}
-            </span>
-            ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">Summary shown until full text is fetched</span>'}
-          </div>`
-        : `<div class="preview-tools">
-            <span class="draft-toggle" onclick="viewFullPost(${p.id})" style="margin:0">
-              ${loadingFullPost ? 'Loading full post...' : 'View full post'}
-            </span>
-            ${fetchedAt ? `<span class="preview-meta">Fetched ${escapeHtml(fetchedAt)}</span>` : '<span class="preview-meta">Shows real post text on click</span>'}
-          </div>`;
+      const fullText = getPostFullText(p);
+      const isFullLoading = fullPostLoadInFlight.has(Number(p.id));
+
+      // Meta Strip Info
+      const relationship = getAuthorRelationship(p);
+      const relationBadge = `<span class="meta-tag" style="${relationship.style}" title="${escapeHtml(relationship.title)}">${escapeHtml(relationship.label)}</span>`;
       const typeKey = normalizePostType(p.post_type);
-      const typeBadge = typeKey
-        ? `<span class="badge badge-type" title="Post type">${escapeHtml(postTypeLabel(typeKey))}</span>`
-        : '<span class="badge" style="background:rgba(107,114,128,0.12);color:#9ca3af;border-color:rgba(107,114,128,0.25)" title="No type classification yet">Unclassified</span>';
+      const typeBadge = typeKey ? `<span class="meta-tag" style="background:rgba(147,197,253,0.1); color:#93c5fd; border-color:rgba(147,197,253,0.2);">${escapeHtml(postTypeLabel(typeKey))}</span>` : '';
       const intentKey = getContentIntentKey(p);
       const intentBadge = contentIntentBadge(intentKey);
-      const sourceBadge = sourceTagBadge(p.source_tag);
-      const imageTag = imageCount > 0
-        ? `<span class="badge" style="background:rgba(96,165,250,0.14);color:#93c5fd;border:1px solid rgba(96,165,250,0.32)" title="Post includes image/media">${imageCount === 1 ? 'Image' : `Images ${imageCount}`}</span>`
-        : '';
-      const gateStatus = getQualityGateStatus(p);
-      if (qualityGate.enabled && !gateStatus.ok) {
-        statusBadges.push(`<span class="badge" style="background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.35)" title="Quality gate missing: ${gateStatus.missing.join(', ')}">Quality gate</span>`);
-      }
-      const gateBadge = (qualityGate.enabled && !gateStatus.ok)
-        ? `<span class="quality-flag" title="Missing: ${gateStatus.missing.join(', ')}">Needs ${gateStatus.missing.join(', ')}</span>`
-        : '';
+      
+      // Status Badges
+      const statusBadges = [];
+      if (isPublished) statusBadges.push('<span class="badge badge-commented">Published</span>');
+      else if (isScheduled) statusBadges.push('<span class="badge badge-scheduled">Scheduled</span>');
+      else if (isPostingNow) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Posting...</span>');
+      else if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
+      else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
+      else if (p.approved) statusBadges.push('<span class="badge badge-approved">Approved</span>');
+      else if (hasDraft) statusBadges.push('<span class="badge badge-draft">Draft</span>');
+      else if (isQueued) statusBadges.push('<span class="badge badge-queued">Queued</span>');
 
-      const autoMeta = inferPostMeta(p);
+      // Inline Actions
+      let rowActionsHtml = '';
+      if (!isPublished) {
+        if (hasDraft && !p.approved) {
+          rowActionsHtml += `<button class="action-btn success" onclick="approveDraft(${p.id})">Approve</button>`;
+        }
+        if (p.approved || hasDraft) {
+          rowActionsHtml += `<button class="action-btn" style="background:rgba(34,197,94,0.1); color:#4ade80; border-color:rgba(34,197,94,0.3);" onclick="postNow(${p.id})">Post Now</button>`;
+        }
+      }
+
+      // Quality Meta
       const hookScore = Number(p.hook_score || 0);
-      const hookValue = Number.isFinite(hookScore) && hookScore > 0 ? String(hookScore) : '';
-      const autoHookValue = autoMeta.hook_score ? String(autoMeta.hook_score) : '';
+      const hookValue = hookScore > 0 ? String(hookScore) : '';
       const emotionValue = String(p.emotion_tag || '').trim().toLowerCase();
-      const autoEmotionValue = String(autoMeta.emotion_tag || '').trim().toLowerCase();
       const nicheValue = String(p.niche_target || '').trim();
-      const autoNicheValue = String(autoMeta.niche_target || '').trim();
       const authValue = String(p.authenticity_flag || '').trim().toLowerCase();
-      const autoAuthValue = String(autoMeta.authenticity_flag || '').trim().toLowerCase();
       const groupValue = String(p.post_bank_group || '').trim();
-      const showAdvancedDraftActions = ['drafted', 'scheduled', 'needs_attention', 'failed'].includes(activePanel);
-      const hookDisplay = hookValue || (autoHookValue ? `auto ${autoHookValue}` : 'auto');
-      const emotionDisplay = emotionValue || (autoEmotionValue ? `auto ${autoEmotionValue}` : 'auto');
-      const nicheDisplay = nicheValue || (autoNicheValue ? `auto ${autoNicheValue}` : 'auto');
-      const authDisplay = authValue || (autoAuthValue ? `auto ${autoAuthValue}` : 'auto');
-      const groupDisplay = groupValue || 'none';
-      const bankIds = groupValue ? getPostBankIdsForGroup(groupValue) : parsePostBankIds(p.post_bank_ids);
-      const bankCount = bankIds.length;
-      const showBankChip = activePanel === 'drafted' || activePanel === 'queue';
-      const bankChip = showBankChip
-        ? `<span class="bank-chip" onclick="openPostBankSelector(${p.id})" title="${groupValue ? 'Select Post Bank group' : 'Select Post Bank entries'}">${groupValue ? `Group ${escapeHtml(groupValue)} (${bankCount || 0})` : `Bank ${bankCount || 0}`}</span>`
-        : '';
-      const targetsLine = `<div class="draft-targets">Targets: Hook ${escapeHtml(hookDisplay)} · Emotion ${escapeHtml(emotionDisplay)} · Niche ${escapeHtml(nicheDisplay)} · Auth ${escapeHtml(authDisplay)} · Group ${escapeHtml(groupDisplay)} ${bankChip}</div>`;
+      
       const hookOptions = [''].concat(Array.from({ length: 10 }, (_, i) => String(i + 1)));
-      const emotionOptions = EMOTION_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === emotionValue ? 'selected' : ''}>${opt.label}</option>`).join('');
-      const authOptions = AUTH_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === authValue ? 'selected' : ''}>${opt.label}</option>`).join('');
       const groupOptions = ['<option value="">(none)</option>']
         .concat(getPostBankGroups().map(g => `<option value="${escapeHtml(g.name)}" ${g.name === groupValue ? 'selected' : ''}>${escapeHtml(g.name)}</option>`))
         .join('');
 
       const qualityMetaHtml = `
             <div class="quality-meta">
-              <label>Hook <span class="meta-help" data-tip="Hook score = strength of the first 1–2 lines at stopping scroll. 1 weak, 10 strong.">?</span>${!hookValue && autoHookValue ? `<span class="meta-auto-hint">auto ${escapeHtml(autoHookValue)}</span>` : ''}</label>
-              <select onchange="updatePostMeta(${p.id}, { hook_score: this.value })">
-                ${hookOptions.map(opt => `<option value="${opt}" ${opt === hookValue ? 'selected' : ''}>${opt || 'Score'}</option>`).join('')}
-              </select>
-              <label>Emotion <span class="meta-help" data-tip="Primary feeling this post should trigger (curiosity, frustration, relief, etc.).">?</span>${!emotionValue && autoEmotionValue ? `<span class="meta-auto-hint">auto ${escapeHtml(autoEmotionValue)}</span>` : ''}</label>
-              <select onchange="updatePostMeta(${p.id}, { emotion_tag: this.value })">
-                ${emotionOptions}
-              </select>
-              <label>Niche <span class="meta-help" data-tip="Who it is for. Example: SEO lead, SaaS founder, growth lead.">?</span>${!nicheValue && autoNicheValue ? `<span class="meta-auto-hint">auto ${escapeHtml(autoNicheValue)}</span>` : ''}</label>
-              <input type="text" value="${escapeHtml(nicheValue)}" placeholder="${autoNicheValue ? `auto ${escapeHtml(autoNicheValue)}` : 'Founder, SEO lead...'}"
-                     onblur="updatePostMeta(${p.id}, { niche_target: this.value })"
-                     onkeydown="onMetaInputKeydown(event, ${p.id}, 'niche_target')">
-              <label>Auth <span class="meta-help" data-tip="How human it feels: Human, AI Assist, or AI Only.">?</span>${!authValue && autoAuthValue ? `<span class="meta-auto-hint">auto ${escapeHtml(autoAuthValue)}</span>` : ''}</label>
-              <select onchange="updatePostMeta(${p.id}, { authenticity_flag: this.value })">
-                ${authOptions}
-              </select>
-              <label>Group <span class="meta-help" data-tip="Post Bank group to use for style references.">?</span></label>
-              <select onchange="updatePostMeta(${p.id}, { post_bank_group: this.value, post_bank_ids: null })">
-                ${groupOptions}
-              </select>
-              <button class="meta-auto" onclick="autoTagPostMeta(${p.id})" title="Auto-fill from post text">Auto</button>
-              ${gateBadge}
+              <div class="quality-item">
+                <label>Hook <span class="meta-help" data-tip="1-10 Strength">?</span></label>
+                <select onchange="updatePostMeta(${p.id}, { hook_score: this.value })">
+                  ${hookOptions.map(opt => `<option value="${opt}" ${opt === hookValue ? 'selected' : ''}>${opt || 'auto'}</option>`).join('')}
+                </select>
+              </div>
+              <div class="quality-item">
+                <label>Emotion <span class="meta-help" data-tip="Trigger">?</span></label>
+                <select onchange="updatePostMeta(${p.id}, { emotion_tag: this.value })">
+                  ${['<option value="">auto</option>'].concat(EMOTION_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === emotionValue ? 'selected' : ''}>${opt.label}</option>`)).join('')}
+                </select>
+              </div>
+              <div class="quality-item span-2">
+                <label>Niche <span class="meta-help" data-tip="Target">?</span></label>
+                <input type="text" value="${escapeHtml(nicheValue)}" placeholder="Audience..." onblur="updatePostMeta(${p.id}, { niche_target: this.value })">
+              </div>
+              <div class="quality-item">
+                <label>Auth <span class="meta-help" data-tip="Level">?</span></label>
+                <select onchange="updatePostMeta(${p.id}, { authenticity_flag: this.value })">
+                  ${['<option value="">auto</option>'].concat(AUTH_OPTIONS.map(opt => `<option value="${opt.value}" ${opt.value === authValue ? 'selected' : ''}>${opt.label}</option>`)).join('')}
+                </select>
+              </div>
+              <div class="quality-item">
+                <label>Bank <span class="meta-help" data-tip="Voice Group">?</span></label>
+                <select onchange="updatePostMeta(${p.id}, { post_bank_group: this.value, post_bank_ids: null })">
+                  ${groupOptions}
+                </select>
+              </div>
+              <div class="quality-footer">
+                <button class="meta-auto" onclick="autoTagPostMeta(${p.id})">Auto-Detect</button>
+              </div>
             </div>
       `;
 
-      const rewriteQueuedNow = rewriteQueued.has(Number(p.id));
-      const rewriteRunning = rewriteInFlightIds.has(Number(p.id));
-      const rewriteActive = rewriteQueuedNow || rewriteRunning;
-      const rewriteState = rewriteRunning ? 'Rewriting' : (rewriteQueuedNow ? 'Queued' : '');
-      const rewritePill = rewriteState ? `<span class="draft-pill"><span class="mini-spinner"></span>${rewriteState}</span>` : '';
+      const previewTools = `
+        <div class="preview-tools">
+          <span class="draft-toggle" onclick="viewFullPost(${p.id})" style="margin:0">View Full Post</span>
+          <span class="preview-meta" style="cursor:pointer" onclick="fetchFullPost(${p.id}, true, true)">Refresh from LinkedIn</span>
+        </div>
+      `;
+
+      const tab = postTabState.get(Number(p.id)) || (hasDraft ? 'draft' : 'overview');
+      const evidenceConfidence = formatConfidence(p.evidence_confidence);
+      const evidenceConfidenceLabel = evidenceConfidence || 'n/a';
+      const evidenceTags = [];
+      if (p.evidence_comment_intent) evidenceTags.push(`Comment: ${String(p.evidence_comment_intent)}`);
+      if (p.evidence_post_intent) evidenceTags.push(`Intent: ${String(p.evidence_post_intent)}`);
+      evidenceTags.push(`Confidence ${evidenceConfidenceLabel}`);
+
+      const evidenceLines = [];
+      const addEvidenceLine = (label, value) => {
+        const clean = String(value || '').trim();
+        if (!clean) return;
+        evidenceLines.push(`<div class="draft-evidence-line"><strong>${label}:</strong> ${escapeHtml(clean)}</div>`);
+      };
+      addEvidenceLine('Key point', p.evidence_key_point);
+      addEvidenceLine('Statistic', p.evidence_statistic);
+      addEvidenceLine('Implication', p.evidence_implication);
+      const stanceBasis = String(p.evidence_stance_basis || '').trim();
+      if (stanceBasis) {
+        addEvidenceLine('Stance basis (why this angle)', stanceBasis);
+      } else {
+        evidenceLines.push('<div class="draft-evidence-line"><strong>Stance basis (why this angle):</strong> Not captured.</div>');
+      }
+      addEvidenceLine('Actionable add-on', p.evidence_actionable_add_on);
+      addEvidenceLine('Follow-up question', p.evidence_follow_up_question);
+
+      const sources = [];
+      if (p.evidence_source_1_name || p.evidence_source_1_url) {
+        sources.push({ name: p.evidence_source_1_name || p.evidence_source_1_url, url: p.evidence_source_1_url });
+      }
+      if (p.evidence_source_2_name || p.evidence_source_2_url) {
+        sources.push({ name: p.evidence_source_2_name || p.evidence_source_2_url, url: p.evidence_source_2_url });
+      }
+      const sourceLinks = sources.length
+        ? `<div class="evidence-links">${sources.map(s => `
+            <button class="evidence-link" data-url="${escapeHtml(String(s.url || ''))}" onclick="openExternalUrl(this.dataset.url)">${escapeHtml(String(s.name || 'Source'))}</button>
+          `).join('')}</div>`
+        : '<div class="draft-evidence-line">No sources recorded.</div>';
+
+      const evidenceMeta = [];
+      if (p.evidence_model) evidenceMeta.push(`Model: ${escapeHtml(p.evidence_model)}`);
+      if (p.evidence_created_at) evidenceMeta.push(`Evidence: ${escapeHtml(formatEvidenceTimestamp(p.evidence_created_at))}`);
+      if (Number(p.evidence_full_post_word_count || 0) > 0) evidenceMeta.push(`Full post: ${Number(p.evidence_full_post_word_count)} words`);
+      const evidenceMetaHtml = evidenceMeta.length ? `<div class="evidence-meta">${evidenceMeta.map(m => `<span>${m}</span>`).join('')}</div>` : '';
+
+      const hasEvidence = evidenceTags.length || evidenceLines.length || sources.length;
+      const missingEvidenceNote = (!p.evidence_created_at && !sources.length && !String(p.evidence_post_summary || '').trim())
+        ? '<div class="draft-evidence-line">Evidence not generated yet. Run Research + Draft to populate sources and confidence.</div>'
+        : '';
+      const draftExpanded = expandedDraftId === p.id || tab === 'draft';
+      const isRewriteLoading = rewriteInFlightIds.has(Number(p.id));
+      const isRewriteQueued = rewriteQueued.has(Number(p.id)) && !isRewriteLoading;
+      const isRedraftLoading = redraftInFlightIds.has(Number(p.id));
+      const isResearchQueued = researchInFlightIds.has(Number(p.id)) && !isResearching && !isWriting;
+      const isDraftingLoading = isQueued || isResearching || isWriting || locallyQueuedDraftPostIds.has(Number(p.id)) || isRedraftLoading || isResearchQueued;
+      let inflightLabel = '';
+      if (isRewriteLoading) inflightLabel = 'Rewriting…';
+      else if (isRewriteQueued) inflightLabel = 'Queued for rewrite…';
+      else if (isResearchQueued) inflightLabel = 'Queued for research…';
+      else if (isResearching) inflightLabel = 'Researching…';
+      else if (isWriting) inflightLabel = 'Writing…';
+      else if (isDraftingLoading) inflightLabel = 'Drafting…';
+      const inflightHtml = inflightLabel ? `<div class="draft-inflight">${inflightLabel}</div>` : '';
+      const draftErrorText = String(p.draft_error || '').trim();
+      const draftErrorHtml = draftErrorText ? `<div class="draft-error">Draft error: ${escapeHtml(draftErrorText)}</div>` : '';
+
+      const statusHtml = statusBadges.length ? `<div class="status-badges">${statusBadges.join(' ')}</div>` : '-';
+      const typeColBadge = typeKey ? `<span class="badge badge-type">${escapeHtml(postTypeLabel(typeKey))}</span>` : '-';
+      const scheduledLabel = p.scheduled_at ? formatShortDateTime(p.scheduled_at) : (isPublished ? '—' : '');
+      const authorLabel = escapeHtml(p.author || p.author_name || 'Unknown');
+      const hasDraftError = !!String(p.draft_error || '').trim();
+      const showReject = !isPublished && (hasDraft || hasDraftError);
+      const actionBarHtml = hasDraft
+        ? `
+          <div class="post-actions-bar">
+            <button class="action-btn" onclick="setPostTab(${p.id}, 'draft')">${draftExpanded ? 'Hide draft' : 'Show draft'}</button>
+            <button class="action-btn" onclick="redoDraft(${p.id})">New research</button>
+            <button class="action-btn" onclick="redraftDraft(${p.id})">Redraft</button>
+            <button class="action-btn" onclick="rewriteDraft(${p.id})">Rewrite</button>
+            ${showReject ? `<button class="action-btn" style="background:rgba(248,113,113,0.12);color:#fca5a5;border-color:rgba(248,113,113,0.3);" onclick="rejectDraft(${p.id})">Reject</button>` : ''}
+            ${rowActionsHtml}
+          </div>
+        `
+        : `
+          <div class="post-actions-bar">
+            <button class="action-btn" onclick="redoDraft(${p.id})">New research</button>
+            <button class="action-btn success" onclick="draftSinglePost(${p.id})">Create Draft</button>
+            ${showReject ? `<button class="action-btn" style="background:rgba(248,113,113,0.12);color:#fca5a5;border-color:rgba(248,113,113,0.3);" onclick="rejectDraft(${p.id})">Reject</button>` : ''}
+          </div>
+        `;
 
       return `
-        <tr class="${isPublished ? 'commented' : ''}" data-post-id="${p.id}">
-          <td class="col-check" data-col="check"><input type="checkbox" value="${p.id}" onchange="updateSelection()" ${selectedIds.has(Number(p.id)) ? 'checked' : ''} /></td>
+        <tr data-post-id="${p.id}" class="${isPublished ? 'published' : ''}">
+          <td class="col-check" data-col="check">
+            <input type="checkbox" value="${p.id}" ${selectedIds.has(Number(p.id)) ? 'checked' : ''} onchange="toggleSelect(${p.id}, this.checked)">
+          </td>
           <td class="col-num" data-col="num">${idx}</td>
           <td class="col-priority" data-col="pri">${priorityDot(p.id, p.priority)}</td>
-          <td class="col-author" data-col="author" title="${escapeHtml(p.author)}">${escapeHtml(p.author)}<br>${relationBadge} ${weeklyWarn} ${reconnectHint}</td>
+          <td class="col-author" data-col="author" title="${authorLabel}">${authorLabel}</td>
           <td class="col-quality" data-col="quality">${qualityMetaHtml}</td>
           <td class="col-preview" data-col="preview">
-            <div style="margin:0 0 8px 0">${previewTools}</div>
-            ${targetsLine}
-            ${p.comment_draft ? `
-              <div class="draft-actions" id="draft-actions-${p.id}" style="margin:0 0 8px 0">
-                <span class="draft-toggle" onclick="toggleDraft(${p.id}, this)" style="margin:0">${expandedDraftId === p.id ? 'Hide draft' : 'Show draft'}</span>
-                ${rewritePill}
-                ${!isPublished && !isScheduled ? `
-                  <button class="btn-approve" onclick="approveDraft(${p.id})">Approve</button>
-                  <button class="btn-approve" onclick="postNow(${p.id})" style="background:rgba(34,197,94,0.18);color:#4ade80;border-color:rgba(34,197,94,0.4)">Post Now</button>
-                  <button class="btn-reject" onclick="rejectDraft(${p.id})">Reject</button>
-                  <button class="btn-edit" onclick="editDraft(${p.id})">Edit</button>
-                  <button class="btn-redo" onclick="redoDraft(${p.id})" title="Full redo with new research">Redo (Research)</button>
-                  <button class="btn-schedule" onclick="showSchedulePicker(${p.id})">Schedule</button>
+            <div class="row-meta-strip">
+              <span style="font-weight:700; color:var(--text-primary);">${authorLabel}</span>
+              ${relationBadge}
+              ${statusBadges.join(' ')}
+              ${typeBadge}
+              ${intentBadge}
+              <span style="margin-left:auto; font-weight:600;">${p.comments || 0} cmts | ${p.reactions || 0} reacts</span>
+            </div>
+            
+            <div class="post-content-block">
+              <div class="post-tabs">
+                <button class="post-tab-btn ${tab === 'overview' ? 'active' : ''}" onclick="setPostTab(${p.id}, 'overview')">Overview</button>
+                <button class="post-tab-btn ${tab === 'draft' ? 'active' : ''}" onclick="setPostTab(${p.id}, 'draft')">Draft</button>
+                <button class="post-tab-btn ${tab === 'evidence' ? 'active' : ''}" onclick="setPostTab(${p.id}, 'evidence')">Evidence</button>
+              </div>
+              ${actionBarHtml}
+              ${inflightHtml}
+              ${draftErrorHtml}
+
+              <div style="${tab === 'overview' ? '' : 'display:none;'}">
+                ${hasDraft ? `
+                  <div class="draft-text-preview" style="border-top:none; margin-top:0; padding-top:0;">
+                    <span class="content-label">DRAFT PREVIEW</span>
+                    <div style="white-space:pre-wrap;">${escapeHtml(truncate(draftText, 220))}</div>
+                  </div>
                 ` : ''}
-                ${!isPublished && showAdvancedDraftActions ? `
-                  <button class="btn-rewrite${rewriteActive ? ' btn-working' : ''}" onclick="rewriteDraft(${p.id})" title="Rewrite current draft (no new research)">Rewrite</button>
-                  <button class="btn-redraft" onclick="redraftDraft(${p.id})" title="Redraft using cached research only">Redraft</button>
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                  <span class="content-label">ABOUT / AI OVERVIEW</span>
+                  ${previewTools}
+                </div>
+                <div class="ai-overview-text">
+                  ${previewMode === 'full' 
+                    ? escapeHtml(aiSummaryText || summaryText || 'Pending analysis...').replace(/\n/g, '<br>')
+                    : escapeHtml(truncate(aiSummaryText || summaryText || 'Pending analysis...', 260))
+                  }
+                </div>
+                ${previewMode === 'full' ? `
+                  <div class="full-post-block">
+                    <span class="content-label">FULL POST</span>
+                    <div class="full-post-text">
+                      ${escapeHtml(fullText || (isFullLoading ? 'Loading full post...' : 'Full post not cached. Click "Refresh from LinkedIn".'))}
+                    </div>
+                  </div>
                 ` : ''}
               </div>
-            ` : ''}
-            ${previewMainHtml}
-            ${inflightHint}
-            ${failureNote}
-            ${p.comment_draft ? `
-              <div class="draft-text ${expandedDraftId === p.id ? 'expanded' : ''} ${rewriteRunning ? 'loading' : ''}" id="draft-${p.id}">
-                <div class="draft-body" id="draft-content-${p.id}">${escapeHtml(p.comment_draft)}</div>
-                ${evidenceBlock}
-                <div class="draft-extra" id="draft-extra-${p.id}"></div>
+
+              <div style="${tab === 'draft' ? '' : 'display:none;'}">
+                ${hasDraft ? `
+                  <div class="draft-text-preview">
+                    <span class="content-label">DRAFT</span>
+                    <div id="draft-${p.id}" class="draft-text ${draftExpanded ? 'expanded' : ''} ${isRewriteLoading ? 'loading' : ''}" style="white-space:pre-wrap; max-height: ${draftExpanded ? '220px' : '80px'}; overflow: hidden; transition: max-height 0.3s ease-in-out;">${escapeHtml(draftText || 'Draft not available yet.')}</div>
+                  </div>
+                ` : `
+                  <div class="draft-text-preview">
+                    <span class="content-label">DRAFT</span>
+                    <div style="color:var(--text-muted);">No draft yet.</div>
+                  </div>
+                `}
               </div>
-            ` : ''}
+
+              <div style="${tab === 'evidence' ? '' : 'display:none;'}">
+                <div class="draft-evidence">
+                  <div class="draft-evidence-title">
+                    <span>Evidence & Sources</span>
+                    <span>Confidence ${evidenceConfidenceLabel}</span>
+                  </div>
+                  ${evidenceTags.length ? `<div class="draft-evidence-tags">${evidenceTags.map(t => `<span class="draft-evidence-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+                  ${evidenceLines.length ? evidenceLines.join('') : '<div class="draft-evidence-line">No evidence details recorded yet.</div>'}
+                  ${missingEvidenceNote}
+                  ${evidenceMetaHtml}
+                  ${sourceLinks}
+                </div>
+              </div>
+            </div>
           </td>
           <td class="col-stats" data-col="reacts">${p.reactions || 0}</td>
           <td class="col-stats" data-col="cmts">${p.comments || 0}</td>
-          <td class="col-type" data-col="type">${typeBadge} ${intentBadge} ${sourceBadge} ${imageTag}</td>
-          <td class="col-status" data-col="status"><div class="status-badges">${statusBadges.join(' ')} ${engagementBadge}</div></td>
-          <td class="col-scheduled" data-col="scheduled">${scheduledCell}</td>
+          <td class="col-type" data-col="type">${typeColBadge}</td>
+          <td class="col-status" data-col="status">${statusHtml}</td>
+          <td class="col-scheduled" data-col="scheduled">${scheduledLabel || '-'}</td>
           <td class="col-actions" data-col="actions">
-            <div class="action-icons">
-              <button class="icon-btn" onclick="draftSinglePost(${p.id})" title="Research and draft this post now">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 3.7L18 8.5l-3 2.9.7 4.1L12 13.8 8.3 15.5l.7-4.1-3-2.9 4.2-.8L12 3z"/></svg>
-              </button>
-              <button class="icon-btn danger" onclick="hidePost(${p.id})" title="Delete post">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
-              <button class="icon-btn snooze-btn" onclick="showSnoozeDropdown(${p.id}, this)" title="Snooze post">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              </button>
-              <button class="icon-btn" onclick="openPostUrl(${p.id})" title="Open in browser">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              </button>
+            <div style="display:flex; flex-direction:column; gap:6px; align-items:center;">
+              <button class="icon-btn" onclick="toggleFavorite(${p.id})" title="Favorite">${p.favorite ? '★' : '☆'}</button>
+              <button class="icon-btn" onclick="hidePost(${p.id})" title="Delete">🗑</button>
+              ${p.scheduled_at ? `<button class="icon-btn" onclick="openScheduleModal(${p.id})" title="Reschedule">🕒</button>` : ''}
             </div>
           </td>
         </tr>
@@ -6173,6 +6373,8 @@
     // --- Resizable columns with localStorage persistence ---
     const COL_STORAGE_KEY = 'linkedin-col-widths';
     const COL_ORDER_KEY = 'linkedin-col-order';
+    const COL_SCHEMA_KEY = 'linkedin-col-schema';
+    const COL_SCHEMA_VERSION = 'v3-full-2026-03-05';
     const DEFAULT_COL_ORDER = ['check','num','pri','author','quality','preview','reacts','cmts','type','status','scheduled','actions'];
     const RESIZABLE_COLS = ['pri','author','quality','preview','reacts','cmts','type','status','scheduled','actions'];
     const COL_MIN_WIDTH = {
@@ -6187,6 +6389,16 @@
       scheduled: 84,
       actions: 70,
     };
+
+    function ensureColumnSchema() {
+      try {
+        const stored = localStorage.getItem(COL_SCHEMA_KEY);
+        if (stored === COL_SCHEMA_VERSION) return;
+        localStorage.removeItem(COL_STORAGE_KEY);
+        localStorage.removeItem(COL_ORDER_KEY);
+        localStorage.setItem(COL_SCHEMA_KEY, COL_SCHEMA_VERSION);
+      } catch {}
+    }
 
     function clampColumnWidth(name, width) {
       const min = Number(COL_MIN_WIDTH[name] || 20);
@@ -6226,6 +6438,7 @@
       try {
         const raw = JSON.parse(localStorage.getItem(COL_ORDER_KEY));
         if (!Array.isArray(raw)) return DEFAULT_COL_ORDER.slice();
+        if (raw.some(k => !DEFAULT_COL_ORDER.includes(k))) return DEFAULT_COL_ORDER.slice();
         const cleaned = raw.filter(k => DEFAULT_COL_ORDER.includes(k));
         const missing = DEFAULT_COL_ORDER.filter(k => !cleaned.includes(k));
         return cleaned.concat(missing);
@@ -6345,6 +6558,7 @@
     }
 
     // Apply saved widths on load, init resize after first render
+    ensureColumnSchema();
     loadColumnWidths();
     const _origLoadPosts = loadPosts;
     let _resizeInited = false;
