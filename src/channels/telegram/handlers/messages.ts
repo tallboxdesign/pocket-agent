@@ -46,6 +46,12 @@ function isShortFollowUp(text: string): boolean {
   return normalized.length <= 18;
 }
 
+function isContextRecallFollowUp(text: string): boolean {
+  const normalized = String(text || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return /\b(what did we talk about|what were we talking about|recap|catch me up|summary|summarize|last \d+ messages|previous messages|earlier messages|remind me|what was i saying|what was i asking)\b/.test(normalized);
+}
+
 function buildRecentContextSnippet(recentMessages: RecentMessageLike[], maxChars = 800): string {
   if (!recentMessages.length) return '';
   const lines: string[] = [];
@@ -197,7 +203,7 @@ export async function handleTextMessage(
     }
   }
 
-  const shouldIncludeContext = isShortFollowUp(originalMessage) || !!replyTo;
+  const shouldIncludeContext = isShortFollowUp(originalMessage) || isContextRecallFollowUp(originalMessage) || !!replyTo;
   if (recent.length > 0 && shouldIncludeContext) {
     const snippet = buildRecentContextSnippet(recent.slice(-4));
     if (snippet) {
