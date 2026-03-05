@@ -2030,6 +2030,12 @@
     <button class="action-btn" id="bulk-bank-btn" onclick="openPostBankSelectorForSelection()" style="background:rgba(14,165,233,0.12);color:#7dd3fc;border-color:rgba(14,165,233,0.3);display:none;">
       Post Bank
     </button>
+    <button class="action-btn" id="bulk-rewrite-btn" onclick="rewriteSelected()" style="background:rgba(148,163,184,0.12);color:#e2e8f0;border-color:rgba(148,163,184,0.3);display:none;">
+      Rewrite Selected
+    </button>
+    <button class="action-btn" id="bulk-redraft-btn" onclick="redraftSelected()" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.35);display:none;">
+      Redraft Selected
+    </button>
     <button class="action-btn" onclick="researchDraftSelected()" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3);" title="Spawn parallel SDK agents to research and draft (2 at a time)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       Research &amp; Draft
@@ -3166,6 +3172,8 @@
       const countEl = document.getElementById('sel-count');
       const bulkBtn = document.getElementById('bulk-meta-btn');
       const bankBtn = document.getElementById('bulk-bank-btn');
+      const rewriteBtn = document.getElementById('bulk-rewrite-btn');
+      const redraftBtn = document.getElementById('bulk-redraft-btn');
       const presetBar = document.getElementById('preset-bar');
       if (selectedIds.size > 0) {
         bar.classList.add('visible');
@@ -3176,8 +3184,12 @@
       const allowBulk = activePanel === 'drafted';
       const allowBank = activePanel === 'drafted' || activePanel === 'queue';
       const allowPresets = activePanel === 'drafted' || activePanel === 'queue';
+      const allowRewrite = activePanel === 'drafted';
+      const allowRedraft = activePanel === 'drafted';
       if (bulkBtn) bulkBtn.style.display = allowBulk && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (bankBtn) bankBtn.style.display = allowBank && selectedIds.size > 0 ? 'inline-flex' : 'none';
+      if (rewriteBtn) rewriteBtn.style.display = allowRewrite && selectedIds.size > 0 ? 'inline-flex' : 'none';
+      if (redraftBtn) redraftBtn.style.display = allowRedraft && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (presetBar) presetBar.style.display = allowPresets && selectedIds.size > 0 ? 'inline-flex' : 'none';
     }
 
@@ -4197,6 +4209,39 @@
       showToast('Redrafting 1 post with cached research...', 'success');
       try {
         await runBatchRedraft([postId], 'Redrafted', 'Redraft failed');
+        loadPosts();
+      } catch (err) {
+        showToast(`Redraft failed: ${shortError(err)}`, 'error');
+      }
+    }
+
+    function rewriteSelected() {
+      if (activePanel !== 'drafted') {
+        showToast('Bulk rewrite is available in Drafted only', 'error');
+        return;
+      }
+      const ids = getSelectedIds();
+      if (!ids.length) {
+        showToast('Select posts first', 'error');
+        return;
+      }
+      ids.forEach(id => enqueueRewrite(id));
+      showToast(`Queued rewrite for ${ids.length} post${ids.length === 1 ? '' : 's'}`, 'success');
+    }
+
+    async function redraftSelected() {
+      if (activePanel !== 'drafted') {
+        showToast('Bulk redraft is available in Drafted only', 'error');
+        return;
+      }
+      const ids = getSelectedIds();
+      if (!ids.length) {
+        showToast('Select posts first', 'error');
+        return;
+      }
+      showToast(`Redrafting ${ids.length} post${ids.length === 1 ? '' : 's'} with cached research...`, 'success');
+      try {
+        await runBatchRedraft(ids, 'Redrafted', 'Redraft failed');
         loadPosts();
       } catch (err) {
         showToast(`Redraft failed: ${shortError(err)}`, 'error');
