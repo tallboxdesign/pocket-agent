@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: file:;">
   <title>Content Planner</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -404,6 +404,90 @@
     .target-item .target-name { font-size: 13px; font-weight: 500; }
     .target-item .target-meta { font-size: 11px; color: var(--text-muted); }
 
+    /* Feedback section */
+    .feedback-section {
+      margin-top: 10px;
+      padding: 10px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .feedback-textarea {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 50px;
+      outline: none;
+    }
+    .feedback-textarea:focus { border-color: var(--accent); }
+    .feedback-textarea::placeholder { color: var(--text-muted); }
+    .feedback-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      align-items: center;
+    }
+    .feedback-actions .feedback-status {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+
+    /* Lightbox */
+    .lightbox-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: zoom-out;
+    }
+    .lightbox-overlay img {
+      max-width: 95vw;
+      max-height: 90vh;
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      cursor: default;
+    }
+    .lightbox-toolbar {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+      z-index: 201;
+    }
+    .lightbox-toolbar button {
+      padding: 6px 14px;
+      background: rgba(255,255,255,0.15);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      backdrop-filter: blur(8px);
+    }
+    .lightbox-toolbar button:hover {
+      background: rgba(255,255,255,0.25);
+    }
+
+    /* Image in detail */
+    .asset-detail-image img {
+      transition: opacity 0.2s;
+    }
+    .asset-detail-image img:hover {
+      opacity: 0.85;
+    }
+
     /* Overlay */
     .overlay {
       position: fixed;
@@ -659,7 +743,7 @@
       html += `<tr class="asset-row ${sel ? 'selected' : ''}" data-id="${a.id}">
         <td class="cb"><input type="checkbox" ${sel ? 'checked' : ''} onchange="toggleSelect(${a.id}, event)"></td>
         <td><span class="target-badge ${a.target_type}">${icon} ${a.target_label || a.target_type}</span></td>
-        <td class="content-preview" onclick="toggleExpand(${a.id})">${escHtml(preview) || '<em style="color:var(--text-muted)">pending</em>'}</td>
+        <td class="content-preview" onclick="toggleExpand(${a.id})">${a.image_path ? '<span title="Has image" style="margin-right:4px">🖼</span>' : ''}${escHtml(preview) || '<em style="color:var(--text-muted)">pending</em>'}</td>
         <td><span class="plan-tag" title="${escHtml(a.plan_title || '')}">${escHtml((a.plan_title || '').slice(0, 20))}</span></td>
         <td><span class="status-badge ${a.status}">${STATUS_ICONS[a.status] || ''} ${a.status}</span></td>
         <td style="font-size:12px;color:var(--text-muted);white-space:nowrap">${when}</td>
@@ -669,14 +753,25 @@
       html += `<tr id="detail-${a.id}" style="display:${expandedId === a.id ? 'table-row' : 'none'}">
         <td colspan="6" style="padding:0">
           <div class="asset-detail ${expandedId === a.id ? 'visible' : ''}">
+            ${a.image_path ? `<div class="asset-detail-image"><img src="file://${a.image_path}" alt="Post image" style="max-width:100%;max-height:300px;border-radius:8px;margin-bottom:12px;border:1px solid var(--border);cursor:pointer" onclick="openLightbox('${a.image_path.replace(/'/g, "\\'")}')" title="Click to zoom"></div>` : ''}
             <div class="asset-detail-text">${escHtml(a.final_text || a.draft_text || 'No content yet')}</div>
             <div class="asset-detail-actions">
-              ${a.status === 'drafted' ? `<button class="btn btn-success btn-sm" onclick="approveOne(${a.id})">Approve</button>` : ''}
+              ${a.status === 'drafted' || a.status === 'draft' ? `<button class="btn btn-success btn-sm" onclick="approveOne(${a.id})">Approve</button>` : ''}
               ${a.status === 'approved' ? `<button class="btn btn-sm" onclick="scheduleOne(${a.id})">Schedule</button>` : ''}
               ${a.status === 'approved' && a.can_auto_publish ? `<button class="btn btn-success btn-sm" onclick="publishOne(${a.id})">Publish Now</button>` : ''}
-              ${!a.can_auto_publish && (a.status === 'approved' || a.status === 'drafted') ? `<button class="btn btn-sm" onclick="copyOne(${a.id})">Copy Text</button>` : ''}
+              ${!a.can_auto_publish && (a.status === 'approved' || a.status === 'drafted' || a.status === 'draft') ? `<button class="btn btn-sm" onclick="copyOne(${a.id})">Copy Text</button>` : ''}
+              ${a.status !== 'published' ? `<button class="btn btn-sm" onclick="regenImage(${a.id})" title="Generate or regenerate post image">${a.image_path ? 'Regen Image' : 'Generate Image'}</button>` : ''}
               ${a.status !== 'published' && a.status !== 'rejected' ? `<button class="btn btn-danger btn-sm" onclick="rejectOne(${a.id})">Reject</button>` : ''}
             </div>
+            ${a.status !== 'published' ? `
+            <div class="feedback-section">
+              <textarea class="feedback-textarea" id="feedback-${a.id}" placeholder="Add feedback... e.g. 'make it shorter', 'add a concrete example', 'more aggressive tone'"></textarea>
+              <div class="feedback-actions">
+                <button class="btn btn-blue btn-sm" onclick="improveDraft(${a.id}, 'improve')">AI Improve</button>
+                <button class="btn btn-accent btn-sm" onclick="improveDraft(${a.id}, 'redo')">AI Re-do</button>
+                <span class="feedback-status" id="feedback-status-${a.id}"></span>
+              </div>
+            </div>` : ''}
           </div>
         </td>
       </tr>`;
@@ -748,6 +843,19 @@
     await navigator.clipboard.writeText(text);
     await api.plannerMarkCopied(id);
     await loadAll();
+  }
+
+  async function regenImage(id) {
+    const btn = event?.target;
+    if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+    try {
+      const result = await api.plannerRegenerateImage(id);
+      if (result?.error) alert('Image generation failed: ' + result.error);
+      await loadAll();
+      if (expandedId !== id) { expandedId = id; renderAssets(); }
+    } catch (e) {
+      alert('Image generation failed: ' + e.message);
+    }
   }
 
   async function approveSelected() {
@@ -918,6 +1026,73 @@
     allTargets = await api.plannerListTargets();
     renderTargetList();
     renderFilters();
+  }
+
+  // ---- Lightbox ----
+  function openLightbox(imagePath) {
+    const overlay = document.createElement('div');
+    overlay.className = 'lightbox-overlay';
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'lightbox-toolbar';
+
+    const dlBtn = document.createElement('button');
+    dlBtn.textContent = 'Download';
+    dlBtn.onclick = () => {
+      const a = document.createElement('a');
+      a.href = 'file://' + imagePath;
+      a.download = imagePath.split('/').pop();
+      a.click();
+    };
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Close';
+    closeBtn.onclick = () => overlay.remove();
+
+    toolbar.appendChild(dlBtn);
+    toolbar.appendChild(closeBtn);
+
+    const img = document.createElement('img');
+    img.src = 'file://' + imagePath;
+    img.alt = 'Post image';
+
+    overlay.appendChild(toolbar);
+    overlay.appendChild(img);
+    document.body.appendChild(overlay);
+
+    // ESC to close
+    const onKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey); } };
+    document.addEventListener('keydown', onKey);
+  }
+
+  // ---- AI Feedback ----
+  async function improveDraft(assetId, mode) {
+    const textarea = document.getElementById('feedback-' + assetId);
+    const statusEl = document.getElementById('feedback-status-' + assetId);
+    const feedback = textarea ? textarea.value.trim() : '';
+
+    if (!feedback) {
+      if (statusEl) statusEl.textContent = 'Please enter feedback first';
+      return;
+    }
+
+    if (statusEl) statusEl.textContent = mode === 'redo' ? 'Re-writing...' : 'Improving...';
+
+    try {
+      const result = await api.plannerImproveDraft(assetId, feedback, mode);
+      if (result?.error) {
+        if (statusEl) statusEl.textContent = 'Error: ' + result.error;
+      } else {
+        if (statusEl) statusEl.textContent = 'Done!';
+        if (textarea) textarea.value = '';
+        await loadAll();
+        expandedId = assetId;
+        renderAssets();
+      }
+    } catch (e) {
+      if (statusEl) statusEl.textContent = 'Failed: ' + e.message;
+    }
   }
 
   // ---- Helpers ----

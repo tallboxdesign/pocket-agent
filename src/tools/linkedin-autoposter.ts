@@ -8,6 +8,7 @@
 
 import Database from 'better-sqlite3';
 import path from 'path';
+import os from 'os';
 import fs from 'fs';
 import { SettingsManager } from '../settings';
 import { linkedinExec } from './linkedin-wrapper';
@@ -1170,9 +1171,13 @@ export async function checkAndPostNext(): Promise<void> {
           if (text) {
             console.log(`[AutoPoster] Publishing plan asset #${planAsset.id} for target "${planAsset.target_label}"`);
             try {
-              const postArgs = ['--text', text, '--no-confirm'];
+              // Write text to temp file to avoid CLI arg length limits
+              const tmpFile = path.join(os.tmpdir(), `planner_post_${planAsset.id}_${Date.now()}.txt`);
+              fs.writeFileSync(tmpFile, text, 'utf-8');
+              const postArgs = ['--text-file', tmpFile, '--no-confirm'];
               if (planAsset.image_path) postArgs.push('--image', planAsset.image_path);
               await linkedinExec('post', postArgs, 120000);
+              try { fs.unlinkSync(tmpFile); } catch { /* ok */ }
 
               db.prepare(
                 `UPDATE linkedin_plan_assets SET status = 'published', published_at = datetime('now'), publish_error = NULL WHERE id = ?`

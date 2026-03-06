@@ -3517,6 +3517,33 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('planner:improveDraft', async (_event, assetId: number, feedback: string, mode: 'improve' | 'redo') => {
+    const { getAsset, updateAsset } = await import('../tools/linkedin-planner');
+    const { AgentManager } = await import('../agent');
+    try {
+      const asset = getAsset(assetId);
+      if (!asset) return { error: 'Asset not found' };
+      const currentText = asset.final_text || asset.draft_text || '';
+      if (!currentText && mode === 'improve') return { error: 'No text to improve' };
+
+      const { SettingsManager } = await import('../settings');
+      const hardRules = SettingsManager.get('linkedin.plannerHardRules') || '';
+
+      const prompt = mode === 'redo'
+        ? `You are writing an original LinkedIn post. Write ONLY the post text - no commentary, no labels, no preamble.\n\nOriginal topic/plan: ${asset.plan_prompt || asset.plan_title || ''}\n\nUser feedback: ${feedback}\n\n${hardRules ? `HARD RULES:\n${hardRules}\n\n` : ''}OUTPUT: Return only the final post text.`
+        : `Improve this LinkedIn post based on user feedback. Return ONLY the improved post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser feedback: ${feedback}\n\n${hardRules ? `HARD RULES:\n${hardRules}\n\n` : ''}OUTPUT: Return only the improved post text.`;
+
+      const response = await AgentManager.processMessage(prompt, 'planner:improve') as unknown;
+      const newText = (typeof response === 'string' ? response : String(response || '')).trim();
+      if (!newText || newText.length < 30) return { error: 'AI returned insufficient text' };
+
+      updateAsset(assetId, { draft_text: newText, final_text: newText, status: 'draft' });
+      return { text: newText };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('planner:screenshot', async (_event, options: Record<string, unknown>, outputPath?: string) => {
     const { screenshotAnnotate } = await import('../tools/linkedin-planner');
     try {

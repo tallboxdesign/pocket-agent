@@ -1058,9 +1058,18 @@ export async function publishAsset(id: number): Promise<PlanAsset> {
   }
 
   try {
-    const postArgs = ['--text', text, '--no-confirm'];
+    // Write text to temp file to avoid CLI arg length limits
+    const tmpDir = path.join(os.tmpdir(), 'pocket-agent-planner');
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const textFile = path.join(tmpDir, `publish_${id}_${Date.now()}.txt`);
+    fs.writeFileSync(textFile, text, 'utf-8');
+
+    const postArgs = ['--text-file', textFile, '--no-confirm'];
     if (asset.image_path) postArgs.push('--image', asset.image_path);
-    await linkedinExec('post', postArgs);
+    await linkedinExec('post', postArgs, 120000);
+
+    // Cleanup temp file
+    try { fs.unlinkSync(textFile); } catch { /* ok */ }
 
     const updated = updateAsset(id, {
       status: 'published',
