@@ -826,6 +826,66 @@ export class MemoryManager {
         baseline INTEGER DEFAULT 0
       )
     `);
+
+    // Content Planner: publishing targets (profile, company, group, article)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_targets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_type TEXT NOT NULL DEFAULT 'profile',
+        url TEXT,
+        label TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        audience_summary TEXT,
+        tone_rules TEXT,
+        topic_fit_rules TEXT,
+        cta_style TEXT,
+        posts_per_day INTEGER DEFAULT 1,
+        approval_mode TEXT DEFAULT 'review_required',
+        can_auto_publish INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    // Content Planner: plans (one research prompt -> multiple target-specific assets)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_content_plans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        topic TEXT,
+        source_urls TEXT,
+        research_mode TEXT DEFAULT 'balanced',
+        status TEXT DEFAULT 'draft',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    // Content Planner: assets (one per plan x target, lifecycle: pending -> drafted -> approved -> scheduled -> published)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_plan_assets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id INTEGER NOT NULL REFERENCES linkedin_content_plans(id) ON DELETE CASCADE,
+        target_id INTEGER NOT NULL REFERENCES linkedin_targets(id),
+        draft_text TEXT,
+        final_text TEXT,
+        quality_score INTEGER,
+        fingerprint TEXT,
+        evidence_id INTEGER REFERENCES linkedin_draft_evidence(id),
+        kanban_task_id INTEGER,
+        status TEXT DEFAULT 'pending',
+        scheduled_at TEXT,
+        published_at TEXT,
+        publish_error TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_plan ON linkedin_plan_assets(plan_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_target ON linkedin_plan_assets(target_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_status ON linkedin_plan_assets(status)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_scheduled ON linkedin_plan_assets(scheduled_at) WHERE status = 'scheduled'`);
   }
 
   private migrateDailyLogsToLocalDates(): void {
