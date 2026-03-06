@@ -3489,6 +3489,24 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('planner:regenerateImage', async (_event, assetId: number) => {
+    const { getAsset, updateAsset, generatePostImage } = await import('../tools/linkedin-planner');
+    try {
+      const asset = getAsset(assetId);
+      if (!asset) return { error: 'Asset not found' };
+      const text = asset.final_text || asset.draft_text;
+      if (!text) return { error: 'No text to base image on' };
+      const imagePath = await generatePostImage(text, asset.plan_title || 'LinkedIn Post', assetId);
+      if (imagePath) {
+        updateAsset(assetId, { image_path: imagePath });
+        return { image_path: imagePath };
+      }
+      return { error: 'Image generation failed' };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('app:openDailyLogs', async () => {
     openDailyLogsWindow();
   });

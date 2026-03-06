@@ -8,10 +8,15 @@
 
 import Database from 'better-sqlite3';
 import path from 'path';
+import os from 'os';
 import fs from 'fs';
+import { execFile as execFileCb } from 'child_process';
+import { promisify } from 'util';
 import { SettingsManager } from '../settings';
 import { KanbanService } from '../kanban';
 import { AgentManager } from '../agent';
+
+const execFile = promisify(execFileCb);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -579,6 +584,92 @@ Be specific and factual. Cite real data where possible.`;
   }
 }
 
+// ---------------------------------------------------------------------------
+// Image generation (Nano Banana / Gemini 3 Pro Image)
+// ---------------------------------------------------------------------------
+
+function getNanoBananaScript(): string | null {
+  const skillPath = path.join(
+    os.homedir(), '.claude', 'plugins', 'marketplaces', 'opc-skills',
+    'skills', 'nanobanana', 'scripts', 'generate.py'
+  );
+  return fs.existsSync(skillPath) ? skillPath : null;
+}
+
+function findPython3(): string {
+  for (const p of ['/opt/homebrew/bin/python3', '/usr/local/bin/python3', '/usr/bin/python3']) {
+    if (fs.existsSync(p)) return p;
+  }
+  return 'python3';
+}
+
+/**
+ * Generate a LinkedIn post image using Nano Banana (Gemini 3 Pro Image).
+ * Returns the image path on success, null on failure.
+ */
+export async function generatePostImage(
+  postText: string,
+  planTitle: string,
+  assetId: number,
+): Promise<string | null> {
+  const script = getNanoBananaScript();
+  if (!script) {
+    console.warn('[Planner] Nano Banana skill not found, skipping image generation');
+    return null;
+  }
+
+  const geminiKey = process.env.GEMINI_API_KEY || SettingsManager.get('gemini.apiKey') || '';
+  if (!geminiKey) {
+    console.warn('[Planner] No GEMINI_API_KEY available, skipping image generation');
+    return null;
+  }
+
+  // Build image prompt from the post text
+  const hook = postText.split('\n')[0].slice(0, 100);
+  const imagePrompt = `Professional LinkedIn post illustration. Topic: "${planTitle}". `
+    + `Key message: "${hook}". `
+    + `Style: clean, modern, professional, subtle gradient background, minimal text overlay. `
+    + `No people faces. No text in the image. Suitable as a LinkedIn post header image.`;
+
+  const outputDir = path.join(os.homedir(), '.pocket-agent', 'linkedin', 'planner-images');
+  fs.mkdirSync(outputDir, { recursive: true });
+  const outputPath = path.join(outputDir, `asset_${assetId}_${Date.now()}.png`);
+
+  try {
+    const python = findPython3();
+    const { stdout } = await execFile(python, [
+      script, imagePrompt,
+      '-o', outputPath,
+      '--ratio', '3:2',
+    ], {
+      timeout: 60000,
+      env: {
+        ...process.env,
+        GEMINI_API_KEY: geminiKey,
+        HOME: process.env.HOME || os.homedir(),
+        PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}`,
+      },
+    });
+
+    if (fs.existsSync(outputPath)) {
+      console.log(`[Planner] Generated image for asset #${assetId}: ${outputPath}`);
+      return outputPath;
+    }
+
+    // generate.py prints the path to stdout on success
+    const resultPath = stdout.trim();
+    if (resultPath && fs.existsSync(resultPath)) {
+      return resultPath;
+    }
+
+    console.warn('[Planner] Image generation produced no file');
+    return null;
+  } catch (err) {
+    console.error(`[Planner] Image generation failed for asset #${assetId}:`, err);
+    return null;
+  }
+}
+
 export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
   const planData = getPlanWithAssets(planId);
   if (!planData) throw new Error(`Plan ${planId} not found`);
@@ -673,10 +764,19 @@ Rules:
         }
       } catch { /* kanban is optional */ }
 
+      // Generate post image if enabled
+      let imagePath: string | null = null;
+      if (SettingsManager.get('linkedin.plannerAutoImage') !== 'false') {
+        try {
+          imagePath = await generatePostImage(draftText, planData.title, asset.id);
+        } catch { /* image generation is optional */ }
+      }
+
       const updated = updateAsset(asset.id, {
         draft_text: draftText,
         fingerprint: fp,
         kanban_task_id: kanbanTaskId,
+        image_path: imagePath,
         status: 'drafted',
       });
 
