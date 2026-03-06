@@ -21,7 +21,9 @@ import { getGmailTools } from './gmail-tools';
 import { getGlmWorkerTools } from './glm-worker';
 import { getVoiceTools } from './voice-tools';
 import { getLinkedInTools } from './linkedin-tools';
+import { getPlannerTools } from './linkedin-planner';
 import { getProjectTools } from './project-tools';
+import { SettingsManager } from '../settings';
 import {
   getSendTelegramPhotoToolDefinition,
   handleSendTelegramPhotoTool,
@@ -483,6 +485,33 @@ export async function buildSdkMcpServers(
       tools.push(sdkTool);
     }
 
+    // Content Planner tools (with diagnostics wrapper)
+    if (SettingsManager.get('linkedin.plannerEnabled') === 'true') {
+      const plannerTools = getPlannerTools();
+      for (const pTool of plannerTools) {
+        const wrappedHandler = wrapToolHandler(pTool.name, pTool.handler, getToolTimeout(pTool.name));
+        const sdkTool = tool(
+          pTool.name,
+          pTool.description,
+          Object.fromEntries(
+            Object.entries(pTool.input_schema.properties || {}).map(([key, value]: [string, unknown]) => {
+              const prop = value as { type?: string };
+              if (prop.type === 'string') return [key, z.string().optional()];
+              if (prop.type === 'number') return [key, z.number().optional()];
+              if (prop.type === 'boolean') return [key, z.boolean().optional()];
+              if (prop.type === 'array') return [key, z.array(z.any()).optional()];
+              return [key, z.any().optional()];
+            })
+          ),
+          async (args) => {
+            const result = await wrappedHandler(args);
+            return { content: [{ type: 'text', text: result }] };
+          }
+        );
+        tools.push(sdkTool);
+      }
+    }
+
     // Telegram photo tool
     const wrappedPhotoHandler = wrapToolHandler('send_telegram_photo', handleSendTelegramPhotoTool, getToolTimeout('send_telegram_photo'));
     const photoTool = tool(
@@ -709,6 +738,19 @@ export function getCustomTools(config: ToolsConfig): Array<{
       input_schema: liTool.input_schema as Record<string, unknown>,
       handler: liTool.handler,
     });
+  }
+
+  // Content Planner tools
+  if (SettingsManager.get('linkedin.plannerEnabled') === 'true') {
+    const plannerToolsCustom = getPlannerTools();
+    for (const pTool of plannerToolsCustom) {
+      tools.push({
+        name: pTool.name,
+        description: pTool.description,
+        input_schema: pTool.input_schema as Record<string, unknown>,
+        handler: (input: unknown) => pTool.handler(input as Record<string, unknown>),
+      });
+    }
   }
 
   // Telegram photo tool
