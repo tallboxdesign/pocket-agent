@@ -25,8 +25,8 @@ from feed import parse_count, find_text
 def check_engagement(url, show_browser=False):
     """Navigate to post URL and extract engagement counts."""
     with sync_playwright() as pw:
-        browser_factory = BrowserFactory(pw)
-        browser, context = browser_factory.get_persistent_context(headless=not show_browser)
+        context = BrowserFactory.launch_persistent_context(pw, headless=not show_browser)
+        page = None
 
         try:
             page = context.new_page()
@@ -42,8 +42,9 @@ def check_engagement(url, show_browser=False):
 
             return {"url": url, "reactions": reactions, "comments": comments}
         finally:
-            page.close()
-            browser.close()
+            if page:
+                page.close()
+            context.close()
 
 
 def main():

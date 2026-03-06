@@ -103,6 +103,11 @@ contextBridge.exposeInMainWorld('pocketAgent', {
     ipcRenderer.on('linkedin:draftProgress', listener);
     return () => ipcRenderer.removeListener('linkedin:draftProgress', listener);
   },
+  onLinkedInEngagementProgress: (callback: (data: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on('linkedin:engagementProgress', listener);
+    return () => ipcRenderer.removeListener('linkedin:engagementProgress', listener);
+  },
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   openPath: (filePath: string) => ipcRenderer.invoke('app:openPath', filePath),
   showInFolder: (filePath: string) => ipcRenderer.invoke('app:showInFolder', filePath),
@@ -418,6 +423,7 @@ declare global {
       cancelLinkedInDraftJob: () => Promise<{ success: boolean }>;
       getLinkedInDailyStats: () => Promise<{ postedToday: number; dailyLimit: number; pendingApproved: number }>;
       onLinkedInDraftProgress: (callback: (data: unknown) => void) => () => void;
+      onLinkedInEngagementProgress: (callback: (data: unknown) => void) => () => void;
       openExternal: (url: string) => Promise<void>;
       openPath: (filePath: string) => Promise<void>;
       showInFolder: (filePath: string) => Promise<void>;

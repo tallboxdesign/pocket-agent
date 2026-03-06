@@ -2303,7 +2303,10 @@
       <option value="comments">Has comments</option>
       <option value="reactions">Has reactions</option>
       <option value="zero">Zero engagement</option>
+      <option value="low1">Low engagement (1 or less)</option>
+      <option value="low3">Low engagement (3 or less)</option>
     </select>
+    <button class="action-btn" id="select-engagement-btn" onclick="selectEngagementMatches()" title="Select posts matching the current engagement filter">Select Engagement</button>
     <select id="preview-mode" onchange="changePreviewMode()" title="Switch post preview style">
       <option value="summary">Summary (2 lines)</option>
       <option value="full">Full post</option>
@@ -2697,6 +2700,10 @@
 
     // Selection management
     let selectedIds = new Set();
+    const engagementCheckInFlightIds = new Set();
+    let engagementCheckTotal = 0;
+    let engagementCheckCompleted = 0;
+    let engagementCheckStarted = false;
     let refreshInterval = null;
     let activePanel = 'queue';
     let editingDraftPostId = null;
@@ -3703,10 +3710,17 @@
       const rewriteBtn = document.getElementById('bulk-rewrite-btn');
       const redraftBtn = document.getElementById('bulk-redraft-btn');
       const engagementBtn = document.getElementById('bulk-engagement-btn');
+      const engagementSelectBtn = document.getElementById('select-engagement-btn');
       const presetBar = document.getElementById('preset-bar');
-      if (selectedIds.size > 0) {
+      const engagementRunning = engagementCheckStarted || engagementCheckInFlightIds.size > 0;
+      if (selectedIds.size > 0 || engagementRunning) {
         bar.classList.add('visible');
-        countEl.textContent = `${selectedIds.size} selected`;
+        if (engagementRunning) {
+          const completed = Math.min(engagementCheckCompleted, engagementCheckTotal);
+          countEl.textContent = `Re-checking engagement ${completed}/${engagementCheckTotal}`;
+        } else {
+          countEl.textContent = `${selectedIds.size} selected`;
+        }
       } else {
         bar.classList.remove('visible');
       }
@@ -3724,6 +3738,13 @@
       if (rewriteBtn) rewriteBtn.style.display = allowRewrite && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (redraftBtn) redraftBtn.style.display = allowRedraft && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (engagementBtn) engagementBtn.style.display = allowEngagement ? 'inline-flex' : 'none';
+      if (engagementBtn) {
+        engagementBtn.textContent = engagementRunning ? `Re-checking… ${Math.min(engagementCheckCompleted, engagementCheckTotal)}/${engagementCheckTotal}` : 'Re-check Engagement';
+        engagementBtn.disabled = engagementRunning;
+      }
+      if (engagementSelectBtn) {
+        engagementSelectBtn.disabled = !getInputValue('filter-engagement');
+      }
       if (presetBar) presetBar.style.display = allowPresets && selectedIds.size > 0 ? 'inline-flex' : 'none';
     }
 
@@ -5489,15 +5510,39 @@
         if (engagement) {
           const reactions = Number(p.reactions || 0);
           const comments = Number(p.comments || 0);
-          const hasEngagement = (reactions + comments) > 0;
+          const totalEngagement = reactions + comments;
+          const hasEngagement = totalEngagement > 0;
           if (engagement === 'engaged' && !hasEngagement) return false;
           if (engagement === 'zero' && hasEngagement) return false;
           if (engagement === 'comments' && comments <= 0) return false;
           if (engagement === 'reactions' && reactions <= 0) return false;
+          if (engagement === 'low1' && totalEngagement > 1) return false;
+          if (engagement === 'low3' && totalEngagement > 3) return false;
         }
         if (author && !(p.author || '').toLowerCase().includes(author)) return false;
         return true;
       });
+    }
+
+    function selectEngagementMatches() {
+      const engagement = getInputValue('filter-engagement');
+      if (!engagement) {
+        showToast('Choose an engagement filter first', 'error');
+        return;
+      }
+      const filtered = applySorting(applyFilters(currentPosts));
+      if (!filtered.length) {
+        showToast('No posts match the current engagement filter', 'error');
+        return;
+      }
+      const visibleIds = new Set(filtered.map(p => Number(p.id)).filter(Number.isFinite));
+      document.querySelectorAll('.posts-table tbody input[type="checkbox"]').forEach(cb => {
+        const id = Number(cb.value || cb.dataset.id);
+        cb.checked = visibleIds.has(id);
+      });
+      selectedIds = visibleIds;
+      updateSelection();
+      showToast(`Selected ${visibleIds.size} post${visibleIds.size === 1 ? '' : 's'} for ${engagement === 'zero' ? 'zero engagement' : engagement === 'low1' ? '1 or less engagement' : engagement === 'low3' ? '3 or less engagement' : 'the current engagement filter'}`, 'success');
     }
 
     function isDraftEditActive() {
@@ -5808,6 +5853,7 @@
       const hasFailed = !isPublished && !hasDraft && (hasDraftFailure || Number(p.failed_attempts || 0) > 0 || hasPostingFail) && !p.scheduled_at;
       const attentionReasons = getNeedsAttentionReasons(p);
       const isPriorityScheduled = !!(p.scheduled_at && parseUtcDateMs(p.scheduled_at) <= (Date.now() + 20 * 60 * 1000));
+      const isCheckingEngagement = engagementCheckInFlightIds.has(Number(p.id));
       
       const aiSummaryText = normalizePreviewText(p.evidence_post_summary || p.full_post_summary || '');
       const summaryText = getPostSummary(p);
@@ -5830,6 +5876,7 @@
       if (!isPublished && lastAction === 'delayed' && !!p.scheduled_at) statusBadges.push('<span class="badge" style="background:rgba(250,204,21,0.12);color:#fde68a;border-color:rgba(250,204,21,0.3);">Shifted</span>');
       if (isPriorityScheduled && !isPublished) statusBadges.push('<span class="badge" style="background:rgba(250,204,21,0.14);color:#fde68a;border-color:rgba(250,204,21,0.35);">Priority Scheduled</span>');
       else if (isPostingNow) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Posting...</span>');
+      if (isCheckingEngagement) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Checking engagement</span>');
       else if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
       else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
       else if (p.approved) statusBadges.push('<span class="badge badge-approved">Approved</span>');
@@ -6686,9 +6733,21 @@
         return;
       }
       try {
+        engagementCheckStarted = true;
+        engagementCheckTotal = ids.length;
+        engagementCheckCompleted = 0;
+        ids.forEach(id => engagementCheckInFlightIds.add(Number(id)));
+        updateSelection();
+        loadPosts(true);
         showToast(`Re-checking engagement for ${ids.length} posts...`, 'success');
         const result = await window.pocketAgent.refreshLinkedInEngagement(ids);
         if (!result?.success) {
+          engagementCheckStarted = false;
+          engagementCheckTotal = 0;
+          engagementCheckCompleted = 0;
+          engagementCheckInFlightIds.clear();
+          updateSelection();
+          loadPosts(true);
           showToast(`Failed to re-check engagement: ${shortError(result?.error || 'Unknown error')}`, 'error');
           return;
         }
@@ -6700,10 +6759,19 @@
         const unchanged = Number(result.unchanged || 0);
         const stale = staleIds.size;
         const errors = Array.isArray(result.errors) ? result.errors.filter(Boolean) : [];
+        if (errors.length) {
+          console.error('Engagement re-check errors:', errors);
+        }
         showToast(`Engagement checked: ${checked} · stale ${stale} · gained ${gained} · unchanged ${unchanged}${errors.length ? ` · ${errors.length} errors` : ''}`, errors.length ? 'error' : 'success');
       } catch (err) {
+        engagementCheckStarted = false;
+        engagementCheckTotal = 0;
+        engagementCheckCompleted = 0;
+        engagementCheckInFlightIds.clear();
+        updateSelection();
+        loadPosts(true);
         console.error('Failed to re-check engagement:', err);
-        showToast('Failed to re-check engagement', 'error');
+        showToast(`Failed to re-check engagement: ${shortError(err)}`, 'error');
       }
     }
 
@@ -6881,6 +6949,41 @@
             const countEl = document.getElementById('post-count');
             if (countEl) countEl.textContent = `(drafting ${d.completed}/${d.total}...)`;
           }
+        }
+      });
+    }
+
+    if (window.pocketAgent.onLinkedInEngagementProgress) {
+      window.pocketAgent.onLinkedInEngagementProgress((data) => {
+        const d = data;
+        if (!d || typeof d !== 'object' || !('type' in d)) return;
+        if (d.type === 'start') {
+          engagementCheckStarted = true;
+          engagementCheckTotal = Number(d.total || 0);
+          engagementCheckCompleted = Number(d.completed || 0);
+          engagementCheckInFlightIds.clear();
+          if (Array.isArray(d.postIds)) {
+            d.postIds.forEach(id => {
+              const num = Number(id);
+              if (Number.isFinite(num)) engagementCheckInFlightIds.add(num);
+            });
+          }
+          updateSelection();
+          loadPosts(true);
+        } else if (d.type === 'progress') {
+          engagementCheckStarted = true;
+          engagementCheckTotal = Math.max(engagementCheckTotal, Number(d.total || 0));
+          engagementCheckCompleted = Number(d.completed || 0);
+          const postId = Number(d.postId);
+          if (Number.isFinite(postId)) engagementCheckInFlightIds.delete(postId);
+          updateSelection();
+        } else if (d.type === 'complete') {
+          engagementCheckStarted = false;
+          engagementCheckTotal = Number(d.total || 0);
+          engagementCheckCompleted = Number(d.completed || 0);
+          engagementCheckInFlightIds.clear();
+          updateSelection();
+          loadPosts(true);
         }
       });
     }

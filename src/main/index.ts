@@ -2044,6 +2044,12 @@ function setupIPC(): void {
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_ids TEXT`); } catch {}
       // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_group TEXT`); } catch {}
+      try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN times_seen INTEGER DEFAULT 1`); } catch {}
+      try { db.exec(`UPDATE linkedin_posts SET times_seen = 1 WHERE times_seen IS NULL OR times_seen < 1`); } catch {}
+      try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN scrape_status TEXT DEFAULT 'new'`); } catch {}
+      try { db.exec(`UPDATE linkedin_posts SET scrape_status = CASE WHEN COALESCE(times_seen, 1) > 1 THEN 'seen_again' ELSE 'new' END WHERE scrape_status IS NULL OR TRIM(scrape_status) = ''`); } catch {}
+      try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN scrape_status_at TEXT`); } catch {}
+      try { db.exec(`UPDATE linkedin_posts SET scrape_status_at = COALESCE(last_seen_at, first_seen_at, created_at, datetime('now')) WHERE scrape_status_at IS NULL`); } catch {}
       try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN research_model TEXT`); } catch {}
       try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN writer_model TEXT`); } catch {}
       try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN research_trace TEXT`); } catch {}
@@ -2873,11 +2879,17 @@ function setupIPC(): void {
     }
   });
 
-  ipcMain.handle('linkedin:refreshEngagementBatch', async (_, postIds: number[]) => {
+  ipcMain.handle('linkedin:refreshEngagementBatch', async (event, postIds: number[]) => {
     try {
       markLinkedInControlSource('desktop');
       const normalizedIds = Array.from(new Set((Array.isArray(postIds) ? postIds : []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)));
       if (!normalizedIds.length) return { success: false, error: 'No posts selected' };
+      event.sender.send('linkedin:engagementProgress', {
+        type: 'start',
+        total: normalizedIds.length,
+        completed: 0,
+        postIds: normalizedIds,
+      });
       const Database = (await import('better-sqlite3')).default;
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const possiblePaths = [
@@ -2922,6 +2934,13 @@ function setupIPC(): void {
         } | undefined;
         if (!row?.post_url) {
           errors.push(`#${postId}: post not found`);
+          event.sender.send('linkedin:engagementProgress', {
+            type: 'progress',
+            total: normalizedIds.length,
+            completed: checked + errors.length,
+            postId,
+            status: 'error',
+          });
           continue;
         }
         try {
@@ -2949,14 +2968,55 @@ function setupIPC(): void {
           if ((nextReactions + nextComments) === 0 || (reactionsGainSinceFirst <= 0 && commentsGainSinceFirst <= 0)) {
             staleIds.push(postId);
           }
+          event.sender.send('linkedin:engagementProgress', {
+            type: 'progress',
+            total: normalizedIds.length,
+            completed: checked + errors.length,
+            postId,
+            status: 'success',
+            reactions: nextReactions,
+            comments: nextComments,
+            stale: staleIds.includes(postId),
+          });
         } catch (err) {
           errors.push(`#${postId}: ${err instanceof Error ? err.message : String(err)}`);
+          event.sender.send('linkedin:engagementProgress', {
+            type: 'progress',
+            total: normalizedIds.length,
+            completed: checked + errors.length,
+            postId,
+            status: 'error',
+          });
         }
       }
       db.close();
+      event.sender.send('linkedin:engagementProgress', {
+        type: 'complete',
+        total: normalizedIds.length,
+        completed: checked + errors.length,
+        staleIds,
+        gained,
+        unchanged,
+        checked,
+        errors,
+      });
       return { success: true, checked, staleIds, gained, unchanged, errors };
     } catch (err) {
       console.error('[LinkedIn] Failed to refresh engagement batch:', err);
+      try {
+        event.sender.send('linkedin:engagementProgress', {
+          type: 'complete',
+          total: 0,
+          completed: 0,
+          checked: 0,
+          gained: 0,
+          unchanged: 0,
+          staleIds: [],
+          errors: [String(err)],
+        });
+      } catch {
+        // ignore secondary failures
+      }
       return { success: false, error: String(err) };
     }
   });

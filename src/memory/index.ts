@@ -424,6 +424,9 @@ export class MemoryManager {
         first_seen_reactions INTEGER,
         first_seen_comments INTEGER,
         last_seen_at TEXT DEFAULT (datetime('now')),
+        times_seen INTEGER DEFAULT 1,
+        scrape_status TEXT DEFAULT 'new',
+        scrape_status_at TEXT DEFAULT (datetime('now')),
         commented INTEGER DEFAULT 0,
         comment_draft TEXT,
         kanban_task_id INTEGER,
@@ -701,6 +704,21 @@ export class MemoryManager {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN last_seen_at TEXT`);
       this.db.prepare(`UPDATE linkedin_posts SET last_seen_at = datetime('now') WHERE last_seen_at IS NULL`).run();
       console.log('[Memory] Migrated linkedin_posts: added last_seen_at column');
+    }
+    if (!hasColumn('linkedin_posts', 'times_seen')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN times_seen INTEGER DEFAULT 1`);
+      this.db.prepare(`UPDATE linkedin_posts SET times_seen = 1 WHERE times_seen IS NULL OR times_seen < 1`).run();
+      console.log('[Memory] Migrated linkedin_posts: added times_seen column');
+    }
+    if (!hasColumn('linkedin_posts', 'scrape_status')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN scrape_status TEXT DEFAULT 'new'`);
+      this.db.prepare(`UPDATE linkedin_posts SET scrape_status = CASE WHEN COALESCE(times_seen, 1) > 1 THEN 'seen_again' ELSE 'new' END WHERE scrape_status IS NULL OR TRIM(scrape_status) = ''`).run();
+      console.log('[Memory] Migrated linkedin_posts: added scrape_status column');
+    }
+    if (!hasColumn('linkedin_posts', 'scrape_status_at')) {
+      this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN scrape_status_at TEXT`);
+      this.db.prepare(`UPDATE linkedin_posts SET scrape_status_at = COALESCE(last_seen_at, first_seen_at, created_at, datetime('now')) WHERE scrape_status_at IS NULL`).run();
+      console.log('[Memory] Migrated linkedin_posts: added scrape_status_at column');
     }
     if (!hasColumn('linkedin_posts', 'source_tag')) {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN source_tag TEXT DEFAULT 'feed:home'`);

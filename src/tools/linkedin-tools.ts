@@ -568,9 +568,9 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       const upsert = db.prepare(
         `INSERT INTO linkedin_posts (
            post_url, author, text_preview, reactions, comments, post_type, scraped_date,
-           first_seen_reactions, first_seen_comments, last_seen_at, source_tag
+           first_seen_reactions, first_seen_comments, last_seen_at, source_tag, times_seen, scrape_status, scrape_status_at
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, 1, 'new', datetime('now'))
          ON CONFLICT(post_url) DO UPDATE SET
            author = excluded.author,
            text_preview = excluded.text_preview,
@@ -584,6 +584,18 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
              ELSE COALESCE(linkedin_posts.source_tag, 'feed:home')
            END,
            last_seen_at = datetime('now'),
+           times_seen = COALESCE(linkedin_posts.times_seen, 1) + 1,
+           scrape_status = CASE
+             WHEN linkedin_posts.author != excluded.author
+               OR linkedin_posts.text_preview != excluded.text_preview
+               OR COALESCE(linkedin_posts.reactions, 0) != COALESCE(excluded.reactions, 0)
+               OR COALESCE(linkedin_posts.comments, 0) != COALESCE(excluded.comments, 0)
+               OR COALESCE(linkedin_posts.post_type, '') != COALESCE(excluded.post_type, '')
+               OR linkedin_posts.scraped_date != excluded.scraped_date
+             THEN 'refreshed'
+             ELSE 'seen_again'
+           END,
+           scrape_status_at = datetime('now'),
            first_seen_at = COALESCE(linkedin_posts.first_seen_at, datetime('now')),
            first_seen_reactions = COALESCE(linkedin_posts.first_seen_reactions, excluded.first_seen_reactions),
            first_seen_comments = COALESCE(linkedin_posts.first_seen_comments, excluded.first_seen_comments)`
@@ -733,6 +745,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
       // Only return posts that were actually new
       newPosts = posts.filter((p: { post_url?: string }) => p.post_url && !existingUrls.has(p.post_url));
       const refreshedCount = refreshedUrls.size;
+      const seenAgainCount = Math.max(0, existingUrls.size - refreshedCount);
       const refreshedPosts = posts.filter((p: { post_url?: string }) => p.post_url && refreshedPostsByUrl.has(p.post_url));
       if (searchQuery) {
         recordDiscoveryQueryRun({
@@ -751,6 +764,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
         count: newPosts.length,
         total_scraped: posts.length,
         skipped_existing: posts.length - newPosts.length,
+        seen_again_existing: seenAgainCount,
         updated_existing: refreshedCount,
         updated_posts: refreshedPosts,
         all_posts: posts,
