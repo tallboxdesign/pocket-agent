@@ -1642,6 +1642,32 @@
     .action-group.model-group .action-btn:hover {
       background: rgba(96, 165, 250, 0.18);
     }
+    .model-summary-group {
+      gap: 8px;
+      padding-right: 8px;
+    }
+    .model-summary-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      cursor: pointer;
+      min-width: 0;
+      font: inherit;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 4px;
+    }
+    .model-summary-btn:hover {
+      color: #bfdbfe;
+    }
+    .model-summary-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 360px;
+      font-size: 12px;
+      font-weight: 600;
+    }
     #research-model,
     #draft-model {
       min-width: 210px;
@@ -2141,23 +2167,14 @@
         <option value="deep">Deep</option>
       </select>
     </div>
-    <div class="action-group model-group">
-      <button class="action-btn" onclick="saveResearchModel()" title="Save model used for LinkedIn research, web search, and evidence">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        Research
+    <div class="action-group model-group model-summary-group">
+      <button class="action-btn" onclick="openModelsModal()" title="Choose research and writer models">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 4.5v9L12 21l-9-4.5v-9L12 3z"/><path d="M12 3v18"/><circle cx="6" cy="12" r="1.25"/><circle cx="18" cy="12" r="1.25"/></svg>
+        Models
       </button>
-      <select id="research-model" title="LinkedIn research model for web search, evidence, and grounding">
-        <option value="">Auto (pick best research model)</option>
-      </select>
-    </div>
-    <div class="action-group model-group">
-      <button class="action-btn" onclick="saveDraftModel()" title="Save model used for LinkedIn writing only">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 4.5v9L12 21l-9-4.5v-9L12 3z"/><path d="M12 3v18"/></svg>
-        Writer
+      <button class="model-summary-btn" id="models-chip-summary" onclick="openModelsModal()" title="Research and writer model summary">
+        <span class="model-summary-text" id="models-chip-summary-text">R: Auto · W: Chat</span>
       </button>
-      <select id="draft-model" title="LinkedIn writer model (separate from research)">
-        <option value="">Use chat model</option>
-      </select>
     </div>
     <div class="divider"></div>
     <button class="action-btn" onclick="fullPipeline()" title="Scrape, draft, and schedule comments with delays" style="background:rgba(245,158,11,0.12);color:#fbbf24;border-color:rgba(245,158,11,0.25);">
@@ -2334,6 +2351,31 @@
       <div class="bulk-meta-actions">
         <button class="action-btn" onclick="closeBulkMetaModal()">Cancel</button>
         <button class="action-btn" onclick="applyBulkMeta()" style="background:rgba(59,130,246,0.12);color:#93c5fd;border-color:rgba(59,130,246,0.3);">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="models-modal" class="bulk-meta-modal">
+    <div class="bulk-meta-card">
+      <div class="bulk-meta-title">LinkedIn Models</div>
+      <div class="li-quick-help" style="margin-bottom:12px;">Research runs web search and evidence. Writer handles draft, redraft, and rewrite.</div>
+      <div class="bulk-meta-grid">
+        <div>
+          <label>Research model</label>
+          <select id="research-model" title="LinkedIn research model for web search, evidence, and grounding">
+            <option value="">Auto (pick best research model)</option>
+          </select>
+        </div>
+        <div>
+          <label>Writer model</label>
+          <select id="draft-model" title="LinkedIn writer model (separate from research)">
+            <option value="">Use chat model</option>
+          </select>
+        </div>
+      </div>
+      <div class="bulk-meta-actions">
+        <button class="action-btn" onclick="closeModelsModal()">Cancel</button>
+        <button class="action-btn" onclick="applyModelsModal()" style="background:rgba(59,130,246,0.12);color:#93c5fd;border-color:rgba(59,130,246,0.3);">Apply</button>
       </div>
     </div>
   </div>
@@ -2554,17 +2596,16 @@
       loadPosts();
     }
 
+    const modelsModal = document.getElementById('models-modal');
+    if (modelsModal) {
+      modelsModal.addEventListener('click', (event) => {
+        if (event.target === modelsModal) void closeModelsModal();
+      });
+    }
+
     const draftModeSelect = document.getElementById('draft-mode');
-    const researchModelSelect = document.getElementById('research-model');
-    const draftModelSelect = document.getElementById('draft-model');
     if (draftModeSelect) {
       draftModeSelect.addEventListener('change', () => { saveDraftMode(true); });
-    }
-    if (researchModelSelect) {
-      researchModelSelect.addEventListener('change', () => { saveResearchModel(true); });
-    }
-    if (draftModelSelect) {
-      draftModelSelect.addEventListener('change', () => { saveDraftModel(true); });
     }
 
     const PRIORITY_ORDER = ['low', 'normal', 'high', 'urgent'];
@@ -4474,6 +4515,52 @@
       return loadLinkedInModelOptions('draft-model', 'linkedin.postModel', 'Use chat model');
     }
 
+    function compactModelLabel(selectId, emptyLabel) {
+      const el = document.getElementById(selectId);
+      if (!el) return emptyLabel;
+      const value = String(el.value || '').trim();
+      if (!value) return emptyLabel;
+      const selected = el.options[el.selectedIndex];
+      const raw = String(selected?.textContent || value).trim();
+      return raw.replace(/^\[[^\]]+\]\s*/, '') || value;
+    }
+
+    function refreshModelsChipSummary() {
+      const summaryEl = document.getElementById('models-chip-summary-text');
+      if (!summaryEl) return;
+      const researchLabel = compactModelLabel('research-model', 'Auto');
+      const writerLabel = compactModelLabel('draft-model', 'Chat');
+      summaryEl.textContent = `R: ${researchLabel} · W: ${writerLabel}`;
+    }
+
+    async function loadAllModelOptions() {
+      await Promise.all([loadResearchModelOptions(), loadDraftModelOptions()]);
+      refreshModelsChipSummary();
+    }
+
+    async function openModelsModal() {
+      await loadAllModelOptions();
+      const modal = document.getElementById('models-modal');
+      if (modal) modal.classList.add('show');
+    }
+
+    async function closeModelsModal() {
+      await loadAllModelOptions();
+      const modal = document.getElementById('models-modal');
+      if (modal) modal.classList.remove('show');
+    }
+
+    async function applyModelsModal() {
+      const [researchModel, writerModel] = await Promise.all([
+        saveResearchModel(true),
+        saveDraftModel(true),
+      ]);
+      refreshModelsChipSummary();
+      const modal = document.getElementById('models-modal');
+      if (modal) modal.classList.remove('show');
+      showToast(`LinkedIn models saved: R ${researchModel || 'auto'} · W ${writerModel || 'chat'}`, 'success');
+    }
+
     async function saveDraftMode(silent = false) {
       const mode = currentDraftMode();
       if (!window.pocketAgent?.setSetting) return mode;
@@ -4497,6 +4584,7 @@
       if (!window.pocketAgent?.setSetting) return model;
       try {
         await window.pocketAgent.setSetting('linkedin.researchModel', model);
+        refreshModelsChipSummary();
         if (!silent) {
           const label = model ? `LinkedIn research model saved: ${model}` : 'LinkedIn research model saved: auto (pick best research model)';
           showToast(label, 'success');
@@ -4517,6 +4605,7 @@
       if (!window.pocketAgent?.setSetting) return model;
       try {
         await window.pocketAgent.setSetting('linkedin.postModel', model);
+        refreshModelsChipSummary();
         if (!silent) {
           const label = model ? `LinkedIn model saved: ${model}` : 'LinkedIn model saved: use chat model';
           showToast(label, 'success');
@@ -6745,8 +6834,7 @@
 
     refreshPanelTabs();
     loadDraftMode();
-    loadResearchModelOptions();
-    loadDraftModelOptions();
+    loadAllModelOptions();
     loadPosts();
   </script>
 </body>
