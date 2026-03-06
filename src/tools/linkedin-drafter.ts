@@ -80,6 +80,39 @@ type ResearchEvidence = {
   confidence: 'high' | 'medium' | 'low';
 };
 
+type ResearchTrace = {
+  route: 'sdk' | 'native_openai' | 'native_gemini';
+  model: string;
+  mode: DraftMode;
+  queryBudget: number;
+  queries: string[];
+  sources: Array<{ name: string; url: string }>;
+  toolCalls: Array<{ tool: string; query?: string; url?: string }>;
+  notes?: string[];
+};
+
+type DraftTrace = {
+  mode: DraftMode;
+  writerModel: string;
+  researchModel: string;
+  commentIntent: CommentIntent;
+  voicePreset?: string;
+  styleGuideApplied: boolean;
+  bankFirstMode: boolean;
+  roughnessLevel: number;
+  allowDiscourse: boolean;
+  presentSimple: boolean;
+  hookScore?: number | null;
+  emotionTag?: string;
+  nicheTarget?: string;
+  authenticityFlag?: string;
+  postBankGroup?: string;
+  postBankEntries: Array<{ id: string; title?: string; type?: string; group?: string }>;
+  usedCachedEvidence?: boolean;
+  fallbackUsed?: boolean;
+  fallbackReason?: string;
+};
+
 type DraftDiversityContext = {
   usedOpeningSignatures: Set<string>;
   usedLeadInSignatures: Set<string>;
@@ -1028,6 +1061,8 @@ type DraftGenerationResult = {
   model: string;
   researchModel: string;
   writerModel: string;
+  researchTrace?: ResearchTrace | null;
+  draftTrace?: DraftTrace | null;
 };
 
 function getLengthPlan(
@@ -1574,6 +1609,21 @@ function mergeNativeSources(
   return { ...evidence, sources: merged.slice(0, 2) };
 }
 
+function mergeTraceSources(
+  existing: Array<{ name: string; url: string }>,
+  incoming: Array<{ name: string; url: string }>,
+): Array<{ name: string; url: string }> {
+  const merged = [...existing];
+  for (const source of incoming) {
+    const name = String(source?.name || '').trim();
+    const url = String(source?.url || '').trim();
+    if (!name && !url) continue;
+    if (merged.some((entry) => entry.url && url && entry.url === url)) continue;
+    merged.push({ name: name || url, url });
+  }
+  return merged;
+}
+
 function extractOpenAIResponseText(payload: Record<string, unknown>): string {
   const direct = String(payload.output_text || '').trim();
   if (direct) return direct;
@@ -1604,7 +1654,6 @@ function extractOpenAIResponseSources(payload: Record<string, unknown>): Array<{
         if (!url && !title) continue;
         if (sources.some((entry) => entry.url && url && entry.url === url)) continue;
         sources.push({ name: title || url, url });
-        if (sources.length >= 2) return sources;
       }
     }
     const content = Array.isArray(item.content) ? item.content as Array<Record<string, unknown>> : [];
@@ -1616,11 +1665,23 @@ function extractOpenAIResponseSources(payload: Record<string, unknown>): Array<{
         if (!url && !title) continue;
         if (sources.some((source) => source.url && url && source.url === url)) continue;
         sources.push({ name: title || url, url });
-        if (sources.length >= 2) return sources;
       }
     }
   }
   return sources;
+}
+
+function extractOpenAIResponseQueries(payload: Record<string, unknown>): string[] {
+  const output = Array.isArray(payload.output) ? payload.output as Array<Record<string, unknown>> : [];
+  const queries: string[] = [];
+  for (const item of output) {
+    if (item.type !== 'web_search_call') continue;
+    const action = item.action as Record<string, unknown> | undefined;
+    const query = String(action?.query || '').trim();
+    if (!query) continue;
+    if (!queries.includes(query)) queries.push(query);
+  }
+  return queries;
 }
 
 function extractGeminiResponseText(payload: Record<string, unknown>): string {
@@ -1645,9 +1706,15 @@ function extractGeminiResponseSources(payload: Record<string, unknown>): Array<{
     if (!url && !title) continue;
     if (sources.some((source) => source.url && url && source.url === url)) continue;
     sources.push({ name: title || url, url });
-    if (sources.length >= 2) break;
   }
   return sources;
+}
+
+function extractGeminiResponseQueries(payload: Record<string, unknown>): string[] {
+  const candidates = Array.isArray(payload.candidates) ? payload.candidates as Array<Record<string, unknown>> : [];
+  const groundingMetadata = (candidates[0] || {}).groundingMetadata as Record<string, unknown> | undefined;
+  const queries = Array.isArray(groundingMetadata?.webSearchQueries) ? groundingMetadata?.webSearchQueries as Array<unknown> : [];
+  return Array.from(new Set(queries.map((query) => String(query || '').trim()).filter(Boolean)));
 }
 
 async function runOpenAINativeResearchPass(
@@ -1657,7 +1724,7 @@ async function runOpenAINativeResearchPass(
   model: string,
   config: LinkedInDraftConfig,
   abortController: AbortController,
-): Promise<ResearchEvidence> {
+): Promise<{ evidence: ResearchEvidence; trace: ResearchTrace }> {
   const apiKey = String(SettingsManager.get('openai.apiKey') || '').trim();
   if (!apiKey) throw new Error('OpenAI API key not configured');
   const fallbackIntent = detectPostIntent(`${fullPostText}\n${imageContext}\n${post.text_preview}`);
@@ -1734,8 +1801,20 @@ Research the exact topic with web search and return STRICT JSON:
     }
     const payload = await response.json() as Record<string, unknown>;
     const rawText = extractOpenAIResponseText(payload);
-    const evidence = parseResearchEvidence(rawText, fallbackIntent);
-    return mergeNativeSources(evidence, extractOpenAIResponseSources(payload));
+    const sources = extractOpenAIResponseSources(payload);
+    const evidence = mergeNativeSources(parseResearchEvidence(rawText, fallbackIntent), sources);
+    return {
+      evidence,
+      trace: {
+        route: 'native_openai',
+        model,
+        mode: config.mode,
+        queryBudget: config.maxSearchQueries,
+        queries: extractOpenAIResponseQueries(payload),
+        sources,
+        toolCalls: extractOpenAIResponseQueries(payload).map((query) => ({ tool: 'web_search', query })),
+      },
+    };
   } finally {
     abortController.signal.removeEventListener('abort', onAbort);
   }
@@ -1748,7 +1827,7 @@ async function runGeminiNativeResearchPass(
   model: string,
   config: LinkedInDraftConfig,
   abortController: AbortController,
-): Promise<ResearchEvidence> {
+): Promise<{ evidence: ResearchEvidence; trace: ResearchTrace }> {
   const apiKey = String(SettingsManager.get('gemini.apiKey') || '').trim();
   if (!apiKey) throw new Error('Gemini API key not configured');
   const fallbackIntent = detectPostIntent(`${fullPostText}\n${imageContext}\n${post.text_preview}`);
@@ -1816,8 +1895,25 @@ Research the exact topic with grounded Google search and return STRICT JSON:
     }
     const payload = await response.json() as Record<string, unknown>;
     const rawText = extractGeminiResponseText(payload);
-    const evidence = parseResearchEvidence(rawText, fallbackIntent);
-    return mergeNativeSources(evidence, extractGeminiResponseSources(payload));
+    const queries = extractGeminiResponseQueries(payload);
+    const sources = extractGeminiResponseSources(payload);
+    const evidence = mergeNativeSources(parseResearchEvidence(rawText, fallbackIntent), sources);
+    return {
+      evidence,
+      trace: {
+        route: 'native_gemini',
+        model,
+        mode: config.mode,
+        queryBudget: config.maxSearchQueries,
+        queries,
+        sources,
+        toolCalls: [
+          ...queries.map((query) => ({ tool: 'google_search', query })),
+          ...sources.map((source) => ({ tool: 'grounded_source', url: source.url, query: source.name })),
+        ],
+        notes: queries.length ? undefined : ['Provider did not expose exact grounded query strings in response metadata'],
+      },
+    };
   } finally {
     abortController.signal.removeEventListener('abort', onAbort);
   }
@@ -1831,7 +1927,7 @@ async function runResearchWithPlan(
   plan: ResearchPlan,
   config: LinkedInDraftConfig,
   abortController: AbortController,
-): Promise<ResearchEvidence> {
+): Promise<{ evidence: ResearchEvidence; trace: ResearchTrace }> {
   if (plan.route === 'sdk') {
     const env = await buildProviderEnv(plan.model);
     return runResearchPass(queryFn, post, fullPostText, imageContext, plan.model, config, abortController, env);
@@ -1850,16 +1946,16 @@ async function runResearchWithFallbacks(
   writerModel: string,
   config: LinkedInDraftConfig,
   abortController: AbortController,
-): Promise<{ evidence: ResearchEvidence; researchModel: string }> {
+): Promise<{ evidence: ResearchEvidence; researchModel: string; researchTrace: ResearchTrace }> {
   const attempts = buildResearchCandidateModels(writerModel, config);
   const errors: string[] = [];
   for (const candidate of attempts) {
     const plan = getResearchPlan(candidate);
     if (!plan) continue;
     try {
-      const evidence = await runResearchWithPlan(queryFn, post, fullPostText, imageContext, plan, config, abortController);
-      if (hasMinimumEvidence(evidence, config.requireTwoSources)) {
-        return { evidence, researchModel: candidate };
+      const researched = await runResearchWithPlan(queryFn, post, fullPostText, imageContext, plan, config, abortController);
+      if (hasMinimumEvidence(researched.evidence, config.requireTwoSources)) {
+        return { evidence: researched.evidence, researchModel: candidate, researchTrace: researched.trace };
       }
       errors.push(`${candidate}: insufficient grounded evidence`);
     } catch (err) {
@@ -1946,6 +2042,70 @@ async function generateDraftFromSdk(
   return draft;
 }
 
+function collectSdkTraceEvent(
+  event: unknown,
+  trace: { queries: string[]; sources: Array<{ name: string; url: string }>; toolCalls: Array<{ tool: string; query?: string; url?: string }> },
+): void {
+  if (!event || typeof event !== 'object') return;
+  const evt = event as Record<string, unknown>;
+  const message = evt.message as Record<string, unknown> | undefined;
+  const content = Array.isArray(message?.content) ? message?.content as Array<Record<string, unknown>> : [];
+  for (const block of content) {
+    if (block.type !== 'tool_use') continue;
+    const tool = String(block.name || '').trim();
+    const input = (block.input && typeof block.input === 'object') ? block.input as Record<string, unknown> : {};
+    const query = String(input.query || input.search_query || input.q || '').trim();
+    const url = String(input.url || input.href || '').trim();
+    trace.toolCalls.push({ tool, query: query || undefined, url: url || undefined });
+    if (query && !trace.queries.includes(query)) trace.queries.push(query);
+    if (url) trace.sources = mergeTraceSources(trace.sources, [{ name: url, url }]);
+  }
+}
+
+async function generateResearchFromSdk(
+  queryFn: (params: { prompt: string; options?: SDKOptions }) => SDKQuery,
+  prompt: string,
+  options: SDKOptions,
+  traceMeta: { model: string; mode: DraftMode; queryBudget: number },
+): Promise<{ text: string; trace: ResearchTrace }> {
+  const result = queryFn({ prompt, options });
+  let text = '';
+  const traceState = {
+    queries: [] as string[],
+    sources: [] as Array<{ name: string; url: string }>,
+    toolCalls: [] as Array<{ tool: string; query?: string; url?: string }>,
+  };
+  for await (const event of result) {
+    collectSdkTraceEvent(event, traceState);
+    if (typeof event === 'object' && event !== null) {
+      const evt = event as {
+        type?: string;
+        message?: { content?: Array<{ type: string; text?: string }> };
+      };
+      if (evt.type === 'assistant' && evt.message?.content) {
+        for (const block of evt.message.content) {
+          if (block.type === 'text' && block.text) {
+            text += block.text;
+          }
+        }
+      }
+    }
+  }
+  return {
+    text,
+    trace: {
+      route: 'sdk',
+      model: traceMeta.model,
+      mode: traceMeta.mode,
+      queryBudget: traceMeta.queryBudget,
+      queries: traceState.queries,
+      sources: traceState.sources,
+      toolCalls: traceState.toolCalls,
+      notes: traceState.toolCalls.length ? undefined : ['SDK stream did not expose tool calls in this run'],
+    },
+  };
+}
+
 async function runResearchPass(
   queryFn: (params: { prompt: string; options?: SDKOptions }) => SDKQuery,
   post: DraftPost,
@@ -1955,7 +2115,7 @@ async function runResearchPass(
   config: LinkedInDraftConfig,
   abortController: AbortController,
   env: Record<string, string | undefined>,
-): Promise<ResearchEvidence> {
+): Promise<{ evidence: ResearchEvidence; trace: ResearchTrace }> {
   const fullTextForPrompt = clipForPrompt(fullPostText || post.text_preview || '', 10000);
   const fallbackIntent = detectPostIntent(fullTextForPrompt || post.text_preview);
   const dateContext = getPromptDateContext();
@@ -2030,13 +2190,23 @@ Date discipline:
     env,
   };
 
-  const rawResearch = await generateDraftFromSdk(queryFn, researchPrompt, researchOptions);
+  const { text: rawResearch, trace } = await generateResearchFromSdk(queryFn, researchPrompt, researchOptions, {
+    model,
+    mode: config.mode,
+    queryBudget: config.maxSearchQueries,
+  });
   const evidence = parseResearchEvidence(rawResearch, fallbackIntent);
   if (!hasMinimumEvidence(evidence, config.requireTwoSources)) {
     const required = config.requireTwoSources ? '2 sources' : '1 source';
     throw new Error(`Research evidence insufficient (needs key point, statistic, actionable add-on, and ${required})`);
   }
-  return evidence;
+  return {
+    evidence,
+    trace: {
+      ...trace,
+      sources: mergeTraceSources(trace.sources, evidence.sources),
+    },
+  };
 }
 
 async function runWritePass(
@@ -2052,7 +2222,9 @@ async function runWritePass(
   abortController: AbortController,
   env: Record<string, string | undefined>,
   diversity?: DraftDiversityContext,
-): Promise<string> {
+  researchModelForTrace?: string,
+  traceOptions?: { usedCachedEvidence?: boolean },
+): Promise<{ draft: string; draftTrace: DraftTrace }> {
   const researchBrief = evidenceToBrief(evidence);
   const authorFirstName = getAuthorFirstName(post.author);
   const lengthPlan = getLengthPlan(post.text_preview, evidence, commentIntent);
@@ -2093,8 +2265,9 @@ async function runWritePass(
   const emotionTag = String(post.emotion_tag || '').trim().toLowerCase();
   const nicheTarget = String(post.niche_target || '').trim();
   const authenticityFlag = String(post.authenticity_flag || '').trim().toLowerCase();
-  const postBankSelection = diversity?.postBankState ? selectPostBankEntries(post, diversity.postBankState) : [];
-  const postBankBlock = buildPostBankBlock(postBankSelection);
+  const draftContext = prepareDraftTraceContext(post, model, researchModelForTrace || model, commentIntent, config.mode, styleGuide, diversity, traceOptions);
+  const postBankBlock = draftContext.postBankBlock;
+  const draftTrace = draftContext.draftTrace;
   const openingRule = bankFirstMode
     ? `Open with one specific point from the post. Use "${authorFirstName}," only if it sounds natural; do not force it.\n- Let the voice examples influence opener pressure and rhythm more than generic helpful-assistant phrasing.`
     : `Sentence 1 starts with "${authorFirstName}," and references one specific point from the post.`;
@@ -2301,10 +2474,17 @@ Return only the final comment text.`;
           console.warn(`[LinkedInDrafter] Fallback draft warnings: ${[...fallbackQuality.hardIssues, ...fallbackQuality.softWarnings].join('; ')}`);
           // If fallback degraded too much, keep the salvage draft even with issues.
           if (salvageQuality.hardIssues.length < fallbackQuality.hardIssues.length) {
-            return draft;
+            return { draft, draftTrace };
           }
         }
-        return fallbackDraft;
+        return {
+          draft: fallbackDraft,
+          draftTrace: {
+            ...draftTrace,
+            fallbackUsed: true,
+            fallbackReason: 'quality_critical',
+          },
+        };
       }
       console.warn(`[LinkedInDrafter] Accepting draft with non-critical quality warnings: ${salvageQuality.hardIssues.join('; ')}`);
     } else if (salvageQuality.softWarnings.length > 0) {
@@ -2314,7 +2494,7 @@ Return only the final comment text.`;
     console.warn(`[LinkedInDrafter] Style warnings (soft): ${finalQuality.softWarnings.join('; ')}`);
   }
 
-  return draft;
+  return { draft, draftTrace };
 }
 
 function buildFallbackEvidenceFromPost(post: DraftPost, fullPostText: string, imageContext = ''): ResearchEvidence {
@@ -2349,12 +2529,15 @@ async function generateDraftViaOpenAIModel(
   imageContext: string,
   styleGuide: string,
   model: string,
+  config: LinkedInDraftConfig,
   parentAbortController: AbortController,
   remainingMs: number,
   diversity?: DraftDiversityContext,
   evidenceOverride?: ResearchEvidence | null,
   commentIntentOverride?: CommentIntent | null,
   researchModelOverride?: string | null,
+  researchTraceOverride?: ResearchTrace | null,
+  traceOptions?: { usedCachedEvidence?: boolean },
 ): Promise<DraftGenerationResult> {
   const attempt = createAttemptAbortController(parentAbortController, remainingMs);
   const fullTextForPrompt = clipForPrompt(fullPostText || post.text_preview || '', 10000);
@@ -2368,6 +2551,17 @@ async function generateDraftViaOpenAIModel(
   const avoidLeadIns = diversity ? Array.from(diversity.usedLeadInSignatures).filter(Boolean).slice(-6) : [];
   const researchBrief = evidenceOverride ? evidenceToBrief(evidence) : '';
   const bankFirstMode = isBankFirstModeEnabled();
+  const draftContext = prepareDraftTraceContext(
+    post,
+    model,
+    researchModelOverride || model,
+    commentIntent,
+    config.mode,
+    styleGuide,
+    diversity,
+    traceOptions,
+  );
+  const draftTrace = draftContext.draftTrace;
   const openingInstruction = bankFirstMode
     ? `Open with one specific point from the post. Use "${authorFirstName}," only if it sounds natural; do not force it.`
     : `Start sentence 1 with "${authorFirstName},"`;
@@ -2438,6 +2632,8 @@ Avoid repeating these lead-ins: ${avoidLeadIns.join(' | ') || 'none'}${researchB
     if (quality.hardIssues.length > 0) {
       if (hasCriticalQualityIssue(quality.hardIssues)) {
         draft = buildDeterministicFallbackDraft(post, evidence, authorFirstName, commentIntent);
+        draftTrace.fallbackUsed = true;
+        draftTrace.fallbackReason = 'quality_critical';
       } else {
         console.warn(`[LinkedInDrafter] OpenAI fallback draft quality warnings: ${quality.hardIssues.join('; ')}`);
       }
@@ -2449,6 +2645,8 @@ Avoid repeating these lead-ins: ${avoidLeadIns.join(' | ') || 'none'}${researchB
       model,
       researchModel: researchModelOverride || model,
       writerModel: model,
+      researchTrace: researchTraceOverride || null,
+      draftTrace,
     };
   } finally {
     attempt.cleanup();
@@ -2473,6 +2671,7 @@ async function generateDraftForModel(
   const researchAttempt = createAttemptAbortController(parentAbortController, researchBudgetMs);
   let evidence: ResearchEvidence | null = null;
   let researchModelUsed = '';
+  let researchTrace: ResearchTrace | null = null;
   try {
     const researched = await runResearchWithFallbacks(
       queryFn,
@@ -2485,6 +2684,7 @@ async function generateDraftForModel(
     );
     evidence = researched.evidence;
     researchModelUsed = researched.researchModel;
+    researchTrace = researched.researchTrace;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Research failed for ${post.author}: ${msg}`);
@@ -2499,43 +2699,54 @@ async function generateDraftForModel(
       imageContext,
       styleGuide,
       model,
+      config,
       parentAbortController,
       remainingMs,
       diversity,
       evidence,
       commentIntent,
       researchModelUsed,
+      researchTrace,
     );
   }
 
-  const env = await buildProviderEnv(model);
-  const attempt = createAttemptAbortController(parentAbortController, remainingMs);
-  try {
-    const draft = await runWritePass(queryFn, post, fullPostText, imageContext, styleGuide, evidence, commentIntent, model, config, attempt.controller, env, diversity);
-    return {
-      draft,
-      evidence,
-      commentIntent,
-      model,
-      researchModel: researchModelUsed || model,
-      writerModel: model,
-    };
-  } catch (err) {
-    const abortReason = parentAbortController.signal.reason;
-    // If research already succeeded but writing timed out, salvage with deterministic fallback.
-    if (attempt.timedOut() && evidence) {
-      const authorFirstName = getAuthorFirstName(post.author);
-      const fallbackDraft = buildDeterministicFallbackDraft(post, evidence, authorFirstName, commentIntent);
-      console.warn(`[LinkedInDrafter] Write pass timed out for ${post.author} on ${model}; using deterministic fallback draft`);
+    const env = await buildProviderEnv(model);
+    const attempt = createAttemptAbortController(parentAbortController, remainingMs);
+    const preparedContext = prepareDraftTraceContext(post, model, researchModelUsed || model, commentIntent, config.mode, styleGuide, diversity);
+    try {
+      const writeResult = await runWritePass(queryFn, post, fullPostText, imageContext, styleGuide, evidence, commentIntent, model, config, attempt.controller, env, diversity, researchModelUsed || model);
       return {
-        draft: fallbackDraft,
+        draft: writeResult.draft,
         evidence,
         commentIntent,
         model,
         researchModel: researchModelUsed || model,
         writerModel: model,
+        researchTrace,
+        draftTrace: writeResult.draftTrace,
       };
-    }
+    } catch (err) {
+      const abortReason = parentAbortController.signal.reason;
+      // If research already succeeded but writing timed out, salvage with deterministic fallback.
+      if (attempt.timedOut() && evidence) {
+        const authorFirstName = getAuthorFirstName(post.author);
+        const fallbackDraft = buildDeterministicFallbackDraft(post, evidence, authorFirstName, commentIntent);
+        console.warn(`[LinkedInDrafter] Write pass timed out for ${post.author} on ${model}; using deterministic fallback draft`);
+        return {
+          draft: fallbackDraft,
+          evidence,
+          commentIntent,
+          model,
+          researchModel: researchModelUsed || model,
+          writerModel: model,
+          researchTrace,
+          draftTrace: {
+            ...preparedContext.draftTrace,
+            fallbackUsed: true,
+            fallbackReason: 'write_timeout',
+          },
+        };
+      }
     if (parentAbortController.signal.aborted && abortReason === 'timeout') {
       throw new Error(`Timed out while drafting with ${model}`);
     }
@@ -2826,8 +3037,8 @@ function saveDraftEvidence(
       post_id, post_url, model, research_model, writer_model, comment_intent,
       post_summary, key_point, statistic, implication, follow_up_question,
       stance_basis, actionable_add_on, post_intent, confidence, full_post_word_count,
-      source_1_name, source_1_url, source_2_name, source_2_url
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      source_1_name, source_1_url, source_2_name, source_2_url, research_trace, draft_trace
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     postId,
     postUrl,
@@ -2849,6 +3060,8 @@ function saveDraftEvidence(
     s1.url || null,
     s2.name || null,
     s2.url || null,
+    generation.researchTrace ? JSON.stringify(generation.researchTrace) : null,
+    generation.draftTrace ? JSON.stringify(generation.draftTrace) : null,
   );
 }
 
@@ -2857,12 +3070,14 @@ function loadCachedDraftEvidence(postId: number): {
   commentIntent: CommentIntent | null;
   researchModel: string | null;
   writerModel: string | null;
+  researchTrace: ResearchTrace | null;
+  draftTrace: DraftTrace | null;
 } | null {
   const db = getDb();
   if (!db) return null;
   try {
     const row = db.prepare(
-      `SELECT comment_intent, research_model, writer_model, model, post_summary, key_point, statistic, implication, follow_up_question,
+      `SELECT comment_intent, research_model, writer_model, model, research_trace, draft_trace, post_summary, key_point, statistic, implication, follow_up_question,
               stance_basis, actionable_add_on, post_intent, confidence, full_post_word_count,
               source_1_name, source_1_url, source_2_name, source_2_url
        FROM linkedin_draft_evidence
@@ -2874,6 +3089,8 @@ function loadCachedDraftEvidence(postId: number): {
       research_model?: string | null;
       writer_model?: string | null;
       model?: string | null;
+      research_trace?: string | null;
+      draft_trace?: string | null;
       post_summary?: string | null;
       key_point?: string | null;
       statistic?: string | null;
@@ -2923,6 +3140,22 @@ function loadCachedDraftEvidence(postId: number): {
       commentIntent: row.comment_intent ? (row.comment_intent as CommentIntent) : null,
       researchModel: String(row.research_model || '').trim() || null,
       writerModel: String(row.writer_model || row.model || '').trim() || null,
+      researchTrace: (() => {
+        try {
+          const parsed = JSON.parse(String(row.research_trace || '').trim() || 'null');
+          return parsed && typeof parsed === 'object' ? parsed as ResearchTrace : null;
+        } catch {
+          return null;
+        }
+      })(),
+      draftTrace: (() => {
+        try {
+          const parsed = JSON.parse(String(row.draft_trace || '').trim() || 'null');
+          return parsed && typeof parsed === 'object' ? parsed as DraftTrace : null;
+        } catch {
+          return null;
+        }
+      })(),
     };
   } catch (err) {
     console.warn('[LinkedInDrafter] Failed to load cached draft evidence:', err);
@@ -3169,6 +3402,52 @@ function buildPostBankBlock(entries: PostBankEntry[]): string {
   return bankFirstMode
     ? `\nVOICE EXAMPLES (style anchor, not content):\n${blocks.join('\n')}\n\nLet these examples shape opener pressure, rhythm, sentence length variation, and where the comment stops.\nDo not copy phrases or content, but do let the human texture influence the draft.\n`
     : `\nVOICE EXAMPLES (rhythm only, not content):\n${blocks.join('\n')}\n\nDo not reuse any opener, sentence pattern, or phrase from these examples.\nUse only to calibrate tone, rhythm, and human texture.\n`;
+}
+
+function prepareDraftTraceContext(
+  post: DraftPost,
+  writerModel: string,
+  researchModel: string,
+  commentIntent: CommentIntent,
+  mode: DraftMode,
+  styleGuide: string,
+  diversity?: DraftDiversityContext,
+  options?: { usedCachedEvidence?: boolean },
+): { postBankSelection: PostBankEntry[]; postBankBlock: string; draftTrace: DraftTrace } {
+  const roughnessLevel = parseIntSetting('linkedin.roughnessLevel', 0, 0, 3);
+  const allowDiscourse = String(SettingsManager.get('linkedin.roughnessAllowDiscourse') || 'true') !== 'false';
+  const presentSimple = String(SettingsManager.get('linkedin.presentSimple') || 'true') !== 'false';
+  const bankFirstMode = isBankFirstModeEnabled();
+  const postBankSelection = diversity?.postBankState ? selectPostBankEntries(post, diversity.postBankState) : [];
+  return {
+    postBankSelection,
+    postBankBlock: buildPostBankBlock(postBankSelection),
+    draftTrace: {
+      mode,
+      writerModel,
+      researchModel,
+      commentIntent,
+      voicePreset: String(post.voice_preset || '').trim() || undefined,
+      styleGuideApplied: !!String(styleGuide || '').trim(),
+      bankFirstMode,
+      roughnessLevel,
+      allowDiscourse,
+      presentSimple,
+      hookScore: Number.isFinite(Number(post.hook_score)) ? Number(post.hook_score) : null,
+      emotionTag: String(post.emotion_tag || '').trim() || undefined,
+      nicheTarget: String(post.niche_target || '').trim() || undefined,
+      authenticityFlag: String(post.authenticity_flag || '').trim() || undefined,
+      postBankGroup: String(post.post_bank_group || '').trim() || undefined,
+      postBankEntries: postBankSelection.map((entry) => ({
+        id: entry.id,
+        title: String(entry.title || '').trim() || undefined,
+        type: String(entry.type || '').trim() || undefined,
+        group: String(entry.group || '').trim() || undefined,
+      })),
+      usedCachedEvidence: !!options?.usedCachedEvidence,
+      fallbackUsed: false,
+    },
+  };
 }
 
 /**
@@ -3436,19 +3715,33 @@ async function redraftOnePost(
           imageContext,
           styleGuide,
           attemptModel,
+          config,
           abortController,
           remainingMs,
           diversity,
           evidence,
           commentIntent,
+          cached.researchModel || '',
+          cached.researchTrace || null,
+          { usedCachedEvidence: true },
         );
         draft = generation.draft;
         usedModel = attemptModel;
       } else {
         const env = await buildProviderEnv(attemptModel);
         const attempt = createAttemptAbortController(abortController, remainingMs);
+        const preparedContext = prepareDraftTraceContext(
+          post,
+          attemptModel,
+          cached.researchModel || attemptModel,
+          commentIntent,
+          config.mode,
+          styleGuide,
+          diversity,
+          { usedCachedEvidence: true },
+        );
         try {
-          draft = await runWritePass(
+          const writeResult = await runWritePass(
             queryFn,
             post,
             fullPostText,
@@ -3461,7 +3754,10 @@ async function redraftOnePost(
             attempt.controller,
             env,
             diversity,
+            cached.researchModel || attemptModel,
+            { usedCachedEvidence: true },
           );
+          draft = writeResult.draft;
           generation = {
             draft,
             evidence,
@@ -3469,8 +3765,33 @@ async function redraftOnePost(
             model: attemptModel,
             researchModel: cached.researchModel || '',
             writerModel: attemptModel,
+            researchTrace: cached.researchTrace || null,
+            draftTrace: writeResult.draftTrace,
           };
           usedModel = attemptModel;
+        } catch (err) {
+          if (attempt.timedOut()) {
+            const authorFirstName = getAuthorFirstName(post.author);
+            const fallbackDraft = buildDeterministicFallbackDraft(post, evidence, authorFirstName, commentIntent);
+            generation = {
+              draft: fallbackDraft,
+              evidence,
+              commentIntent,
+              model: attemptModel,
+              researchModel: cached.researchModel || attemptModel,
+              writerModel: attemptModel,
+              researchTrace: cached.researchTrace || null,
+              draftTrace: {
+                ...preparedContext.draftTrace,
+                fallbackUsed: true,
+                fallbackReason: 'write_timeout',
+              },
+            };
+            draft = fallbackDraft;
+            usedModel = attemptModel;
+            break;
+          }
+          throw err;
         } finally {
           attempt.cleanup();
         }

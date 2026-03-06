@@ -455,6 +455,8 @@ export class MemoryManager {
         source_1_url TEXT,
         source_2_name TEXT,
         source_2_url TEXT,
+        research_trace TEXT,
+        draft_trace TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       );
       CREATE INDEX IF NOT EXISTS idx_linkedin_draft_evidence_post ON linkedin_draft_evidence(post_id);

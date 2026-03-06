@@ -2046,6 +2046,8 @@ function setupIPC(): void {
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_group TEXT`); } catch {}
       try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN research_model TEXT`); } catch {}
       try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN writer_model TEXT`); } catch {}
+      try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN research_trace TEXT`); } catch {}
+      try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN draft_trace TEXT`); } catch {}
       try {
         const reconciled = reconcileLinkedInPostedState(db);
         if (reconciled > 0) {
@@ -2097,6 +2099,8 @@ function setupIPC(): void {
            de.source_1_url AS evidence_source_1_url,
            de.source_2_name AS evidence_source_2_name,
            de.source_2_url AS evidence_source_2_url,
+           de.research_trace AS evidence_research_trace,
+           de.draft_trace AS evidence_draft_trace,
            de.created_at AS evidence_created_at,
            `
         : `,
@@ -2136,6 +2140,8 @@ function setupIPC(): void {
                   ev.source_1_url,
                   ev.source_2_name,
                   ev.source_2_url,
+                  ev.research_trace,
+                  ev.draft_trace,
                   ev.created_at
            FROM linkedin_draft_evidence ev
            INNER JOIN (
@@ -2863,6 +2869,94 @@ function setupIPC(): void {
       return { success: true, scheduledAt, adjustedOthers, warning };
     } catch (err) {
       console.error('[LinkedIn] Failed to schedule post:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:refreshEngagementBatch', async (_, postIds: number[]) => {
+    try {
+      markLinkedInControlSource('desktop');
+      const normalizedIds = Array.from(new Set((Array.isArray(postIds) ? postIds : []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)));
+      if (!normalizedIds.length) return { success: false, error: 'No posts selected' };
+      const Database = (await import('better-sqlite3')).default;
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const possiblePaths = [
+        path.join(homeDir, 'Library/Application Support/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, '.config/pocket-agent/pocket-agent.db'),
+        path.join(homeDir, 'AppData/Roaming/pocket-agent/pocket-agent.db'),
+      ];
+      let dbPath = '';
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) { dbPath = p; break; }
+      }
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      const readPost = db.prepare(
+        `SELECT id, post_url, author, reactions, comments, first_seen_reactions, first_seen_comments
+         FROM linkedin_posts WHERE id = ?`
+      );
+      const updatePost = db.prepare(
+        `UPDATE linkedin_posts
+         SET reactions = ?, comments = ?, last_seen_at = datetime('now')
+         WHERE id = ?`
+      );
+      const insertCheck = db.prepare(
+        `INSERT INTO linkedin_engagement_checks (post_id, post_url, reactions, comments_count, reactions_delta, comments_delta, baseline)
+         VALUES (?, ?, ?, ?, ?, ?, 0)`
+      );
+      const staleIds: number[] = [];
+      const errors: string[] = [];
+      let gained = 0;
+      let unchanged = 0;
+      let checked = 0;
+      for (const postId of normalizedIds) {
+        const row = readPost.get(postId) as {
+          id: number;
+          post_url: string;
+          author?: string | null;
+          reactions?: number | null;
+          comments?: number | null;
+          first_seen_reactions?: number | null;
+          first_seen_comments?: number | null;
+        } | undefined;
+        if (!row?.post_url) {
+          errors.push(`#${postId}: post not found`);
+          continue;
+        }
+        try {
+          const stdout = await linkedinExec('engagement', ['--url', row.post_url], 60000);
+          const parsed = JSON.parse(stdout) as { reactions?: number; comments?: number };
+          const nextReactions = Number(parsed?.reactions || 0);
+          const nextComments = Number(parsed?.comments || 0);
+          const prevReactions = Number(row.reactions || 0);
+          const prevComments = Number(row.comments || 0);
+          const firstSeenReactions = Number.isFinite(Number(row.first_seen_reactions)) ? Number(row.first_seen_reactions) : prevReactions;
+          const firstSeenComments = Number.isFinite(Number(row.first_seen_comments)) ? Number(row.first_seen_comments) : prevComments;
+          const reactionsDelta = nextReactions - prevReactions;
+          const commentsDelta = nextComments - prevComments;
+          const reactionsGainSinceFirst = nextReactions - firstSeenReactions;
+          const commentsGainSinceFirst = nextComments - firstSeenComments;
+          updatePost.run(nextReactions, nextComments, postId);
+          try {
+            insertCheck.run(postId, row.post_url, nextReactions, nextComments, reactionsDelta, commentsDelta);
+          } catch {
+            // best effort only
+          }
+          checked += 1;
+          if (reactionsDelta > 0 || commentsDelta > 0) gained += 1;
+          else unchanged += 1;
+          if ((nextReactions + nextComments) === 0 || (reactionsGainSinceFirst <= 0 && commentsGainSinceFirst <= 0)) {
+            staleIds.push(postId);
+          }
+        } catch (err) {
+          errors.push(`#${postId}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      db.close();
+      return { success: true, checked, staleIds, gained, unchanged, errors };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to refresh engagement batch:', err);
       return { success: false, error: String(err) };
     }
   });

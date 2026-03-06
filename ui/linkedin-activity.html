@@ -149,6 +149,12 @@
       gap: 10px;
       margin-bottom: 10px;
     }
+    .li-quick-header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
     .li-quick-title {
       font-size: 12px;
       letter-spacing: 0.04em;
@@ -1919,7 +1925,11 @@
   <div class="li-quick-settings" id="li-quick-settings">
     <div class="li-quick-header">
       <div class="li-quick-title">LinkedIn Quick Settings</div>
-      <button class="action-btn" onclick="toggleQuickSettings(false)">Close</button>
+      <div class="li-quick-header-right">
+        <button class="action-btn" onclick="loadQuickSettings()">Reload</button>
+        <button class="action-btn success" onclick="saveQuickSettings()">Save Settings</button>
+        <button class="action-btn" onclick="toggleQuickSettings(false)">Close</button>
+      </div>
     </div>
     <div class="li-quick-groups">
       <div class="li-quick-group group-research">
@@ -2150,10 +2160,6 @@
         </div>
       </div>
     </div>
-    <div class="li-quick-actions">
-      <button class="action-btn" onclick="loadQuickSettings()">Reload</button>
-      <button class="action-btn success" onclick="saveQuickSettings()">Save Settings</button>
-    </div>
   </div>
 
   <div class="action-bar">
@@ -2206,7 +2212,7 @@
         Models
       </button>
       <button class="model-summary-btn" id="models-chip-summary" onclick="openModelsModal()" title="Research and writer model summary">
-        <span class="model-summary-text" id="models-chip-summary-text">R: Auto · W: Chat</span>
+        <span class="model-summary-text" id="models-chip-summary-text">Current defaults: R: Auto · W: Chat</span>
       </button>
     </div>
     <div class="divider"></div>
@@ -2338,6 +2344,9 @@
     </button>
     <button class="action-btn" id="bulk-redraft-btn" onclick="redraftSelected()" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.35);display:none;">
       Redraft Selected
+    </button>
+    <button class="action-btn" id="bulk-engagement-btn" onclick="recheckSelectedEngagement()" style="background:rgba(250,204,21,0.12);color:#fde68a;border-color:rgba(250,204,21,0.32);display:none;">
+      Re-check Engagement
     </button>
     <button class="action-btn" onclick="researchDraftSelected()" style="background:rgba(34,197,94,0.15);color:#4ade80;border-color:rgba(34,197,94,0.3);" title="Spawn parallel SDK agents to research and draft (2 at a time)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -3354,6 +3363,10 @@
     }
 
     function formatConfidence(raw) {
+      const text = String(raw || '').trim().toLowerCase();
+      if (text === 'high' || text === 'medium' || text === 'low') {
+        return text.charAt(0).toUpperCase() + text.slice(1);
+      }
       const n = Number(raw);
       if (!Number.isFinite(n)) return '';
       const pct = n <= 1 ? Math.round(n * 100) : Math.round(n);
@@ -3689,6 +3702,7 @@
       const bankBtn = document.getElementById('bulk-bank-btn');
       const rewriteBtn = document.getElementById('bulk-rewrite-btn');
       const redraftBtn = document.getElementById('bulk-redraft-btn');
+      const engagementBtn = document.getElementById('bulk-engagement-btn');
       const presetBar = document.getElementById('preset-bar');
       if (selectedIds.size > 0) {
         bar.classList.add('visible');
@@ -3704,10 +3718,12 @@
       const allowPresets = true;
       const allowRewrite = activePanel !== 'published' && selectedHasDraft;
       const allowRedraft = activePanel !== 'published' && (selectedHasDraft || selectedHasNonDraft);
+      const allowEngagement = activePanel === 'queue' && selectedIds.size > 0;
       if (bulkBtn) bulkBtn.style.display = allowBulk && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (bankBtn) bankBtn.style.display = allowBank && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (rewriteBtn) rewriteBtn.style.display = allowRewrite && selectedIds.size > 0 ? 'inline-flex' : 'none';
       if (redraftBtn) redraftBtn.style.display = allowRedraft && selectedIds.size > 0 ? 'inline-flex' : 'none';
+      if (engagementBtn) engagementBtn.style.display = allowEngagement ? 'inline-flex' : 'none';
       if (presetBar) presetBar.style.display = allowPresets && selectedIds.size > 0 ? 'inline-flex' : 'none';
     }
 
@@ -4569,7 +4585,7 @@
       if (!summaryEl) return;
       const researchLabel = compactModelLabel('research-model', 'Auto');
       const writerLabel = compactModelLabel('draft-model', 'Chat');
-      summaryEl.textContent = `R: ${researchLabel} · W: ${writerLabel}`;
+      summaryEl.textContent = `Current defaults: R: ${researchLabel} · W: ${writerLabel}`;
     }
 
     async function loadAllModelOptions() {
@@ -5417,6 +5433,19 @@
       return keys;
     }
 
+    function getNeedsAttentionReasons(p) {
+      const reasons = [];
+      const lastAction = String(p.last_activity_action || '').toLowerCase();
+      const isPublished = isPublishedPost(p);
+      const isApproved = !!(p.approved || approvedIds.has(p.id));
+      const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
+      const isPostingNow = !isPublished && lastAction === 'posting_attempt' && !p.scheduled_at;
+      const isScheduled = !!(isApproved && p.scheduled_at && !isPublished);
+      if (isApproved && !isPublished && !isScheduled && !isPostingNow) reasons.push('Approved, not scheduled');
+      if (recheckCandidate) reasons.push('Recheck requested');
+      return Array.from(new Set(reasons));
+    }
+
     function applyFilters(posts, panel = activePanel) {
       const status = getInputValue('filter-status');
       const priority = getInputValue('filter-priority');
@@ -5439,7 +5468,7 @@
       const isDraftedPanel = !isPublished && hasDraft && !isScheduledPanel && !p.approved;
         const isQueuePanel = !isPublished && !hasFailed && !isScheduledPanel && !hasDraft;
         const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
-        const needsAttention = (!!(p.approved && !isPublished && (!p.scheduled_at || hasFailed)) && !isPostingNow) || recheckCandidate;
+        const needsAttention = getNeedsAttentionReasons(p).length > 0;
 
         if (hasFailed && panel !== 'failed') return false;
         if (panel === 'queue' && !isQueuePanel) return false;
@@ -5538,8 +5567,7 @@
           const la = String(p.last_activity_action || '').toLowerCase();
           const isPostingNow = !isPublished && la === 'posting_attempt' && !p.scheduled_at;
           const hf = ((ds.startsWith('failed_') || Number(p.failed_attempts || 0) > 0 || la === 'failed' || la === 'error' || la === 'verify_needed') && !p.scheduled_at && !hasDraft);
-          const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
-          return (!!(p.approved && !isPublished && (!p.scheduled_at || hf)) && !isPostingNow) || recheckCandidate;
+          return getNeedsAttentionReasons(p).length > 0;
         }).length;
         const filtered = applySorting(applyFilters(posts));
         const filteredSnoozed = applyFilters(snoozed, 'all');
@@ -5778,6 +5806,8 @@
       const hasPostingFail = !isPublished && (lastAction === 'failed' || lastAction === 'error' || lastAction === 'verify_needed') && !p.scheduled_at;
       const hasDraftFailure = String(ds || '').startsWith('failed_');
       const hasFailed = !isPublished && !hasDraft && (hasDraftFailure || Number(p.failed_attempts || 0) > 0 || hasPostingFail) && !p.scheduled_at;
+      const attentionReasons = getNeedsAttentionReasons(p);
+      const isPriorityScheduled = !!(p.scheduled_at && parseUtcDateMs(p.scheduled_at) <= (Date.now() + 20 * 60 * 1000));
       
       const aiSummaryText = normalizePreviewText(p.evidence_post_summary || p.full_post_summary || '');
       const summaryText = getPostSummary(p);
@@ -5797,6 +5827,8 @@
       const statusBadges = [];
       if (isPublished) statusBadges.push('<span class="badge badge-commented">Published</span>');
       else if (isScheduled) statusBadges.push('<span class="badge badge-scheduled">Scheduled</span>');
+      if (!isPublished && lastAction === 'delayed' && !!p.scheduled_at) statusBadges.push('<span class="badge" style="background:rgba(250,204,21,0.12);color:#fde68a;border-color:rgba(250,204,21,0.3);">Shifted</span>');
+      if (isPriorityScheduled && !isPublished) statusBadges.push('<span class="badge" style="background:rgba(250,204,21,0.14);color:#fde68a;border-color:rgba(250,204,21,0.35);">Priority Scheduled</span>');
       else if (isPostingNow) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Posting...</span>');
       else if (isResearching) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Researching</span>');
       else if (isWriting) statusBadges.push('<span class="badge badge-researching"><span class="mini-spinner"></span>Writing</span>');
@@ -5806,6 +5838,9 @@
 
       // Inline Actions
       let rowActionsHtml = '';
+      if (!isPublished && hasDraft && !p.scheduled_at) {
+        rowActionsHtml += `<button class="action-btn" onclick="openScheduleModal(${p.id})">Schedule</button>`;
+      }
       if (!isPublished && (p.approved || hasDraft)) {
         rowActionsHtml += `<button class="action-btn" style="background:rgba(34,197,94,0.1); color:#4ade80; border-color:rgba(34,197,94,0.3);" onclick="postNow(${p.id})">Post Now</button>`;
       }
@@ -5867,6 +5902,7 @@
       `;
 
       const tab = postTabState.get(Number(p.id)) || (hasDraft ? 'draft' : 'overview');
+      const draftErrorText = String(p.draft_error || '').trim();
       const evidenceConfidence = formatConfidence(p.evidence_confidence);
       const evidenceConfidenceLabel = evidenceConfidence || 'n/a';
       const evidenceTags = [];
@@ -5906,11 +5942,157 @@
         : '<div class="draft-evidence-line">No sources recorded.</div>';
 
       const evidenceMeta = [];
-      if (p.evidence_research_model) evidenceMeta.push(`Research: ${escapeHtml(p.evidence_research_model)}`);
-      if (p.evidence_writer_model || p.evidence_model) evidenceMeta.push(`Writer: ${escapeHtml(p.evidence_writer_model || p.evidence_model)}`);
+      const usedDraftParts = [];
+      if (p.evidence_research_model) usedDraftParts.push(`Research ${escapeHtml(p.evidence_research_model)}`);
+      if (p.evidence_writer_model || p.evidence_model) usedDraftParts.push(`Writer ${escapeHtml(p.evidence_writer_model || p.evidence_model)}`);
+      if (usedDraftParts.length) evidenceMeta.push(`Used for this draft: ${usedDraftParts.join(' · ')}`);
       if (p.evidence_created_at) evidenceMeta.push(`Evidence: ${escapeHtml(formatEvidenceTimestamp(p.evidence_created_at))}`);
       if (Number(p.evidence_full_post_word_count || 0) > 0) evidenceMeta.push(`Full post: ${Number(p.evidence_full_post_word_count)} words`);
       const evidenceMetaHtml = evidenceMeta.length ? `<div class="evidence-meta">${evidenceMeta.map(m => `<span>${m}</span>`).join('')}</div>` : '';
+
+      let evidenceTrace = null;
+      try {
+        const rawTrace = String(p.evidence_research_trace || '').trim();
+        if (rawTrace) evidenceTrace = JSON.parse(rawTrace);
+      } catch (_) {
+        evidenceTrace = null;
+      }
+      const traceQueries = Array.isArray(evidenceTrace?.queries)
+        ? evidenceTrace.queries.map(q => String(q || '').trim()).filter(Boolean)
+        : [];
+      const traceSources = Array.isArray(evidenceTrace?.sources)
+        ? evidenceTrace.sources
+            .map(source => ({
+              name: String(source?.name || source?.url || '').trim(),
+              url: String(source?.url || '').trim(),
+            }))
+            .filter(source => source.name || source.url)
+        : [];
+      const traceToolCalls = Array.isArray(evidenceTrace?.toolCalls)
+        ? evidenceTrace.toolCalls
+            .map(call => ({
+              tool: String(call?.tool || '').trim(),
+              query: String(call?.query || '').trim(),
+              url: String(call?.url || '').trim(),
+            }))
+            .filter(call => call.tool || call.query || call.url)
+        : [];
+      const traceNotes = Array.isArray(evidenceTrace?.notes)
+        ? evidenceTrace.notes.map(note => String(note || '').trim()).filter(Boolean)
+        : [];
+      const traceRoute = String(evidenceTrace?.route || '').trim();
+      const traceModel = String(evidenceTrace?.model || '').trim();
+      const traceMode = String(evidenceTrace?.mode || '').trim();
+      const traceQueryBudget = Number(evidenceTrace?.queryBudget || 0);
+      const traceMeta = [];
+      if (traceRoute) traceMeta.push(`Route ${escapeHtml(traceRoute)}`);
+      if (traceModel) traceMeta.push(`Model ${escapeHtml(traceModel)}`);
+      if (traceMode) traceMeta.push(`Mode ${escapeHtml(traceMode)}`);
+      if (traceQueryBudget > 0) traceMeta.push(`Query budget ${traceQueryBudget}`);
+      const traceQueriesHtml = traceQueries.length
+        ? `<div class="draft-evidence-line"><strong>Queries used:</strong> ${traceQueries.map(q => `<span class="draft-evidence-tag">${escapeHtml(q)}</span>`).join(' ')}</div>`
+        : '';
+      const traceToolCallsHtml = traceToolCalls.length
+        ? `<div class="draft-evidence-line"><strong>Tool calls:</strong> ${traceToolCalls.map(call => {
+            const detail = call.query || call.url || '';
+            return `<span class="draft-evidence-tag">${escapeHtml(call.tool)}${detail ? `: ${escapeHtml(detail)}` : ''}</span>`;
+          }).join(' ')}</div>`
+        : '';
+      const traceSourcesHtml = traceSources.length > sources.length
+        ? `<div class="draft-evidence-line"><strong>Trace sources:</strong> ${traceSources.map(s => `
+            <button class="evidence-link" data-url="${escapeHtml(String(s.url || ''))}" onclick="openExternalUrl(this.dataset.url)">${escapeHtml(String(s.name || 'Source'))}</button>
+          `).join('')}</div>`
+        : '';
+      const traceNotesHtml = traceNotes.length
+        ? `<div class="draft-evidence-line"><strong>Trace notes:</strong> ${escapeHtml(traceNotes.join(' · '))}</div>`
+        : '';
+      const traceBudgetHtml = (traceQueryBudget > 0 || traceSources.length > sources.length)
+        ? `<div class="draft-evidence-line"><strong>Trace summary:</strong> Research query budget is ${traceQueryBudget || 0}; evidence keeps the top ${sources.length || 0} grounded sources, while trace shows the wider search trail.</div>`
+        : '';
+      const evidenceTraceHtml = (traceMeta.length || traceQueries.length || traceToolCalls.length || traceNotes.length || traceSources.length)
+        ? `
+          <div class="draft-evidence-line"><strong>Research trace:</strong> ${traceMeta.join(' · ') || 'Captured'}</div>
+          ${traceQueriesHtml}
+          ${traceToolCallsHtml}
+          ${traceBudgetHtml}
+          ${traceNotesHtml}
+          ${traceSourcesHtml}
+        `
+        : '';
+
+      let draftTrace = null;
+      try {
+        const rawDraftTrace = String(p.evidence_draft_trace || '').trim();
+        if (rawDraftTrace) draftTrace = JSON.parse(rawDraftTrace);
+      } catch (_) {
+        draftTrace = null;
+      }
+      const draftTraceMeta = [];
+      if (draftTrace?.mode) draftTraceMeta.push(`Mode ${escapeHtml(String(draftTrace.mode))}`);
+      if (draftTrace?.commentIntent) draftTraceMeta.push(`Intent ${escapeHtml(String(draftTrace.commentIntent))}`);
+      if (draftTrace?.voicePreset) draftTraceMeta.push(`Preset ${escapeHtml(String(draftTrace.voicePreset))}`);
+      draftTraceMeta.push(`Bank-First ${draftTrace?.bankFirstMode ? 'on' : 'off'}`);
+      if (draftTrace && typeof draftTrace.roughnessLevel !== 'undefined') draftTraceMeta.push(`Roughness ${escapeHtml(String(draftTrace.roughnessLevel))}`);
+      if (draftTrace && typeof draftTrace.presentSimple !== 'undefined') draftTraceMeta.push(`Present simple ${draftTrace.presentSimple ? 'on' : 'off'}`);
+      if (draftTrace && typeof draftTrace.allowDiscourse !== 'undefined') draftTraceMeta.push(`Discourse ${draftTrace.allowDiscourse ? 'on' : 'off'}`);
+      const draftTraceBankEntries = Array.isArray(draftTrace?.postBankEntries)
+        ? draftTrace.postBankEntries
+            .map(entry => String(entry?.title || entry?.id || '').trim())
+            .filter(Boolean)
+        : [];
+      const draftTraceSettingBits = [];
+      if (draftTrace?.postBankGroup) draftTraceSettingBits.push(`Bank group ${escapeHtml(String(draftTrace.postBankGroup))}`);
+      if (draftTrace?.emotionTag) draftTraceSettingBits.push(`Emotion ${escapeHtml(String(draftTrace.emotionTag))}`);
+      if (draftTrace?.nicheTarget) draftTraceSettingBits.push(`Niche ${escapeHtml(String(draftTrace.nicheTarget))}`);
+      if (draftTrace?.authenticityFlag) draftTraceSettingBits.push(`Auth ${escapeHtml(String(draftTrace.authenticityFlag))}`);
+      if (draftTrace?.hookScore !== null && typeof draftTrace?.hookScore !== 'undefined' && String(draftTrace.hookScore) !== '') draftTraceSettingBits.push(`Hook ${escapeHtml(String(draftTrace.hookScore))}`);
+      const draftTraceFallbackHtml = draftTrace?.fallbackUsed
+        ? `<div class="draft-evidence-line"><strong>Fallback:</strong> yes${draftTrace?.fallbackReason ? ` (${escapeHtml(String(draftTrace.fallbackReason))})` : ''}</div>`
+        : '';
+      const draftTraceHtml = draftTrace
+        ? `
+          <div class="draft-evidence-line"><strong>Draft trace:</strong> ${draftTraceMeta.join(' · ')}</div>
+          ${draftTraceSettingBits.length ? `<div class="draft-evidence-line"><strong>Writer settings:</strong> ${draftTraceSettingBits.join(' · ')}</div>` : ''}
+          <div class="draft-evidence-line"><strong>Examples used:</strong> ${draftTraceBankEntries.length ? draftTraceBankEntries.map(name => `<span class="draft-evidence-tag">${escapeHtml(name)}</span>`).join(' ') : 'No post bank examples were attached to this draft.'}</div>
+          ${draftTraceFallbackHtml}
+        `
+        : '';
+
+      let researchStatusLabel = 'Research OK';
+      let researchStatusTone = 'rgba(34,197,94,0.14); color:#86efac; border-color:rgba(34,197,94,0.35);';
+      const researchStatusBits = [];
+      if (traceQueryBudget > 0) researchStatusBits.push(`Queries ${traceQueries.length}/${traceQueryBudget}`);
+      else if (traceQueries.length) researchStatusBits.push(`Queries ${traceQueries.length}`);
+      const tracedSourceCount = traceSources.length || sources.length;
+      if (tracedSourceCount || sources.length) researchStatusBits.push(`Sources ${sources.length} kept${tracedSourceCount > sources.length ? `, ${tracedSourceCount} traced` : ''}`);
+      if (traceRoute) researchStatusBits.push(`Route ${escapeHtml(traceRoute)}`);
+
+      if (draftErrorText) {
+        researchStatusLabel = 'Draft failed';
+        researchStatusTone = 'background:rgba(248,113,113,0.12); color:#fca5a5; border-color:rgba(248,113,113,0.3);';
+      } else if (!String(p.evidence_created_at || '').trim() && !sources.length && !String(p.evidence_post_summary || '').trim()) {
+        researchStatusLabel = 'Not researched';
+        researchStatusTone = 'background:rgba(250,204,21,0.12); color:#fde68a; border-color:rgba(250,204,21,0.3);';
+      } else if (!evidenceConfidence) {
+        researchStatusLabel = 'Missing confidence metadata';
+        researchStatusTone = 'background:rgba(250,204,21,0.12); color:#fde68a; border-color:rgba(250,204,21,0.3);';
+      } else if (draftTrace?.fallbackUsed) {
+        researchStatusLabel = 'Fallback draft used';
+        researchStatusTone = 'background:rgba(251,191,36,0.12); color:#fde68a; border-color:rgba(251,191,36,0.3);';
+      } else if (!traceRoute && String(p.evidence_created_at || '').trim()) {
+        researchStatusLabel = 'Legacy evidence';
+        researchStatusTone = 'background:rgba(96,165,250,0.12); color:#93c5fd; border-color:rgba(96,165,250,0.3);';
+      } else if (traceNotes.length) {
+        researchStatusLabel = 'Partial research trace';
+        researchStatusTone = 'background:rgba(250,204,21,0.12); color:#fde68a; border-color:rgba(250,204,21,0.3);';
+      }
+      const researchStatusHtml = `
+        <div class="draft-evidence-line">
+          <strong>Research status:</strong>
+          <span class="meta-tag" style="${researchStatusTone}">${escapeHtml(researchStatusLabel)}</span>
+          ${researchStatusBits.length ? `<span style="margin-left:8px; color:var(--text-muted);">${researchStatusBits.join(' · ')}</span>` : ''}
+        </div>
+      `;
 
       const hasEvidence = evidenceTags.length || evidenceLines.length || sources.length;
       const missingEvidenceNote = (!p.evidence_created_at && !sources.length && !String(p.evidence_post_summary || '').trim())
@@ -5930,7 +6112,6 @@
       else if (isWriting) inflightLabel = 'Writing…';
       else if (isDraftingLoading) inflightLabel = 'Drafting…';
       const inflightHtml = inflightLabel ? `<div class="draft-inflight">${inflightLabel}</div>` : '';
-      const draftErrorText = String(p.draft_error || '').trim();
       const draftErrorHtml = draftErrorText ? `<div class="draft-error">Draft error: ${escapeHtml(draftErrorText)}</div>` : '';
 
       const statusHtml = statusBadges.length ? `<div class="status-badges">${statusBadges.join(' ')}</div>` : '-';
@@ -5943,7 +6124,7 @@
       const actionBarHtml = hasDraft
         ? `
           <div class="post-actions-bar">
-            <button class="action-btn" onclick="setPostTab(${p.id}, 'draft')">${draftExpanded ? 'Hide draft' : 'Show draft'}</button>
+            <button class="action-btn" onclick="setPostTab(${p.id}, 'draft')">${draftExpanded ? 'Collapse Draft' : 'Show Draft'}</button>
             <button class="action-btn" onclick="redoDraft(${p.id})">Re-Research + Draft</button>
             <button class="action-btn" onclick="redraftDraft(${p.id})">Redraft</button>
             <button class="action-btn" onclick="rewriteDraft(${p.id})">Rewrite</button>
@@ -5978,6 +6159,7 @@
               ${intentBadge}
               <span style="margin-left:auto; font-weight:600;">${p.comments || 0} cmts | ${p.reactions || 0} reacts</span>
             </div>
+            ${attentionReasons.length ? `<div class="row-meta-strip" style="padding-top:8px; border-top:none; min-height:auto;">${attentionReasons.map(reason => `<span class="meta-tag" style="background:rgba(250,204,21,0.14); color:#fde68a; border-color:rgba(250,204,21,0.35);">Needs attention: ${escapeHtml(reason)}</span>`).join(' ')}</div>` : ''}
             
             <div class="post-content-block">
               <div class="post-tabs">
@@ -6037,8 +6219,11 @@
                     <span>Confidence ${evidenceConfidenceLabel}</span>
                   </div>
                   ${evidenceTags.length ? `<div class="draft-evidence-tags">${evidenceTags.map(t => `<span class="draft-evidence-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+                  ${researchStatusHtml}
                   ${evidenceLines.length ? evidenceLines.join('') : '<div class="draft-evidence-line">No evidence details recorded yet.</div>'}
                   ${missingEvidenceNote}
+                  ${evidenceTraceHtml}
+                  ${draftTraceHtml}
                   ${evidenceMetaHtml}
                   ${sourceLinks}
                 </div>
@@ -6488,6 +6673,37 @@
       } catch (err) {
         console.error('Post now selected failed:', err);
         showToast('Failed to schedule posts', 'error');
+      }
+    }
+
+    async function recheckSelectedEngagement() {
+      const ids = getSelectedIds().filter(id => {
+        const p = currentPosts.find(pp => Number(pp.id) === Number(id));
+        return p && !isPublishedPost(p) && !String(p.comment_draft || '').trim();
+      });
+      if (!ids.length) {
+        showToast('Select queue posts first', 'error');
+        return;
+      }
+      try {
+        showToast(`Re-checking engagement for ${ids.length} posts...`, 'success');
+        const result = await window.pocketAgent.refreshLinkedInEngagement(ids);
+        if (!result?.success) {
+          showToast(`Failed to re-check engagement: ${shortError(result?.error || 'Unknown error')}`, 'error');
+          return;
+        }
+        const staleIds = new Set(Array.isArray(result.staleIds) ? result.staleIds.map(Number) : []);
+        selectedIds = staleIds;
+        await loadPosts(true);
+        const checked = Number(result.checked || 0);
+        const gained = Number(result.gained || 0);
+        const unchanged = Number(result.unchanged || 0);
+        const stale = staleIds.size;
+        const errors = Array.isArray(result.errors) ? result.errors.filter(Boolean) : [];
+        showToast(`Engagement checked: ${checked} · stale ${stale} · gained ${gained} · unchanged ${unchanged}${errors.length ? ` · ${errors.length} errors` : ''}`, errors.length ? 'error' : 'success');
+      } catch (err) {
+        console.error('Failed to re-check engagement:', err);
+        showToast('Failed to re-check engagement', 'error');
       }
     }
 

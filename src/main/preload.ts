@@ -92,8 +92,9 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   snoozeLinkedInPost: (id: number, days: number) => ipcRenderer.invoke('linkedin:snoozePost', id, days),
   setLinkedInPriority: (id: number, priority: string) => ipcRenderer.invoke('linkedin:setPriority', id, priority),
   scheduleLinkedInPost: (id: number, datetime: string) => ipcRenderer.invoke('linkedin:schedulePost', id, datetime),
-  draftLinkedInBatch: (postIds: number[], batchSize?: number, forceRedo?: boolean) => ipcRenderer.invoke('linkedin:draftBatch', postIds, batchSize, forceRedo),
-  redraftLinkedInBatch: (postIds: number[], batchSize?: number) => ipcRenderer.invoke('linkedin:redraftBatch', postIds, batchSize),
+  refreshLinkedInEngagement: (postIds: number[]) => ipcRenderer.invoke('linkedin:refreshEngagementBatch', postIds),
+  draftLinkedInBatch: (postIds: number[], batchSize?: number, forceRedo?: boolean, targetModel?: string) => ipcRenderer.invoke('linkedin:draftBatch', postIds, batchSize, forceRedo, targetModel),
+  redraftLinkedInBatch: (postIds: number[], batchSize?: number, targetModel?: string) => ipcRenderer.invoke('linkedin:redraftBatch', postIds, batchSize, targetModel),
   cancelLinkedInDraftJob: () => ipcRenderer.invoke('linkedin:cancelDraftJob'),
   getLinkedInDailyStats: () => ipcRenderer.invoke('linkedin:getDailyStats'),
   getLinkedInWeeklyReview: (days?: number) => ipcRenderer.invoke('linkedin:getWeeklyReview', days),
@@ -411,8 +412,9 @@ declare global {
       snoozeLinkedInPost: (id: number, days: number) => Promise<{ success: boolean; error?: string }>;
       setLinkedInPriority: (id: number, priority: string) => Promise<{ success: boolean; error?: string }>;
       scheduleLinkedInPost: (id: number, datetime: string) => Promise<{ success: boolean; error?: string; scheduledAt?: string; adjustedOthers?: number; warning?: string }>;
-      draftLinkedInBatch: (postIds: number[], batchSize?: number, forceRedo?: boolean) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
-      redraftLinkedInBatch: (postIds: number[], batchSize?: number) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
+      refreshLinkedInEngagement: (postIds: number[]) => Promise<{ success: boolean; checked?: number; staleIds?: number[]; gained?: number; unchanged?: number; errors?: string[]; error?: string }>;
+      draftLinkedInBatch: (postIds: number[], batchSize?: number, forceRedo?: boolean, targetModel?: string) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
+      redraftLinkedInBatch: (postIds: number[], batchSize?: number, targetModel?: string) => Promise<{ success: boolean; drafted?: number; errors?: string[]; error?: string }>;
       cancelLinkedInDraftJob: () => Promise<{ success: boolean }>;
       getLinkedInDailyStats: () => Promise<{ postedToday: number; dailyLimit: number; pendingApproved: number }>;
       onLinkedInDraftProgress: (callback: (data: unknown) => void) => () => void;
