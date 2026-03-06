@@ -2101,15 +2101,25 @@ function setupIPC(): void {
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_ids TEXT`); } catch {}
       // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_group TEXT`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN times_seen INTEGER DEFAULT 1`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`UPDATE linkedin_posts SET times_seen = 1 WHERE times_seen IS NULL OR times_seen < 1`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN scrape_status TEXT DEFAULT 'new'`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`UPDATE linkedin_posts SET scrape_status = CASE WHEN COALESCE(times_seen, 1) > 1 THEN 'seen_again' ELSE 'new' END WHERE scrape_status IS NULL OR TRIM(scrape_status) = ''`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_posts ADD COLUMN scrape_status_at TEXT`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`UPDATE linkedin_posts SET scrape_status_at = COALESCE(last_seen_at, first_seen_at, created_at, datetime('now')) WHERE scrape_status_at IS NULL`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN research_model TEXT`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN writer_model TEXT`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN research_trace TEXT`); } catch {}
+      // eslint-disable-next-line no-empty
       try { db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN draft_trace TEXT`); } catch {}
       try {
         const reconciled = reconcileLinkedInPostedState(db);

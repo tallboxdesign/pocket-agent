@@ -670,6 +670,106 @@ export async function generatePostImage(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Post Bank & voice loading (mirrors linkedin-drafter.ts)
+// ---------------------------------------------------------------------------
+
+interface PostBankEntry {
+  id: string;
+  title: string;
+  type: string;
+  text: string;
+  tags?: string[];
+  group?: string;
+  disabled?: boolean;
+}
+
+function loadPostBankEntries(): PostBankEntry[] {
+  try {
+    const raw = SettingsManager.get('linkedin.postBankEntries') || '[]';
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((e: Record<string, unknown>) => e && typeof e === 'object')
+      .map((e: Record<string, unknown>) => ({
+        id: String(e.id || ''),
+        title: String(e.title || ''),
+        type: String(e.type || ''),
+        text: String(e.text || ''),
+        tags: Array.isArray(e.tags) ? (e.tags as string[]).map(String).filter(Boolean) : [],
+        group: String(e.group || '').trim(),
+        disabled: Boolean(e.disabled),
+      }))
+      .filter((e: PostBankEntry) => e.id && e.text && !e.disabled);
+  } catch {
+    return [];
+  }
+}
+
+function buildPostBankBlock(entries: PostBankEntry[], count = 3): string {
+  if (!entries.length) return '';
+  const shuffled = [...entries].sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, count);
+  const blocks = selected.map(e => {
+    const title = e.title ? ` (${e.title})` : '';
+    return `---\n${e.text.trim()}${title}\n---`;
+  });
+  return `\nVOICE EXAMPLES (style anchor, not content):\n${blocks.join('\n')}\n\nLet these examples shape opener pressure, rhythm, sentence length variation, and how the post flows.\nDo not copy phrases or content, but do let the human texture influence the draft.\n`;
+}
+
+function cleanPlannerDraft(draft: string): string {
+  let text = draft.trim()
+    .replace(/\s*-\s*/g, ', ')   // em dashes (already hyphens from model)
+    .replace(/\s*-\s*/g, ', ')   // en dashes
+    .replace(/,,/g, ',')
+    .replace(/^["']|["']$/g, '');
+
+  // Strip emojis
+  text = text
+    .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '')
+    .replace(/[\u{1F3FB}-\u{1F3FF}]/gu, '')
+    .replace(/[\uFE0F\uFE0E]/g, '')
+    .replace(/\u200D/g, '')
+    .replace(/\p{Extended_Pictographic}/gu, '');
+
+  // Strip preamble
+  const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length > 1) {
+    const preamble = /^(here['']?s|sure|okay|draft|below|the final|my reply)/i;
+    while (lines.length > 1 && lines[0].length < 80 && preamble.test(lines[0].trim())) {
+      lines.shift();
+    }
+    text = lines.join('\n');
+  }
+
+  // Replace em/en dashes with hyphens
+  text = text.replace(/[—–]/g, '-');
+
+  // Straight quotes only
+  text = text.replace(/[""]/g, '"').replace(/['']/g, "'");
+
+  return text.replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+const AI_SLOP_PATTERN = /\b(landscape|leverage|robust|comprehensive|holistic|streamline|optimize|paradigm|game[- ]changing|cutting-edge|transformative|unprecedented|synergy|foster|harness|delve|elevate|dramatically|significantly|meaningful|importantly|more importantly|most importantly)\b/i;
+
+const DEFAULT_HARD_RULES = `- No emojis, no hashtags, no em dashes, no en dashes. Hyphens only.
+- No generic openers: "I'm excited to share", "In today's world", "Let me tell you."
+- No AI jargon: "landscape", "leverage", "robust", "holistic", "transformative", "game-changing", "paradigm", "ecosystem", "scalable", "actionable", "double down."
+- Straight quotes and apostrophes only. No curly/smart quotes.
+- No metaphors or analogies. Never "it's like X." Say the thing directly.
+- No intro-body-conclusion structure. Read like one continuous thought that stopped mid-momentum.
+- No formula phrasing like "the pattern this year is pretty clear."
+- Do not use: "importantly", "more importantly", "most importantly."
+- Format: 2-4 short chunks, single line breaks between them. No walls of text.
+- Write in present simple tense.
+- Concrete stance with practical takeaway.
+- End with a statement or a take. Never a question.`;
+
+const DEFAULT_POST_FORMAT = 'Write a LinkedIn post (100-300 words). Strong hook in first line, clear structure, practical takeaway.';
+const DEFAULT_ARTICLE_FORMAT = 'Write a long-form LinkedIn article (800-1500 words) with clear sections and headers.';
+const DEFAULT_GROUP_FORMAT = 'Write a group discussion post (100-250 words). Frame as a question or discussion starter, not self-promotion.';
+
 export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
   const planData = getPlanWithAssets(planId);
   if (!planData) throw new Error(`Plan ${planId} not found`);
@@ -682,12 +782,23 @@ export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
     return [];
   }
 
+  // All configurable via settings - current values are defaults
   const voiceStyle = SettingsManager.get('linkedin.voiceStyle') || '';
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
   const contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
   const postStrategy = SettingsManager.get('linkedin.postStrategy') || '';
+  const hardRules = SettingsManager.get('linkedin.plannerHardRules') || DEFAULT_HARD_RULES;
+  const postFormat = SettingsManager.get('linkedin.plannerPostFormat') || DEFAULT_POST_FORMAT;
+  const articleFormat = SettingsManager.get('linkedin.plannerArticleFormat') || DEFAULT_ARTICLE_FORMAT;
+  const groupFormat = SettingsManager.get('linkedin.plannerGroupFormat') || DEFAULT_GROUP_FORMAT;
+  const bankEntryCount = parseInt(SettingsManager.get('linkedin.plannerBankEntries') || '3', 10);
+
+  // Load Post Bank entries for voice anchoring
+  const postBankEntries = loadPostBankEntries();
+  const postBankBlock = buildPostBankBlock(postBankEntries, bankEntryCount);
 
   const results: PlanAsset[] = [];
+  const usedOpenings: string[] = [];
 
   for (const asset of pendingAssets) {
     const target = getTarget(asset.target_id);
@@ -701,12 +812,16 @@ export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
     ].filter(Boolean).join('\n');
 
     const formatGuidance = target.target_type === 'article'
-      ? 'Write a long-form LinkedIn article (800-1500 words) with clear sections and headers.'
+      ? articleFormat
       : target.target_type === 'group'
-        ? 'Write a group discussion post (100-250 words). Frame as a question or discussion starter, not self-promotion.'
-        : 'Write a LinkedIn post (100-300 words). Strong hook in first line, clear structure, practical takeaway.';
+        ? groupFormat
+        : postFormat;
 
-    const draftPrompt = `You are writing an original LinkedIn post. Write ONLY the post text — no commentary, no labels, no "Here's your post:" preamble.
+    const avoidOpeningsBlock = usedOpenings.length
+      ? `\nAvoid these opening patterns already used in this plan: ${usedOpenings.join(' | ')}`
+      : '';
+
+    const draftPrompt = `You are writing an original LinkedIn post. Write ONLY the post text - no commentary, no labels, no "Here's your post:" preamble.
 
 Plan prompt: ${planData.prompt}
 ${planData.topic ? `Topic: ${planData.topic}` : ''}
@@ -720,23 +835,40 @@ ${voiceStyle ? `Voice/Style: ${voiceStyle}` : ''}
 ${writingRules ? `Writing rules: ${writingRules}` : ''}
 ${contentDirection ? `Content direction: ${contentDirection}` : ''}
 ${postStrategy ? `Strategy: ${postStrategy}` : ''}
+${postBankBlock}
+HARD RULES:
+${hardRules}
+- Each post in this plan must have a unique hook and framing - do NOT repeat patterns.${avoidOpeningsBlock}
 
-Rules:
-- No emojis
-- No hashtags unless they add genuine value
-- No "I'm excited to share" or similar filler openers
-- Concrete stance with practical takeaway
-- Write in present simple tense
-- Each post in this plan must have a unique hook and framing — do NOT repeat patterns`;
+OUTPUT:
+Return only the final post text.`;
 
     try {
       const response = await AgentManager.processMessage(draftPrompt, 'planner:draft');
-      const draftText = typeof response === 'string' ? response : String(response || '');
+      let draftText = typeof response === 'string' ? response : String(response || '');
+
+      // Clean draft (strip emojis, dashes, preamble, AI slop)
+      draftText = cleanPlannerDraft(draftText);
 
       if (!draftText || draftText.length < 50) {
         console.warn(`[Planner] Draft too short for asset ${asset.id}, skipping`);
         continue;
       }
+
+      // Quality gate: check for AI slop and retry once
+      if (AI_SLOP_PATTERN.test(draftText)) {
+        console.warn(`[Planner] AI slop detected in asset ${asset.id}, retrying`);
+        const retryResponse = await AgentManager.processMessage(
+          draftPrompt + '\n\nThe previous draft contained AI-sounding jargon. Rewrite with natural, direct language. No corporate buzzwords.',
+          'planner:draft'
+        );
+        const retryText = cleanPlannerDraft(typeof retryResponse === 'string' ? retryResponse : String(retryResponse || ''));
+        if (retryText && retryText.length >= 50) draftText = retryText;
+      }
+
+      // Track opening for diversity
+      const firstLine = draftText.split('\n')[0]?.slice(0, 60) || '';
+      usedOpenings.push(firstLine);
 
       // Check for duplicates within this plan
       const fp = normalizeFingerprint(draftText);
