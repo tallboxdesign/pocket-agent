@@ -22,14 +22,16 @@ class BrowserFactory:
     @staticmethod
     def _cleanup_stale_profile(user_data_dir: str):
         """Remove stale SingletonLock and kill zombie browser/driver processes"""
-        # Kill zombie patchright drivers running >5 minutes (stale from previous crashes)
+        # Kill zombie patchright drivers and stale Chromium processes
         try:
             result = subprocess.run(
                 ['ps', '-eo', 'pid,etime,args'],
                 capture_output=True, text=True, timeout=5
             )
             for line in result.stdout.strip().split('\n'):
-                if 'patchright/driver' not in line or 'run-driver' not in line:
+                is_driver = 'patchright/driver' in line and 'run-driver' in line
+                is_chromium = 'chromium' in line.lower() and user_data_dir in line
+                if not is_driver and not is_chromium:
                     continue
                 parts = line.strip().split(None, 2)
                 if len(parts) < 2:
@@ -46,9 +48,12 @@ class BrowserFactory:
                 elif etime.count(':') == 1:
                     m, _ = etime.split(':')
                     mins = int(m)
-                if mins >= 5:
-                    print(f"  Killing stale patchright driver {pid} (running {etime})", flush=True)
-                    os.kill(pid, signal.SIGTERM)
+                # Kill drivers after 5min, Chromium using our profile after 2min
+                threshold = 5 if is_driver else 2
+                if mins >= threshold:
+                    label = "patchright driver" if is_driver else "Chromium"
+                    print(f"  Killing stale {label} {pid} (running {etime})", flush=True)
+                    os.kill(pid, signal.SIGKILL if mins >= 10 else signal.SIGTERM)
         except Exception:
             pass
 
