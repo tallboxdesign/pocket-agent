@@ -878,10 +878,15 @@ export class MemoryManager {
         scheduled_at TEXT,
         published_at TEXT,
         publish_error TEXT,
+        image_path TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
       )
     `);
+    // Migration: add image_path if missing (existing installs)
+    try {
+      this.db.exec(`ALTER TABLE linkedin_plan_assets ADD COLUMN image_path TEXT`);
+    } catch { /* column already exists */ }
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_plan ON linkedin_plan_assets(plan_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_target ON linkedin_plan_assets(target_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_status ON linkedin_plan_assets(status)`);

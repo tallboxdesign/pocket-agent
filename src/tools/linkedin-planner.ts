@@ -60,6 +60,7 @@ export interface PlanAsset {
   scheduled_at: string | null;
   published_at: string | null;
   publish_error: string | null;
+  image_path: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields (optional)
@@ -417,6 +418,7 @@ export function updateAsset(id: number, updates: Partial<{
   scheduled_at: string | null;
   published_at: string | null;
   publish_error: string | null;
+  image_path: string | null;
 }>): PlanAsset | null {
   const db = getDb();
   if (!db) return null;
@@ -711,7 +713,9 @@ export async function publishAsset(id: number): Promise<PlanAsset> {
   }
 
   try {
-    await linkedinExec('post', ['--text', text, '--no-confirm']);
+    const postArgs = ['--text', text, '--no-confirm'];
+    if (asset.image_path) postArgs.push('--image', asset.image_path);
+    await linkedinExec('post', postArgs);
 
     const updated = updateAsset(id, {
       status: 'published',

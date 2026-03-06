@@ -1154,7 +1154,7 @@ export async function checkAndPostNext(): Promise<void> {
       try {
         const planAsset = db.prepare(
           `SELECT a.id, a.draft_text, a.final_text, a.kanban_task_id,
-                  t.can_auto_publish, t.label as target_label
+                  a.image_path, t.can_auto_publish, t.label as target_label
            FROM linkedin_plan_assets a
            JOIN linkedin_targets t ON a.target_id = t.id
            WHERE a.status = 'scheduled'
@@ -1163,14 +1163,16 @@ export async function checkAndPostNext(): Promise<void> {
              AND t.can_auto_publish = 1
            ORDER BY a.scheduled_at ASC
            LIMIT 1`
-        ).get() as { id: number; draft_text: string | null; final_text: string | null; kanban_task_id: number | null; can_auto_publish: number; target_label: string } | undefined;
+        ).get() as { id: number; draft_text: string | null; final_text: string | null; kanban_task_id: number | null; image_path: string | null; can_auto_publish: number; target_label: string } | undefined;
 
         if (planAsset) {
           const text = planAsset.final_text || planAsset.draft_text;
           if (text) {
             console.log(`[AutoPoster] Publishing plan asset #${planAsset.id} for target "${planAsset.target_label}"`);
             try {
-              await linkedinExec('post', ['--text', text, '--no-confirm'], 120000);
+              const postArgs = ['--text', text, '--no-confirm'];
+              if (planAsset.image_path) postArgs.push('--image', planAsset.image_path);
+              await linkedinExec('post', postArgs, 120000);
 
               db.prepare(
                 `UPDATE linkedin_plan_assets SET status = 'published', published_at = datetime('now'), publish_error = NULL WHERE id = ?`

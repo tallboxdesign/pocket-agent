@@ -196,6 +196,25 @@
       background: rgba(34, 197, 94, 0.055);
     }
     .li-quick-group.group-posting .li-quick-group-title { color: #86efac; }
+    .li-quick-subgroup {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(148, 163, 184, 0.14);
+    }
+    .li-quick-subgroup-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #bbf7d0;
+      margin-bottom: 8px;
+    }
+    .li-quick-subgroup-help {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin: -2px 0 10px;
+      line-height: 1.4;
+    }
     .li-quick-group.group-day {
       border-color: rgba(251, 191, 36, 0.34);
       background: rgba(245, 158, 11, 0.06);
@@ -2107,6 +2126,11 @@
               <option value="true">On</option>
             </select>
           </div>
+        </div>
+        <div class="li-quick-subgroup">
+          <div class="li-quick-subgroup-title">Author Frequency</div>
+          <div class="li-quick-subgroup-help">Controls how often the autoposter can comment on the same author before delaying to the next allowed slot.</div>
+          <div class="li-quick-grid">
           <div class="li-quick-field">
             <label title="Minimum hours between posted comments on the same author. 0 disables cooldown.">Author Cooldown (h)</label>
             <input type="number" id="qs-author-cooldown-hours" min="0" max="168" step="1">
@@ -2118,6 +2142,7 @@
           <div class="li-quick-field">
             <label title="Max posted comments on the same author in the last 7 days. 0 disables this cap.">Same Author / 7d</label>
             <input type="number" id="qs-author-max-7d" min="0" max="50" step="1">
+          </div>
           </div>
         </div>
       </div>
@@ -2248,6 +2273,10 @@
     <button class="action-btn" onclick="openPostBankManager()" title="Manage Post Bank examples (style references)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
       Post Bank
+    </button>
+    <button class="action-btn" onclick="window.pocketAgent.openLinkedInPlanner()" title="Open Content Planner (original posts, campaigns)" style="color:var(--accent);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
+      Content Planner
     </button>
     <div class="divider"></div>
     <button class="action-btn" onclick="reAuthenticate()" title="Re-authenticate LinkedIn (opens browser to log in)" style="color:var(--text-muted);font-size:11px;">
@@ -4312,6 +4341,9 @@
           commentDelay,
           dailyLimit,
           autoPoster,
+          authorCooldownHours,
+          authorMax24h,
+          authorMax7d,
           dayWindowEnabled,
           dayWindowStart,
           dayWindowEnd,
@@ -4335,9 +4367,6 @@
           roughnessDiscourse,
           presentSimple,
           bankFirstMode,
-          authorCooldownHours,
-          authorMax24h,
-          authorMax7d,
         ] = await Promise.all([
           window.pocketAgent.getSetting('linkedin.draftMode'),
           window.pocketAgent.getSetting('linkedin.draftTimeoutSec'),
@@ -5297,6 +5326,60 @@
       return null;
     }
 
+    function getRecheckSignal(post) {
+      if (!post || Number(post.recheck_candidate || 0) !== 1 || isPublishedPost(post)) return null;
+      const commentsGain = Number(post.comments_gain_since_first || 0);
+      const reactionsGain = Number(post.reactions_gain_since_first || 0);
+      const comments = Number(post.comments || 0);
+      const reactions = Number(post.reactions || 0);
+      const days = Number(post.days_since_first_seen || 0);
+      if (commentsGain >= 3) {
+        return {
+          badge: `Signal: +${commentsGain} comments since scrape`,
+          title: `This post gained ${commentsGain} comments since it was first scraped${days >= 0 ? ` (${days}d ago)` : ''}.`,
+        };
+      }
+      if (reactionsGain >= 10) {
+        return {
+          badge: `Signal: +${reactionsGain} reacts since scrape`,
+          title: `This post gained ${reactionsGain} reactions since it was first scraped${days >= 0 ? ` (${days}d ago)` : ''}.`,
+        };
+      }
+      if (comments >= 15) {
+        return {
+          badge: `Signal: ${comments} comments — recheck angle`,
+          title: 'This post has strong comment activity and may deserve a refreshed angle.',
+        };
+      }
+      if (reactions >= 40) {
+        return {
+          badge: `Signal: ${reactions} reacts — recheck angle`,
+          title: 'This post has strong reaction activity and may deserve a refreshed angle.',
+        };
+      }
+      return {
+        badge: 'Signal: engagement grew since scrape',
+        title: 'This post crossed the recheck heuristic after new engagement arrived.',
+      };
+    }
+
+    function renderSignalPills(post) {
+      const parts = [];
+      const authorSignal = getAuthorSignal(post);
+      const recheckSignal = getRecheckSignal(post);
+      if (authorSignal) {
+        parts.push(`<span class="meta-tag" style="background:rgba(250,204,21,0.12); color:#fde68a; border-color:rgba(250,204,21,0.35);" title="${escapeHtml(authorSignal.title || '')}">${escapeHtml(authorSignal.badge)}</span>`);
+        if (authorSignal.detail) {
+          parts.push(`<span class="meta-tag" style="background:rgba(59,130,246,0.12); color:#93c5fd; border-color:rgba(59,130,246,0.3);">${escapeHtml(authorSignal.detail)}</span>`);
+        }
+      }
+      if (recheckSignal) {
+        parts.push(`<span class="meta-tag" style="background:rgba(14,165,233,0.12); color:#7dd3fc; border-color:rgba(14,165,233,0.3);" title="${escapeHtml(recheckSignal.title || '')}">${escapeHtml(recheckSignal.badge)}</span>`);
+      }
+      if (!parts.length) return '';
+      return `<div class="row-meta-strip" style="padding-top:8px; border-top:none; min-height:auto;">${parts.join(' ')}</div>`;
+    }
+
     function isPublishedPost(post) {
       if (!post || typeof post !== 'object') return false;
       if (Number(post.commented || 0) === 1) return true;
@@ -5543,13 +5626,37 @@
     function getNeedsAttentionReasons(p) {
       const reasons = [];
       const lastAction = String(p.last_activity_action || '').toLowerCase();
+      const rawReason = String(p.last_activity_reason || '').trim();
       const isPublished = isPublishedPost(p);
       const isApproved = !!(p.approved || approvedIds.has(p.id));
-      const recheckCandidate = !isPublished && Number(p.recheck_candidate || 0) === 1;
       const isPostingNow = !isPublished && lastAction === 'posting_attempt' && !p.scheduled_at;
       const isScheduled = !!(isApproved && p.scheduled_at && !isPublished);
       if (isApproved && !isPublished && !isScheduled && !isPostingNow) reasons.push('Approved, not scheduled');
-      if (recheckCandidate) reasons.push('Recheck requested');
+      if (lastAction === 'verify_needed') {
+        if (rawReason.startsWith('retry_storm_history_')) {
+          const n = rawReason.split('_').pop();
+          reasons.push(`Posting blocked: ${n || 'multiple'} uncertain attempts on this post`);
+        } else if (rawReason === 'duplicate_same_comment_url') {
+          reasons.push('Posting blocked: same comment text was already used on this post');
+        } else if (rawReason === 'unknown_post_result' || rawReason.startsWith('{')) {
+          reasons.push('Manual check: posting outcome uncertain — verify if comment already posted');
+        } else {
+          reasons.push(`Manual check: ${truncate(rawReason, 80) || 'verification required'}`);
+        }
+      }
+      if (lastAction === 'failed' || lastAction === 'error') {
+        reasons.push(rawReason ? `Posting failed: ${truncate(rawReason, 80)}` : 'Posting failed');
+      }
+      if (lastAction === 'skipped' && rawReason === 'recent_attempt_guard') {
+        reasons.push('Posting blocked: recent uncertain attempt on this post');
+      }
+      if (lastAction === 'delayed') {
+        const meta = parseActivityReasonMeta(p.last_activity_reason);
+        const head = String(p.last_activity_reason || '').split(';')[0];
+        if (head.startsWith('author_rule:')) {
+          reasons.push(meta.next ? `Author rule delayed until ${formatShortDateTime(String(meta.next))}` : 'Author rule delayed scheduling');
+        }
+      }
       return Array.from(new Set(reasons));
     }
 
@@ -5723,15 +5830,20 @@
           const todayIso = new Date().toISOString().split('T')[0];
           if (dailyStats && Number(dailyStats.dailyLimit || 0) > 0) {
             if (date === todayIso) {
-              dailyStatsEl.textContent = `${dailyStats.postedToday}/${dailyStats.dailyLimit} posted today (all) | ${publishedInViewCount} in this view`;
-              dailyStatsEl.title = 'The first number is today total across all scraped dates. The second is this current filtered date/view.';
+              if (activePanel === 'published') {
+                dailyStatsEl.textContent = `${dailyStats.postedToday}/${dailyStats.dailyLimit} posted today (all) | ${publishedInViewCount} published in this view`;
+                dailyStatsEl.title = 'The first number is today total across all scraped dates. The second is published posts in the current filtered view.';
+              } else {
+                dailyStatsEl.textContent = `${dailyStats.postedToday}/${dailyStats.dailyLimit} posted today (all)`;
+                dailyStatsEl.title = 'Today total across all scraped dates.';
+              }
             } else {
-              dailyStatsEl.textContent = `${publishedInViewCount} published in this view`;
-              dailyStatsEl.title = 'Published count for the currently selected date and filters.';
+              dailyStatsEl.textContent = activePanel === 'published' ? `${publishedInViewCount} published in this view` : '';
+              dailyStatsEl.title = activePanel === 'published' ? 'Published count for the currently selected date and filters.' : '';
             }
           } else {
-            dailyStatsEl.textContent = `${publishedInViewCount} published in this view`;
-            dailyStatsEl.title = 'Published count for the currently selected date and filters.';
+            dailyStatsEl.textContent = activePanel === 'published' ? `${publishedInViewCount} published in this view` : '';
+            dailyStatsEl.title = activePanel === 'published' ? 'Published count for the currently selected date and filters.' : '';
           }
         }
         refreshPanelTabs();
@@ -5940,7 +6052,7 @@
       const attentionReasons = getNeedsAttentionReasons(p);
       const isPriorityScheduled = !!(p.scheduled_at && parseUtcDateMs(p.scheduled_at) <= (Date.now() + 20 * 60 * 1000));
       const isCheckingEngagement = engagementCheckInFlightIds.has(Number(p.id));
-      const authorSignal = getAuthorSignal(p);
+      const signalPillsHtml = renderSignalPills(p);
       
       const aiSummaryText = normalizePreviewText(p.evidence_post_summary || p.full_post_summary || '');
       const summaryText = getPostSummary(p);
@@ -6247,13 +6359,6 @@
       else if (isDraftingLoading) inflightLabel = 'Drafting…';
       const inflightHtml = inflightLabel ? `<div class="draft-inflight">${inflightLabel}</div>` : '';
       const draftErrorHtml = draftErrorText ? `<div class="draft-error">Draft error: ${escapeHtml(draftErrorText)}</div>` : '';
-      const authorSignalHtml = authorSignal
-        ? `<div class="row-meta-strip" style="padding-top:8px; border-top:none; min-height:auto;">
-            <span class="meta-tag" style="background:rgba(250,204,21,0.12); color:#fde68a; border-color:rgba(250,204,21,0.35);" title="${escapeHtml(authorSignal.title || '')}">${escapeHtml(authorSignal.badge)}</span>
-            ${authorSignal.detail ? `<span class="meta-tag" style="background:rgba(59,130,246,0.12); color:#93c5fd; border-color:rgba(59,130,246,0.3);">${escapeHtml(authorSignal.detail)}</span>` : ''}
-          </div>`
-        : '';
-
       const statusHtml = statusBadges.length ? `<div class="status-badges">${statusBadges.join(' ')}</div>` : '-';
       const typeColBadge = typeKey ? `<span class="badge badge-type">${escapeHtml(postTypeLabel(typeKey))}</span>` : '-';
       const scheduledLabel = p.scheduled_at ? formatShortDateTime(p.scheduled_at) : (isPublished ? '—' : '');
@@ -6300,7 +6405,7 @@
               <span style="margin-left:auto; font-weight:600;">${p.comments || 0} cmts | ${p.reactions || 0} reacts</span>
             </div>
             ${attentionReasons.length ? `<div class="row-meta-strip" style="padding-top:8px; border-top:none; min-height:auto;">${attentionReasons.map(reason => `<span class="meta-tag" style="background:rgba(250,204,21,0.14); color:#fde68a; border-color:rgba(250,204,21,0.35);">Needs attention: ${escapeHtml(reason)}</span>`).join(' ')}</div>` : ''}
-            ${authorSignalHtml}
+            ${signalPillsHtml}
             
             <div class="post-content-block">
               <div class="post-tabs">

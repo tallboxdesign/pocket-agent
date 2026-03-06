@@ -87,6 +87,21 @@ POST_EDITOR_SELECTORS = [
     "[data-placeholder*='What do you want to talk about']",
 ]
 
+# Image/media upload button in post editor toolbar
+POST_MEDIA_BUTTON_SELECTORS = [
+    "button[aria-label='Add media']",
+    "button[aria-label='Add a photo']",
+    "button:has-text('Add media')",
+    ".share-creation-state__detour-btn button",
+    ".share-box-feed-entry__avatar-area button[aria-label*='media']",
+]
+
+# File input for image upload (hidden, used via set_input_files)
+POST_IMAGE_INPUT_SELECTORS = [
+    "input[type='file'][accept*='image']",
+    "input[type='file']",
+]
+
 # Post submit button
 POST_SUBMIT_SELECTORS = [
     "button.share-actions__primary-action",
