@@ -132,6 +132,8 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   plannerRunResearch: (planId: number) => ipcRenderer.invoke('planner:runResearch', planId),
   plannerGenerateAssets: (planId: number) => ipcRenderer.invoke('planner:generateAssets', planId),
   plannerRegenerateImage: (assetId: number) => ipcRenderer.invoke('planner:regenerateImage', assetId),
+  plannerScreenshot: (options: Record<string, unknown>, outputPath?: string) => ipcRenderer.invoke('planner:screenshot', options, outputPath),
+  plannerRenderHtml: (html: string, css?: string, outputPath?: string) => ipcRenderer.invoke('planner:renderHtml', html, css, outputPath),
   onPlannerResearchProgress: (callback: (data: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
     ipcRenderer.on('planner:researchProgress', listener);

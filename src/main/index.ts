@@ -3517,6 +3517,26 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('planner:screenshot', async (_event, options: Record<string, unknown>, outputPath?: string) => {
+    const { screenshotAnnotate } = await import('../tools/linkedin-planner');
+    try {
+      const result = await screenshotAnnotate(options, outputPath);
+      return result ? { image_path: result } : { error: 'Screenshot failed' };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:renderHtml', async (_event, html: string, css?: string, outputPath?: string) => {
+    const { renderHtmlAsImage } = await import('../tools/linkedin-planner');
+    try {
+      const result = await renderHtmlAsImage(html, css, outputPath);
+      return result ? { image_path: result } : { error: 'Render failed' };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('app:openDailyLogs', async () => {
     openDailyLogsWindow();
   });

@@ -671,6 +671,119 @@ export async function generatePostImage(
 }
 
 // ---------------------------------------------------------------------------
+// Screenshot & Annotate
+// ---------------------------------------------------------------------------
+
+function getScreenshotScript(): string {
+  return path.join(__dirname, '..', 'skills', 'linkedin', 'scripts', 'screenshot_annotate.py');
+}
+
+interface ScreenshotAnnotation {
+  type?: 'rect' | 'highlight' | 'number' | 'arrow';
+  selector?: string;
+  from_selector?: string;
+  to_selector?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  color?: string;
+  thickness?: number;
+  label?: string;
+}
+
+interface ScreenshotOptions {
+  url?: string;
+  html?: string;
+  css?: string;
+  selector?: string;
+  scrollTo?: string;
+  annotations?: ScreenshotAnnotation[];
+  fullPage?: boolean;
+  crop?: string;
+  viewportWidth?: number;
+  viewportHeight?: number;
+  wait?: number;
+}
+
+/**
+ * Take a screenshot of a URL or HTML string, optionally with visual annotations
+ * (red rectangles, highlights, numbered callouts, arrows).
+ * Returns the image path on success, null on failure.
+ */
+export async function screenshotAnnotate(
+  options: ScreenshotOptions,
+  outputPath?: string,
+): Promise<string | null> {
+  const script = getScreenshotScript();
+  if (!fs.existsSync(script)) {
+    console.warn('[Screenshot] screenshot_annotate.py not found');
+    return null;
+  }
+
+  const python = findPython3();
+  const imgDir = path.join(os.homedir(), '.pocket-agent', 'linkedin', 'screenshots');
+  fs.mkdirSync(imgDir, { recursive: true });
+  const out = outputPath || path.join(imgDir, `screenshot_${Date.now()}.png`);
+
+  const args: string[] = [script, '-o', out];
+
+  if (options.url) {
+    args.push('--url', options.url);
+  } else if (options.html) {
+    args.push('--html', options.html);
+    if (options.css) args.push('--css', options.css);
+  } else {
+    console.warn('[Screenshot] No --url or --html provided');
+    return null;
+  }
+
+  if (options.selector) args.push('--selector', options.selector);
+  if (options.scrollTo) args.push('--scroll-to', options.scrollTo);
+  if (options.fullPage) args.push('--full-page');
+  if (options.crop) args.push('--crop', options.crop);
+  if (options.viewportWidth) args.push('--width', String(options.viewportWidth));
+  if (options.viewportHeight) args.push('--height', String(options.viewportHeight));
+  if (options.wait) args.push('--wait', String(options.wait));
+  if (options.annotations?.length) {
+    args.push('--annotations', JSON.stringify(options.annotations));
+  }
+
+  try {
+    await execFile(python, args, {
+      timeout: 60000,
+      env: {
+        ...process.env,
+        HOME: process.env.HOME || os.homedir(),
+        PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}`,
+      },
+    });
+
+    if (fs.existsSync(out)) {
+      console.log(`[Screenshot] Captured: ${out}`);
+      return out;
+    }
+    console.warn('[Screenshot] No output file produced');
+    return null;
+  } catch (err) {
+    console.error('[Screenshot] Failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Render an HTML table/code block/custom visual as an image for LinkedIn posts.
+ * Useful for data tables, comparison charts, code snippets, etc.
+ */
+export async function renderHtmlAsImage(
+  html: string,
+  css?: string,
+  outputPath?: string,
+): Promise<string | null> {
+  return screenshotAnnotate({ html, css }, outputPath);
+}
+
+// ---------------------------------------------------------------------------
 // Post Bank & voice loading (mirrors linkedin-drafter.ts)
 // ---------------------------------------------------------------------------
 
@@ -1153,6 +1266,75 @@ export function getPlannerTools() {
           lines.push(`[${plan.id}] "${plan.title}" (${plan.status}) — ${assets.length} assets: ${statusSummary || 'none'}`);
         }
         return lines.join('\n');
+      },
+    },
+    {
+      name: 'linkedin_screenshot_annotate',
+      description: 'Screenshot a web page or render HTML as an image, with optional visual annotations (red rectangles, highlights, numbered callouts, arrows). Use for: annotated patent screenshots, data tables as images, comparison charts, code snippets, visual breakdowns.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          url: { type: 'string', description: 'URL to screenshot' },
+          html: { type: 'string', description: 'HTML string to render as image (alternative to url). For tables, charts, code blocks, custom visuals.' },
+          css: { type: 'string', description: 'Extra CSS for html mode' },
+          selector: { type: 'string', description: 'CSS selector to screenshot (element only, not full page)' },
+          scroll_to: { type: 'string', description: 'CSS selector to scroll to before screenshot' },
+          full_page: { type: 'boolean', description: 'Capture full scrollable page' },
+          crop: { type: 'string', description: 'Crop region: x,y,width,height' },
+          viewport_width: { type: 'number', description: 'Viewport width (default 1440)' },
+          viewport_height: { type: 'number', description: 'Viewport height (default 900)' },
+          wait: { type: 'number', description: 'Seconds to wait after page load (default 2)' },
+          annotations: {
+            type: 'array',
+            description: 'Visual annotations to overlay on the screenshot',
+            items: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: ['rect', 'highlight', 'number', 'arrow'], description: 'Annotation type (default: rect)' },
+                selector: { type: 'string', description: 'CSS selector for target element' },
+                from_selector: { type: 'string', description: 'Arrow start element (for type=arrow)' },
+                to_selector: { type: 'string', description: 'Arrow end element (for type=arrow)' },
+                x: { type: 'number', description: 'X position (px, alternative to selector)' },
+                y: { type: 'number', description: 'Y position (px)' },
+                width: { type: 'number', description: 'Width (px)' },
+                height: { type: 'number', description: 'Height (px)' },
+                color: { type: 'string', description: 'Color (default: red)' },
+                thickness: { type: 'number', description: 'Border thickness (default: 3)' },
+                label: { type: 'string', description: 'Label text for rect/number annotations' },
+              },
+            },
+          },
+          asset_id: { type: 'number', description: 'If provided, attach the screenshot to this plan asset as its image' },
+        },
+      },
+      handler: async (params: Record<string, unknown>): Promise<string> => {
+        try {
+          const options: ScreenshotOptions = {};
+          if (params.url) options.url = String(params.url);
+          if (params.html) options.html = String(params.html);
+          if (params.css) options.css = String(params.css);
+          if (params.selector) options.selector = String(params.selector);
+          if (params.scroll_to) options.scrollTo = String(params.scroll_to);
+          if (params.full_page) options.fullPage = true;
+          if (params.crop) options.crop = String(params.crop);
+          if (params.viewport_width) options.viewportWidth = Number(params.viewport_width);
+          if (params.viewport_height) options.viewportHeight = Number(params.viewport_height);
+          if (params.wait) options.wait = Number(params.wait);
+          if (Array.isArray(params.annotations)) options.annotations = params.annotations as ScreenshotAnnotation[];
+
+          const imagePath = await screenshotAnnotate(options);
+          if (!imagePath) return 'Screenshot failed - no output produced';
+
+          // Optionally attach to a plan asset
+          if (params.asset_id) {
+            updateAsset(Number(params.asset_id), { image_path: imagePath });
+            return `Screenshot saved and attached to asset [${params.asset_id}]: ${imagePath}`;
+          }
+
+          return `Screenshot saved: ${imagePath}`;
+        } catch (err) {
+          return `Screenshot failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
       },
     },
   ];
