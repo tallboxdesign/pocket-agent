@@ -42,26 +42,30 @@ export async function linkedinExec(script: string, args: string[], timeoutMs = 1
   const runPy = path.join(getScriptsDir(), 'run.py');
   const python = findPython3();
 
-  // Clean env: remove Electron/Chromium vars that conflict with Patchright's Chromium
-  const cleanEnv = { ...process.env };
-  for (const key of Object.keys(cleanEnv)) {
-    if (key.startsWith('ELECTRON') || key.startsWith('CHROME_') ||
-        key === 'GOOGLE_API_KEY' || key === 'GOOGLE_DEFAULT_CLIENT_ID' ||
-        key === 'GOOGLE_DEFAULT_CLIENT_SECRET' || key === 'NODE_ENV' ||
-        key === 'ORIGINAL_XDG_CURRENT_DESKTOP') {
-      delete cleanEnv[key];
-    }
-  }
-  const execEnv = {
-    ...cleanEnv,
-    HOME: process.env.HOME || os.homedir(),
+  // Build a minimal clean env from scratch — inheriting Electron's full env
+  // (even after stripping ELECTRON_* vars) leaks macOS security context
+  // (__CFBundleIdentifier, DYLD_*, MallocNanoZone, etc.) that causes
+  // the child Chromium to crash with SIGTRAP under Electron's sandbox.
+  const home = process.env.HOME || os.homedir();
+  const execEnv: Record<string, string> = {
+    HOME: home,
+    USER: process.env.USER || '',
+    PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
+    TMPDIR: process.env.TMPDIR || '/tmp',
+    LANG: process.env.LANG || 'en_US.UTF-8',
+    SHELL: process.env.SHELL || '/bin/zsh',
     PYTHONUNBUFFERED: '1',
-    PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}`,
+    XPC_FLAGS: '0x0',
+    XPC_SERVICE_NAME: '0',
   };
   console.log(`[LinkedIn] exec: ${python} ${runPy} ${script} ${args.join(' ')}`);
   console.log(`[LinkedIn] HOME=${execEnv.HOME}, isPackaged=${app.isPackaged}, scriptsDir=${path.dirname(runPy)}`);
   try {
-    const { stdout, stderr } = await execFile(python, [runPy, script, ...args], {
+    // Launch via /bin/sh to fully detach from Electron's process tree
+    // This prevents macOS from applying Electron's sandbox to child Chromium
+    const escapedArgs = [runPy, script, ...args].map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+    const shellCmd = `${python} ${escapedArgs}`;
+    const { stdout, stderr } = await execFile('/bin/sh', ['-c', shellCmd], {
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024, // 10MB for feed results
       env: execEnv,

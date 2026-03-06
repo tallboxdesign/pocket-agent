@@ -22,7 +22,13 @@ BROWSER_ARGS = [
     '--disable-dev-shm-usage',
     '--no-sandbox',
     '--no-first-run',
-    '--no-default-browser-check'
+    '--no-default-browser-check',
+]
+
+# GPU flags — only for headless mode (counterproductive in headed mode on macOS)
+BROWSER_ARGS_HEADLESS_EXTRA = [
+    '--disable-gpu',
+    '--disable-software-rasterizer',
 ]
 
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'

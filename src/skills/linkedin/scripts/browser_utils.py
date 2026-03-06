@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional, List
 
 from patchright.sync_api import Playwright, BrowserContext, Page
-from config import BROWSER_PROFILE_DIR, STATE_FILE, BROWSER_ARGS, USER_AGENT
+from config import BROWSER_PROFILE_DIR, STATE_FILE, BROWSER_ARGS, BROWSER_ARGS_HEADLESS_EXTRA, USER_AGENT
 
 
 class BrowserFactory:
@@ -94,13 +94,16 @@ class BrowserFactory:
     ) -> BrowserContext:
         """Launch a persistent browser context with anti-detection features"""
         BrowserFactory._cleanup_stale_profile(user_data_dir)
+        args = list(BROWSER_ARGS)
+        if headless:
+            args.extend(BROWSER_ARGS_HEADLESS_EXTRA)
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=headless,
             no_viewport=True,
             ignore_default_args=["--enable-automation"],
             user_agent=USER_AGENT,
-            args=BROWSER_ARGS
+            args=args
         )
 
         # Cookie Workaround for Playwright bug #36139
