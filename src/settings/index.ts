@@ -679,6 +679,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     type: 'boolean',
   },
   {
+    key: 'linkedin.plannerEnabled',
+    defaultValue: 'false',
+    encrypted: false,
+    category: 'linkedin',
+    label: 'Enable Content Planner',
+    description: 'Enable the LinkedIn Content Planner for creating and scheduling original posts across targets',
+    type: 'boolean',
+  },
+  {
     key: 'linkedin.autoConfirm',
     defaultValue: 'false',
     encrypted: false,
