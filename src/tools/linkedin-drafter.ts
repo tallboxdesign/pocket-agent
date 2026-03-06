@@ -1152,8 +1152,39 @@ function hasActionableFollowThrough(text: string): boolean {
     /\bchecklist\b/,
     /\bpractically\b/,
     /\bif you want this to work\b/,
+    /\bi'?d check\b/,
+    /\bi'?d test\b/,
+    /\bi'?d start with\b/,
+    /\bi'?d look at\b/,
+    /\bi'?d map\b/,
+    /\bi'?d validate\b/,
+    /\bworth checking\b/,
+    /\bthe move is\b/,
+    /\bthe useful move is\b/,
   ];
   return actionPatterns.some(re => re.test(low));
+}
+
+function hasExcessSecondPersonCoaching(text: string): boolean {
+  const low = text.toLowerCase();
+  const secondPersonHits = (low.match(/\b(you|your|you're|youre|you'll|youll)\b/g) || []).length;
+  const coachingPatterns = [
+    /\bif you're\b/,
+    /\bif you are\b/,
+    /\byou should\b/,
+    /\byou need to\b/,
+    /\byou have to\b/,
+    /\bforget\b/,
+    /\bstart by\b/,
+    /\bbuild your\b/,
+    /\bshift your\b/,
+    /\bfocus your\b/,
+    /\btreating .+ is holding you back\b/,
+  ];
+  const coachingHits = coachingPatterns.filter((re) => re.test(low)).length;
+  if (coachingHits >= 2) return true;
+  if (secondPersonHits >= 5) return true;
+  return secondPersonHits >= 3 && coachingHits >= 1;
 }
 
 function evaluateDraftQuality(
@@ -1259,6 +1290,9 @@ function evaluateDraftQuality(
   if (/\b(anyone considering|people need to|everyone should|people who|those who are)\b/i.test(draft)) {
     hardIssues.push('lectures the audience instead of talking to the author');
   }
+  if (hasExcessSecondPersonCoaching(draft)) {
+    hardIssues.push('too much second-person coaching');
+  }
 
   // Too many paragraphs = essay structure
   const paragraphs = draft.split(/\n\s*\n|\n/).filter(p => p.trim().length > 20);
@@ -1299,6 +1333,7 @@ function hasCriticalQualityIssue(issues: string[]): boolean {
     'ends with a question',
     'contains source url',
     'lectures the audience',
+    'too much second-person coaching',
     'too many paragraphs',
     'comment too long',
     'contains metaphor',
@@ -2127,6 +2162,9 @@ VOICE:
 - Mix short punchy lines with longer thoughts. Never uniform block lengths.
 - Lowercase generic acronyms: "seo", "ctr", "llm", "aio." Not SEO, CTR. Brand names can be imperfect but never all-caps.
 - One casual connector per comment max: "honestly", "the thing is", "tbh."
+- Default to peer/operator framing, not consultant coaching.
+- Prefer lines like "i think the miss is", "what i keep seeing is", "i'd frame it as", "the useful move is" over "you should", "if you're", "start by", or "forget X".
+- Keep the knowledge. One grounded insight and one practical operator observation must survive in every draft.
 - ${roughnessNote}
 - No metaphors or analogies. Never "it's like X." Say the thing directly.
 - No intro-body-conclusion. Read like one continuous thought that stopped mid-momentum, not a wrapped-up essay.
@@ -2143,6 +2181,7 @@ HARD RULES:
 - No AI jargon: "landscape", "leverage", "robust", "holistic", "transformative", "game-changing", "trajectory", "paradigm", "ecosystem", "scalable", "actionable", "double down", "institutionalizing", "decoupling."
 - Straight quotes and apostrophes only. No curly/smart quotes.
 - Do not lecture. Never "anyone considering X should..." or "people need to understand." You are talking to the author, not an audience.
+- Avoid sustained second-person coaching. One brief "you" is fine, but do not build the comment around "you should / if you're / start by / forget X".
 - Do not mirror long phrases from the post. Use your own wording.
 - Do not say "the author claims/says." Talk to them directly.
 - End with a statement, a take, or an incomplete thought. Never a question.
@@ -2177,6 +2216,8 @@ Narrative guidance:
 - Two-cents basis from research: ${evidence.stanceBasis}
 - Actionable continuation to include after your stance: ${evidence.actionableAddOn || 'provide one concrete next step tied to the claim'}
 - ${openingNarrativeRule}
+- Use peer pushback, operator observation, tension framing, or a specific caveat. Do not turn this into a mini playbook for the author.
+- Keep one grounded knowledge point from research visible in the final comment.
 
 Write the final comment now.`;
 
@@ -2340,9 +2381,12 @@ Rules:
 - Do not invent year references. If year is not present in the post text, avoid adding one.
 - Keep the comment specific to the post and add one practical two-cents stance.
 - Add one actionable follow-through after your stance.
+- Prefer peer/operator language over coaching language.
+- Keep one grounded knowledge point from the research visible in the draft.
 - Use short readable paragraph chunks (2-4), no hashtags, no emojis, no links.
 - Do not end with a question.
 - No generic praise, no AI jargon, no em dash.
+- Avoid "you should", "if you're", "start by", "forget X" unless absolutely necessary.
 - Return ONLY the final comment text.${researchBrief ? `\n\nResearch brief (must be grounded in your response):\n${researchBrief}` : ''}${styleGuide ? `\n\nStyle guide:\n${styleGuide}` : ''}`;
 
   const userPrompt = `Author: ${post.author}
