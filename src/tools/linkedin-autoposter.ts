@@ -1148,6 +1148,59 @@ export async function checkAndPostNext(): Promise<void> {
         console.warn('[AutoPoster] Author-frequency rebalance failed:', rebalanceErr);
       }
     }
+
+    // --- Content Planner: pick up scheduled plan assets ---
+    if (SettingsManager.get('linkedin.plannerEnabled') === 'true') {
+      try {
+        const planAsset = db.prepare(
+          `SELECT a.id, a.draft_text, a.final_text, a.kanban_task_id,
+                  t.can_auto_publish, t.label as target_label
+           FROM linkedin_plan_assets a
+           JOIN linkedin_targets t ON a.target_id = t.id
+           WHERE a.status = 'scheduled'
+             AND a.scheduled_at IS NOT NULL
+             AND datetime(a.scheduled_at) <= datetime('now')
+             AND t.can_auto_publish = 1
+           ORDER BY a.scheduled_at ASC
+           LIMIT 1`
+        ).get() as { id: number; draft_text: string | null; final_text: string | null; kanban_task_id: number | null; can_auto_publish: number; target_label: string } | undefined;
+
+        if (planAsset) {
+          const text = planAsset.final_text || planAsset.draft_text;
+          if (text) {
+            console.log(`[AutoPoster] Publishing plan asset #${planAsset.id} for target "${planAsset.target_label}"`);
+            try {
+              await linkedinExec('post', ['--text', text, '--no-confirm'], 120000);
+
+              db.prepare(
+                `UPDATE linkedin_plan_assets SET status = 'published', published_at = datetime('now'), publish_error = NULL WHERE id = ?`
+              ).run(planAsset.id);
+
+              if (planAsset.kanban_task_id) {
+                try { KanbanService.moveTask(planAsset.kanban_task_id, 'done', 'linkedin-autoposter'); } catch { /* ok */ }
+              }
+
+              db.prepare(
+                `INSERT INTO linkedin_activity_log (action, reason, comment_text, daily_limit, daily_count)
+                 VALUES ('plan_published', ?, ?, ?, ?)`
+              ).run(`auto:target:${planAsset.target_label}`, text.slice(0, 500), dailyLimit, todayCount + 1);
+
+              await notifyTelegram(`LinkedIn: Published plan asset #${planAsset.id} for "${planAsset.target_label}" (${todayCount + 1}/${dailyLimit} today)`);
+            } catch (err) {
+              const errMsg = String((err as Error).message || '').slice(0, 500);
+              db.prepare(
+                `UPDATE linkedin_plan_assets SET publish_error = ? WHERE id = ?`
+              ).run(errMsg, planAsset.id);
+
+              await notifyTelegram(`LinkedIn: Failed to publish plan asset #${planAsset.id}: ${errMsg}`);
+              console.error(`[AutoPoster] Plan asset #${planAsset.id} publish failed:`, err);
+            }
+          }
+        }
+      } catch (planErr) {
+        console.warn('[AutoPoster] Plan asset check failed:', planErr);
+      }
+    }
   } finally {
     db.close();
     autoPosterRunInFlight = false;
