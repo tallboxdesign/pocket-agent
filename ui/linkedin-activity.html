@@ -1922,6 +1922,10 @@
             <div class="toggle" id="qs-present-simple-toggle"></div>
           </div>
           <div class="li-quick-field">
+            <label title="Experimental: reduce hardcoded opener phrasing and let post bank style drive rhythm more strongly.">Bank-First</label>
+            <div class="toggle" id="qs-bank-first-toggle"></div>
+          </div>
+          <div class="li-quick-field">
             <label title="Maximum seconds allowed per post for research + writing.">Timeout (sec)</label>
             <input type="number" id="qs-draft-timeout" min="30" max="240" step="1" title="Recommended 75-120 seconds">
           </div>
@@ -4210,7 +4214,7 @@
     document.addEventListener('click', (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.classList.contains('toggle') && (target.id === 'qs-roughness-discourse-toggle' || target.id === 'qs-present-simple-toggle')) {
+      if (target.classList.contains('toggle') && (target.id === 'qs-roughness-discourse-toggle' || target.id === 'qs-present-simple-toggle' || target.id === 'qs-bank-first-toggle')) {
         target.classList.toggle('active');
       }
     });
@@ -4252,6 +4256,7 @@
           roughnessLevel,
           roughnessDiscourse,
           presentSimple,
+          bankFirstMode,
         ] = await Promise.all([
           window.pocketAgent.getSetting('linkedin.draftMode'),
           window.pocketAgent.getSetting('linkedin.draftTimeoutSec'),
@@ -4286,6 +4291,7 @@
           window.pocketAgent.getSetting('linkedin.roughnessLevel'),
           window.pocketAgent.getSetting('linkedin.roughnessAllowDiscourse'),
           window.pocketAgent.getSetting('linkedin.presentSimple'),
+          window.pocketAgent.getSetting('linkedin.experimentalBankFirst'),
         ]);
 
         const normalizedMode = normalizeDraftMode(mode || 'balanced');
@@ -4295,6 +4301,8 @@
         if (discourseToggle) discourseToggle.classList.toggle('active', String(roughnessDiscourse || 'true') !== 'false');
         const presentToggle = document.getElementById('qs-present-simple-toggle');
         if (presentToggle) presentToggle.classList.toggle('active', String(presentSimple || 'true') !== 'false');
+        const bankFirstToggle = document.getElementById('qs-bank-first-toggle');
+        if (bankFirstToggle) bankFirstToggle.classList.toggle('active', String(bankFirstMode || 'false') === 'true');
         setInputValue('qs-draft-timeout', String(clampInt(timeout || '95', 95, 30, 240)));
         setInputValue('qs-research-turns', String(clampInt(researchTurns || '5', 5, 2, 10)));
         setInputValue('qs-write-turns', String(clampInt(writeTurns || '4', 4, 2, 10)));
@@ -4344,6 +4352,7 @@
         const roughness = String(clampInt(getInputValue('qs-roughness-level'), 0, 0, 3));
         const roughnessDiscourse = document.getElementById('qs-roughness-discourse-toggle')?.classList.contains('active') ? 'true' : 'false';
         const presentSimple = document.getElementById('qs-present-simple-toggle')?.classList.contains('active') ? 'true' : 'false';
+        const bankFirstMode = document.getElementById('qs-bank-first-toggle')?.classList.contains('active') ? 'true' : 'false';
         const commentDelay = String(clampFloat(getInputValue('qs-comment-delay'), 3, 1, 15));
         const dailyLimit = String(clampInt(getInputValue('qs-daily-limit'), 15, 1, 50));
         const autoPoster = getInputValue('qs-auto-poster');
@@ -4384,6 +4393,7 @@
           window.pocketAgent.setSetting('linkedin.roughnessLevel', roughness),
           window.pocketAgent.setSetting('linkedin.roughnessAllowDiscourse', roughnessDiscourse),
           window.pocketAgent.setSetting('linkedin.presentSimple', presentSimple),
+          window.pocketAgent.setSetting('linkedin.experimentalBankFirst', bankFirstMode),
           window.pocketAgent.setSetting('linkedin.commentDelay', commentDelay),
           window.pocketAgent.setSetting('linkedin.dailyLimit', dailyLimit),
           window.pocketAgent.setSetting('linkedin.dailyLimitMin', dailyLimit),

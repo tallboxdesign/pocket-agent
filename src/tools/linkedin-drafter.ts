@@ -204,6 +204,10 @@ function getDraftMode(): DraftMode {
   return 'balanced';
 }
 
+function isBankFirstModeEnabled(): boolean {
+  return String(SettingsManager.get('linkedin.experimentalBankFirst') || 'false') === 'true';
+}
+
 function getLinkedInDraftConfig(): LinkedInDraftConfig {
   const mode = getDraftMode();
   const modeDefaults: Record<DraftMode, { timeout: number; researchTurns: number; writeTurns: number; queries: number; requireTwoSources: boolean }> = {
@@ -1094,7 +1098,7 @@ function hasTwoCentsMoment(text: string): boolean {
 }
 
 function hasBannedTemplatePhrases(text: string): boolean {
-  return /\b(my two cents|practical move)\b/i.test(text);
+  return /\b(my two cents|practical move|what stood out to me|what caught my attention|here'?s the urgent truth|the real opportunity|the key is|the reality is|from my seo experience)\b/i.test(text);
 }
 
 function getSentenceWordLengths(text: string): number[] {
@@ -1162,9 +1166,10 @@ function evaluateDraftQuality(
 ): DraftQualityAssessment {
   const hardIssues: string[] = [];
   const softWarnings: string[] = [];
+  const bankFirstMode = isBankFirstModeEnabled();
 
   if (isWeakDraft(draft)) hardIssues.push('too generic or too short');
-  if (!startsWithAuthorName(draft, authorFirstName)) hardIssues.push('opening does not start with the author name');
+  if (!bankFirstMode && !startsWithAuthorName(draft, authorFirstName)) hardIssues.push('opening does not start with the author name');
   if (!hasRelevanceAnchor(draft, evidence.keyPoint, preview)) hardIssues.push('missing concrete anchor from original post');
   if (hasHeavyPhraseOverlap(preview, draft)) hardIssues.push('too close to the post wording');
   if (!draft.includes('\n') && draft.length > 350) hardIssues.push('single dense paragraph, needs line breaks');
@@ -1201,6 +1206,9 @@ function evaluateDraftQuality(
   }
   if (/\b(?:more importantly|most importantly|importantly)\b/i.test(draft)) {
     hardIssues.push('uses emphasis filler wording');
+  }
+  if (/\b(what stood out to me|what caught my attention|here'?s the urgent truth|the real opportunity|the key is)\b/i.test(draft)) {
+    hardIssues.push('contains canned opener phrasing');
   }
   if (/\bgoogle'?s?\s+spam detection\b/i.test(draft)) {
     hardIssues.push('uses vague algorithm phrasing ("spam detection")');
@@ -1300,6 +1308,7 @@ function hasCriticalQualityIssue(issues: string[]): boolean {
     'missing clear two-cents stance',
     'missing actionable follow-through',
     'contains canned template phrase',
+    'contains canned opener phrasing',
     'too short for auto-length target',
     'too long for auto-length target',
     'opening pattern repeated',
@@ -1374,6 +1383,7 @@ function buildDeterministicFallbackDraft(
 
   const anchor = normalizeAnchorSnippet(evidence.keyPoint || post.text_preview || 'the point you shared');
   const statSentence = toCasualEvidenceSentence(evidence);
+  const bankFirstMode = isBankFirstModeEnabled();
 
   const angleLineMap: Record<typeof commentIntent, string[]> = {
     tradeoff: [
@@ -1402,8 +1412,20 @@ function buildDeterministicFallbackDraft(
     .trim()
     .replace(/[.?!]+$/, '');
 
+  const openerVariants = bankFirstMode
+    ? [
+        `${anchor}. that's the bit i'd pressure-test first.`,
+        `i'd stay with ${anchor} before widening the claim.`,
+        `${authorFirstName ? `${authorFirstName}, ` : ''}${anchor} is where this gets interesting.`,
+        `the hinge here is ${anchor}. that's where the argument either holds or slips.`,
+      ]
+    : [
+        `${authorFirstName}, the part that stood out to me is this: ${anchor}.`,
+      ];
+  const opener = openerVariants[Math.abs(post.id) % openerVariants.length];
+
   const text = [
-    `${authorFirstName}, the part that stood out to me is this: ${anchor}.`,
+    opener,
     statSentence.endsWith('.') ? statSentence : `${statSentence}.`,
     angleLine,
     actionLine.endsWith('.') ? actionLine : `${actionLine}.`,
@@ -2006,6 +2028,7 @@ async function runWritePass(
   const roughnessLevel = parseIntSetting('linkedin.roughnessLevel', 0, 0, 3);
   const allowDiscourse = String(SettingsManager.get('linkedin.roughnessAllowDiscourse') || 'true') !== 'false';
   const preferPresentSimple = String(SettingsManager.get('linkedin.presentSimple') || 'true') !== 'false';
+  const bankFirstMode = isBankFirstModeEnabled();
   const roughnessNote = roughnessLevel === 0
     ? 'Keep it clean and polished. Avoid intentional fragments or abrupt connectors.'
     : roughnessLevel === 1
@@ -2037,6 +2060,18 @@ async function runWritePass(
   const authenticityFlag = String(post.authenticity_flag || '').trim().toLowerCase();
   const postBankSelection = diversity?.postBankState ? selectPostBankEntries(post, diversity.postBankState) : [];
   const postBankBlock = buildPostBankBlock(postBankSelection);
+  const openingRule = bankFirstMode
+    ? `Open with one specific point from the post. Use "${authorFirstName}," only if it sounds natural; do not force it.\n- Let the voice examples influence opener pressure and rhythm more than generic helpful-assistant phrasing.`
+    : `Sentence 1 starts with "${authorFirstName}," and references one specific point from the post.`;
+  const openingNarrativeRule = bankFirstMode
+    ? `Open with the key point from the original post. Use "${authorFirstName}," only if it sounds natural.`
+    : `Start the first sentence with "${authorFirstName}," and reference the key point from the original post.`;
+  const repairOpeningRule = bankFirstMode
+    ? 'open with the post key point naturally; do not force the author name'
+    : `start sentence 1 with "${authorFirstName},"`;
+  const salvageOpeningRule = bankFirstMode
+    ? 'open naturally on the key point; use the author name only if it helps'
+    : `Sentence 1 must start with "${authorFirstName},"`;
 
   const intentInstructionMap: Record<typeof commentIntent, string> = {
     tradeoff: 'Prioritize a concrete tradeoff the author should consider.',
@@ -2052,7 +2087,7 @@ LENGTH:
 - Never pad. Stop when the point is made.
 
 OPENING (non-negotiable):
-- Sentence 1 starts with "${authorFirstName}," and references one specific point from the post.
+- ${openingRule}
 - Lines 1-2 must create friction, tension, or a surprising contrast. Do not ease in. Do not compliment. Do not summarize.
 - If you can't make line 1 sharp, start with a direct disagreement or a concrete observation the author may not have considered.
 
@@ -2141,7 +2176,7 @@ Narrative guidance:
 - Comment intent: ${commentIntent} (${intentInstructionMap[commentIntent]})
 - Two-cents basis from research: ${evidence.stanceBasis}
 - Actionable continuation to include after your stance: ${evidence.actionableAddOn || 'provide one concrete next step tied to the claim'}
-- Start the first sentence with "${authorFirstName}," and reference the key point from the original post.
+- ${openingNarrativeRule}
 
 Write the final comment now.`;
 
@@ -2166,7 +2201,7 @@ The previous draft failed quality checks for:
 - ${issues.join('\n- ')}
 
 Rewrite with strict compliance:
-- start sentence 1 with "${authorFirstName},"
+${repairOpeningRule}
 - reference the post's key point explicitly
 - do not copy long phrases from the post; rephrase in your own words
 - do not use meta phrasing like "the author claims"
@@ -2196,7 +2231,7 @@ The latest draft still failed checks for:
 
 Final rewrite requirements:
 - Keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
-- Sentence 1 must start with "${authorFirstName},"
+${salvageOpeningRule}
 - Use different phrasing from the original post (no close paraphrase)
 - Do not use wording like "the author claims/says"
 - Avoid canned year phrasing and do not invent any year reference
@@ -2291,11 +2326,15 @@ async function generateDraftViaOpenAIModel(
   const avoidOpenings = diversity ? Array.from(diversity.usedOpeningSignatures).filter(Boolean).slice(-5) : [];
   const avoidLeadIns = diversity ? Array.from(diversity.usedLeadInSignatures).filter(Boolean).slice(-6) : [];
   const researchBrief = evidenceOverride ? evidenceToBrief(evidence) : '';
+  const bankFirstMode = isBankFirstModeEnabled();
+  const openingInstruction = bankFirstMode
+    ? `Open with one specific point from the post. Use "${authorFirstName}," only if it sounds natural; do not force it.`
+    : `Start sentence 1 with "${authorFirstName},"`;
 
   const systemPrompt = `You write a LinkedIn reply comment.
 
 Rules:
-- Start sentence 1 with "${authorFirstName},"
+- ${openingInstruction}
 - Keep length around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords})
 - Today's date is ${dateContext.humanDate} (${dateContext.isoDate}); current year is ${dateContext.year}.
 - Do not invent year references. If year is not present in the post text, avoid adding one.
@@ -3077,12 +3116,15 @@ function selectPostBankEntries(post: DraftPost, state: PostBankRotationState): P
 
 function buildPostBankBlock(entries: PostBankEntry[]): string {
   if (!entries.length) return '';
+  const bankFirstMode = isBankFirstModeEnabled();
   const blocks = entries.map((entry) => {
     const title = entry.title ? ` (${entry.title})` : '';
     const type = entry.type ? ` [${entry.type}]` : '';
     return `---\n${entry.text.trim()}${title}${type}\n---`;
   });
-  return `\nVOICE EXAMPLES (rhythm only, not content):\n${blocks.join('\n')}\n\nDo not reuse any opener, sentence pattern, or phrase from these examples.\nUse only to calibrate tone, rhythm, and human texture.\n`;
+  return bankFirstMode
+    ? `\nVOICE EXAMPLES (style anchor, not content):\n${blocks.join('\n')}\n\nLet these examples shape opener pressure, rhythm, sentence length variation, and where the comment stops.\nDo not copy phrases or content, but do let the human texture influence the draft.\n`
+    : `\nVOICE EXAMPLES (rhythm only, not content):\n${blocks.join('\n')}\n\nDo not reuse any opener, sentence pattern, or phrase from these examples.\nUse only to calibrate tone, rhythm, and human texture.\n`;
 }
 
 /**
