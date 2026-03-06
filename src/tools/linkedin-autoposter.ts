@@ -224,6 +224,27 @@ function getBaseCommentDelayMs(): number {
   return Math.max(60_000, Math.round(baseMin * 60_000));
 }
 
+type AuthorPostingPolicy = {
+  cooldownHours: number;
+  max24h: number;
+  max7d: number;
+};
+
+type AuthorPostingStats = {
+  dailyCount: number;
+  weeklyCount: number;
+  lastPostedAtMs: number;
+  lastPostedAt: string | null;
+};
+
+function getAuthorPostingPolicy(): AuthorPostingPolicy {
+  return {
+    cooldownHours: Math.max(0, parseInt(SettingsManager.get('linkedin.authorCooldownHours') || '6', 10) || 0),
+    max24h: Math.max(0, parseInt(SettingsManager.get('linkedin.authorMaxComments24h') || '2', 10) || 0),
+    max7d: Math.max(0, parseInt(SettingsManager.get('linkedin.authorMaxComments7d') || '4', 10) || 0),
+  };
+}
+
 function toDbDateTime(ms: number): string {
   return new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
 }
@@ -235,6 +256,115 @@ function parseDbDateTime(value: string | null | undefined): number {
   const normalized = raw.includes('Z') ? raw : `${raw}Z`;
   const ts = Date.parse(normalized);
   return Number.isFinite(ts) ? ts : NaN;
+}
+
+function getAuthorPostingStats(db: Database.Database, author: string): AuthorPostingStats {
+  const rows = db.prepare(
+    `SELECT al.created_at
+     FROM linkedin_activity_log al
+     WHERE al.action = 'posted'
+       AND al.post_url IN (SELECT lp.post_url FROM linkedin_posts lp WHERE lp.author = ?)
+       AND al.created_at >= datetime('now', '-7 days')
+     ORDER BY datetime(al.created_at) DESC`
+  ).all(author) as Array<{ created_at: string }>;
+
+  const nowMs = Date.now();
+  const dayThreshold = nowMs - (24 * 60 * 60 * 1000);
+  let dailyCount = 0;
+  let lastPostedAtMs = 0;
+  let lastPostedAt: string | null = null;
+
+  for (const row of rows) {
+    const ts = parseDbDateTime(row.created_at);
+    if (!Number.isFinite(ts)) continue;
+    if (!lastPostedAtMs) {
+      lastPostedAtMs = ts;
+      lastPostedAt = row.created_at;
+    }
+    if (ts >= dayThreshold) dailyCount += 1;
+  }
+
+  return {
+    dailyCount,
+    weeklyCount: rows.length,
+    lastPostedAtMs,
+    lastPostedAt,
+  };
+}
+
+function computeAuthorNextEligibleMs(
+  db: Database.Database,
+  author: string,
+  policy: AuthorPostingPolicy,
+): { blocked: boolean; code: 'author_cooldown' | 'author_limit_24h' | 'author_limit_7d' | null; nextEligibleMs: number; stats: AuthorPostingStats } {
+  const stats = getAuthorPostingStats(db, author);
+  const nowMs = Date.now();
+  let blocked = false;
+  let code: 'author_cooldown' | 'author_limit_24h' | 'author_limit_7d' | null = null;
+  let nextEligibleMs = nowMs;
+
+  if (policy.cooldownHours > 0 && stats.lastPostedAtMs > 0) {
+    const cooldownUntil = stats.lastPostedAtMs + (policy.cooldownHours * 60 * 60 * 1000);
+    if (cooldownUntil > nextEligibleMs) {
+      blocked = true;
+      code = 'author_cooldown';
+      nextEligibleMs = cooldownUntil;
+    }
+  }
+
+  if (policy.max24h > 0 && stats.dailyCount >= policy.max24h) {
+    const row = db.prepare(
+      `SELECT MIN(datetime(al.created_at)) AS oldest_created_at
+       FROM linkedin_activity_log al
+       WHERE al.action = 'posted'
+         AND al.post_url IN (SELECT lp.post_url FROM linkedin_posts lp WHERE lp.author = ?)
+         AND al.created_at >= datetime('now', '-24 hours')`
+    ).get(author) as { oldest_created_at: string | null } | undefined;
+    const oldestMs = parseDbDateTime(row?.oldest_created_at);
+    const candidateMs = Number.isFinite(oldestMs) ? oldestMs + (24 * 60 * 60 * 1000) + 60_000 : nowMs + 60_000;
+    if (candidateMs > nextEligibleMs) {
+      blocked = true;
+      code = 'author_limit_24h';
+      nextEligibleMs = candidateMs;
+    }
+  }
+
+  if (policy.max7d > 0 && stats.weeklyCount >= policy.max7d) {
+    const row = db.prepare(
+      `SELECT MIN(datetime(al.created_at)) AS oldest_created_at
+       FROM linkedin_activity_log al
+       WHERE al.action = 'posted'
+         AND al.post_url IN (SELECT lp.post_url FROM linkedin_posts lp WHERE lp.author = ?)
+         AND al.created_at >= datetime('now', '-7 days')`
+    ).get(author) as { oldest_created_at: string | null } | undefined;
+    const oldestMs = parseDbDateTime(row?.oldest_created_at);
+    const candidateMs = Number.isFinite(oldestMs) ? oldestMs + (7 * 24 * 60 * 60 * 1000) + 60_000 : nowMs + 60_000;
+    if (candidateMs > nextEligibleMs) {
+      blocked = true;
+      code = 'author_limit_7d';
+      nextEligibleMs = candidateMs;
+    }
+  }
+
+  return { blocked, code, nextEligibleMs, stats };
+}
+
+function encodeAuthorDelayReason(
+  code: 'author_cooldown' | 'author_limit_24h' | 'author_limit_7d',
+  policy: AuthorPostingPolicy,
+  stats: AuthorPostingStats,
+  nextEligibleMs: number,
+): string {
+  return [
+    `author_rule:${code}`,
+    `cooldown_h=${policy.cooldownHours}`,
+    `daily=${stats.dailyCount}`,
+    `daily_max=${policy.max24h}`,
+    `weekly=${stats.weeklyCount}`,
+    `weekly_max=${policy.max7d}`,
+    `last_posted=${stats.lastPostedAt || ''}`,
+    `next=${toDbDateTime(nextEligibleMs)}`,
+  ].join(';');
 }
 
 function localDayKeyFromMs(ms: number): string {
@@ -841,7 +971,8 @@ export async function checkAndPostNext(): Promise<void> {
 
     if (candidates.length === 0) return;
 
-    const maxPerWeek = parseInt(SettingsManager.get('linkedin.authorMaxCommentsPerWeek') || '2', 10) || 2;
+    const authorPolicy = getAuthorPostingPolicy();
+    let rebalanceNeeded = false;
 
     for (const post of candidates) {
       const postUrl = normalizeLinkedInPostUrl(post.post_url);
@@ -895,18 +1026,23 @@ export async function checkAndPostNext(): Promise<void> {
         continue;
       }
 
-      // Author limit check
-      const authorCount = db.prepare(
-        `SELECT COUNT(*) as c FROM linkedin_activity_log
-         WHERE action = 'posted' AND post_url IN (SELECT post_url FROM linkedin_posts WHERE author = ?)
-         AND created_at >= datetime('now', '-7 days')`
-      ).get(post.author) as { c: number };
-
-      if (authorCount.c >= maxPerWeek) {
+      const authorGate = computeAuthorNextEligibleMs(db, post.author, authorPolicy);
+      if (authorGate.blocked && authorGate.code) {
+        const windows = getPostingWindows();
+        const alignedMs = alignToPostingWindowMs(Math.max(authorGate.nextEligibleMs, Date.now() + 60_000), windows);
+        const nextMs = alignedMs ?? Math.max(authorGate.nextEligibleMs, Date.now() + 60_000);
+        db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(toDbDateTime(nextMs), post.id);
         db.prepare(
           `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
-           VALUES (?, ?, 'skipped', 'author_limit', ?, ?)`
-        ).run(post.id, postUrl, dailyLimit, todayCount);
+           VALUES (?, ?, 'delayed', ?, ?, ?)`
+        ).run(
+          post.id,
+          postUrl,
+          encodeAuthorDelayReason(authorGate.code, authorPolicy, authorGate.stats, nextMs),
+          dailyLimit,
+          todayCount
+        );
+        rebalanceNeeded = true;
         continue;
       }
 
@@ -990,7 +1126,27 @@ export async function checkAndPostNext(): Promise<void> {
         await notifyTelegram(`LinkedIn: Posting on ${post.author}'s post is uncertain. Auto-retry disabled to prevent duplicates. Please verify manually.`);
         console.log(`[AutoPoster] Uncertain result on ${post.author}; moved to manual verification`);
       }
+      if (rebalanceNeeded) {
+        try {
+          const rebalance = rebalancePendingSchedules();
+          if (rebalance.warning) {
+            console.warn('[AutoPoster] Author-frequency rebalance warning:', rebalance.warning);
+          }
+        } catch (rebalanceErr) {
+          console.warn('[AutoPoster] Author-frequency rebalance failed:', rebalanceErr);
+        }
+      }
       return; // One post per tick
+    }
+    if (rebalanceNeeded) {
+      try {
+        const rebalance = rebalancePendingSchedules();
+        if (rebalance.warning) {
+          console.warn('[AutoPoster] Author-frequency rebalance warning:', rebalance.warning);
+        }
+      } catch (rebalanceErr) {
+        console.warn('[AutoPoster] Author-frequency rebalance failed:', rebalanceErr);
+      }
     }
   } finally {
     db.close();

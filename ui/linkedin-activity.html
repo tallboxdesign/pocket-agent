@@ -369,34 +369,34 @@
       right: 0;
       top: 4px;
       bottom: 4px;
-      width: 8px;
+      width: 10px;
       cursor: col-resize;
       z-index: 11;
-      border-right: 2px dotted rgba(148, 163, 184, 0.6);
-      transition: border-color 0.15s;
+      transition: opacity 0.15s ease;
     }
     .th-resize-handle::before {
       content: '';
       position: absolute;
-      right: 2px;
-      top: 6px;
-      bottom: 6px;
+      left: 50%;
+      top: 50%;
       width: 2px;
-      background: rgba(148, 163, 184, 0.35);
-      border-radius: 1px;
+      height: 24px;
+      transform: translate(-50%, -50%);
+      background: rgba(148, 163, 184, 0.55);
+      border-radius: 999px;
       pointer-events: none;
     }
     .th-resize-handle:hover {
-      border-color: rgba(96, 165, 250, 0.9);
+      opacity: 1;
     }
     .th-resize-handle:hover::before {
-      background: rgba(96, 165, 250, 0.6);
+      background: rgba(96, 165, 250, 0.9);
     }
     .th-resize-handle.active {
-      border-color: rgba(147, 197, 253, 0.9);
+      opacity: 1;
     }
     .th-resize-handle.active::before {
-      background: rgba(147, 197, 253, 0.75);
+      background: rgba(147, 197, 253, 0.95);
     }
 
     .column-hidden { display: none !important; }
@@ -2106,6 +2106,18 @@
               <option value="false">Off</option>
               <option value="true">On</option>
             </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Minimum hours between posted comments on the same author. 0 disables cooldown.">Author Cooldown (h)</label>
+            <input type="number" id="qs-author-cooldown-hours" min="0" max="168" step="1">
+          </div>
+          <div class="li-quick-field">
+            <label title="Max posted comments on the same author in the last 24 hours. 0 disables this cap.">Same Author / 24h</label>
+            <input type="number" id="qs-author-max-24h" min="0" max="24" step="1">
+          </div>
+          <div class="li-quick-field">
+            <label title="Max posted comments on the same author in the last 7 days. 0 disables this cap.">Same Author / 7d</label>
+            <input type="number" id="qs-author-max-7d" min="0" max="50" step="1">
           </div>
         </div>
       </div>
@@ -4323,6 +4335,9 @@
           roughnessDiscourse,
           presentSimple,
           bankFirstMode,
+          authorCooldownHours,
+          authorMax24h,
+          authorMax7d,
         ] = await Promise.all([
           window.pocketAgent.getSetting('linkedin.draftMode'),
           window.pocketAgent.getSetting('linkedin.draftTimeoutSec'),
@@ -4335,6 +4350,9 @@
           window.pocketAgent.getSetting('linkedin.commentDelay'),
           window.pocketAgent.getSetting('linkedin.dailyLimit'),
           window.pocketAgent.getSetting('linkedin.autoPosterEnabled'),
+          window.pocketAgent.getSetting('linkedin.authorCooldownHours'),
+          window.pocketAgent.getSetting('linkedin.authorMaxComments24h'),
+          window.pocketAgent.getSetting('linkedin.authorMaxComments7d'),
           window.pocketAgent.getSetting('linkedin.dayWindowEnabled'),
           window.pocketAgent.getSetting('linkedin.dayWindowStart'),
           window.pocketAgent.getSetting('linkedin.dayWindowEnd'),
@@ -4380,6 +4398,9 @@
         setInputValue('qs-daily-limit', String(clampInt(dailyLimit || '15', 15, 1, 50)));
         updateQuickDailyLimitHint(dailyLimit || '15');
         setInputValue('qs-auto-poster', autoPoster === 'true' ? 'true' : 'false');
+        setInputValue('qs-author-cooldown-hours', String(clampInt(authorCooldownHours || '6', 6, 0, 168)));
+        setInputValue('qs-author-max-24h', String(clampInt(authorMax24h || '2', 2, 0, 24)));
+        setInputValue('qs-author-max-7d', String(clampInt(authorMax7d || '4', 4, 0, 50)));
         setInputValue('qs-day-window-enabled', dayWindowEnabled === 'false' ? 'false' : 'true');
         setInputValue('qs-day-window-start', String(dayWindowStart || '09:00'));
         setInputValue('qs-day-window-end', String(dayWindowEnd || '18:00'));
@@ -4422,6 +4443,9 @@
         const commentDelay = String(clampFloat(getInputValue('qs-comment-delay'), 3, 1, 15));
         const dailyLimit = String(clampInt(getInputValue('qs-daily-limit'), 15, 1, 50));
         const autoPoster = getInputValue('qs-auto-poster');
+        const authorCooldownHours = String(clampInt(getInputValue('qs-author-cooldown-hours'), 6, 0, 168));
+        const authorMax24h = String(clampInt(getInputValue('qs-author-max-24h'), 2, 0, 24));
+        const authorMax7d = String(clampInt(getInputValue('qs-author-max-7d'), 4, 0, 50));
         const dayWindowEnabled = getInputValue('qs-day-window-enabled') === 'false' ? 'false' : 'true';
         const dayWindowStart = getInputValue('qs-day-window-start') || '09:00';
         const dayWindowEnd = getInputValue('qs-day-window-end') || '18:00';
@@ -4465,6 +4489,9 @@
           window.pocketAgent.setSetting('linkedin.dailyLimitMin', dailyLimit),
           window.pocketAgent.setSetting('linkedin.dailyLimitMax', dailyLimit),
           window.pocketAgent.setSetting('linkedin.autoPosterEnabled', autoPoster),
+          window.pocketAgent.setSetting('linkedin.authorCooldownHours', authorCooldownHours),
+          window.pocketAgent.setSetting('linkedin.authorMaxComments24h', authorMax24h),
+          window.pocketAgent.setSetting('linkedin.authorMaxComments7d', authorMax7d),
           window.pocketAgent.setSetting('linkedin.dayWindowEnabled', dayWindowEnabled),
           window.pocketAgent.setSetting('linkedin.dayWindowStart', dayWindowStart),
           window.pocketAgent.setSetting('linkedin.dayWindowEnd', dayWindowEnd),
@@ -4498,6 +4525,9 @@
         setInputValue('qs-daily-limit', dailyLimit);
         updateQuickDailyLimitHint(dailyLimit);
         setInputValue('qs-auto-poster', autoPoster);
+        setInputValue('qs-author-cooldown-hours', authorCooldownHours);
+        setInputValue('qs-author-max-24h', authorMax24h);
+        setInputValue('qs-author-max-7d', authorMax7d);
         setInputValue('qs-day-window-enabled', dayWindowEnabled);
         setInputValue('qs-day-window-start', dayWindowStart);
         setInputValue('qs-day-window-end', dayWindowEnd);
@@ -5211,6 +5241,62 @@
       return Number.isFinite(ts) ? ts : NaN;
     }
 
+    function parseActivityReasonMeta(raw) {
+      const meta = {};
+      const text = String(raw || '').trim();
+      if (!text) return meta;
+      text.split(';').forEach(part => {
+        const [k, ...rest] = String(part || '').split('=');
+        const key = String(k || '').trim();
+        if (!key) return;
+        meta[key] = rest.length ? rest.join('=').trim() : true;
+      });
+      return meta;
+    }
+
+    function getAuthorSignal(post) {
+      const lastAction = String(post?.last_activity_action || '').toLowerCase();
+      const meta = parseActivityReasonMeta(post?.last_activity_reason || '');
+      const reasonHead = String(post?.last_activity_reason || '').split(';')[0];
+      const daily = Number(post?.author_daily_comments || 0);
+      const weekly = Number(post?.author_weekly_comments || 0);
+      const nextAt = meta.next ? String(meta.next) : '';
+      if (lastAction === 'delayed' && reasonHead.startsWith('author_rule:')) {
+        const code = reasonHead.slice('author_rule:'.length);
+        const dailyMax = Number(meta.daily_max || 0);
+        const weeklyMax = Number(meta.weekly_max || 0);
+        if (code === 'author_cooldown') {
+          return {
+            badge: 'Author cooling',
+            title: nextAt ? `Same-author cooldown active. Next slot ${formatShortDateTime(nextAt)}.` : 'Same-author cooldown active.',
+            detail: nextAt ? `Next slot ${formatShortDateTime(nextAt)}` : '',
+          };
+        }
+        if (code === 'author_limit_24h') {
+          return {
+            badge: dailyMax > 0 ? `Author ${daily}/${dailyMax} today` : `Author ${daily} today`,
+            title: nextAt ? `Same-author 24h cap reached. Next slot ${formatShortDateTime(nextAt)}.` : 'Same-author 24h cap reached.',
+            detail: nextAt ? `Next slot ${formatShortDateTime(nextAt)}` : '',
+          };
+        }
+        if (code === 'author_limit_7d') {
+          return {
+            badge: weeklyMax > 0 ? `Author ${weekly}/${weeklyMax} this week` : `Author ${weekly} this week`,
+            title: nextAt ? `Same-author 7d cap reached. Next slot ${formatShortDateTime(nextAt)}.` : 'Same-author 7d cap reached.',
+            detail: nextAt ? `Next slot ${formatShortDateTime(nextAt)}` : '',
+          };
+        }
+      }
+      if (daily > 0 || weekly > 0) {
+        return {
+          badge: daily > 0 ? `${daily} today · ${weekly} this week` : `${weekly} this week`,
+          title: 'Recent posting frequency for this author',
+          detail: '',
+        };
+      }
+      return null;
+    }
+
     function isPublishedPost(post) {
       if (!post || typeof post !== 'object') return false;
       if (Number(post.commented || 0) === 1) return true;
@@ -5854,6 +5940,7 @@
       const attentionReasons = getNeedsAttentionReasons(p);
       const isPriorityScheduled = !!(p.scheduled_at && parseUtcDateMs(p.scheduled_at) <= (Date.now() + 20 * 60 * 1000));
       const isCheckingEngagement = engagementCheckInFlightIds.has(Number(p.id));
+      const authorSignal = getAuthorSignal(p);
       
       const aiSummaryText = normalizePreviewText(p.evidence_post_summary || p.full_post_summary || '');
       const summaryText = getPostSummary(p);
@@ -6160,6 +6247,12 @@
       else if (isDraftingLoading) inflightLabel = 'Drafting…';
       const inflightHtml = inflightLabel ? `<div class="draft-inflight">${inflightLabel}</div>` : '';
       const draftErrorHtml = draftErrorText ? `<div class="draft-error">Draft error: ${escapeHtml(draftErrorText)}</div>` : '';
+      const authorSignalHtml = authorSignal
+        ? `<div class="row-meta-strip" style="padding-top:8px; border-top:none; min-height:auto;">
+            <span class="meta-tag" style="background:rgba(250,204,21,0.12); color:#fde68a; border-color:rgba(250,204,21,0.35);" title="${escapeHtml(authorSignal.title || '')}">${escapeHtml(authorSignal.badge)}</span>
+            ${authorSignal.detail ? `<span class="meta-tag" style="background:rgba(59,130,246,0.12); color:#93c5fd; border-color:rgba(59,130,246,0.3);">${escapeHtml(authorSignal.detail)}</span>` : ''}
+          </div>`
+        : '';
 
       const statusHtml = statusBadges.length ? `<div class="status-badges">${statusBadges.join(' ')}</div>` : '-';
       const typeColBadge = typeKey ? `<span class="badge badge-type">${escapeHtml(postTypeLabel(typeKey))}</span>` : '-';
@@ -6207,6 +6300,7 @@
               <span style="margin-left:auto; font-weight:600;">${p.comments || 0} cmts | ${p.reactions || 0} reacts</span>
             </div>
             ${attentionReasons.length ? `<div class="row-meta-strip" style="padding-top:8px; border-top:none; min-height:auto;">${attentionReasons.map(reason => `<span class="meta-tag" style="background:rgba(250,204,21,0.14); color:#fde68a; border-color:rgba(250,204,21,0.35);">Needs attention: ${escapeHtml(reason)}</span>`).join(' ')}</div>` : ''}
+            ${authorSignalHtml}
             
             <div class="post-content-block">
               <div class="post-tabs">

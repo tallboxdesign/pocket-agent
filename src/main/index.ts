@@ -2241,7 +2241,12 @@ function setupIPC(): void {
            ec.reactions_delta, ec.comments_delta,
            (SELECT COUNT(*) FROM linkedin_activity_log alw
             WHERE alw.action = 'posted' AND alw.post_url IN (SELECT p2.post_url FROM linkedin_posts p2 WHERE p2.author = lp.author)
-            AND alw.created_at >= datetime('now', '-7 days')) AS author_weekly_comments
+            AND alw.created_at >= datetime('now', '-7 days')) AS author_weekly_comments,
+           (SELECT COUNT(*) FROM linkedin_activity_log ald
+            WHERE ald.action = 'posted' AND ald.post_url IN (SELECT p3.post_url FROM linkedin_posts p3 WHERE p3.author = lp.author)
+            AND ald.created_at >= datetime('now', '-24 hours')) AS author_daily_comments,
+           (SELECT MAX(alp.created_at) FROM linkedin_activity_log alp
+            WHERE alp.action = 'posted' AND alp.post_url IN (SELECT p4.post_url FROM linkedin_posts p4 WHERE p4.author = lp.author)) AS author_last_posted_at
          FROM linkedin_posts lp
          LEFT JOIN linkedin_authors aa ON aa.name = lp.author
          LEFT JOIN (
