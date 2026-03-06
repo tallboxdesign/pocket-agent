@@ -3527,11 +3527,21 @@ function setupIPC(): void {
       if (!currentText && mode === 'improve') return { error: 'No text to improve' };
 
       const { SettingsManager } = await import('../settings');
-      const hardRules = SettingsManager.get('linkedin.plannerHardRules') || '';
+      const { DEFAULT_HARD_RULES } = await import('../tools/linkedin-planner');
+      const customRules = SettingsManager.get('linkedin.plannerHardRules') || '';
+      const checklist = SettingsManager.get('linkedin.plannerPrePublishChecklist') || '';
+      const allRules = customRules
+        ? `${DEFAULT_HARD_RULES}\n${customRules}`
+        : DEFAULT_HARD_RULES;
+
+      const rulesBlock = [
+        `HARD RULES:\n${allRules}`,
+        checklist ? `PRE-PUBLISH CHECKLIST (verify ALL before finishing):\n${checklist}` : '',
+      ].filter(Boolean).join('\n\n');
 
       const prompt = mode === 'redo'
-        ? `You are writing an original LinkedIn post. Write ONLY the post text - no commentary, no labels, no preamble.\n\nOriginal topic/plan: ${asset.plan_prompt || asset.plan_title || ''}\n\nUser feedback: ${feedback}\n\n${hardRules ? `HARD RULES:\n${hardRules}\n\n` : ''}OUTPUT: Return only the final post text.`
-        : `Improve this LinkedIn post based on user feedback. Return ONLY the improved post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser feedback: ${feedback}\n\n${hardRules ? `HARD RULES:\n${hardRules}\n\n` : ''}OUTPUT: Return only the improved post text.`;
+        ? `You are writing an original LinkedIn post. Write ONLY the post text - no commentary, no labels, no preamble.\n\nOriginal topic/plan: ${asset.plan_prompt || asset.plan_title || ''}\n\nUser feedback: ${feedback}\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the final post text.`
+        : `Improve this LinkedIn post based on user feedback. Return ONLY the improved post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser feedback: ${feedback}\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the improved post text.`;
 
       const response = await AgentManager.processMessage(prompt, 'planner:improve') as unknown;
       const newText = (typeof response === 'string' ? response : String(response || '')).trim();

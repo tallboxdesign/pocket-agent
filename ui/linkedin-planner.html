@@ -739,14 +739,23 @@
           <label class="form-label">Image Style Template</label>
           <textarea class="form-textarea" id="planner-image-style" rows="3" placeholder="Professional LinkedIn post illustration. Clean, modern, bold colors..."></textarea>
         </div>
+        <div class="form-group">
+          <label class="form-label">Avatar Overlay (top-right corner of images)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" class="form-input" id="planner-avatar-path" style="flex:1" placeholder="/path/to/your-photo.png" readonly>
+            <button class="btn btn-sm" onclick="pickAvatarFile()">Browse</button>
+            <button class="btn btn-sm" onclick="clearAvatar()" title="Remove avatar">X</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Your photo overlaid as circular badge on every generated image. Leave empty to skip.</div>
+        </div>
       </div>
 
       <!-- Rules Tab -->
       <div class="settings-tab-content" id="tab-rules">
         <div class="form-group">
           <label class="form-label">Hard Rules (tone, banned words, format)</label>
-          <textarea class="form-textarea" id="planner-hard-rules" rows="12" placeholder="- No emojis, no hashtags..."></textarea>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Applied to every draft. Leave empty for built-in defaults.</div>
+          <textarea class="form-textarea" id="planner-hard-rules" rows="12" placeholder="- Always include a URL when referencing a patent or article&#10;- Add one good and one bad example&#10;- Keep posts under 250 words"></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Your rules here are added ON TOP of the built-in defaults (no emojis, no AI jargon, no dashes, etc). Built-in rules always apply.</div>
         </div>
         <div class="form-group">
           <label class="form-label">Post Format (profile posts)</label>
@@ -759,6 +768,11 @@
         <div class="form-group">
           <label class="form-label">Group Format</label>
           <textarea class="form-textarea" id="planner-group-format" rows="3" placeholder="Write a group discussion post (100-250 words)..."></textarea>
+        </div>
+        <div class="form-group" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <label class="form-label">Pre-Publish Checklist</label>
+          <textarea class="form-textarea" id="planner-pre-publish-checklist" rows="6" placeholder="- If post references a patent, article, or resource, include the URL&#10;- Every post must have a clear call-to-action or takeaway&#10;- No orphan claims without examples or data"></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Rules checked before publishing. AI will flag missing items and fix the draft. One rule per line.</div>
         </div>
       </div>
 
@@ -1142,6 +1156,27 @@
     document.getElementById('settings-panel').classList.remove('open');
   }
 
+  async function pickAvatarFile() {
+    try {
+      const result = await api.kanbanSelectFileOrFolder({ title: 'Select your avatar photo' });
+      if (result && result.success && result.filePath) {
+        document.getElementById('planner-avatar-path').value = result.filePath;
+        await api.setSetting('linkedin.plannerAvatarPath', result.filePath);
+      }
+    } catch {
+      const p = prompt('Enter full path to your avatar image:');
+      if (p) {
+        document.getElementById('planner-avatar-path').value = p;
+        await api.setSetting('linkedin.plannerAvatarPath', p);
+      }
+    }
+  }
+
+  async function clearAvatar() {
+    document.getElementById('planner-avatar-path').value = '';
+    await api.setSetting('linkedin.plannerAvatarPath', '');
+  }
+
   function setResearchMode(mode) {
     researchMode = mode;
     document.querySelectorAll('#research-mode button').forEach(b => {
@@ -1268,11 +1303,13 @@
     'planner-post-format': 'linkedin.plannerPostFormat',
     'planner-article-format': 'linkedin.plannerArticleFormat',
     'planner-group-format': 'linkedin.plannerGroupFormat',
+    'planner-pre-publish-checklist': 'linkedin.plannerPrePublishChecklist',
     'planner-voice-style': 'linkedin.voiceStyle',
     'planner-content-direction': 'linkedin.contentDirection',
     'planner-post-strategy': 'linkedin.postStrategy',
     'planner-writing-rules': 'linkedin.writingRules',
     'planner-image-style': 'linkedin.plannerImageStyle',
+    'planner-avatar-path': 'linkedin.plannerAvatarPath',
     'planner-schedule-from': 'linkedin.plannerScheduleFrom',
     'planner-schedule-to': 'linkedin.plannerScheduleTo',
     'planner-min-gap': 'linkedin.plannerMinGapHours',

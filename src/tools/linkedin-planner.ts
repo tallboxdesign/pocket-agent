@@ -761,6 +761,7 @@ export async function screenshotAnnotate(
 
     if (fs.existsSync(out)) {
       console.log(`[Screenshot] Captured: ${out}`);
+      await overlayAvatar(out);
       return out;
     }
     console.warn('[Screenshot] No output file produced');
@@ -781,6 +782,62 @@ export async function renderHtmlAsImage(
   outputPath?: string,
 ): Promise<string | null> {
   return screenshotAnnotate({ html, css }, outputPath);
+}
+
+/**
+ * Overlay the user's avatar photo on the top-right corner of an image.
+ * Avatar path is configured in settings (linkedin.plannerAvatarPath).
+ * Uses Pillow via the LinkedIn venv for compositing.
+ */
+async function overlayAvatar(imagePath: string): Promise<void> {
+  const avatarPath = SettingsManager.get('linkedin.plannerAvatarPath') || '';
+  if (!avatarPath || !fs.existsSync(avatarPath)) return;
+
+  const venvPython = path.join(os.homedir(), '.pocket-agent', 'linkedin', '.venv', 'bin', 'python');
+  if (!fs.existsSync(venvPython)) return;
+
+  const script = `
+import sys
+from PIL import Image, ImageDraw
+
+img = Image.open(sys.argv[1]).convert('RGBA')
+avatar = Image.open(sys.argv[2]).convert('RGBA')
+
+# Scale avatar to ~12% of image width
+size = max(80, int(img.width * 0.12))
+avatar = avatar.resize((size, size), Image.LANCZOS)
+
+# Create circular mask
+mask = Image.new('L', (size, size), 0)
+draw = ImageDraw.Draw(mask)
+draw.ellipse((0, 0, size, size), fill=255)
+
+# Add thin white border
+border = 3
+bordered = Image.new('RGBA', (size + border * 2, size + border * 2), (255, 255, 255, 220))
+bmask = Image.new('L', bordered.size, 0)
+bdraw = ImageDraw.Draw(bmask)
+bdraw.ellipse((0, 0, bordered.size[0], bordered.size[1]), fill=255)
+bordered.putalpha(bmask)
+bordered.paste(avatar, (border, border), mask)
+
+# Position: top-right with margin
+margin = int(img.width * 0.03)
+pos = (img.width - bordered.width - margin, margin)
+img.paste(bordered, pos, bordered)
+
+img.convert('RGB').save(sys.argv[1])
+`;
+
+  const tmpScript = path.join(os.tmpdir(), 'pocket-agent-avatar-overlay.py');
+  fs.writeFileSync(tmpScript, script);
+
+  try {
+    await execFile(venvPython, [tmpScript, imagePath, avatarPath], { timeout: 15000 });
+    console.log(`[Planner] Avatar overlaid on ${imagePath}`);
+  } catch (err) {
+    console.warn('[Planner] Avatar overlay failed:', err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -866,7 +923,7 @@ function cleanPlannerDraft(draft: string): string {
 
 const AI_SLOP_PATTERN = /\b(landscape|leverage|robust|comprehensive|holistic|streamline|optimize|paradigm|game[- ]changing|cutting-edge|transformative|unprecedented|synergy|foster|harness|delve|elevate|dramatically|significantly|meaningful|importantly|more importantly|most importantly)\b/i;
 
-const DEFAULT_HARD_RULES = `- No emojis, no hashtags, no em dashes, no en dashes. Hyphens only.
+export const DEFAULT_HARD_RULES = `- No emojis, no hashtags, no em dashes, no en dashes. Hyphens only.
 - No generic openers: "I'm excited to share", "In today's world", "Let me tell you."
 - No AI jargon: "landscape", "leverage", "robust", "holistic", "transformative", "game-changing", "paradigm", "ecosystem", "scalable", "actionable", "double down."
 - Straight quotes and apostrophes only. No curly/smart quotes.
@@ -900,7 +957,11 @@ export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
   const contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
   const postStrategy = SettingsManager.get('linkedin.postStrategy') || '';
-  const hardRules = SettingsManager.get('linkedin.plannerHardRules') || DEFAULT_HARD_RULES;
+  const customRules = SettingsManager.get('linkedin.plannerHardRules') || '';
+  const hardRules = customRules
+    ? `${DEFAULT_HARD_RULES}\n${customRules}`
+    : DEFAULT_HARD_RULES;
+  const prePublishChecklist = SettingsManager.get('linkedin.plannerPrePublishChecklist') || '';
   const postFormat = SettingsManager.get('linkedin.plannerPostFormat') || DEFAULT_POST_FORMAT;
   const articleFormat = SettingsManager.get('linkedin.plannerArticleFormat') || DEFAULT_ARTICLE_FORMAT;
   const groupFormat = SettingsManager.get('linkedin.plannerGroupFormat') || DEFAULT_GROUP_FORMAT;
@@ -952,7 +1013,7 @@ ${postBankBlock}
 HARD RULES:
 ${hardRules}
 - Each post in this plan must have a unique hook and framing - do NOT repeat patterns.${avoidOpeningsBlock}
-
+${prePublishChecklist ? `\nPRE-PUBLISH CHECKLIST (verify ALL before finishing):\n${prePublishChecklist}` : ''}
 OUTPUT:
 Return only the final post text.`;
 

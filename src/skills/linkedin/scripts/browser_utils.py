@@ -97,6 +97,9 @@ class BrowserFactory:
         args = list(BROWSER_ARGS)
         if headless:
             args.extend(BROWSER_ARGS_HEADLESS_EXTRA)
+        else:
+            # Launch off-screen so headed mode doesn't cover user's workspace
+            args.append('--window-position=-2400,-2400')
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=headless,
