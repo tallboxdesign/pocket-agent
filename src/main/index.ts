@@ -332,6 +332,7 @@ let calendarWindow: BrowserWindow | null = null;
 let emailWindow: BrowserWindow | null = null;
 let dailyLogsWindow: BrowserWindow | null = null;
 let linkedInActivityWindow: BrowserWindow | null = null;
+let linkedInPlannerWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
 
 /**
@@ -695,6 +696,10 @@ function updateTrayMenu(): void {
       label: 'LinkedIn',
       click: () => openLinkedInActivityWindow(),
     },
+    ...(SettingsManager.get('linkedin.plannerEnabled') === 'true' ? [{
+      label: 'Content Planner',
+      click: () => openLinkedInPlannerWindow(),
+    }] : []),
     { type: 'separator' },
     {
       label: statusText,
@@ -1219,6 +1224,58 @@ function openLinkedInActivityWindow(): void {
 
   linkedInActivityWindow.on('closed', () => {
     linkedInActivityWindow = null;
+  });
+}
+
+function openLinkedInPlannerWindow(): void {
+  if (linkedInPlannerWindow && !linkedInPlannerWindow.isDestroyed()) {
+    linkedInPlannerWindow.show();
+    linkedInPlannerWindow.focus();
+    return;
+  }
+
+  const savedBoundsJson = SettingsManager.get('window.linkedInPlannerBounds');
+  let windowOptions: Electron.BrowserWindowConstructorOptions = {
+    width: 1000,
+    height: 650,
+    title: 'Content Planner - Pocket Agent',
+    backgroundColor: '#0a0a0b',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  };
+
+  if (savedBoundsJson) {
+    try {
+      const savedBounds = JSON.parse(savedBoundsJson);
+      if (savedBounds.x !== undefined) windowOptions.x = savedBounds.x;
+      if (savedBounds.y !== undefined) windowOptions.y = savedBounds.y;
+      if (savedBounds.width) windowOptions.width = savedBounds.width;
+      if (savedBounds.height) windowOptions.height = savedBounds.height;
+    } catch { /* ignore */ }
+  }
+
+  linkedInPlannerWindow = new BrowserWindow(windowOptions);
+  linkedInPlannerWindow.loadFile(path.join(__dirname, '../../ui/linkedin-planner.html'));
+
+  linkedInPlannerWindow.once('ready-to-show', () => {
+    linkedInPlannerWindow?.show();
+  });
+
+  const saveBounds = () => {
+    if (linkedInPlannerWindow && !linkedInPlannerWindow.isDestroyed()) {
+      const bounds = linkedInPlannerWindow.getBounds();
+      SettingsManager.set('window.linkedInPlannerBounds', JSON.stringify(bounds));
+    }
+  };
+  linkedInPlannerWindow.on('resize', saveBounds);
+  linkedInPlannerWindow.on('move', saveBounds);
+
+  linkedInPlannerWindow.on('closed', () => {
+    linkedInPlannerWindow = null;
   });
 }
 
@@ -3293,6 +3350,142 @@ function setupIPC(): void {
     } catch (err) {
       console.error('[LinkedIn] getWeeklyReview error:', err);
       return { success: false, error: String(err) };
+    }
+  });
+
+  // ---- Content Planner IPC ----
+
+  ipcMain.handle('app:openLinkedInPlanner', async () => {
+    openLinkedInPlannerWindow();
+  });
+
+  ipcMain.handle('planner:listTargets', async () => {
+    const { listTargets } = await import('../tools/linkedin-planner');
+    return listTargets();
+  });
+
+  ipcMain.handle('planner:addTarget', async (_event, target) => {
+    const { addTarget } = await import('../tools/linkedin-planner');
+    return addTarget(target);
+  });
+
+  ipcMain.handle('planner:updateTarget', async (_event, id: number, updates) => {
+    const { updateTarget } = await import('../tools/linkedin-planner');
+    return updateTarget(id, updates);
+  });
+
+  ipcMain.handle('planner:deleteTarget', async (_event, id: number) => {
+    const { deleteTarget } = await import('../tools/linkedin-planner');
+    try {
+      return { success: deleteTarget(id) };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:toggleTarget', async (_event, id: number, enabled: boolean) => {
+    const { toggleTarget } = await import('../tools/linkedin-planner');
+    return toggleTarget(id, enabled);
+  });
+
+  ipcMain.handle('planner:listPlans', async (_event, status?: string) => {
+    const { listPlans } = await import('../tools/linkedin-planner');
+    return listPlans(status);
+  });
+
+  ipcMain.handle('planner:getPlan', async (_event, id: number) => {
+    const { getPlanWithAssets } = await import('../tools/linkedin-planner');
+    return getPlanWithAssets(id);
+  });
+
+  ipcMain.handle('planner:createPlan', async (_event, input) => {
+    const { createPlan } = await import('../tools/linkedin-planner');
+    return createPlan(input);
+  });
+
+  ipcMain.handle('planner:updatePlan', async (_event, id: number, updates) => {
+    const { updatePlan } = await import('../tools/linkedin-planner');
+    return updatePlan(id, updates);
+  });
+
+  ipcMain.handle('planner:deletePlan', async (_event, id: number) => {
+    const { deletePlan } = await import('../tools/linkedin-planner');
+    return { success: deletePlan(id) };
+  });
+
+  ipcMain.handle('planner:listAssets', async (_event, filters?) => {
+    const { listAssets } = await import('../tools/linkedin-planner');
+    return listAssets(filters);
+  });
+
+  ipcMain.handle('planner:getAsset', async (_event, id: number) => {
+    const { getAsset } = await import('../tools/linkedin-planner');
+    return getAsset(id);
+  });
+
+  ipcMain.handle('planner:approveAsset', async (_event, id: number) => {
+    const { approveAsset } = await import('../tools/linkedin-planner');
+    try {
+      return approveAsset(id);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:rejectAsset', async (_event, id: number) => {
+    const { rejectAsset } = await import('../tools/linkedin-planner');
+    return rejectAsset(id);
+  });
+
+  ipcMain.handle('planner:editAsset', async (_event, id: number, draftText: string) => {
+    const { updateAsset } = await import('../tools/linkedin-planner');
+    return updateAsset(id, { draft_text: draftText });
+  });
+
+  ipcMain.handle('planner:scheduleAssets', async (_event, assetIds: number[], scheduledAt: string) => {
+    const { updateAsset } = await import('../tools/linkedin-planner');
+    const results = [];
+    for (const id of assetIds) {
+      results.push(updateAsset(id, { status: 'scheduled', scheduled_at: scheduledAt }));
+    }
+    return results;
+  });
+
+  ipcMain.handle('planner:publishAsset', async (_event, id: number) => {
+    const { publishAsset } = await import('../tools/linkedin-planner');
+    try {
+      return await publishAsset(id);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:markCopied', async (_event, id: number) => {
+    const { markAssetCopied } = await import('../tools/linkedin-planner');
+    return markAssetCopied(id);
+  });
+
+  ipcMain.handle('planner:runResearch', async (_event, planId: number) => {
+    const { runPlanResearch } = await import('../tools/linkedin-planner');
+    try {
+      const result = await runPlanResearch(planId);
+      linkedInPlannerWindow?.webContents.send('planner:researchProgress', { planId, status: 'complete', result });
+      return result;
+    } catch (err) {
+      linkedInPlannerWindow?.webContents.send('planner:researchProgress', { planId, status: 'error', error: String(err) });
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:generateAssets', async (_event, planId: number) => {
+    const { generatePlanAssets } = await import('../tools/linkedin-planner');
+    try {
+      const assets = await generatePlanAssets(planId);
+      linkedInPlannerWindow?.webContents.send('planner:draftProgress', { planId, status: 'complete', count: assets.length });
+      return assets;
+    } catch (err) {
+      linkedInPlannerWindow?.webContents.send('planner:draftProgress', { planId, status: 'error', error: String(err) });
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 
