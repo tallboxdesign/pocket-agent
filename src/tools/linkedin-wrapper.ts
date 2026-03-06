@@ -42,8 +42,18 @@ export async function linkedinExec(script: string, args: string[], timeoutMs = 1
   const runPy = path.join(getScriptsDir(), 'run.py');
   const python = findPython3();
 
+  // Clean env: remove Electron/Chromium vars that conflict with Patchright's Chromium
+  const cleanEnv = { ...process.env };
+  for (const key of Object.keys(cleanEnv)) {
+    if (key.startsWith('ELECTRON') || key.startsWith('CHROME_') ||
+        key === 'GOOGLE_API_KEY' || key === 'GOOGLE_DEFAULT_CLIENT_ID' ||
+        key === 'GOOGLE_DEFAULT_CLIENT_SECRET' || key === 'NODE_ENV' ||
+        key === 'ORIGINAL_XDG_CURRENT_DESKTOP') {
+      delete cleanEnv[key];
+    }
+  }
   const execEnv = {
-    ...process.env,
+    ...cleanEnv,
     HOME: process.env.HOME || os.homedir(),
     PYTHONUNBUFFERED: '1',
     PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH || ''}`,
