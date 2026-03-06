@@ -24,19 +24,33 @@ from browser_utils import BrowserFactory, StealthUtils
 
 
 def attach_image(page, image_path: str) -> bool:
-    """Attach an image to the post being composed."""
-    # Try clicking the media button first
-    clicked = False
-    for sel in POST_MEDIA_BUTTON_SELECTORS:
-        btn = page.query_selector(sel)
-        if btn:
-            StealthUtils.realistic_click(page, sel)
-            StealthUtils.random_delay(1500, 3000)
-            clicked = True
-            break
+    """Attach an image to the post being composed.
 
-    # Whether or not we found a button, look for the file input
-    # LinkedIn often has a hidden file input we can use directly
+    Flow: JS-click "Add media" -> media editor panel opens ->
+    set_input_files on hidden file input -> click "Done" or "Next" to
+    return to share modal with image attached.
+    """
+    # Step 1: Click "Add media" via JS (bypasses modal overlay)
+    # Retry a few times since the button may take a moment to render
+    clicked_media = False
+    for attempt in range(5):
+        clicked_media = page.evaluate('''() => {
+            const btn = document.querySelector('button[aria-label="Add media"]');
+            if (btn) { btn.click(); return true; }
+            return false;
+        }''')
+        if clicked_media:
+            break
+        time.sleep(1)
+
+    if not clicked_media:
+        print("ERROR: Could not find 'Add media' button", file=sys.stderr)
+        return False
+
+    print("Clicked 'Add media'", file=sys.stderr)
+    StealthUtils.random_delay(2000, 3000)
+
+    # Step 2: Find the file input (now visible in media editor)
     file_input = None
     for sel in POST_IMAGE_INPUT_SELECTORS:
         file_input = page.query_selector(sel)
@@ -44,18 +58,41 @@ def attach_image(page, image_path: str) -> bool:
             break
 
     if not file_input:
-        # If no file input found after clicking, try waiting for it
-        if clicked:
+        try:
             page.wait_for_selector("input[type='file']", timeout=5000)
             file_input = page.query_selector("input[type='file']")
+        except Exception:
+            pass
 
     if not file_input:
-        print("ERROR: Could not find file input for image upload", file=sys.stderr)
+        print("ERROR: Could not find file input after media click", file=sys.stderr)
         return False
 
+    # Step 3: Upload the file
     file_input.set_input_files(image_path)
-    # Wait for the image to upload and thumbnail to appear
-    StealthUtils.random_delay(3000, 6000)
+    print(f"Image file set: {image_path}", file=sys.stderr)
+    StealthUtils.random_delay(4000, 7000)
+
+    # Step 4: Click "Done" or "Next" to return to share modal
+    done_clicked = page.evaluate('''() => {
+        const btns = document.querySelectorAll('button');
+        for (const btn of btns) {
+            const text = (btn.innerText || '').trim().toLowerCase();
+            if (text === 'done' || text === 'next') {
+                btn.click();
+                return text;
+            }
+        }
+        return null;
+    }''')
+
+    if done_clicked:
+        print(f"Clicked '{done_clicked}' to confirm image", file=sys.stderr)
+        StealthUtils.random_delay(2000, 3000)
+    else:
+        # Some flows auto-return to share modal
+        StealthUtils.random_delay(1000, 2000)
+
     print(f"Image attached: {image_path}", file=sys.stderr)
     return True
 
@@ -76,7 +113,7 @@ def create_post(page, text: str, image_path: str = None) -> bool:
         print("ERROR: Could not find 'Start a post' button", file=sys.stderr)
         return False
 
-    # Attach image first (before typing text) if provided
+    # Attach image FIRST (before text - LinkedIn renders media button cleanly)
     if image_path:
         if not attach_image(page, image_path):
             print("WARNING: Image attach failed, posting text only", file=sys.stderr)
@@ -88,7 +125,6 @@ def create_post(page, text: str, image_path: str = None) -> bool:
         if editor:
             editor.click()
             StealthUtils.short_delay()
-            # contenteditable divs — use fill or type
             editor.fill(text)
             StealthUtils.random_delay(1000, 2000)
             break
@@ -142,7 +178,8 @@ def main():
         print("Press Enter to publish, or Ctrl+C to cancel.", file=sys.stderr)
         input()
 
-    headless = not args.show_browser
+    # Force headed mode when uploading images (headless doesn't render media buttons)
+    headless = not args.show_browser and not image_path
     playwright = None
     context = None
 

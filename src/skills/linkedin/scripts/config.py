@@ -90,14 +90,14 @@ POST_EDITOR_SELECTORS = [
 # Image/media upload button in post editor toolbar
 POST_MEDIA_BUTTON_SELECTORS = [
     "button[aria-label='Add media']",
+    ".share-promoted-detour-button[aria-label='Add media']",
     "button[aria-label='Add a photo']",
-    "button:has-text('Add media')",
-    ".share-creation-state__detour-btn button",
-    ".share-box-feed-entry__avatar-area button[aria-label*='media']",
 ]
 
-# File input for image upload (hidden, used via set_input_files)
+# File input for image upload (hidden, revealed after clicking Add media)
 POST_IMAGE_INPUT_SELECTORS = [
+    "#media-editor-file-selector__file-input",
+    ".media-editor-file-selector__upload-media-input",
     "input[type='file'][accept*='image']",
     "input[type='file']",
 ]
