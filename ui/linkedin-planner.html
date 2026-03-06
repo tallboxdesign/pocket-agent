@@ -488,6 +488,86 @@
       opacity: 0.85;
     }
 
+    /* Settings panel - wider */
+    .settings-panel {
+      width: 520px;
+      right: -540px;
+    }
+    .settings-panel.open { right: 0; }
+
+    .settings-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      overflow-x: auto;
+    }
+    .settings-tab {
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      transition: all 0.15s;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+      font-family: inherit;
+    }
+    .settings-tab:hover { color: var(--text-secondary); }
+    .settings-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .settings-tab-content { display: none; }
+    .settings-tab-content.active { display: block; }
+
+    .settings-save-bar {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .settings-save-bar .save-status {
+      font-size: 12px;
+      color: var(--success);
+      margin-left: auto;
+    }
+
+    /* Post bank entries */
+    .bank-entry {
+      padding: 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    .bank-entry-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .bank-entry-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      flex: 1;
+    }
+    .bank-entry-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      max-height: 60px;
+      overflow: hidden;
+      white-space: pre-wrap;
+    }
+
     /* Overlay */
     .overlay {
       position: fixed;
@@ -504,6 +584,7 @@
     <h1><span>Content Planner</span></h1>
     <span class="header-stats" id="header-stats"></span>
     <div class="header-actions">
+      <button class="btn" onclick="openSettingsPanel()" title="Planner Settings">Settings</button>
       <button class="btn btn-blue" onclick="openTargetPanel()">Targets</button>
       <button class="btn btn-accent" onclick="openNewPlanPanel()">+ New Plan</button>
     </div>
@@ -616,6 +697,156 @@
         </div>
         <button class="btn btn-accent btn-sm" onclick="addTarget()">Add Target</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Settings panel -->
+  <div class="side-panel settings-panel" id="settings-panel">
+    <div class="side-panel-header">
+      <span class="side-panel-title">Planner Settings</span>
+      <button class="btn btn-sm" onclick="closePanels()">&times;</button>
+    </div>
+    <div class="settings-tabs">
+      <button class="settings-tab active" onclick="switchSettingsTab('models', this)">Models</button>
+      <button class="settings-tab" onclick="switchSettingsTab('rules', this)">Rules</button>
+      <button class="settings-tab" onclick="switchSettingsTab('voice', this)">Voice</button>
+      <button class="settings-tab" onclick="switchSettingsTab('bank', this)">Post Bank</button>
+      <button class="settings-tab" onclick="switchSettingsTab('schedule', this)">Schedule</button>
+    </div>
+    <div class="side-panel-body">
+
+      <!-- Models Tab -->
+      <div class="settings-tab-content active" id="tab-models">
+        <div class="form-group">
+          <label class="form-label">Research Model</label>
+          <select class="form-select" id="planner-research-model"></select>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Used for topic research and source analysis</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Writing Model</label>
+          <select class="form-select" id="planner-writer-model"></select>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Used for draft generation and AI improve/redo</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Image Generation</label>
+          <select class="form-select" id="planner-image-model">
+            <option value="nano-banana">Nano Banana (Gemini 3 Pro Image)</option>
+            <option value="none">No auto-image</option>
+          </select>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Auto-generate images when creating drafts</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Image Style Template</label>
+          <textarea class="form-textarea" id="planner-image-style" rows="3" placeholder="Professional LinkedIn post illustration. Clean, modern, bold colors..."></textarea>
+        </div>
+      </div>
+
+      <!-- Rules Tab -->
+      <div class="settings-tab-content" id="tab-rules">
+        <div class="form-group">
+          <label class="form-label">Hard Rules (tone, banned words, format)</label>
+          <textarea class="form-textarea" id="planner-hard-rules" rows="12" placeholder="- No emojis, no hashtags..."></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Applied to every draft. Leave empty for built-in defaults.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Post Format (profile posts)</label>
+          <textarea class="form-textarea" id="planner-post-format" rows="3" placeholder="Write a LinkedIn post (100-300 words). Strong hook..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Article Format (long-form)</label>
+          <textarea class="form-textarea" id="planner-article-format" rows="3" placeholder="Write a long-form article (800-1500 words)..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Group Format</label>
+          <textarea class="form-textarea" id="planner-group-format" rows="3" placeholder="Write a group discussion post (100-250 words)..."></textarea>
+        </div>
+      </div>
+
+      <!-- Voice Tab -->
+      <div class="settings-tab-content" id="tab-voice">
+        <div class="form-group">
+          <label class="form-label">Voice / Style</label>
+          <textarea class="form-textarea" id="planner-voice-style" rows="4" placeholder="Direct, no fluff, concrete examples. Short sentences. Cut like a knife."></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">How the writing should sound</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Content Direction</label>
+          <textarea class="form-textarea" id="planner-content-direction" rows="3" placeholder="SEO patents, practical hacks, data-backed claims..."></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">What topics and angles to focus on</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Post Strategy</label>
+          <textarea class="form-textarea" id="planner-post-strategy" rows="3" placeholder="Alternate between patent breakdowns and case studies..."></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Overall posting strategy</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Writing Rules (additional)</label>
+          <textarea class="form-textarea" id="planner-writing-rules" rows="3" placeholder="Always include a concrete example or data point..."></textarea>
+        </div>
+      </div>
+
+      <!-- Post Bank Tab -->
+      <div class="settings-tab-content" id="tab-bank">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <label class="form-label" style="margin:0;flex:1">Voice Examples</label>
+          <label class="form-label" style="margin:0;width:80px">Per draft:</label>
+          <input type="number" class="form-input" id="planner-bank-count" style="width:50px;padding:4px 6px;text-align:center" value="3" min="0" max="10">
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Add example posts that define your voice. The AI will match their rhythm and style without copying content.</div>
+        <div id="bank-entries-list"></div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+          <div class="form-group">
+            <label class="form-label">Add Example</label>
+            <input class="form-input" id="bank-new-title" placeholder="Title (e.g. 'Patent breakdown style')" style="margin-bottom:6px">
+            <textarea class="form-textarea" id="bank-new-text" rows="5" placeholder="Paste an example post that represents your voice..."></textarea>
+          </div>
+          <button class="btn btn-accent btn-sm" onclick="addBankEntry()">Add to Bank</button>
+          <button class="btn btn-sm" onclick="importBankFromClipboard()" style="margin-left:6px">Paste from Clipboard</button>
+        </div>
+      </div>
+
+      <!-- Schedule Tab -->
+      <div class="settings-tab-content" id="tab-schedule">
+        <div class="form-group">
+          <label class="form-label">Publishing Window</label>
+          <div style="display:flex;gap:8px">
+            <div style="flex:1">
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">From</div>
+              <input type="time" class="form-input" id="planner-schedule-from" value="09:00">
+            </div>
+            <div style="flex:1">
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">To</div>
+              <input type="time" class="form-input" id="planner-schedule-to" value="11:00">
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Publishing Days</label>
+          <div id="planner-schedule-days" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Min Hours Between Posts</label>
+          <input type="number" class="form-input" id="planner-min-gap" value="4" min="1" max="72" style="width:80px">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Max Posts Per Day</label>
+          <input type="number" class="form-input" id="planner-max-daily" value="2" min="1" max="10" style="width:80px">
+        </div>
+        <div class="form-group">
+          <label class="form-label">EXIF Auto-strip</label>
+          <select class="form-select" id="planner-exif-strip" style="width:120px">
+            <option value="true">Enabled</option>
+            <option value="false">Disabled</option>
+          </select>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Strip AI metadata from images before posting</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-save-bar">
+      <button class="btn btn-accent" onclick="saveAllSettings()">Save All</button>
+      <button class="btn" onclick="closePanels()">Cancel</button>
+      <span class="save-status" id="settings-save-status"></span>
     </div>
   </div>
 
@@ -908,6 +1139,7 @@
     document.getElementById('overlay').classList.remove('visible');
     document.getElementById('new-plan-panel').classList.remove('open');
     document.getElementById('target-panel').classList.remove('open');
+    document.getElementById('settings-panel').classList.remove('open');
   }
 
   function setResearchMode(mode) {
@@ -1026,6 +1258,202 @@
     allTargets = await api.plannerListTargets();
     renderTargetList();
     renderFilters();
+  }
+
+  // ---- Settings Panel ----
+  let bankEntries = [];
+
+  const SETTINGS_MAP = {
+    'planner-hard-rules': 'linkedin.plannerHardRules',
+    'planner-post-format': 'linkedin.plannerPostFormat',
+    'planner-article-format': 'linkedin.plannerArticleFormat',
+    'planner-group-format': 'linkedin.plannerGroupFormat',
+    'planner-voice-style': 'linkedin.voiceStyle',
+    'planner-content-direction': 'linkedin.contentDirection',
+    'planner-post-strategy': 'linkedin.postStrategy',
+    'planner-writing-rules': 'linkedin.writingRules',
+    'planner-image-style': 'linkedin.plannerImageStyle',
+    'planner-schedule-from': 'linkedin.plannerScheduleFrom',
+    'planner-schedule-to': 'linkedin.plannerScheduleTo',
+    'planner-min-gap': 'linkedin.plannerMinGapHours',
+    'planner-max-daily': 'linkedin.plannerMaxDaily',
+    'planner-exif-strip': 'linkedin.plannerExifStrip',
+    'planner-bank-count': 'linkedin.plannerBankEntries',
+    'planner-image-model': 'linkedin.plannerImageModel',
+  };
+
+  function switchSettingsTab(tabId, btn) {
+    document.querySelectorAll('.settings-tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+    const tab = document.getElementById('tab-' + tabId);
+    if (tab) tab.classList.add('active');
+    if (btn) btn.classList.add('active');
+  }
+
+  function providerLabel(provider) {
+    const key = String(provider || '').toLowerCase();
+    if (key === 'anthropic') return 'Claude';
+    if (key === 'moonshot') return 'Kimi';
+    if (key === 'glm') return 'GLM';
+    if (key === 'minimax') return 'MiniMax';
+    if (key === 'gemini') return 'Gemini';
+    if (key === 'openai') return 'OpenAI';
+    if (key === 'qwen') return 'Qwen';
+    return String(provider || 'Model');
+  }
+
+  async function loadModelPicker(selectId, settingKey, emptyLabel) {
+    const el = document.getElementById(selectId);
+    if (!el || !api?.getAvailableModels) return;
+    try {
+      const [models, saved] = await Promise.all([
+        api.getAvailableModels(),
+        api.getSetting(settingKey),
+      ]);
+      const providerOrder = ['anthropic', 'moonshot', 'glm', 'minimax', 'gemini', 'openai', 'qwen'];
+      const sorted = [...models]
+        .filter(m => !String(m.provider || '').toLowerCase().includes('openrouter'))
+        .sort((a, b) => {
+          const ai = providerOrder.indexOf(a.provider);
+          const bi = providerOrder.indexOf(b.provider);
+          if (ai !== bi) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+          return String(a.name || a.id).localeCompare(String(b.name || b.id));
+        });
+      el.innerHTML = `<option value="">${emptyLabel}</option>`;
+      for (const m of sorted) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = `[${providerLabel(m.provider)}] ${m.name || m.id}`;
+        el.appendChild(opt);
+      }
+      if (saved) el.value = saved;
+    } catch { /* ok */ }
+  }
+
+  async function loadSettingsPanel() {
+    // Model pickers
+    await Promise.all([
+      loadModelPicker('planner-research-model', 'linkedin.plannerResearchModel', 'Use LinkedIn research model'),
+      loadModelPicker('planner-writer-model', 'linkedin.plannerWriterModel', 'Use LinkedIn writer model'),
+    ]);
+
+    // Image model
+    const imgModel = await api.getSetting('linkedin.plannerImageModel');
+    if (imgModel) document.getElementById('planner-image-model').value = imgModel;
+
+    // Load all text settings
+    for (const [elId, key] of Object.entries(SETTINGS_MAP)) {
+      const el = document.getElementById(elId);
+      if (!el) continue;
+      try {
+        const val = await api.getSetting(key);
+        if (val) el.value = val;
+      } catch { /* ok */ }
+    }
+
+    // Schedule days
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const savedDays = (await api.getSetting('linkedin.plannerScheduleDays')) || 'Mon,Tue,Wed,Thu,Fri';
+    const enabledDays = new Set(savedDays.split(',').map(d => d.trim()));
+    const daysContainer = document.getElementById('planner-schedule-days');
+    daysContainer.innerHTML = days.map(d => `
+      <label style="display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer">
+        <input type="checkbox" class="schedule-day" value="${d}" ${enabledDays.has(d) ? 'checked' : ''} style="accent-color:var(--accent)">
+        ${d}
+      </label>
+    `).join('');
+
+    // Load bank entries
+    try {
+      const raw = await api.getSetting('linkedin.postBankEntries');
+      bankEntries = raw ? JSON.parse(raw) : [];
+    } catch { bankEntries = []; }
+    renderBankEntries();
+  }
+
+  function renderBankEntries() {
+    const container = document.getElementById('bank-entries-list');
+    if (!bankEntries.length) {
+      container.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0">No voice examples yet. Add posts that represent your writing style.</div>';
+      return;
+    }
+    container.innerHTML = bankEntries.map((e, i) => `
+      <div class="bank-entry">
+        <div class="bank-entry-header">
+          <span class="bank-entry-title">${escHtml(e.title || 'Example ' + (i + 1))}</span>
+          <button class="btn btn-danger btn-sm" onclick="removeBankEntry(${i})" style="padding:1px 6px;font-size:11px">Del</button>
+        </div>
+        <div class="bank-entry-text">${escHtml((e.text || '').slice(0, 200))}${(e.text || '').length > 200 ? '...' : ''}</div>
+      </div>
+    `).join('');
+  }
+
+  function addBankEntry() {
+    const title = document.getElementById('bank-new-title').value.trim();
+    const text = document.getElementById('bank-new-text').value.trim();
+    if (!text) { alert('Example text is required'); return; }
+    bankEntries.push({
+      id: Date.now().toString(),
+      title: title || 'Example ' + (bankEntries.length + 1),
+      type: 'post',
+      text,
+    });
+    document.getElementById('bank-new-title').value = '';
+    document.getElementById('bank-new-text').value = '';
+    renderBankEntries();
+  }
+
+  async function importBankFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text || text.length < 20) { alert('Clipboard is empty or too short'); return; }
+      document.getElementById('bank-new-text').value = text;
+    } catch { alert('Could not read clipboard'); }
+  }
+
+  function removeBankEntry(index) {
+    bankEntries.splice(index, 1);
+    renderBankEntries();
+  }
+
+  async function saveAllSettings() {
+    const statusEl = document.getElementById('settings-save-status');
+    statusEl.textContent = 'Saving...';
+
+    try {
+      // Save model pickers
+      const researchModel = document.getElementById('planner-research-model').value;
+      const writerModel = document.getElementById('planner-writer-model').value;
+      await api.setSetting('linkedin.plannerResearchModel', researchModel);
+      await api.setSetting('linkedin.plannerWriterModel', writerModel);
+
+      // Save all text settings
+      for (const [elId, key] of Object.entries(SETTINGS_MAP)) {
+        const el = document.getElementById(elId);
+        if (!el) continue;
+        await api.setSetting(key, el.value);
+      }
+
+      // Save schedule days
+      const dayCheckboxes = document.querySelectorAll('.schedule-day:checked');
+      const selectedDays = [...dayCheckboxes].map(cb => cb.value).join(',');
+      await api.setSetting('linkedin.plannerScheduleDays', selectedDays);
+
+      // Save bank entries
+      await api.setSetting('linkedin.postBankEntries', JSON.stringify(bankEntries));
+
+      statusEl.textContent = 'Saved!';
+      setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    } catch (e) {
+      statusEl.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  function openSettingsPanel() {
+    closePanels();
+    loadSettingsPanel();
+    document.getElementById('overlay').classList.add('visible');
+    document.getElementById('settings-panel').classList.add('open');
   }
 
   // ---- Lightbox ----
