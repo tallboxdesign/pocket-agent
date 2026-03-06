@@ -221,7 +221,7 @@ def screenshot_url(url: str, output: str, selector: str = None,
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={'width': viewport_width, 'height': viewport_height})
-        page.goto(url, wait_until='networkidle', timeout=30000)
+        page.goto(url, wait_until='domcontentloaded', timeout=60000)
         time.sleep(wait)
 
         # Scroll to element if requested
