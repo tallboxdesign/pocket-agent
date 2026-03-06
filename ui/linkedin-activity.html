@@ -230,6 +230,35 @@
       color: var(--text-secondary);
       color-scheme: dark;
     }
+    .li-quick-field .toggle {
+      width: 42px;
+      height: 24px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.06);
+      position: relative;
+      cursor: pointer;
+      transition: background 0.18s ease, border-color 0.18s ease;
+    }
+    .li-quick-field .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: transform 0.18s ease, background 0.18s ease;
+    }
+    .li-quick-field .toggle.active {
+      background: rgba(96, 165, 250, 0.22);
+      border-color: rgba(96, 165, 250, 0.42);
+    }
+    .li-quick-field .toggle.active::after {
+      transform: translateX(18px);
+      background: #93c5fd;
+    }
     .li-quick-field.span-2 { grid-column: span 2; }
     .li-quick-field.span-all { grid-column: 1 / -1; }
     .li-quick-help {
