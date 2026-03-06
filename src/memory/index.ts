@@ -891,6 +891,105 @@ export class MemoryManager {
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_target ON linkedin_plan_assets(target_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_status ON linkedin_plan_assets(status)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lpa_scheduled ON linkedin_plan_assets(scheduled_at) WHERE status = 'scheduled'`);
+
+    // Idea Lab: migrate plan_assets with new columns
+    const assetMigrations = [
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN session_id INTEGER REFERENCES linkedin_idea_sessions(id)',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN idea_card_id INTEGER REFERENCES linkedin_idea_cards(id)',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN batch_rules TEXT',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN per_idea_rules TEXT',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN discussion_context TEXT',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN last_error TEXT',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN error_step TEXT',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN retry_count INTEGER DEFAULT 0',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN image_preset TEXT DEFAULT \'none\'',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN image_caption TEXT',
+    ];
+    for (const sql of assetMigrations) {
+      try { this.db.exec(sql); } catch { /* column already exists */ } // eslint-disable-line no-empty
+    }
+
+    // Idea Lab: sessions (freeform dump + discussion thread)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_idea_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        status TEXT DEFAULT 'active',
+        initial_dump TEXT,
+        discussion_history TEXT,
+        batch_rules TEXT,
+        research_sources TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    // Idea Lab: idea cards (generated from discussion)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_idea_cards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES linkedin_idea_sessions(id) ON DELETE CASCADE,
+        target_id INTEGER REFERENCES linkedin_targets(id),
+        angle TEXT NOT NULL,
+        hook TEXT,
+        key_points TEXT,
+        source_urls TEXT,
+        image_preset TEXT DEFAULT 'none',
+        image_concept TEXT,
+        image_caption TEXT,
+        per_idea_rules TEXT,
+        selected INTEGER DEFAULT 1,
+        sort_order INTEGER DEFAULT 0,
+        asset_id INTEGER REFERENCES linkedin_plan_assets(id),
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lic_session ON linkedin_idea_cards(session_id)`);
+
+    // URL Registry: central source database for all URLs
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_url_registry (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        url_hash TEXT NOT NULL,
+        domain TEXT,
+        url_type TEXT NOT NULL DEFAULT 'reference',
+        title TEXT,
+        snippet TEXT,
+        topic_tags TEXT,
+        times_used INTEGER DEFAULT 1,
+        first_seen_at TEXT DEFAULT (datetime('now')),
+        last_used_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_url_hash ON linkedin_url_registry(url_hash)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_url_type ON linkedin_url_registry(url_type)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_url_domain ON linkedin_url_registry(domain)`);
+
+    // URL Registry: junction tables
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_session_urls (
+        session_id INTEGER NOT NULL REFERENCES linkedin_idea_sessions(id) ON DELETE CASCADE,
+        url_id INTEGER NOT NULL REFERENCES linkedin_url_registry(id),
+        role TEXT DEFAULT 'research',
+        PRIMARY KEY (session_id, url_id)
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_idea_urls (
+        idea_card_id INTEGER NOT NULL REFERENCES linkedin_idea_cards(id) ON DELETE CASCADE,
+        url_id INTEGER NOT NULL REFERENCES linkedin_url_registry(id),
+        PRIMARY KEY (idea_card_id, url_id)
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS linkedin_asset_urls (
+        asset_id INTEGER NOT NULL REFERENCES linkedin_plan_assets(id) ON DELETE CASCADE,
+        url_id INTEGER NOT NULL REFERENCES linkedin_url_registry(id),
+        role TEXT DEFAULT 'source',
+        PRIMARY KEY (asset_id, url_id, role)
+      )
+    `);
   }
 
   private migrateDailyLogsToLocalDates(): void {

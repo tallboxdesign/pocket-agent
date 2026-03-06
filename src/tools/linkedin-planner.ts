@@ -7,6 +7,7 @@
  */
 
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
@@ -79,6 +80,52 @@ export interface PlanAsset {
 
 export interface PlanWithAssets extends ContentPlan {
   assets: PlanAsset[];
+}
+
+export type ImagePreset = 'meme' | 'explainer_card' | 'annotated_screenshot' | 'data_visual' | 'quote_card' | 'comparison' | 'none';
+
+export interface IdeaSession {
+  id: number;
+  status: string;
+  initial_dump: string | null;
+  discussion_history: string | null;
+  batch_rules: string | null;
+  research_sources: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IdeaCard {
+  id: number;
+  session_id: number;
+  target_id: number | null;
+  angle: string;
+  hook: string | null;
+  key_points: string | null;
+  source_urls: string | null;
+  image_preset: ImagePreset;
+  image_concept: string | null;
+  image_caption: string | null;
+  per_idea_rules: string | null;
+  selected: number;
+  sort_order: number;
+  asset_id: number | null;
+  created_at: string;
+}
+
+export interface UrlRegistryEntry {
+  id: number;
+  url: string;
+  url_hash: string;
+  domain: string | null;
+  url_type: string;
+  title: string | null;
+  snippet: string | null;
+  topic_tags: string | null;
+  times_used: number;
+  first_seen_at: string;
+  last_used_at: string;
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -521,6 +568,279 @@ export function isDuplicateAsset(draftText: string, planId: number): boolean {
   } finally {
     db.close();
   }
+}
+
+// ---------------------------------------------------------------------------
+// URL Registry
+// ---------------------------------------------------------------------------
+
+function normalizeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = '';
+    u.searchParams.delete('utm_source');
+    u.searchParams.delete('utm_medium');
+    u.searchParams.delete('utm_campaign');
+    u.searchParams.delete('utm_content');
+    u.searchParams.delete('utm_term');
+    u.searchParams.delete('fbclid');
+    u.searchParams.delete('gclid');
+    return u.toString().replace(/\/+$/, '');
+  } catch {
+    return url.trim().replace(/\/+$/, '');
+  }
+}
+
+function hashUrl(url: string): string {
+  return crypto.createHash('sha256').update(normalizeUrl(url)).digest('hex');
+}
+
+function extractDomain(url: string): string | null {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return null; }
+}
+
+export function registerUrl(entry: {
+  url: string;
+  url_type?: string;
+  title?: string;
+  snippet?: string;
+  topic_tags?: string[];
+}): UrlRegistryEntry | null {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const normalized = normalizeUrl(entry.url);
+    const hash = hashUrl(entry.url);
+    const domain = extractDomain(entry.url);
+    const tags = entry.topic_tags?.length ? JSON.stringify(entry.topic_tags) : null;
+
+    // Upsert: increment times_used if exists, insert if not
+    const existing = db.prepare('SELECT * FROM linkedin_url_registry WHERE url_hash = ?').get(hash) as UrlRegistryEntry | undefined;
+    if (existing) {
+      db.prepare(`
+        UPDATE linkedin_url_registry
+        SET times_used = times_used + 1, last_used_at = datetime('now'),
+            title = COALESCE(?, title), snippet = COALESCE(?, snippet),
+            topic_tags = COALESCE(?, topic_tags)
+        WHERE id = ?
+      `).run(entry.title || null, entry.snippet || null, tags, existing.id);
+      return db.prepare('SELECT * FROM linkedin_url_registry WHERE id = ?').get(existing.id) as UrlRegistryEntry;
+    }
+
+    const result = db.prepare(`
+      INSERT INTO linkedin_url_registry (url, url_hash, domain, url_type, title, snippet, topic_tags)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(normalized, hash, domain, entry.url_type || 'reference', entry.title || null, entry.snippet || null, tags);
+
+    return db.prepare('SELECT * FROM linkedin_url_registry WHERE id = ?').get(result.lastInsertRowid) as UrlRegistryEntry;
+  } finally {
+    db.close();
+  }
+}
+
+export function checkUrlUsed(url: string): { used: boolean; entry?: UrlRegistryEntry; sessions?: number[] } {
+  const db = getDb();
+  if (!db) return { used: false };
+  try {
+    const hash = hashUrl(url);
+    const entry = db.prepare('SELECT * FROM linkedin_url_registry WHERE url_hash = ?').get(hash) as UrlRegistryEntry | undefined;
+    if (!entry) return { used: false };
+    const sessions = db.prepare('SELECT session_id FROM linkedin_session_urls WHERE url_id = ?').all(entry.id) as Array<{ session_id: number }>;
+    return { used: true, entry, sessions: sessions.map(s => s.session_id) };
+  } finally {
+    db.close();
+  }
+}
+
+export function linkUrlToSession(urlId: number, sessionId: number, role = 'research'): void {
+  const db = getDb();
+  if (!db) return;
+  try {
+    db.prepare('INSERT OR IGNORE INTO linkedin_session_urls (session_id, url_id, role) VALUES (?, ?, ?)').run(sessionId, urlId, role);
+  } finally { db.close(); }
+}
+
+export function linkUrlToIdea(urlId: number, ideaCardId: number): void {
+  const db = getDb();
+  if (!db) return;
+  try {
+    db.prepare('INSERT OR IGNORE INTO linkedin_idea_urls (idea_card_id, url_id) VALUES (?, ?)').run(ideaCardId, urlId);
+  } finally { db.close(); }
+}
+
+export function linkUrlToAsset(urlId: number, assetId: number, role = 'source'): void {
+  const db = getDb();
+  if (!db) return;
+  try {
+    db.prepare('INSERT OR IGNORE INTO linkedin_asset_urls (asset_id, url_id, role) VALUES (?, ?, ?)').run(assetId, urlId, role);
+  } finally { db.close(); }
+}
+
+export function getUrlsBySession(sessionId: number): UrlRegistryEntry[] {
+  const db = getDb();
+  if (!db) return [];
+  try {
+    return db.prepare(`
+      SELECT r.* FROM linkedin_url_registry r
+      JOIN linkedin_session_urls su ON su.url_id = r.id
+      WHERE su.session_id = ?
+      ORDER BY r.last_used_at DESC
+    `).all(sessionId) as UrlRegistryEntry[];
+  } finally { db.close(); }
+}
+
+export function getUrlsByAsset(assetId: number): Array<UrlRegistryEntry & { role: string }> {
+  const db = getDb();
+  if (!db) return [];
+  try {
+    return db.prepare(`
+      SELECT r.*, au.role FROM linkedin_url_registry r
+      JOIN linkedin_asset_urls au ON au.url_id = r.id
+      WHERE au.asset_id = ?
+      ORDER BY r.last_used_at DESC
+    `).all(assetId) as Array<UrlRegistryEntry & { role: string }>;
+  } finally { db.close(); }
+}
+
+// ---------------------------------------------------------------------------
+// Idea Lab: Sessions
+// ---------------------------------------------------------------------------
+
+export function createIdeaSession(input: {
+  initial_dump: string;
+  research_sources?: Record<string, boolean>;
+  batch_rules?: string;
+}): IdeaSession | null {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const sources = input.research_sources ? JSON.stringify(input.research_sources) : null;
+    const result = db.prepare(`
+      INSERT INTO linkedin_idea_sessions (initial_dump, research_sources, batch_rules)
+      VALUES (?, ?, ?)
+    `).run(input.initial_dump, sources, input.batch_rules || null);
+    return db.prepare('SELECT * FROM linkedin_idea_sessions WHERE id = ?').get(result.lastInsertRowid) as IdeaSession;
+  } finally { db.close(); }
+}
+
+export function getIdeaSession(id: number): IdeaSession | null {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    return (db.prepare('SELECT * FROM linkedin_idea_sessions WHERE id = ?').get(id) as IdeaSession) || null;
+  } finally { db.close(); }
+}
+
+export function updateIdeaSession(id: number, updates: Partial<{
+  status: string;
+  discussion_history: string;
+  batch_rules: string;
+}>): IdeaSession | null {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, val] of Object.entries(updates)) {
+      if (val !== undefined) { fields.push(`${key} = ?`); values.push(val); }
+    }
+    if (!fields.length) return getIdeaSession(id);
+    fields.push("updated_at = datetime('now')");
+    values.push(id);
+    db.prepare(`UPDATE linkedin_idea_sessions SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    return getIdeaSession(id);
+  } finally { db.close(); }
+}
+
+export function listIdeaSessions(status?: string): IdeaSession[] {
+  const db = getDb();
+  if (!db) return [];
+  try {
+    if (status) {
+      return db.prepare('SELECT * FROM linkedin_idea_sessions WHERE status = ? ORDER BY created_at DESC').all(status) as IdeaSession[];
+    }
+    return db.prepare('SELECT * FROM linkedin_idea_sessions ORDER BY created_at DESC').all() as IdeaSession[];
+  } finally { db.close(); }
+}
+
+// ---------------------------------------------------------------------------
+// Idea Lab: Cards
+// ---------------------------------------------------------------------------
+
+export function createIdeaCard(card: {
+  session_id: number;
+  target_id?: number;
+  angle: string;
+  hook?: string;
+  key_points?: string[];
+  source_urls?: string[];
+  image_preset?: ImagePreset;
+  image_concept?: string;
+  image_caption?: string;
+  per_idea_rules?: string;
+  sort_order?: number;
+}): IdeaCard | null {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const result = db.prepare(`
+      INSERT INTO linkedin_idea_cards (session_id, target_id, angle, hook, key_points, source_urls,
+        image_preset, image_concept, image_caption, per_idea_rules, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      card.session_id, card.target_id || null, card.angle, card.hook || null,
+      card.key_points ? JSON.stringify(card.key_points) : null,
+      card.source_urls ? JSON.stringify(card.source_urls) : null,
+      card.image_preset || 'none', card.image_concept || null,
+      card.image_caption || null, card.per_idea_rules || null, card.sort_order || 0,
+    );
+    return db.prepare('SELECT * FROM linkedin_idea_cards WHERE id = ?').get(result.lastInsertRowid) as IdeaCard;
+  } finally { db.close(); }
+}
+
+export function getIdeaCards(sessionId: number): IdeaCard[] {
+  const db = getDb();
+  if (!db) return [];
+  try {
+    return db.prepare('SELECT * FROM linkedin_idea_cards WHERE session_id = ? ORDER BY sort_order, id').all(sessionId) as IdeaCard[];
+  } finally { db.close(); }
+}
+
+export function updateIdeaCard(id: number, updates: Partial<{
+  angle: string;
+  hook: string;
+  key_points: string;
+  source_urls: string;
+  image_preset: string;
+  image_concept: string;
+  image_caption: string;
+  per_idea_rules: string;
+  selected: number;
+  sort_order: number;
+  target_id: number;
+  asset_id: number;
+}>): IdeaCard | null {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, val] of Object.entries(updates)) {
+      if (val !== undefined) { fields.push(`${key} = ?`); values.push(val); }
+    }
+    if (!fields.length) return null;
+    values.push(id);
+    db.prepare(`UPDATE linkedin_idea_cards SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    return db.prepare('SELECT * FROM linkedin_idea_cards WHERE id = ?').get(id) as IdeaCard;
+  } finally { db.close(); }
+}
+
+export function deleteIdeaCard(id: number): boolean {
+  const db = getDb();
+  if (!db) return false;
+  try {
+    return db.prepare('DELETE FROM linkedin_idea_cards WHERE id = ?').run(id).changes > 0;
+  } finally { db.close(); }
 }
 
 // ---------------------------------------------------------------------------
