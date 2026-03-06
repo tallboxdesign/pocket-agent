@@ -108,6 +108,40 @@ contextBridge.exposeInMainWorld('pocketAgent', {
     ipcRenderer.on('linkedin:engagementProgress', listener);
     return () => ipcRenderer.removeListener('linkedin:engagementProgress', listener);
   },
+
+  // Content Planner
+  openLinkedInPlanner: () => ipcRenderer.invoke('app:openLinkedInPlanner'),
+  plannerListTargets: () => ipcRenderer.invoke('planner:listTargets'),
+  plannerAddTarget: (target: Record<string, unknown>) => ipcRenderer.invoke('planner:addTarget', target),
+  plannerUpdateTarget: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('planner:updateTarget', id, updates),
+  plannerDeleteTarget: (id: number) => ipcRenderer.invoke('planner:deleteTarget', id),
+  plannerToggleTarget: (id: number, enabled: boolean) => ipcRenderer.invoke('planner:toggleTarget', id, enabled),
+  plannerListPlans: (status?: string) => ipcRenderer.invoke('planner:listPlans', status),
+  plannerGetPlan: (id: number) => ipcRenderer.invoke('planner:getPlan', id),
+  plannerCreatePlan: (input: Record<string, unknown>) => ipcRenderer.invoke('planner:createPlan', input),
+  plannerUpdatePlan: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('planner:updatePlan', id, updates),
+  plannerDeletePlan: (id: number) => ipcRenderer.invoke('planner:deletePlan', id),
+  plannerListAssets: (filters?: Record<string, unknown>) => ipcRenderer.invoke('planner:listAssets', filters),
+  plannerGetAsset: (id: number) => ipcRenderer.invoke('planner:getAsset', id),
+  plannerApproveAsset: (id: number) => ipcRenderer.invoke('planner:approveAsset', id),
+  plannerRejectAsset: (id: number) => ipcRenderer.invoke('planner:rejectAsset', id),
+  plannerEditAsset: (id: number, draftText: string) => ipcRenderer.invoke('planner:editAsset', id, draftText),
+  plannerScheduleAssets: (assetIds: number[], scheduledAt: string) => ipcRenderer.invoke('planner:scheduleAssets', assetIds, scheduledAt),
+  plannerPublishAsset: (id: number) => ipcRenderer.invoke('planner:publishAsset', id),
+  plannerMarkCopied: (id: number) => ipcRenderer.invoke('planner:markCopied', id),
+  plannerRunResearch: (planId: number) => ipcRenderer.invoke('planner:runResearch', planId),
+  plannerGenerateAssets: (planId: number) => ipcRenderer.invoke('planner:generateAssets', planId),
+  onPlannerResearchProgress: (callback: (data: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on('planner:researchProgress', listener);
+    return () => ipcRenderer.removeListener('planner:researchProgress', listener);
+  },
+  onPlannerDraftProgress: (callback: (data: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on('planner:draftProgress', listener);
+    return () => ipcRenderer.removeListener('planner:draftProgress', listener);
+  },
+
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   openPath: (filePath: string) => ipcRenderer.invoke('app:openPath', filePath),
   showInFolder: (filePath: string) => ipcRenderer.invoke('app:showInFolder', filePath),
