@@ -754,7 +754,7 @@ export function getPlannerTools() {
     {
       name: 'linkedin_manage_targets',
       description: 'Manage LinkedIn publishing targets (profile, company page, group, article stream). Actions: list, add, update, delete, toggle.',
-      parameters: {
+      input_schema: {
         type: 'object' as const,
         properties: {
           action: { type: 'string', enum: ['list', 'add', 'update', 'delete', 'toggle'], description: 'Action to perform' },
@@ -810,7 +810,7 @@ export function getPlannerTools() {
     {
       name: 'linkedin_create_content_plan',
       description: 'Create a LinkedIn content plan from a prompt. Optionally provide reference URLs and select targets. Returns the plan with pending assets.',
-      parameters: {
+      input_schema: {
         type: 'object' as const,
         properties: {
           title: { type: 'string', description: 'Short plan title' },
@@ -850,7 +850,7 @@ export function getPlannerTools() {
     {
       name: 'linkedin_generate_plan_assets',
       description: 'Research the plan topic and generate target-specific draft posts for all pending assets in a plan.',
-      parameters: {
+      input_schema: {
         type: 'object' as const,
         properties: {
           plan_id: { type: 'number', description: 'Plan ID to generate assets for' },
@@ -869,7 +869,7 @@ export function getPlannerTools() {
     {
       name: 'linkedin_publish_plan_asset',
       description: 'Publish an approved plan asset to LinkedIn. Only works for targets with auto-publish capability (currently profile only).',
-      parameters: {
+      input_schema: {
         type: 'object' as const,
         properties: {
           asset_id: { type: 'number', description: 'Asset ID to publish' },
@@ -888,7 +888,7 @@ export function getPlannerTools() {
     {
       name: 'linkedin_plan_status',
       description: 'Show status summary of content plans and their assets.',
-      parameters: {
+      input_schema: {
         type: 'object' as const,
         properties: {
           plan_id: { type: 'number', description: 'Specific plan ID, or omit for all plans' },

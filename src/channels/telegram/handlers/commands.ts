@@ -1,6 +1,6 @@
 /**
  * Telegram command handlers
- * /start, /help, /status, /model, /new, /facts, /workflow, /link, /unlink, /mychatid
+ * /start, /help, /status, /model, /mode, /tools, /diag, /new, /facts, /workflow, /link, /unlink, /mychatid
  */
 
 import { Context, Bot } from 'grammy';
@@ -12,6 +12,8 @@ import { getAllowedUsers } from '../middleware/auth';
 import { withTyping } from '../utils/typing';
 import { setTelegramMessageContext } from '../../../tools/session-context';
 import { setActiveChannel } from '../../../tools/voice-tools';
+import { registerLinkedInTelegramHandlers } from './linkedin';
+import { getExternalSafetyState } from '../../../agent/safety';
 
 export interface CommandHandlerDeps {
   bot: Bot;
@@ -41,7 +43,11 @@ export function registerCommandHandlers(deps: CommandHandlerDeps): void {
       `/help - How to use Pocket Agent\n` +
       `/new - Fresh start (keeps facts & reminders)\n` +
       `/model - List or switch AI models\n` +
+      `/mode - Show active mode\n` +
+      `/tools - Show available tool groups\n` +
+      `/diag - Session diagnostics\n` +
       `/limode - LinkedIn draft mode (fast/balanced/deep)\n` +
+      `/linkedin - LinkedIn queue list and actions\n` +
       `/status - Show agent status\n` +
       `/restart - Stop stuck query\n` +
       `/facts [query] - Search stored facts\n` +
@@ -61,7 +67,15 @@ Your AI assistant with persistent memory. I remember our conversations and learn
 <b>Commands</b>
 /new - Clear chat history (fresh start)
 /model - View or switch AI models
+/mode - Show active session mode
+/tools - Show active tool groups
+/diag - Show session diagnostics
 /limode - Set LinkedIn draft mode (fast/balanced/deep)
+/linkedin - Numbered LinkedIn list for draft/approve/schedule/reject
+/linkedin_draft - Draft selected numbers from last /linkedin list
+/linkedin_approve - Approve selected numbers
+/linkedin_schedule - Schedule selected numbers
+/linkedin_reject - Reject selected numbers
 /status - See stats and memory usage
 /restart - Stop stuck query
 /facts - Browse what I remember about you
@@ -107,6 +121,70 @@ Workflows are reusable command templates. Use /workflow to see what's available,
       `Est. Tokens: ${stats.estimatedTokens.toLocaleString()}\n` +
       `Memory: ${memoryMB.toFixed(1)} MB` +
       linkedinLine
+    );
+  });
+
+  bot.command('mode', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const memory = AgentManager.getMemory();
+    const sessionId = chatId && memory ? memory.getSessionForChat(chatId) || 'default' : 'default';
+    const sessionMode = AgentManager.getSessionMode(sessionId);
+    const defaultMode = AgentManager.getMode();
+
+    await ctx.reply(
+      `Session: ${sessionId}\n` +
+      `Active mode: ${sessionMode}\n` +
+      `Default mode: ${defaultMode}` +
+      (sessionMode !== defaultMode ? `\n(Session override is active)` : '')
+    );
+  });
+
+  bot.command('tools', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const memory = AgentManager.getMemory();
+    const sessionId = chatId && memory ? memory.getSessionForChat(chatId) || 'default' : 'default';
+    const summary = AgentManager.getToolSummary(sessionId);
+
+    await sendResponse(
+      ctx,
+      `Session: ${sessionId}\n` +
+      `Mode: ${summary.mode}\n` +
+      `Tool groups available now:\n` +
+      summary.groups.map(group => `- ${group}`).join('\n')
+    );
+  });
+
+  bot.command('diag', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const memory = AgentManager.getMemory();
+    const sessionId = chatId && memory ? memory.getSessionForChat(chatId) || 'default' : 'default';
+    const mode = AgentManager.getSessionMode(sessionId);
+    const model = AgentManager.getModel();
+    const queueLength = AgentManager.getQueueLength(sessionId);
+    const processing = AgentManager.isQueryProcessing(sessionId);
+    const recentTools = AgentManager.getRecentToolCalls(sessionId, 6);
+    const externalSafety = getExternalSafetyState();
+
+    const toolLines = recentTools.length > 0
+      ? recentTools.map((call, idx) => {
+        const time = new Date(call.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        const input = call.input ? ` (${call.input})` : '';
+        return `${idx + 1}. ${time} - ${call.tool}${input}`;
+      }).join('\n')
+      : 'none yet';
+
+    await sendResponse(
+      ctx,
+      `Session diagnostics\n` +
+      `--------------------\n` +
+      `Session ID: ${sessionId}\n` +
+      `Mode: ${mode}\n` +
+      `Model: ${model}\n` +
+      `Processing now: ${processing ? 'yes' : 'no'}\n` +
+      `Queue: ${queueLength}\n` +
+      `Host integrations: ${externalSafety.allowHostIntegrations ? 'enabled' : 'disabled'}\n` +
+      `Pending external approvals: ${externalSafety.pendingApprovals.length}\n\n` +
+      `Last tool calls:\n${toolLines}`
     );
   });
 
@@ -230,6 +308,15 @@ Workflows are reusable command templates. Use /workflow to see what's available,
     if (SettingsManager.get('minimax.apiKey')) {
       availableModels.push({ id: 'MiniMax-M2.5', name: 'MiniMax M2.5', provider: 'MiniMax' });
       availableModels.push({ id: 'MiniMax-M2.5-Lightning', name: 'M2.5 Lightning', provider: 'MiniMax' });
+    }
+
+    if (SettingsManager.get('qwen.apiKey')) {
+      availableModels.push({ id: 'qwen3.5-plus-2026-02-15', name: 'Qwen 3.5 Plus', provider: 'Qwen' });
+    }
+
+    if (SettingsManager.get('openrouter.apiKey')) {
+      availableModels.push({ id: 'qwen/qwen3.5-plus-02-15', name: 'Qwen 3.5 Plus (OpenRouter)', provider: 'OpenRouter' });
+      availableModels.push({ id: 'qwen/qwen3.5-flash', name: 'Qwen 3.5 Flash (OpenRouter)', provider: 'OpenRouter' });
     }
 
     const currentModel = AgentManager.getModel();
@@ -425,6 +512,162 @@ Workflows are reusable command templates. Use /workflow to see what's available,
     } catch {
       await ctx.reply('Failed to reject task.');
     }
+  });
+
+  // LinkedIn deterministic control from Telegram
+  registerLinkedInTelegramHandlers(bot, sendResponse);
+
+  // Content Planner commands
+  bot.command(['liplan', 'linkedin_plan'], async (ctx: Context) => {
+    await withTyping(ctx, async () => {
+    if (SettingsManager.get('linkedin.plannerEnabled') !== 'true') {
+      await sendResponse(ctx, 'Content Planner is not enabled. Enable it in Settings > LinkedIn > Enable Content Planner.');
+      return;
+    }
+    const args = String(ctx.match || '').trim();
+    const planner = await import('../../../tools/linkedin-planner');
+
+    if (!args || args === 'list') {
+      const plans = planner.listPlans();
+      if (plans.length === 0) {
+        await sendResponse(ctx, 'No content plans. Use /liplan new <prompt> to create one.');
+        return;
+      }
+      const lines = plans.map(p => {
+        const assets = planner.listAssets({ plan_id: p.id });
+        const byStatus: Record<string, number> = {};
+        for (const a of assets) byStatus[a.status] = (byStatus[a.status] || 0) + 1;
+        const statusStr = Object.entries(byStatus).map(([s, c]) => `${c} ${s}`).join(', ');
+        return `[${p.id}] "${p.title}" (${p.status}) — ${assets.length} assets: ${statusStr || 'none'}`;
+      });
+      await sendResponse(ctx, lines.join('\n'));
+      return;
+    }
+
+    const newMatch = args.match(/^new\s+(.+)$/i);
+    if (newMatch) {
+      const prompt = newMatch[1].trim();
+      const targets = planner.listTargets().filter(t => t.enabled);
+      if (targets.length === 0) {
+        await sendResponse(ctx, 'No targets configured. Use /litarget add <type> <label> first.');
+        return;
+      }
+      const plan = planner.createPlan({
+        title: prompt.slice(0, 50),
+        prompt,
+        target_ids: targets.map(t => t.id),
+      });
+      await sendResponse(ctx, `Plan [${plan.id}] created with ${plan.assets.length} pending asset(s). Generating drafts...`);
+      const assets = await planner.generatePlanAssets(plan.id);
+      await sendResponse(ctx, `Generated ${assets.length} draft(s). Use /liplan ${plan.id} to see details.`);
+      return;
+    }
+
+    const idMatch = args.match(/^(\d+)\s*(.*)$/);
+    if (idMatch) {
+      const planId = parseInt(idMatch[1]);
+      const sub = (idMatch[2] || '').trim().toLowerCase();
+      const planData = planner.getPlanWithAssets(planId);
+      if (!planData) { await sendResponse(ctx, 'Plan not found.'); return; }
+
+      if (sub === 'generate') {
+        await sendResponse(ctx, 'Generating drafts...');
+        const assets = await planner.generatePlanAssets(planId);
+        await sendResponse(ctx, `Generated ${assets.length} draft(s).`);
+        return;
+      }
+
+      if (sub.startsWith('approve')) {
+        const assetNum = parseInt(sub.replace('approve', '').trim());
+        if (assetNum) {
+          const asset = planData.assets.find(a => a.id === assetNum);
+          if (asset) {
+            planner.approveAsset(asset.id);
+            await sendResponse(ctx, `Approved asset [${asset.id}].`);
+          } else {
+            await sendResponse(ctx, 'Asset not found in this plan.');
+          }
+        } else {
+          let count = 0;
+          for (const a of planData.assets.filter(a => a.status === 'drafted')) {
+            planner.approveAsset(a.id);
+            count++;
+          }
+          await sendResponse(ctx, `Approved ${count} asset(s).`);
+        }
+        return;
+      }
+
+      if (sub === 'publish') {
+        const publishable = planData.assets.filter(a => a.status === 'approved' && a.can_auto_publish);
+        if (publishable.length === 0) {
+          await sendResponse(ctx, 'No approved auto-publishable assets.');
+          return;
+        }
+        let published = 0;
+        for (const a of publishable) {
+          try {
+            await planner.publishAsset(a.id);
+            published++;
+          } catch (err) {
+            await sendResponse(ctx, `Failed to publish [${a.id}]: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        await sendResponse(ctx, `Published ${published}/${publishable.length} asset(s).`);
+        return;
+      }
+
+      // Default: show plan details
+      const lines = [`Plan [${planData.id}] "${planData.title}" (${planData.status})`];
+      lines.push(`Prompt: ${planData.prompt.slice(0, 120)}`);
+      for (const a of planData.assets) {
+        const preview = (a.draft_text || '').slice(0, 60);
+        lines.push(`  [${a.id}] ${a.target_label} (${a.target_type}) — ${a.status}${preview ? ': "' + preview + '..."' : ''}`);
+      }
+      await sendResponse(ctx, lines.join('\n'));
+      return;
+    }
+
+    await sendResponse(ctx, 'Usage: /liplan [list | new <prompt> | <id> [generate|approve|publish]]');
+    });
+  });
+
+  bot.command(['litarget', 'linkedin_target'], async (ctx: Context) => {
+    await withTyping(ctx, async () => {
+    if (SettingsManager.get('linkedin.plannerEnabled') !== 'true') {
+      await sendResponse(ctx, 'Content Planner is not enabled.');
+      return;
+    }
+    const args = String(ctx.match || '').trim();
+    const planner = await import('../../../tools/linkedin-planner');
+
+    if (!args || args === 'list') {
+      const targets = planner.listTargets();
+      if (targets.length === 0) {
+        await sendResponse(ctx, 'No targets. Use /litarget add <type> <label> [url]');
+        return;
+      }
+      const lines = targets.map(t =>
+        `[${t.id}] ${t.enabled ? 'ON' : 'OFF'} ${t.target_type} "${t.label}"${t.url ? ' (' + t.url.slice(0, 40) + ')' : ''} — ${t.posts_per_day}/day, ${t.approval_mode}${t.can_auto_publish ? ', auto-pub' : ''}`
+      );
+      await sendResponse(ctx, lines.join('\n'));
+      return;
+    }
+
+    const addMatch = args.match(/^add\s+(profile|company|group|article)\s+(.+)/i);
+    if (addMatch) {
+      const type = addMatch[1].toLowerCase();
+      const rest = addMatch[2].trim();
+      const urlMatch = rest.match(/(https?:\/\/\S+)/);
+      const url = urlMatch ? urlMatch[1] : undefined;
+      const label = url ? rest.replace(url, '').trim() || type : rest;
+      const target = planner.addTarget({ target_type: type, label, url });
+      await sendResponse(ctx, `Target [${target.id}] "${target.label}" (${target.target_type}) created.`);
+      return;
+    }
+
+    await sendResponse(ctx, 'Usage: /litarget [list | add <type> <label> [url]]');
+    });
   });
 
   // Register dynamic handlers for workflow commands
@@ -645,10 +888,18 @@ export async function registerBotCommands(bot: Bot): Promise<void> {
     { command: 'status', description: 'Agent status and stats' },
     { command: 'new', description: 'Start a new session' },
     { command: 'model', description: 'View or change AI model' },
+    { command: 'mode', description: 'Show active mode' },
+    { command: 'tools', description: 'Show available tool groups' },
+    { command: 'diag', description: 'Session diagnostics' },
     { command: 'limode', description: 'LinkedIn draft mode' },
     { command: 'workflow', description: 'List available workflows' },
     { command: 'facts', description: 'Show stored facts' },
     { command: 'voice', description: 'Toggle voice replies' },
+    { command: 'linkedin', description: 'LinkedIn list + numbered actions' },
+    { command: 'linkedin_draft', description: 'Draft selected LinkedIn posts' },
+    { command: 'linkedin_approve', description: 'Approve selected LinkedIn drafts' },
+    { command: 'linkedin_schedule', description: 'Schedule selected LinkedIn drafts' },
+    { command: 'linkedin_reject', description: 'Reject selected LinkedIn drafts' },
     { command: 'unanswered', description: 'Scan for unanswered emails' },
     { command: 'link', description: 'Link this chat to a session' },
     { command: 'unlink', description: 'Unlink this chat from a session' },
