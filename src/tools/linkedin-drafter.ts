@@ -340,6 +340,46 @@ function getResearchPlan(model: string): ResearchPlan | null {
   return null;
 }
 
+function getNativeResearchModePrompt(config: LinkedInDraftConfig): string {
+  if (config.mode === 'deep') {
+    return [
+      'Depth mode: deep.',
+      'Verify the post against multiple grounded web sources before concluding.',
+      'Prefer at least two distinct sources and capture the practical tension, tradeoff, or gap.',
+      'Make the implication and actionable_add_on specific, not generic.'
+    ].join(' ');
+  }
+  if (config.mode === 'fast') {
+    return [
+      'Depth mode: fast.',
+      'Keep research lightweight and use the clearest grounded fact you can verify quickly.'
+    ].join(' ');
+  }
+  return [
+    'Depth mode: balanced.',
+    'Use enough grounded search to verify the main claim and produce one concrete practical takeaway.'
+  ].join(' ');
+}
+
+function getOpenAINativeResearchOutputBudget(config: LinkedInDraftConfig): number {
+  if (config.mode === 'deep') return 1400;
+  if (config.mode === 'fast') return 800;
+  return 1100;
+}
+
+function getGeminiThinkingConfig(model: string, config: LinkedInDraftConfig): Record<string, unknown> {
+  const normalized = String(model || '').toLowerCase();
+  const isGemini3 = normalized.startsWith('gemini-3');
+  if (isGemini3) {
+    return {
+      thinkingLevel: config.mode === 'deep' ? 'HIGH' : 'LOW',
+    };
+  }
+  return {
+    thinkingBudget: config.mode === 'deep' ? 2048 : (config.mode === 'fast' ? 256 : 1024),
+  };
+}
+
 async function buildProviderEnv(model: string): Promise<Record<string, string | undefined>> {
   const provider = getProviderForModel(model);
   const env = getSdkEnv();
@@ -1571,7 +1611,8 @@ Rules:
 - Use ONLY evidence from provided full post text, image context, and this run's web search.
 - Return ONLY strict JSON.
 - Populate source_1/source_url_1 and source_2/source_url_2 when grounded sources are available.
-- Do not write the final comment.`;
+- Do not write the final comment.
+- ${getNativeResearchModePrompt(config)}`;
   const researchPrompt = `LinkedIn post by ${post.author} (preview, may be truncated):
 "${post.text_preview}"
 Post URL: ${post.post_url}
@@ -1621,6 +1662,7 @@ Research the exact topic with web search and return STRICT JSON:
           { role: 'user', content: [{ type: 'input_text', text: researchPrompt }] },
         ],
         include: ['web_search_call.action.sources'],
+        max_output_tokens: getOpenAINativeResearchOutputBudget(config),
         tools: [
           {
             type: 'web_search',
@@ -1647,7 +1689,7 @@ async function runGeminiNativeResearchPass(
   fullPostText: string,
   imageContext: string,
   model: string,
-  _config: LinkedInDraftConfig,
+  config: LinkedInDraftConfig,
   abortController: AbortController,
 ): Promise<ResearchEvidence> {
   const apiKey = String(SettingsManager.get('gemini.apiKey') || '').trim();
@@ -1660,7 +1702,8 @@ Rules:
 - Use ONLY evidence from provided full post text, image context, and this run's web search.
 - Return ONLY strict JSON.
 - Populate source_1/source_url_1 and source_2/source_url_2 when grounded sources are available.
-- Do not write the final comment.`;
+- Do not write the final comment.
+- ${getNativeResearchModePrompt(config)}`;
   const researchPrompt = `LinkedIn post by ${post.author} (preview, may be truncated):
 "${post.text_preview}"
 Post URL: ${post.post_url}
@@ -1704,7 +1747,10 @@ Research the exact topic with grounded Google search and return STRICT JSON:
         systemInstruction: { parts: [{ text: researchSystemPrompt }] },
         contents: [{ role: 'user', parts: [{ text: researchPrompt }] }],
         tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.2 },
+        generationConfig: {
+          temperature: 0.2,
+          ...getGeminiThinkingConfig(model, config),
+        },
       }),
       signal: controller.signal,
     });

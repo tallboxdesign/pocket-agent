@@ -2147,7 +2147,7 @@
         Research
       </button>
       <select id="research-model" title="LinkedIn research model for web search, evidence, and grounding">
-        <option value="">Auto (best available)</option>
+        <option value="">Auto (pick best research model)</option>
       </select>
     </div>
     <div class="action-group model-group">
@@ -4467,7 +4467,7 @@
     }
 
     async function loadResearchModelOptions() {
-      return loadLinkedInModelOptions('research-model', 'linkedin.researchModel', 'Auto (best available)');
+      return loadLinkedInModelOptions('research-model', 'linkedin.researchModel', 'Auto (pick best research model)');
     }
 
     async function loadDraftModelOptions() {
@@ -4498,7 +4498,7 @@
       try {
         await window.pocketAgent.setSetting('linkedin.researchModel', model);
         if (!silent) {
-          const label = model ? `LinkedIn research model saved: ${model}` : 'LinkedIn research model saved: auto';
+          const label = model ? `LinkedIn research model saved: ${model}` : 'LinkedIn research model saved: auto (pick best research model)';
           showToast(label, 'success');
         }
       } catch (err) {
