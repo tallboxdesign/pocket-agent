@@ -824,6 +824,49 @@ function hasRecentAttemptGuard(db: Database.Database, postUrl: string): boolean 
   return (Date.now() - ts) < ATTEMPT_GUARD_HOURS * 60 * 60 * 1000;
 }
 
+export function getRecentAttemptGuardInfo(
+  db: Database.Database,
+  postUrl: string,
+): { blocked: boolean; action?: string; createdAt?: string; unblockAt?: string | null } {
+  const activityId = extractActivityId(postUrl);
+  let row: { action: string; created_at: string } | undefined;
+  if (activityId) {
+    row = db.prepare(
+      `SELECT action, created_at
+       FROM linkedin_activity_log
+       WHERE action IN ('posting_attempt', 'verify_needed', 'session_expired', 'retry_allowed')
+         AND (post_url = ? OR post_url LIKE ?)
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(postUrl, `%activity:${activityId}%`) as { action: string; created_at: string } | undefined;
+  } else {
+    row = db.prepare(
+      `SELECT action, created_at
+       FROM linkedin_activity_log
+       WHERE action IN ('posting_attempt', 'verify_needed', 'session_expired', 'retry_allowed')
+         AND post_url = ?
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(postUrl) as { action: string; created_at: string } | undefined;
+  }
+  if (!row?.created_at) return { blocked: false };
+  const action = String(row.action || '').trim().toLowerCase();
+  if (action === 'session_expired' || action === 'retry_allowed') {
+    return { blocked: false, action, createdAt: row.created_at, unblockAt: null };
+  }
+  const ts = parseDbDateTime(row.created_at);
+  if (!Number.isFinite(ts)) {
+    return { blocked: true, action, createdAt: row.created_at, unblockAt: null };
+  }
+  const blocked = (Date.now() - ts) < ATTEMPT_GUARD_HOURS * 60 * 60 * 1000;
+  return {
+    blocked,
+    action,
+    createdAt: row.created_at,
+    unblockAt: blocked ? toDbDateTime(ts + ATTEMPT_GUARD_HOURS * 60 * 60 * 1000) : null,
+  };
+}
+
 function getRetryScheduledCount(db: Database.Database, postUrl: string): number {
   const activityId = extractActivityId(postUrl);
   if (activityId) {

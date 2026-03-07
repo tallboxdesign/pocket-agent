@@ -2254,19 +2254,33 @@ function setupIPC(): void {
       const authorLike = `%${authorSearch}%`;
 
       const activeWhere = useAuthorSearch
-        ? `lp.hidden = 0 AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now')) AND LOWER(lp.author) LIKE LOWER(?)`
+        ? `(lp.hidden = 0 OR lp.commented = 1) AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now')) AND LOWER(lp.author) LIKE LOWER(?)`
         : `
-          lp.hidden = 0
-          AND (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now'))
+          (lp.snoozed_until IS NULL OR lp.snoozed_until <= datetime('now'))
           AND (
-            -- Scheduled work is shown on the day it is scheduled to run (local time).
-            (lp.commented = 0 AND lp.scheduled_at IS NOT NULL AND date(lp.scheduled_at, 'localtime') = ?)
+            -- Published work always stays visible on the day it actually posted.
+            (
+              lp.commented = 1
+              AND COALESCE(
+                date((
+                  SELECT MAX(pl.created_at)
+                  FROM linkedin_activity_log pl
+                  WHERE pl.post_id = lp.id
+                    AND pl.action = 'posted'
+                ), 'localtime'),
+                lp.scraped_date
+              ) = ?
+            )
             OR
-            -- Everything else stays anchored to scrape date.
-            (((lp.scheduled_at IS NULL OR lp.scheduled_at = '') OR lp.commented = 1) AND lp.scraped_date = ?)
+            -- Scheduled work is shown on the day it is scheduled to run (local time).
+            (lp.hidden = 0 AND lp.commented = 0 AND lp.scheduled_at IS NOT NULL AND date(lp.scheduled_at, 'localtime') = ?)
+            OR
+            -- Unscheduled/drafted work stays anchored to scrape date.
+            (lp.hidden = 0 AND lp.commented = 0 AND (lp.scheduled_at IS NULL OR lp.scheduled_at = '') AND lp.scraped_date = ?)
             OR
             -- Carry-over backlog: unscheduled pending items from previous days appear in today's view.
             (? = date('now', 'localtime')
+             AND lp.hidden = 0
              AND lp.commented = 0
              AND (lp.scheduled_at IS NULL OR lp.scheduled_at = '')
              AND lp.scraped_date < ?)
@@ -2282,7 +2296,7 @@ function setupIPC(): void {
             OR (scheduled_at IS NOT NULL AND date(scheduled_at, 'localtime') = ?)
           )
         `;
-      const activeParams = useAuthorSearch ? [authorLike] : [date, date, date, date];
+      const activeParams = useAuthorSearch ? [authorLike] : [date, date, date, date, date];
       const snoozedParams = useAuthorSearch ? [authorLike] : [date, date];
 
       const posts = db.prepare(
@@ -3050,10 +3064,31 @@ function setupIPC(): void {
           error: `Duplicate blocked: this URL already has a posted comment (${alreadyPosted.createdAt || 'previously'}).`,
         };
       }
-      db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(datetime, postId);
       const lastAction = String(lastActivity?.action || '').trim().toLowerCase();
       const preferredMs = Date.parse(String(datetime).replace(' ', 'T') + 'Z');
       const isImmediatePrioritySchedule = Number.isFinite(preferredMs) && preferredMs <= (Date.now() + 15 * 60 * 1000);
+      if (isImmediatePrioritySchedule) {
+        try {
+          const { getRecentAttemptGuardInfo } = await import('../tools/linkedin-autoposter');
+          const guard = getRecentAttemptGuardInfo(db, normalizeLinkedInPostUrl(post.post_url));
+          if (guard.blocked) {
+            logScheduleFailure(`schedule:recent_attempt_guard:${guard.action || 'unknown'}`);
+            db.close();
+            return {
+              success: false,
+              retry_guard: true,
+              unblockAt: guard.unblockAt || null,
+              lastAction: guard.action || null,
+              error: guard.unblockAt
+                ? `Recent uncertain attempt on this post. Confirm Not Posted to retry now, or wait until ${guard.unblockAt}.`
+                : 'Recent uncertain attempt on this post. Confirm Not Posted to retry now.',
+            };
+          }
+        } catch (guardErr) {
+          console.warn('[LinkedIn] recent_attempt_guard pre-check failed:', guardErr);
+        }
+      }
+      db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(datetime, postId);
       if (['verify_needed', 'posting_attempt', 'failed', 'error'].includes(lastAction)) {
         try {
           db.prepare(

@@ -6269,9 +6269,6 @@
         || (lastAction === 'skipped' && String(p.last_activity_reason || '').trim() === 'recent_attempt_guard')
       );
       const attentionActions = [];
-      if (attentionReasons.length && String(p.post_url || '').trim()) {
-        attentionActions.push(`<button class="evidence-link" style="margin-left:8px;" onclick="openPostUrl(${p.id})">Open Post</button>`);
-      }
       if (canConfirmPosted) {
         attentionActions.push(`<button class="evidence-link" style="margin-left:8px;" onclick="confirmNotPosted(${p.id})">Not Posted</button>`);
         attentionActions.push(`<button class="evidence-link" style="margin-left:8px;" onclick="confirmPosted(${p.id})">Mark Posted</button>`);
@@ -6314,6 +6311,9 @@
 
       // Inline Actions
       let rowActionsHtml = '';
+      if (String(p.post_url || '').trim()) {
+        rowActionsHtml += `<button class="evidence-link" onclick="openPostUrl(${p.id})">Open Post</button>`;
+      }
       if (!isPublished && hasDraft && !p.scheduled_at) {
         rowActionsHtml += `<button class="action-btn" onclick="openScheduleModal(${p.id})">Schedule</button>`;
       }
@@ -6613,6 +6613,7 @@
           <div class="post-actions-bar">
             <button class="action-btn success" onclick="draftSinglePost(${p.id})">${draftStartLabel}</button>
             ${showReject ? `<button class="action-btn" style="background:rgba(248,113,113,0.12);color:#fca5a5;border-color:rgba(248,113,113,0.3);" onclick="rejectDraft(${p.id})">Reject</button>` : ''}
+            ${rowActionsHtml}
           </div>
         `;
 
@@ -7145,7 +7146,7 @@
         }
         approvedIds.add(postId);
         const iso = new Date(Date.now() + 10_000).toISOString().replace('T', ' ').slice(0, 19);
-        const result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+        const result = await schedulePostNowWithGuard(postId, iso);
         if (!result?.success) {
           showToast(`Failed to schedule immediate post: ${shortError(result?.error || 'Unknown error')}`, 'error');
           return;
@@ -7177,7 +7178,7 @@
             if (!approve?.success) throw new Error(`Approve failed for #${ids[i]}: ${shortError(approve?.error || 'Unknown error')}`);
           }
           approvedIds.add(ids[i]);
-          const result = await window.pocketAgent.scheduleLinkedInPost(ids[i], iso);
+          const result = await schedulePostNowWithGuard(ids[i], iso, { promptOnGuard: true });
           if (!result?.success) throw new Error(`Schedule failed for #${ids[i]}: ${shortError(result?.error || 'Unknown error')}`);
           if (result?.warning) showToast(result.warning, 'error');
         }
@@ -7187,6 +7188,31 @@
         console.error('Post now selected failed:', err);
         showToast('Failed to schedule posts', 'error');
       }
+    }
+
+    async function schedulePostNowWithGuard(postId, iso, options = {}) {
+      const promptOnGuard = options.promptOnGuard !== false;
+      let result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+      if (result?.success || !result?.retry_guard || !promptOnGuard) return result;
+
+      const post = currentPosts.find(p => p.id === postId) || currentSnoozed.find(p => p.id === postId);
+      const author = String(post?.author || 'this post').trim() || 'this post';
+      const unblockText = result?.unblockAt ? `\n\nOtherwise wait until ${formatShortDateTime(String(result.unblockAt))}.` : '';
+      const ok = window.confirm(
+        `A previous attempt on ${author} was uncertain.\n\nIf you have checked LinkedIn and the comment is NOT there, click OK to clear the safety block and retry now.${unblockText}`
+      );
+      if (!ok) return result;
+
+      const confirmResult = await window.pocketAgent.confirmLinkedInNotPosted(postId);
+      if (!confirmResult?.success) {
+        return {
+          success: false,
+          error: confirmResult?.error || 'Could not clear retry block',
+        };
+      }
+
+      result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
+      return result;
     }
 
     async function recheckSelectedEngagement() {
