@@ -2126,6 +2126,67 @@
               <option value="true">On</option>
             </select>
           </div>
+          <div class="li-quick-field">
+            <label title="On launch/wake, always sweep stale posts and rebalance the queue.">Recovery Rebalance</label>
+            <select id="qs-recovery-rebalance-enabled">
+              <option value="true">On</option>
+              <option value="false">Off</option>
+            </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Number of lighter-volume days per week selected automatically.">Light Days / Week</label>
+            <input type="number" id="qs-light-days-per-week" min="0" max="7" step="1" title="Example: 1 or 2">
+          </div>
+          <div class="li-quick-field">
+            <label title="Minimum posts on a light day.">Light Day Min</label>
+            <input type="number" id="qs-light-day-min-posts" min="1" max="50" step="1" title="Example: 8 or 10">
+          </div>
+          <div class="li-quick-field">
+            <label title="Maximum posts on a light day.">Light Day Max</label>
+            <input type="number" id="qs-light-day-max-posts" min="1" max="50" step="1" title="Use same as min for fixed cap">
+          </div>
+          <div class="li-quick-field">
+            <label title="Exact weekday for manually controlled light day #1. Manual light days override the automatic random light-day picker.">Light Day #1</label>
+            <select id="qs-light-day-1-weekday">
+              <option value="">Off</option>
+              <option value="mon">Mon</option>
+              <option value="tue">Tue</option>
+              <option value="wed">Wed</option>
+              <option value="thu">Thu</option>
+              <option value="fri">Fri</option>
+              <option value="sat">Sat</option>
+              <option value="sun">Sun</option>
+            </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Minimum posts on manually controlled light day #1.">Light Day #1 Min</label>
+            <input type="number" id="qs-light-day-1-min-posts" min="1" max="50" step="1">
+          </div>
+          <div class="li-quick-field">
+            <label title="Maximum posts on manually controlled light day #1.">Light Day #1 Max</label>
+            <input type="number" id="qs-light-day-1-max-posts" min="1" max="50" step="1">
+          </div>
+          <div class="li-quick-field">
+            <label title="Exact weekday for manually controlled light day #2.">Light Day #2</label>
+            <select id="qs-light-day-2-weekday">
+              <option value="">Off</option>
+              <option value="mon">Mon</option>
+              <option value="tue">Tue</option>
+              <option value="wed">Wed</option>
+              <option value="thu">Thu</option>
+              <option value="fri">Fri</option>
+              <option value="sat">Sat</option>
+              <option value="sun">Sun</option>
+            </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Minimum posts on manually controlled light day #2.">Light Day #2 Min</label>
+            <input type="number" id="qs-light-day-2-min-posts" min="1" max="50" step="1">
+          </div>
+          <div class="li-quick-field">
+            <label title="Maximum posts on manually controlled light day #2.">Light Day #2 Max</label>
+            <input type="number" id="qs-light-day-2-max-posts" min="1" max="50" step="1">
+          </div>
         </div>
         <div class="li-quick-subgroup">
           <div class="li-quick-subgroup-title">Author Frequency</div>
@@ -4341,6 +4402,16 @@
           commentDelay,
           dailyLimit,
           autoPoster,
+          recoveryRebalanceEnabled,
+          lightDaysPerWeek,
+          lightDayMinPosts,
+          lightDayMaxPosts,
+          lightDay1Weekday,
+          lightDay1MinPosts,
+          lightDay1MaxPosts,
+          lightDay2Weekday,
+          lightDay2MinPosts,
+          lightDay2MaxPosts,
           authorCooldownHours,
           authorMax24h,
           authorMax7d,
@@ -4379,6 +4450,16 @@
           window.pocketAgent.getSetting('linkedin.commentDelay'),
           window.pocketAgent.getSetting('linkedin.dailyLimit'),
           window.pocketAgent.getSetting('linkedin.autoPosterEnabled'),
+          window.pocketAgent.getSetting('linkedin.recoveryRebalanceEnabled'),
+          window.pocketAgent.getSetting('linkedin.lightDaysPerWeek'),
+          window.pocketAgent.getSetting('linkedin.lightDayMinPosts'),
+          window.pocketAgent.getSetting('linkedin.lightDayMaxPosts'),
+          window.pocketAgent.getSetting('linkedin.lightDay1Weekday'),
+          window.pocketAgent.getSetting('linkedin.lightDay1MinPosts'),
+          window.pocketAgent.getSetting('linkedin.lightDay1MaxPosts'),
+          window.pocketAgent.getSetting('linkedin.lightDay2Weekday'),
+          window.pocketAgent.getSetting('linkedin.lightDay2MinPosts'),
+          window.pocketAgent.getSetting('linkedin.lightDay2MaxPosts'),
           window.pocketAgent.getSetting('linkedin.authorCooldownHours'),
           window.pocketAgent.getSetting('linkedin.authorMaxComments24h'),
           window.pocketAgent.getSetting('linkedin.authorMaxComments7d'),
@@ -4427,6 +4508,16 @@
         setInputValue('qs-daily-limit', String(clampInt(dailyLimit || '15', 15, 1, 50)));
         updateQuickDailyLimitHint(dailyLimit || '15');
         setInputValue('qs-auto-poster', autoPoster === 'true' ? 'true' : 'false');
+        setInputValue('qs-recovery-rebalance-enabled', recoveryRebalanceEnabled === 'false' ? 'false' : 'true');
+        setInputValue('qs-light-days-per-week', String(clampInt(lightDaysPerWeek || '0', 0, 0, 7)));
+        setInputValue('qs-light-day-min-posts', String(clampInt(lightDayMinPosts || '10', 10, 1, 50)));
+        setInputValue('qs-light-day-max-posts', String(clampInt(lightDayMaxPosts || '10', 10, 1, 50)));
+        setInputValue('qs-light-day-1-weekday', String(lightDay1Weekday || ''));
+        setInputValue('qs-light-day-1-min-posts', String(clampInt(lightDay1MinPosts || '10', 10, 1, 50)));
+        setInputValue('qs-light-day-1-max-posts', String(clampInt(lightDay1MaxPosts || '10', 10, 1, 50)));
+        setInputValue('qs-light-day-2-weekday', String(lightDay2Weekday || ''));
+        setInputValue('qs-light-day-2-min-posts', String(clampInt(lightDay2MinPosts || '10', 10, 1, 50)));
+        setInputValue('qs-light-day-2-max-posts', String(clampInt(lightDay2MaxPosts || '10', 10, 1, 50)));
         setInputValue('qs-author-cooldown-hours', String(clampInt(authorCooldownHours || '6', 6, 0, 168)));
         setInputValue('qs-author-max-24h', String(clampInt(authorMax24h || '2', 2, 0, 24)));
         setInputValue('qs-author-max-7d', String(clampInt(authorMax7d || '4', 4, 0, 50)));
@@ -4472,6 +4563,16 @@
         const commentDelay = String(clampFloat(getInputValue('qs-comment-delay'), 3, 1, 15));
         const dailyLimit = String(clampInt(getInputValue('qs-daily-limit'), 15, 1, 50));
         const autoPoster = getInputValue('qs-auto-poster');
+        const recoveryRebalanceEnabled = getInputValue('qs-recovery-rebalance-enabled') === 'false' ? 'false' : 'true';
+        const lightDaysPerWeek = String(clampInt(getInputValue('qs-light-days-per-week'), 0, 0, 7));
+        const lightDayMinPosts = String(clampInt(getInputValue('qs-light-day-min-posts'), 10, 1, 50));
+        const lightDayMaxPosts = String(clampInt(getInputValue('qs-light-day-max-posts'), Number(lightDayMinPosts), Number(lightDayMinPosts), 50));
+        const lightDay1Weekday = getInputValue('qs-light-day-1-weekday').trim().toLowerCase().slice(0, 3);
+        const lightDay1MinPosts = String(clampInt(getInputValue('qs-light-day-1-min-posts'), 10, 1, 50));
+        const lightDay1MaxPosts = String(clampInt(getInputValue('qs-light-day-1-max-posts'), Number(lightDay1MinPosts), Number(lightDay1MinPosts), 50));
+        const lightDay2Weekday = getInputValue('qs-light-day-2-weekday').trim().toLowerCase().slice(0, 3);
+        const lightDay2MinPosts = String(clampInt(getInputValue('qs-light-day-2-min-posts'), 10, 1, 50));
+        const lightDay2MaxPosts = String(clampInt(getInputValue('qs-light-day-2-max-posts'), Number(lightDay2MinPosts), Number(lightDay2MinPosts), 50));
         const authorCooldownHours = String(clampInt(getInputValue('qs-author-cooldown-hours'), 6, 0, 168));
         const authorMax24h = String(clampInt(getInputValue('qs-author-max-24h'), 2, 0, 24));
         const authorMax7d = String(clampInt(getInputValue('qs-author-max-7d'), 4, 0, 50));
@@ -4518,6 +4619,16 @@
           window.pocketAgent.setSetting('linkedin.dailyLimitMin', dailyLimit),
           window.pocketAgent.setSetting('linkedin.dailyLimitMax', dailyLimit),
           window.pocketAgent.setSetting('linkedin.autoPosterEnabled', autoPoster),
+          window.pocketAgent.setSetting('linkedin.recoveryRebalanceEnabled', recoveryRebalanceEnabled),
+          window.pocketAgent.setSetting('linkedin.lightDaysPerWeek', lightDaysPerWeek),
+          window.pocketAgent.setSetting('linkedin.lightDayMinPosts', lightDayMinPosts),
+          window.pocketAgent.setSetting('linkedin.lightDayMaxPosts', lightDayMaxPosts),
+          window.pocketAgent.setSetting('linkedin.lightDay1Weekday', lightDay1Weekday),
+          window.pocketAgent.setSetting('linkedin.lightDay1MinPosts', lightDay1MinPosts),
+          window.pocketAgent.setSetting('linkedin.lightDay1MaxPosts', lightDay1MaxPosts),
+          window.pocketAgent.setSetting('linkedin.lightDay2Weekday', lightDay2Weekday),
+          window.pocketAgent.setSetting('linkedin.lightDay2MinPosts', lightDay2MinPosts),
+          window.pocketAgent.setSetting('linkedin.lightDay2MaxPosts', lightDay2MaxPosts),
           window.pocketAgent.setSetting('linkedin.authorCooldownHours', authorCooldownHours),
           window.pocketAgent.setSetting('linkedin.authorMaxComments24h', authorMax24h),
           window.pocketAgent.setSetting('linkedin.authorMaxComments7d', authorMax7d),
@@ -4554,6 +4665,16 @@
         setInputValue('qs-daily-limit', dailyLimit);
         updateQuickDailyLimitHint(dailyLimit);
         setInputValue('qs-auto-poster', autoPoster);
+        setInputValue('qs-recovery-rebalance-enabled', recoveryRebalanceEnabled);
+        setInputValue('qs-light-days-per-week', lightDaysPerWeek);
+        setInputValue('qs-light-day-min-posts', lightDayMinPosts);
+        setInputValue('qs-light-day-max-posts', lightDayMaxPosts);
+        setInputValue('qs-light-day-1-weekday', lightDay1Weekday);
+        setInputValue('qs-light-day-1-min-posts', lightDay1MinPosts);
+        setInputValue('qs-light-day-1-max-posts', lightDay1MaxPosts);
+        setInputValue('qs-light-day-2-weekday', lightDay2Weekday);
+        setInputValue('qs-light-day-2-min-posts', lightDay2MinPosts);
+        setInputValue('qs-light-day-2-max-posts', lightDay2MaxPosts);
         setInputValue('qs-author-cooldown-hours', authorCooldownHours);
         setInputValue('qs-author-max-24h', authorMax24h);
         setInputValue('qs-author-max-7d', authorMax7d);
@@ -4756,12 +4877,25 @@
     const draftRequestQueue = [];
     const locallyQueuedDraftPostIds = new Set();
     const researchInFlightIds = new Set();
+    const pendingDraftUiState = new Map();
     let draftQueueProcessing = false;
     let draftQueueStartedCount = 0;
 
     function normalizeDraftIds(ids) {
       if (!Array.isArray(ids)) return [];
       return [...new Set(ids.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0))];
+    }
+
+    function setPendingDraftUiState(ids, state) {
+      for (const id of normalizeDraftIds(ids)) {
+        pendingDraftUiState.set(Number(id), state);
+      }
+    }
+
+    function clearPendingDraftUiState(ids) {
+      for (const id of normalizeDraftIds(ids)) {
+        pendingDraftUiState.delete(Number(id));
+      }
     }
 
     async function processDraftQueue() {
@@ -4778,10 +4912,6 @@
           next.reject(err);
         } finally {
           draftQueueStartedCount = Math.max(0, draftQueueStartedCount - 1);
-          for (const id of next.ids) {
-            locallyQueuedDraftPostIds.delete(id);
-            researchInFlightIds.delete(id);
-          }
           void loadPosts();
         }
       }
@@ -4875,11 +5005,12 @@
 
       return new Promise((resolve, reject) => {
         const queuedBehindActive = draftQueueProcessing || draftRequestQueue.length > 0 || draftQueueStartedCount > 0;
-      for (const id of cleanIds) {
-        locallyQueuedDraftPostIds.add(id);
-        researchInFlightIds.add(id);
-      }
-      void loadPosts();
+        for (const id of cleanIds) {
+          locallyQueuedDraftPostIds.add(id);
+          researchInFlightIds.add(id);
+        }
+        setPendingDraftUiState(cleanIds, queuedBehindActive ? 'queued' : 'researching');
+        void loadPosts(true);
         draftRequestQueue.push({ ids: cleanIds, successLabel, failureLabel, forceRedo, resolve, reject });
         if (queuedBehindActive) {
           const count = cleanIds.length;
@@ -6050,7 +6181,22 @@
       const hasDraftFailure = String(ds || '').startsWith('failed_');
       const hasFailed = !isPublished && !hasDraft && (hasDraftFailure || Number(p.failed_attempts || 0) > 0 || hasPostingFail) && !p.scheduled_at;
       const attentionReasons = getNeedsAttentionReasons(p);
-      const isPriorityScheduled = !!(p.scheduled_at && parseUtcDateMs(p.scheduled_at) <= (Date.now() + 20 * 60 * 1000));
+      const canConfirmPosted = attentionReasons.length && (
+        lastAction === 'verify_needed'
+        || (lastAction === 'skipped' && String(p.last_activity_reason || '').trim() === 'recent_attempt_guard')
+      );
+      const attentionActions = [];
+      if (attentionReasons.length && String(p.post_url || '').trim()) {
+        attentionActions.push(`<button class="evidence-link" style="margin-left:8px;" onclick="openPostUrl(${p.id})">Open Post</button>`);
+      }
+      if (canConfirmPosted) {
+        attentionActions.push(`<button class="evidence-link" style="margin-left:8px;" onclick="confirmPosted(${p.id})">Mark Posted</button>`);
+      }
+      const attentionUrlHtml = attentionActions.join('');
+      const isPriorityScheduled = !isPublished && !!p.scheduled_at && (
+        lastAction === 'priority_scheduled'
+        || parseUtcDateMs(p.scheduled_at) <= (Date.now() + 20 * 60 * 1000)
+      );
       const isCheckingEngagement = engagementCheckInFlightIds.has(Number(p.id));
       const signalPillsHtml = renderSignalPills(p);
       
@@ -6404,7 +6550,7 @@
               ${intentBadge}
               <span style="margin-left:auto; font-weight:600;">${p.comments || 0} cmts | ${p.reactions || 0} reacts</span>
             </div>
-            ${attentionReasons.length ? `<div class="row-meta-strip" style="padding-top:8px; border-top:none; min-height:auto;">${attentionReasons.map(reason => `<span class="meta-tag" style="background:rgba(250,204,21,0.14); color:#fde68a; border-color:rgba(250,204,21,0.35);">Needs attention: ${escapeHtml(reason)}</span>`).join(' ')}</div>` : ''}
+            ${attentionReasons.length ? `<div class="row-meta-strip" style="padding-top:8px; border-top:none; min-height:auto;">${attentionReasons.map(reason => `<span class="meta-tag" style="background:rgba(250,204,21,0.14); color:#fde68a; border-color:rgba(250,204,21,0.35);">Needs attention: ${escapeHtml(reason)}</span>`).join(' ')}${attentionUrlHtml}</div>` : ''}
             ${signalPillsHtml}
             
             <div class="post-content-block">
@@ -6555,6 +6701,28 @@
     function openPostUrl(postId) {
       const post = currentPosts.find(p => p.id === postId) || currentSnoozed.find(p => p.id === postId);
       if (post) window.pocketAgent.openExternal(post.post_url);
+    }
+
+    async function confirmPosted(postId) {
+      const post = currentPosts.find(p => p.id === postId) || currentSnoozed.find(p => p.id === postId);
+      if (!post) {
+        showToast('Post not found', 'error');
+        return;
+      }
+      const author = String(post.author || 'this author').trim() || 'this author';
+      const ok = window.confirm(`Mark this as already posted on LinkedIn for ${author}? This will remove it from Needs Attention and stop retries.`);
+      if (!ok) return;
+      try {
+        const result = await window.pocketAgent.confirmLinkedInPosted(postId);
+        if (!result?.success) {
+          showToast(`Failed to mark posted: ${shortError(result?.error || 'Unknown error')}`, 'error');
+          return;
+        }
+        showToast(`Marked as posted for ${result.author || author}`, 'success');
+        loadPosts(true);
+      } catch (err) {
+        showToast(`Failed to mark posted: ${shortError(err)}`, 'error');
+      }
     }
 
     function toggleSnoozedSection(header) {
@@ -7123,8 +7291,20 @@
       window.pocketAgent.onLinkedInDraftProgress((data) => {
         const d = data;
         if (d && typeof d === 'object') {
-          if ('type' in d && (d.type === 'researching' || d.type === 'progress')) {
-            loadPosts();
+          const postId = 'postId' in d ? Number(d.postId) : NaN;
+          if ('type' in d && d.type === 'progress') {
+            if ('completed' in d && 'total' in d) {
+              const countEl = document.getElementById('post-count');
+              if (countEl) countEl.textContent = `(drafting ${d.completed}/${d.total}...)`;
+            }
+            loadPosts(true);
+          } else if ('type' in d && d.type === 'researching') {
+            if (Number.isFinite(postId) && postId > 0) {
+              pendingDraftUiState.set(postId, 'researching');
+              locallyQueuedDraftPostIds.add(postId);
+              researchInFlightIds.add(postId);
+            }
+            loadPosts(true);
           } else if ('type' in d && d.type === 'model_fallback') {
 
             const primary = String(d.primaryModel || '').trim();
@@ -7135,18 +7315,25 @@
               ? `LinkedIn fallback: ${primary} → ${fallback}${reasonLabel}`
               : `LinkedIn fallback: ${fallback || 'fallback model'}${reasonLabel}`;
             showToast(label, 'error');
-            loadPosts();
+            loadPosts(true);
           } else if (('type' in d && d.type === 'drafted') || ('draft' in d && 'author' in d)) {
+            if (Number.isFinite(postId) && postId > 0) {
+              pendingDraftUiState.delete(postId);
+              locallyQueuedDraftPostIds.delete(postId);
+              researchInFlightIds.delete(postId);
+            }
             showToast(`Drafted: ${d.author}`, 'success');
-            loadPosts();
+            loadPosts(true);
           } else if (('type' in d && d.type === 'error') || ('error' in d && 'author' in d)) {
+            if (Number.isFinite(postId) && postId > 0) {
+              pendingDraftUiState.delete(postId);
+              locallyQueuedDraftPostIds.delete(postId);
+              researchInFlightIds.delete(postId);
+            }
             showToast(`Failed: ${d.author}`, 'error');
-            loadPosts();
+            loadPosts(true);
           } else if ('type' in d && d.type === 'complete') {
-            loadPosts();
-          } else if ('type' in d && d.type === 'progress' && 'completed' in d && 'total' in d) {
-            const countEl = document.getElementById('post-count');
-            if (countEl) countEl.textContent = `(drafting ${d.completed}/${d.total}...)`;
+            void loadPosts(true);
           }
         }
       });

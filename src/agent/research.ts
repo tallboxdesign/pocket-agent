@@ -108,7 +108,7 @@ function configureGlmEnvironment(): void {
     throw new Error('Z.AI GLM API key not configured. Please add your key in Settings > LLM.');
   }
 
-  process.env.ANTHROPIC_BASE_URL = 'https://api.z.ai/api/anthropic/';
+  process.env.ANTHROPIC_BASE_URL = 'https://api.z.ai/api/anthropic';
   process.env.ANTHROPIC_AUTH_TOKEN = glmKey;
   delete process.env.ANTHROPIC_API_KEY;
 }

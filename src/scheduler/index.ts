@@ -129,6 +129,7 @@ export class CronScheduler {
       }, 60000);
       // Sync authors on startup
       try { syncAuthorsFromPosts(); } catch (err) { console.error('[Scheduler] Author sync error:', err); }
+      checkAndPostNext().catch(err => console.error('[Scheduler] Initial AutoPoster catch-up error:', err));
       this.runLinkedInAutoScrapeTick(notifyTelegram).catch(err => console.error('[Scheduler] LinkedIn auto-scrape start error:', err));
     }).catch(err => console.error('[Scheduler] Failed to load autoposter:', err));
   }

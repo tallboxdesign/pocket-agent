@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   getLinkedInPostingDays: (month?: string) => ipcRenderer.invoke('linkedin:getPostingDays', month),
   getLinkedInPostContent: (postId: number, forceRefresh?: boolean) => ipcRenderer.invoke('linkedin:getPostContent', postId, forceRefresh),
   approveLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:approveDraft', id),
+  confirmLinkedInPosted: (id: number) => ipcRenderer.invoke('linkedin:confirmPosted', id),
   rejectLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:rejectDraft', id),
   updateLinkedInDraft: (id: number, text: string) => ipcRenderer.invoke('linkedin:updateDraft', id, text),
   updateLinkedInPostMeta: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('linkedin:updatePostMeta', id, updates),
@@ -135,6 +136,13 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   plannerImproveDraft: (assetId: number, feedback: string, mode: 'improve' | 'redo') => ipcRenderer.invoke('planner:improveDraft', assetId, feedback, mode),
   plannerScreenshot: (options: Record<string, unknown>, outputPath?: string) => ipcRenderer.invoke('planner:screenshot', options, outputPath),
   plannerRenderHtml: (html: string, css?: string, outputPath?: string) => ipcRenderer.invoke('planner:renderHtml', html, css, outputPath),
+  // Idea Lab
+  plannerCreateIdeaSession: (input: Record<string, unknown>) => ipcRenderer.invoke('planner:createIdeaSession', input),
+  plannerSendMessage: (sessionId: number, message: string, sources?: Record<string, boolean>) => ipcRenderer.invoke('planner:sendMessage', sessionId, message, sources),
+  plannerGenerateIdeas: (sessionId: number) => ipcRenderer.invoke('planner:generateIdeas', sessionId),
+  plannerUpdateIdeaCard: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('planner:updateIdeaCard', id, updates),
+  plannerDeleteIdeaCard: (id: number) => ipcRenderer.invoke('planner:deleteIdeaCard', id),
+  plannerDraftSelected: (input: Record<string, unknown>) => ipcRenderer.invoke('planner:draftSelected', input),
   onPlannerResearchProgress: (callback: (data: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
     ipcRenderer.on('planner:researchProgress', listener);
@@ -444,10 +452,46 @@ declare global {
       openCustomize: () => Promise<void>;
       openRoutines: () => Promise<void>;
       openLinkedInActivity: () => Promise<void>;
+      // Content Planner
+      openLinkedInPlanner: () => Promise<void>;
+      plannerListTargets: () => Promise<unknown>;
+      plannerAddTarget: (target: Record<string, unknown>) => Promise<unknown>;
+      plannerUpdateTarget: (id: number, updates: Record<string, unknown>) => Promise<unknown>;
+      plannerDeleteTarget: (id: number) => Promise<unknown>;
+      plannerToggleTarget: (id: number, enabled: boolean) => Promise<unknown>;
+      plannerListPlans: (status?: string) => Promise<unknown>;
+      plannerGetPlan: (id: number) => Promise<unknown>;
+      plannerCreatePlan: (input: Record<string, unknown>) => Promise<unknown>;
+      plannerUpdatePlan: (id: number, updates: Record<string, unknown>) => Promise<unknown>;
+      plannerDeletePlan: (id: number) => Promise<unknown>;
+      plannerListAssets: (filters?: Record<string, unknown>) => Promise<unknown>;
+      plannerGetAsset: (id: number) => Promise<unknown>;
+      plannerApproveAsset: (id: number) => Promise<unknown>;
+      plannerRejectAsset: (id: number) => Promise<unknown>;
+      plannerEditAsset: (id: number, draftText: string) => Promise<unknown>;
+      plannerScheduleAssets: (assetIds: number[], scheduledAt: string) => Promise<unknown>;
+      plannerPublishAsset: (id: number) => Promise<unknown>;
+      plannerMarkCopied: (id: number) => Promise<unknown>;
+      plannerRunResearch: (planId: number) => Promise<unknown>;
+      plannerGenerateAssets: (planId: number) => Promise<unknown>;
+      plannerRegenerateImage: (assetId: number) => Promise<unknown>;
+      plannerImproveDraft: (assetId: number, feedback: string, mode: 'improve' | 'redo') => Promise<unknown>;
+      plannerScreenshot: (options: Record<string, unknown>, outputPath?: string) => Promise<unknown>;
+      plannerRenderHtml: (html: string, css?: string, outputPath?: string) => Promise<unknown>;
+      // Idea Lab
+      plannerCreateIdeaSession: (input: Record<string, unknown>) => Promise<unknown>;
+      plannerSendMessage: (sessionId: number, message: string, sources?: Record<string, boolean>) => Promise<unknown>;
+      plannerGenerateIdeas: (sessionId: number) => Promise<unknown>;
+      plannerUpdateIdeaCard: (id: number, updates: Record<string, unknown>) => Promise<unknown>;
+      plannerDeleteIdeaCard: (id: number) => Promise<unknown>;
+      plannerDraftSelected: (input: Record<string, unknown>) => Promise<unknown>;
+      onPlannerResearchProgress: (callback: (data: unknown) => void) => () => void;
+      onPlannerDraftProgress: (callback: (data: unknown) => void) => () => void;
       listLinkedInPosts: (date: string, authorFilter?: string) => Promise<{ posts: Array<{ id: number; post_url: string; author: string; text_preview: string; full_post_text?: string | null; full_post_summary?: string | null; full_post_updated_at?: string | null; reactions: number; comments: number; post_type: string | null; scraped_date: string; commented: number; posted_logged?: number; comment_draft: string | null; kanban_task_id: number | null; created_at: string; priority: string; scheduled_at: string | null; snoozed_until: string | null; hidden: number; post_bank_ids?: string | null; post_bank_group?: string | null }>; snoozed: Array<{ id: number; post_url: string; author: string; text_preview: string; reactions: number; comments: number; post_type: string | null; scraped_date: string; snoozed_until: string; priority: string; post_bank_ids?: string | null; post_bank_group?: string | null }> }>;
       getLinkedInPostingDays: (month?: string) => Promise<Array<{ date: string; count: number }>>;
       getLinkedInPostContent: (postId: number, forceRefresh?: boolean) => Promise<{ success: boolean; error?: string; warning?: string; postId?: number; postUrl?: string; author?: string; fullText?: string; summary?: string; cached?: boolean; fetchedAt?: string | null }>;
       approveLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string; postUrl?: string; draft?: string }>;
+      confirmLinkedInPosted: (id: number) => Promise<{ success: boolean; error?: string; author?: string }>;
       rejectLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string }>;
       updateLinkedInDraft: (id: number, text: string) => Promise<{ success: boolean; error?: string }>;
       rewriteLinkedInDraft: (id: number, currentText: string, instructions: string) => Promise<{ success: boolean; error?: string; rewritten?: string; model?: string }>;

@@ -14,7 +14,7 @@ import { loadInstructions, saveInstructions, getInstructionsPath, DEFAULT_INSTRU
 import { DEFAULT_COMMANDS } from '../config/commands';
 import { loadWorkflowCommands } from '../config/commands-loader';
 import { closeTaskDb, closeKanbanDb, setResearchTelegramBot } from '../tools';
-import { setLinkedInTelegramBot, notifyTelegram, rescheduleStalePosts, rebalancePendingSchedules, markLinkedInControlSource } from '../tools/linkedin-autoposter';
+import { setLinkedInTelegramBot, notifyTelegram, rescheduleStalePosts, rebalancePendingSchedules, markLinkedInControlSource, checkAndPostNext } from '../tools/linkedin-autoposter';
 import { linkedinExec } from '../tools/linkedin-wrapper';
 import {
   clearExternalActionAudit,
@@ -2786,6 +2786,41 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('linkedin:confirmPosted', async (_, postId: number) => {
+    try {
+      markLinkedInControlSource('desktop');
+      const Database = (await import('better-sqlite3')).default;
+      const dbPath = getLinkedInDbPath();
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      const row = db.prepare('SELECT post_url, author FROM linkedin_posts WHERE id = ?')
+        .get(postId) as { post_url?: string; author?: string } | undefined;
+      if (!row?.post_url) {
+        db.close();
+        return { success: false, error: 'Post not found' };
+      }
+
+      db.prepare(
+        `UPDATE linkedin_posts
+         SET commented = 1,
+             approved = 0,
+             scheduled_at = NULL
+         WHERE id = ?`
+      ).run(postId);
+      db.prepare(
+        `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
+         VALUES (?, ?, 'posted_manual_confirmed', 'user_confirmed_existing_comment')`
+      ).run(postId, normalizeLinkedInPostUrl(row.post_url));
+      db.close();
+
+      return { success: true, author: row.author || '' };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to confirm posted state:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle('linkedin:hidePost', async (_, postId: number) => {
     try {
       markLinkedInControlSource('desktop');
@@ -2900,6 +2935,13 @@ function setupIPC(): void {
       const db = new Database(dbPath);
       db.pragma('journal_mode = WAL');
       const post = db.prepare('SELECT post_url, comment_draft FROM linkedin_posts WHERE id = ?').get(postId) as { post_url: string; comment_draft: string | null } | undefined;
+      const lastActivity = db.prepare(
+        `SELECT action, reason
+         FROM linkedin_activity_log
+         WHERE post_id = ?
+         ORDER BY id DESC
+         LIMIT 1`
+      ).get(postId) as { action?: string | null; reason?: string | null } | undefined;
       const logScheduleFailure = (reason: string) => {
         if (!post?.post_url) return;
         try {
@@ -2929,6 +2971,29 @@ function setupIPC(): void {
         };
       }
       db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?').run(datetime, postId);
+      const lastAction = String(lastActivity?.action || '').trim().toLowerCase();
+      const preferredMs = Date.parse(String(datetime).replace(' ', 'T') + 'Z');
+      const isImmediatePrioritySchedule = Number.isFinite(preferredMs) && preferredMs <= (Date.now() + 15 * 60 * 1000);
+      if (['verify_needed', 'posting_attempt', 'failed', 'error'].includes(lastAction)) {
+        try {
+          db.prepare(
+            `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
+             VALUES (?, ?, 'retry_scheduled', ?)`
+          ).run(postId, post.post_url, `manual_schedule_after_${lastAction}${lastActivity?.reason ? `:${String(lastActivity.reason).slice(0, 200)}` : ''}`);
+        } catch (logErr) {
+          console.warn('[LinkedIn] Failed to log retry_scheduled:', logErr);
+        }
+      }
+      if (isImmediatePrioritySchedule) {
+        try {
+          db.prepare(
+            `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
+             VALUES (?, ?, 'priority_scheduled', ?)`
+          ).run(postId, post.post_url, 'manual_post_now');
+        } catch (logErr) {
+          console.warn('[LinkedIn] Failed to log priority_scheduled:', logErr);
+        }
+      }
       // No cron job needed — the autoposter daemon picks up posts where scheduled_at <= now
       db.close();
       let scheduledAt = datetime;
@@ -2936,7 +3001,11 @@ function setupIPC(): void {
       let warning: string | undefined;
       try {
         const { rebalancePendingSchedules } = await import('../tools/linkedin-autoposter');
-        const rebalance = rebalancePendingSchedules({ priorityPostId: postId, preferredAt: datetime });
+        const rebalance = rebalancePendingSchedules({
+          priorityPostId: postId,
+          preferredAt: datetime,
+          fromNow: isImmediatePrioritySchedule,
+        });
         if (rebalance.priorityScheduledAt) scheduledAt = rebalance.priorityScheduledAt;
         adjustedOthers = rebalance.adjustedOthers || 0;
         warning = rebalance.warning;
@@ -3574,6 +3643,194 @@ function setupIPC(): void {
     }
   });
 
+  // Idea Lab IPC handlers
+  ipcMain.handle('planner:createIdeaSession', async (_event, input: Record<string, unknown>) => {
+    const { createIdeaSession } = await import('../tools/linkedin-planner');
+    try {
+      const session = createIdeaSession({
+        initial_dump: input.initial_dump as string,
+        research_sources: input.research_sources as Record<string, boolean> | undefined,
+        batch_rules: input.batch_rules as string | undefined,
+      });
+      return { success: true, session };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:sendMessage', async (_event, sessionId: number, message: string, sources?: Record<string, boolean>) => {
+    const { getIdeaSession, updateIdeaSession } = await import('../tools/linkedin-planner');
+    try {
+      const session = getIdeaSession(sessionId);
+      if (!session) return { success: false, error: 'Session not found' };
+
+      // Append user message to discussion history
+      const history = session.discussion_history ? JSON.parse(session.discussion_history) as Array<{ role: string; content: string }> : [];
+      const isFirstMessage = history.length === 0;
+      history.push({ role: 'user', content: message });
+
+      // Build research sources instruction
+      const enabledSources = sources ? Object.entries(sources).filter(([, v]) => v).map(([k]) => k) : ['web'];
+      let sourceInstructions = '';
+      if (enabledSources.includes('web')) sourceInstructions += '\n- Search the web for recent articles, data, and insights on this topic';
+      if (enabledSources.includes('patents')) sourceInstructions += '\n- Search Google Patents for relevant patents on this topic';
+      if (enabledSources.includes('linkedin')) sourceInstructions += '\n- Look for relevant LinkedIn posts and discussions';
+      if (enabledSources.includes('feed')) sourceInstructions += '\n- Check the user\'s LinkedIn feed for related content';
+
+      let context: string;
+      if (isFirstMessage) {
+        // First message: do actual research
+        context = `You are a LinkedIn content research assistant. The user wants to create LinkedIn posts about:\n\n"${session.initial_dump}"\n\nDo the following:\n1. RESEARCH the topic thoroughly using your available tools:${sourceInstructions}\n2. Find specific facts, data points, examples, and recent developments\n3. Identify interesting angles for LinkedIn posts\n4. Present your findings in a clear, organized way\n5. Suggest 2-4 possible post angles based on your research\n\nIMPORTANT: Actually use your web search and research tools to find real, current information. Do NOT just brainstorm from memory — search and cite real sources with URLs.\n\nUser's request: ${message}`;
+      } else {
+        // Follow-up messages: continue discussion with research capability
+        context = `You are a LinkedIn content research assistant continuing a brainstorming session.\n\nOriginal idea: ${session.initial_dump}\n\nDiscussion so far:\n${history.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n')}\n\nThe user's latest message is a follow-up. If they ask for more research or new angles, use your web search tools to find real information. If they're refining existing ideas, help them sharpen the angles.\n\nRespond helpfully and keep responses focused and actionable. Always cite real sources with URLs when referencing external information.`;
+      }
+
+      const response = await AgentManager.processMessage(context, 'planner:ideaLab') as unknown;
+      const responseObj = response as { response?: string };
+      const aiMessage = responseObj?.response || 'I could not generate a response. Please try again.';
+
+      history.push({ role: 'assistant', content: aiMessage });
+      updateIdeaSession(sessionId, { discussion_history: JSON.stringify(history) });
+
+      return { success: true, message: aiMessage };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:generateIdeas', async (_event, sessionId: number) => {
+    const { getIdeaSession, createIdeaCard } = await import('../tools/linkedin-planner');
+    try {
+      const session = getIdeaSession(sessionId);
+      if (!session) return { success: false, error: 'Session not found' };
+
+      const history = session.discussion_history ? JSON.parse(session.discussion_history) as Array<{ role: string; content: string }> : [];
+      const context = `Based on this brainstorming session, generate 3-5 distinct LinkedIn post ideas as JSON.\n\nInitial dump: ${session.initial_dump}\n\nDiscussion:\n${history.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n')}\n\nRespond ONLY with a JSON array of objects, each with: angle (the post angle/topic), hook (opening hook line), key_points (array of strings), image_preset (one of: meme, explainer, screenshot, data_visual, quote_card, comparison, none), suggested_sources (array of URL strings if any). No other text.`;
+
+      const response = await AgentManager.processMessage(context, 'planner:ideaLab') as unknown;
+      const responseObj = response as { response?: string };
+      const raw = responseObj?.response || '[]';
+
+      // Parse JSON from response (handle markdown code blocks)
+      let ideas: Array<{ angle?: string; hook?: string; key_points?: string[]; image_preset?: string; suggested_sources?: string[] }> = [];
+      try {
+        const jsonMatch = raw.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          ideas = JSON.parse(jsonMatch[0]) as typeof ideas;
+        }
+      } catch {
+        return { success: false, error: 'Failed to parse AI response into ideas. Try again.' };
+      }
+
+      const cards = ideas.map((idea, idx) => {
+        return createIdeaCard({
+          session_id: sessionId,
+          angle: idea.angle || `Idea ${idx + 1}`,
+          hook: idea.hook || '',
+          key_points: idea.key_points || [],
+          source_urls: idea.suggested_sources || [],
+          image_preset: (idea.image_preset as 'none') || 'none',
+          sort_order: idx,
+        });
+      });
+
+      return { success: true, cards };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:updateIdeaCard', async (_event, id: number, updates: Record<string, unknown>) => {
+    const { updateIdeaCard } = await import('../tools/linkedin-planner');
+    try {
+      updateIdeaCard(id, updates as Parameters<typeof updateIdeaCard>[1]);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:deleteIdeaCard', async (_event, id: number) => {
+    const { deleteIdeaCard } = await import('../tools/linkedin-planner');
+    try {
+      deleteIdeaCard(id);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:draftSelected', async (_event, input: Record<string, unknown>) => {
+    const { getIdeaCards, getIdeaSession, createPlan, generatePlanAssets } = await import('../tools/linkedin-planner');
+    try {
+      const sessionId = (input.session_id ?? input.sessionId) as number;
+      const batchRules = ((input.batch_rules ?? input.batchRules) as string) || '';
+
+      // UI sends full card objects as `cards`, or card IDs as `cardIds`
+      const cards = input.cards as Array<{ id?: number; angle?: string; hook?: string; key_points?: string; image_preset?: string; per_idea_rules?: string }> | undefined;
+      const cardIds = input.cardIds as number[] | undefined;
+
+      let selectedCards: Array<{ angle: string; hook: string | null; key_points: string | null; image_preset: string; per_idea_rules: string | null }>;
+      if (cards && cards.length > 0) {
+        selectedCards = cards.map(c => ({
+          angle: c.angle || '',
+          hook: c.hook || null,
+          key_points: c.key_points || null,
+          image_preset: c.image_preset || 'none',
+          per_idea_rules: c.per_idea_rules || null,
+        }));
+      } else if (cardIds && cardIds.length > 0) {
+        const allCards = getIdeaCards(sessionId);
+        selectedCards = allCards.filter(c => cardIds.includes(c.id));
+      } else {
+        return { success: false, error: 'No cards selected' };
+      }
+      const session = getIdeaSession(sessionId);
+
+      if (selectedCards.length === 0) return { success: false, error: 'No cards selected' };
+
+      const planTopics = selectedCards.map(c => c.angle).join(', ');
+      const instructionParts = selectedCards.map(c => {
+        let keyPoints: string[] = [];
+        if (c.key_points) {
+          try { keyPoints = typeof c.key_points === 'string' ? JSON.parse(c.key_points) as string[] : c.key_points as unknown as string[]; } catch { keyPoints = []; }
+        }
+        return `Post: ${c.angle}\nHook: ${c.hook || ''}\nKey Points: ${keyPoints.join(', ')}\nImage: ${c.image_preset || 'none'}${c.per_idea_rules ? `\nRules: ${c.per_idea_rules}` : ''}`;
+      });
+
+      // Include batch rules and discussion context in prompt
+      let prompt = instructionParts.join('\n\n---\n\n');
+      if (batchRules) prompt += `\n\n## Batch Rules\n${batchRules}`;
+      if (session?.discussion_history) prompt += `\n\n## Discussion Context\n${session.discussion_history}`;
+
+      // Use target from UI, or fall back to first available
+      const targetId = input.target_id as number | undefined;
+      let targetIds: number[];
+      if (targetId) {
+        targetIds = [targetId];
+      } else {
+        const { listTargets } = await import('../tools/linkedin-planner');
+        const targets = listTargets();
+        targetIds = targets.length > 0 ? [targets[0].id] : [];
+      }
+
+      const plan = createPlan({
+        title: `Idea Lab: ${planTopics}`,
+        prompt,
+        target_ids: targetIds,
+      });
+
+      const assets = await generatePlanAssets(plan.id);
+      linkedInPlannerWindow?.webContents.send('planner:draftProgress', { planId: plan.id, status: 'complete', count: assets.length });
+
+      return { success: true, planId: plan.id, assetCount: assets.length };
+    } catch (err) {
+      linkedInPlannerWindow?.webContents.send('planner:draftProgress', { status: 'error', error: String(err) });
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('app:openDailyLogs', async () => {
     openDailyLogsWindow();
   });
@@ -3865,6 +4122,13 @@ function setupIPC(): void {
           emailProcessor.restart();
           console.log('[Main] Email processor restarted with new interval');
         }
+      }
+
+      // Launch at login toggle
+      if (key === 'app.launchAtLogin') {
+        const enabled = value === 'true' || value === '1';
+        app.setLoginItemSettings({ openAtLogin: enabled });
+        console.log(`[Main] Launch at login ${enabled ? 'enabled' : 'disabled'}`);
       }
 
       // Instant Telegram toggle — no restart required
@@ -5693,6 +5957,24 @@ async function recoverAndRetryInterruptedLinkedInDrafts(trigger: 'restart' | 'wa
   }
 }
 
+function recoverLinkedInScheduleAfterDowntime(trigger: 'launch' | 'wake'): void {
+  if (SettingsManager.get('linkedin.recoveryRebalanceEnabled') === 'false') return;
+
+  const sourceLabel = trigger === 'wake' ? 'after wake' : 'on launch';
+  const staleCount = rescheduleStalePosts();
+  const rebalance = rebalancePendingSchedules({ fromNow: true });
+
+  if (staleCount > 0) {
+    notifyTelegram(`LinkedIn: Rescheduled ${staleCount} stale posts ${sourceLabel}`).catch(() => {});
+  }
+  if (rebalance.adjusted > 0) {
+    notifyTelegram(`LinkedIn: Rebalanced ${rebalance.adjusted}/${rebalance.total} scheduled posts ${sourceLabel}`).catch(() => {});
+  }
+  if (rebalance.warning) {
+    notifyTelegram(`LinkedIn warning: ${rebalance.warning}`).catch(() => {});
+  }
+}
+
 // ============ App Lifecycle ============
 
 app.whenReady().then(async () => {
@@ -5745,18 +6027,10 @@ app.whenReady().then(async () => {
         console.error('[Power] Failed to catch up missed jobs:', err);
       });
       // Recalculate LinkedIn queue timing after sleep/offline drift
-      const rebalance = rebalancePendingSchedules();
-      if (rebalance.adjusted > 0) {
-        notifyTelegram(`LinkedIn: Rebalanced ${rebalance.adjusted}/${rebalance.total} scheduled posts after wake`).catch(() => {});
-      } else {
-        const rescheduled = rescheduleStalePosts();
-        if (rescheduled > 0) {
-          notifyTelegram(`LinkedIn: Rescheduled ${rescheduled} stale posts after wake`).catch(() => {});
-        }
-      }
-      if (rebalance.warning) {
-        notifyTelegram(`LinkedIn warning: ${rebalance.warning}`).catch(() => {});
-      }
+      recoverLinkedInScheduleAfterDowntime('wake');
+      void checkAndPostNext().catch((err) => {
+        console.warn('[Power] LinkedIn auto-poster catch-up after resume failed:', err);
+      });
     });
 
     // Handle lock screen (display off but CPU running)
@@ -5785,6 +6059,10 @@ app.whenReady().then(async () => {
         app.dock?.setIcon(dockIconPath);
       }
     }
+
+    // Apply launch-at-login setting
+    const launchAtLogin = SettingsManager.getBoolean('app.launchAtLogin');
+    app.setLoginItemSettings({ openAtLogin: launchAtLogin });
 
     // Clean up voice/TTS audio files older than 24 hours
     try {
@@ -5875,18 +6153,10 @@ app.whenReady().then(async () => {
       console.log('[Main] Initializing agent...');
       await initializeAgent();
       // Recalculate LinkedIn queue when app starts after downtime
-      const startupRebalance = rebalancePendingSchedules();
-      if (startupRebalance.adjusted > 0) {
-        notifyTelegram(`LinkedIn: Rebalanced ${startupRebalance.adjusted}/${startupRebalance.total} scheduled posts on launch`).catch(() => {});
-      } else {
-        const staleCount = rescheduleStalePosts();
-        if (staleCount > 0) {
-          notifyTelegram(`LinkedIn: Rescheduled ${staleCount} stale posts on launch`).catch(() => {});
-        }
-      }
-      if (startupRebalance.warning) {
-        notifyTelegram(`LinkedIn warning: ${startupRebalance.warning}`).catch(() => {});
-      }
+      recoverLinkedInScheduleAfterDowntime('launch');
+      void checkAndPostNext().catch((err) => {
+        console.warn('[Main] LinkedIn auto-poster catch-up on launch failed:', err);
+      });
       void recoverAndRetryInterruptedLinkedInDrafts('restart');
       // Open chat window on launch so users see the app
       openChatWindow();

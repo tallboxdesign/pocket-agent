@@ -2446,7 +2446,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
             </svg>
-            My Approach
+            Agent Soul
           </button>
           <button class="menu-item" onclick="openFactsGraph(); closeMenu();">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3801,6 +3801,12 @@
           'glm-5': 'GLM-5',
           'MiniMax-M2.5': 'MiniMax M2.5',
           'MiniMax-M2.5-Lightning': 'M2.5 Lightning',
+          'gemini-2.5-pro': 'Gemini 2.5 Pro',
+          'gemini-2.5-flash': 'Gemini 2.5 Flash',
+          'gemini-2.5-flash-lite': 'Gemini 2.5 Flash-Lite',
+          'qwen3.5-plus-2026-02-15': 'Qwen 3.5 Plus',
+          'qwen/qwen3.5-plus-02-15': 'Qwen 3.5 Plus (OpenRouter)',
+          'qwen/qwen3.5-flash': 'Qwen 3.5 Flash (OpenRouter)',
         };
 
         let models = [];
@@ -3813,12 +3819,57 @@
         badge.innerHTML = '';
 
         if (models.length > 0) {
-          for (const model of models) {
-            const opt = document.createElement('option');
-            opt.value = model.id;
-            opt.textContent = model.name;
-            if (model.id === modelId) opt.selected = true;
-            badge.appendChild(opt);
+          const providerOrder = ['anthropic', 'moonshot', 'glm', 'minimax', 'gemini', 'qwen'];
+          const providerGroups = [
+            { key: 'anthropic', label: 'Anthropic' },
+            { key: 'moonshot', label: 'Kimi' },
+            { key: 'glm', label: 'GLM' },
+            { key: 'minimax', label: 'MiniMax' },
+            { key: 'gemini', label: 'Gemini' },
+            { key: 'qwen', label: 'Qwen Direct' },
+          ];
+          const providerPrefix = {
+            anthropic: '[Claude]',
+            moonshot: '[Kimi]',
+            glm: '[GLM]',
+            minimax: '[MiniMax]',
+            gemini: '[Gemini]',
+            qwen: '[Qwen]',
+          };
+
+          const visibleModels = models.filter(m => {
+            const provider = String(m.provider || '').toLowerCase();
+            return provider !== 'openrouter' && provider !== 'openrouter_fav';
+          });
+          const sorted = [...visibleModels].sort((a, b) => {
+            const ai = providerOrder.indexOf(a.provider);
+            const bi = providerOrder.indexOf(b.provider);
+            if (ai !== bi) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+            return String(a.name || a.id).localeCompare(String(b.name || b.id));
+          });
+
+          for (const groupMeta of providerGroups) {
+            const providerModels = sorted.filter(m => m.provider === groupMeta.key);
+            if (providerModels.length === 0) continue;
+            const group = document.createElement('optgroup');
+            group.label = groupMeta.label;
+            for (const model of providerModels) {
+              const opt = document.createElement('option');
+              opt.value = model.id;
+              const prefix = providerPrefix[model.provider] || '[Model]';
+              opt.textContent = `${prefix} ${model.name}`;
+              if (model.id === modelId) opt.selected = true;
+              group.appendChild(opt);
+            }
+            badge.appendChild(group);
+          }
+
+          if (!sorted.some(m => m.id === modelId)) {
+            const missing = document.createElement('option');
+            missing.value = modelId;
+            missing.textContent = `[Unavailable] ${modelId}`;
+            missing.selected = true;
+            badge.appendChild(missing);
           }
         } else {
           const opt = document.createElement('option');

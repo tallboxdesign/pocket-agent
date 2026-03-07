@@ -305,6 +305,64 @@
       padding: 16px;
     }
 
+    /* Idea Lab: wider panel */
+    .idea-lab-panel { width: 520px; right: -540px; }
+    .idea-lab-panel.open { right: 0; }
+
+    .research-toggle {
+      display: flex; align-items: center; gap: 4px;
+      padding: 4px 10px; background: var(--bg-tertiary);
+      border: 1px solid var(--border); border-radius: 6px;
+      font-size: 12px; cursor: pointer; user-select: none;
+    }
+    .research-toggle input { accent-color: var(--accent); }
+
+    /* Discussion messages */
+    .disc-msg {
+      padding: 8px 12px; border-radius: var(--radius-sm);
+      font-size: 13px; line-height: 1.5; white-space: pre-wrap;
+      max-width: 95%;
+    }
+    .disc-msg.user {
+      background: var(--accent); color: white;
+      align-self: flex-end; border-bottom-right-radius: 4px;
+    }
+    .disc-msg.ai {
+      background: var(--bg-tertiary); color: var(--text-primary);
+      align-self: flex-start; border-bottom-left-radius: 4px;
+    }
+    .disc-msg.system {
+      background: transparent; color: var(--text-muted);
+      font-size: 11px; font-style: italic; align-self: center;
+    }
+    .disc-msg.error {
+      background: rgba(239,68,68,0.15); color: var(--error);
+      border: 1px solid var(--error); align-self: center;
+    }
+
+    /* Idea cards */
+    .idea-card {
+      background: var(--bg-tertiary); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 12px; margin-bottom: 8px;
+    }
+    .idea-card.selected { border-color: var(--accent); }
+    .idea-card-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    }
+    .idea-card-header input[type="checkbox"] { accent-color: var(--accent); }
+    .idea-card-field {
+      font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;
+    }
+    .idea-card-field strong { color: var(--text-primary); font-size: 11px; text-transform: uppercase; }
+    .idea-card-angle {
+      font-size: 14px; font-weight: 600; color: var(--text-primary); flex: 1;
+    }
+    .idea-card-actions { display: flex; gap: 4px; }
+    .idea-card .preset-select {
+      font-size: 11px; padding: 2px 6px; background: var(--bg-secondary);
+      border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary);
+    }
+
     .form-group { margin-bottom: 14px; }
     .form-label {
       display: block;
@@ -586,7 +644,7 @@
     <div class="header-actions">
       <button class="btn" onclick="openSettingsPanel()" title="Planner Settings">Settings</button>
       <button class="btn btn-blue" onclick="openTargetPanel()">Targets</button>
-      <button class="btn btn-accent" onclick="openNewPlanPanel()">+ New Plan</button>
+      <button class="btn btn-accent" onclick="openNewPlanPanel()">Idea Lab</button>
     </div>
   </header>
 
@@ -637,38 +695,68 @@
 
   <div class="overlay" id="overlay" onclick="closePanels()"></div>
 
-  <!-- New Plan side panel -->
-  <div class="side-panel" id="new-plan-panel">
+  <!-- Idea Lab panel (replaces old New Plan form) -->
+  <div class="side-panel idea-lab-panel" id="new-plan-panel">
     <div class="side-panel-header">
-      <span class="side-panel-title">New Plan</span>
+      <span class="side-panel-title">Idea Lab</span>
       <button class="btn btn-sm" onclick="closePanels()">&times;</button>
     </div>
-    <div class="side-panel-body">
-      <div class="form-group">
-        <label class="form-label">Title</label>
-        <input class="form-input" id="plan-title" placeholder="Short plan title...">
+    <div class="side-panel-body" style="display:flex;flex-direction:column;height:calc(100vh - 50px)">
+
+      <!-- Phase 1: Dump -->
+      <div id="idea-lab-phase1">
+        <div class="form-group">
+          <textarea class="form-textarea" id="idea-dump" rows="5" placeholder="Dump your ideas here... Mix topics, paste URLs, describe what you want.&#10;&#10;Example: This week let's do 3 posts about Google patents on page quality. Find the most interesting ones from 2025-2026. Make them practical with real examples."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted)">Research Sources</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <label class="research-toggle"><input type="checkbox" id="src-web" checked> Web Search</label>
+            <label class="research-toggle"><input type="checkbox" id="src-patents"> Google Patents</label>
+            <label class="research-toggle"><input type="checkbox" id="src-linkedin"> LinkedIn *</label>
+            <label class="research-toggle"><input type="checkbox" id="src-feed"> My Feed *</label>
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">* LinkedIn sources require active browser session</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted)">Target</label>
+          <div id="plan-targets"></div>
+        </div>
+
+        <button class="btn btn-accent" style="width:100%" onclick="startIdeaSession()" id="btn-go-research">Go - Research & Ideate</button>
       </div>
-      <div class="form-group">
-        <label class="form-label">Prompt</label>
-        <textarea class="form-textarea" id="plan-prompt" placeholder="What should we write about?" rows="4"></textarea>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Reference URLs (one per line)</label>
-        <textarea class="form-textarea" id="plan-urls" placeholder="https://..." rows="2"></textarea>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Research Mode</label>
-        <div class="mode-toggle" id="research-mode">
-          <button onclick="setResearchMode('fast')">Fast</button>
-          <button class="active" onclick="setResearchMode('balanced')">Balanced</button>
-          <button onclick="setResearchMode('deep')">Deep</button>
+
+      <!-- Discussion thread -->
+      <div id="idea-discussion" style="flex:1;display:flex;flex-direction:column;min-height:0;margin-top:12px">
+        <div id="discussion-messages" style="flex:1;overflow-y:auto;padding:8px 0;display:flex;flex-direction:column;gap:8px"></div>
+        <div id="discussion-input-area" style="display:none;border-top:1px solid var(--border);padding-top:8px">
+          <div style="display:flex;gap:6px">
+            <textarea class="form-textarea" id="discussion-input" rows="2" placeholder="Refine, redirect, or say 'generate the ideas'..." style="flex:1;resize:none"></textarea>
+            <button class="btn btn-accent" onclick="sendDiscussionMessage()" style="align-self:flex-end">Send</button>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button class="btn btn-sm" onclick="generateIdeasFromDiscussion()">Generate Ideas</button>
+            <button class="btn btn-sm" onclick="backToPhase1()" style="margin-left:auto">Reset</button>
+          </div>
         </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Targets</label>
-        <div id="plan-targets"></div>
+
+      <!-- Phase 2: Ideas Board (shown after Generate Ideas) -->
+      <div id="idea-lab-phase2" style="display:none;flex:1;overflow-y:auto">
+        <div class="form-group">
+          <label class="form-label" style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted)">Batch Rules (apply to all ideas)</label>
+          <textarea class="form-textarea" id="idea-batch-rules" rows="2" placeholder="Every post must include one good and one bad example..."></textarea>
+        </div>
+        <div id="idea-cards-container"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-sm" onclick="addManualIdeaCard()">+ Add Idea</button>
+          <button class="btn btn-accent" onclick="draftSelectedIdeas()" id="btn-draft-selected" style="margin-left:auto">Draft Selected (0)</button>
+          <button class="btn btn-sm" onclick="backToDiscussion()">Back to Discussion</button>
+        </div>
       </div>
-      <button class="btn btn-accent" style="width:100%;margin-top:10px" onclick="createPlan()">Create & Research</button>
+
     </div>
   </div>
 
@@ -865,6 +953,9 @@
   </div>
 
 <script>
+  window.onerror = function(msg, src, line, col, err) {
+    document.body.innerHTML = `<div style="padding:40px;color:#f87171;font-size:14px;"><h2 style="margin-bottom:12px">Script Error</h2><p>${msg}</p><p>Line ${line}:${col}</p><pre style="white-space:pre-wrap;color:#fafafa">${err?.stack || ''}</pre></div>`;
+  };
   const api = window.pocketAgent;
 
   // State
@@ -1177,13 +1268,6 @@
     await api.setSetting('linkedin.plannerAvatarPath', '');
   }
 
-  function setResearchMode(mode) {
-    researchMode = mode;
-    document.querySelectorAll('#research-mode button').forEach(b => {
-      b.classList.toggle('active', b.textContent.trim().toLowerCase() === mode);
-    });
-  }
-
   function renderPlanTargets() {
     const container = document.getElementById('plan-targets');
     if (allTargets.length === 0) {
@@ -1194,54 +1278,268 @@
       <div class="target-check">
         <input type="checkbox" id="pt-${t.id}" checked>
         <span>${TARGET_ICONS[t.target_type] || ''} ${t.label}</span>
-        <input type="number" class="qty" id="qty-${t.id}" value="${t.posts_per_day}" min="1" max="10">
       </div>
     `).join('');
   }
 
-  async function createPlan() {
-    const title = document.getElementById('plan-title').value.trim();
-    const prompt = document.getElementById('plan-prompt').value.trim();
-    if (!title || !prompt) { alert('Title and prompt are required'); return; }
+  // ---- Idea Lab state ----
+  let currentSessionId = null;
+  let ideaCards = [];
+  const IMAGE_PRESETS = ['meme', 'explainer_card', 'annotated_screenshot', 'data_visual', 'quote_card', 'comparison', 'none'];
+  const PRESET_LABELS = { meme: 'Meme', explainer_card: 'Explainer Card', annotated_screenshot: 'Screenshot', data_visual: 'Data Visual', quote_card: 'Quote Card', comparison: 'Comparison', none: 'No Image' };
 
-    const urls = document.getElementById('plan-urls').value.trim().split('\n').map(u => u.trim()).filter(Boolean);
-    const targetIds = [];
-    const postsPerTarget = {};
+  function resetIdeaLab() {
+    currentSessionId = null;
+    ideaCards = [];
+    document.getElementById('idea-dump').value = '';
+    document.getElementById('discussion-messages').innerHTML = '';
+    document.getElementById('discussion-input-area').style.display = 'none';
+    document.getElementById('idea-lab-phase1').style.display = '';
+    document.getElementById('idea-lab-phase2').style.display = 'none';
+    document.getElementById('idea-batch-rules').value = '';
+    document.getElementById('idea-cards-container').innerHTML = '';
+    document.getElementById('btn-go-research').disabled = false;
+    document.getElementById('btn-go-research').textContent = 'Go - Research & Ideate';
+  }
+
+  function addDiscussionMessage(role, text) {
+    const container = document.getElementById('discussion-messages');
+    const div = document.createElement('div');
+    div.className = `disc-msg ${role}`;
+    div.textContent = text;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  async function startIdeaSession() {
+    const dump = document.getElementById('idea-dump').value.trim();
+    if (!dump) { alert('Describe what you want to create'); return; }
+
+    const btn = document.getElementById('btn-go-research');
+    btn.disabled = true;
+    btn.textContent = 'Researching...';
+
+    const sources = {
+      web: document.getElementById('src-web').checked,
+      patents: document.getElementById('src-patents').checked,
+      linkedin: document.getElementById('src-linkedin').checked,
+      feed: document.getElementById('src-feed').checked,
+    };
+
+    try {
+      // Create session via IPC
+      const result = await api.plannerCreateIdeaSession({ initial_dump: dump, research_sources: sources });
+      if (!result || !result.success || !result.session) {
+        addDiscussionMessage('error', result?.error || 'Failed to create session');
+        btn.disabled = false;
+        btn.textContent = 'Go - Research & Ideate';
+        return;
+      }
+      currentSessionId = result.session.id;
+
+      // Show discussion thread
+      document.getElementById('discussion-input-area').style.display = '';
+      addDiscussionMessage('system', 'Session started. Researching...');
+
+      // Send initial research request
+      const response = await api.plannerSendMessage(currentSessionId, dump, sources);
+      if (response && response.success && response.message) {
+        addDiscussionMessage('ai', response.message);
+      } else if (response && response.error) {
+        addDiscussionMessage('error', response.error);
+      }
+    } catch (err) {
+      addDiscussionMessage('error', 'Error: ' + (err.message || err));
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Go - Research & Ideate';
+  }
+
+  async function sendDiscussionMessage() {
+    const input = document.getElementById('discussion-input');
+    const text = input.value.trim();
+    if (!text || !currentSessionId) return;
+    input.value = '';
+
+    addDiscussionMessage('user', text);
+
+    try {
+      const response = await api.plannerSendMessage(currentSessionId, text);
+      if (response && response.success && response.message) {
+        addDiscussionMessage('ai', response.message);
+      } else if (response && response.error) {
+        addDiscussionMessage('error', response.error);
+      }
+    } catch (err) {
+      addDiscussionMessage('error', 'Error: ' + (err.message || err));
+    }
+  }
+
+  // Enter key sends message (Shift+Enter for newline)
+  document.getElementById('discussion-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendDiscussionMessage();
+    }
+  });
+
+  async function generateIdeasFromDiscussion() {
+    if (!currentSessionId) return;
+    addDiscussionMessage('system', 'Generating idea cards...');
+
+    try {
+      const result = await api.plannerGenerateIdeas(currentSessionId);
+      if (result && result.cards) {
+        ideaCards = result.cards;
+        renderIdeaCards();
+        // Switch to Phase 2
+        document.getElementById('idea-lab-phase1').style.display = 'none';
+        document.getElementById('discussion-input-area').style.display = 'none';
+        document.getElementById('discussion-messages').style.display = 'none';
+        document.getElementById('idea-lab-phase2').style.display = '';
+        addDiscussionMessage('system', `Generated ${ideaCards.length} idea cards`);
+      } else if (result && result.error) {
+        addDiscussionMessage('error', result.error);
+      }
+    } catch (err) {
+      addDiscussionMessage('error', 'Error: ' + (err.message || err));
+    }
+  }
+
+  function renderIdeaCards() {
+    const container = document.getElementById('idea-cards-container');
+    container.innerHTML = ideaCards.map((card, i) => {
+      const keyPoints = card.key_points ? (typeof card.key_points === 'string' ? JSON.parse(card.key_points) : card.key_points) : [];
+      const sources = card.source_urls ? (typeof card.source_urls === 'string' ? JSON.parse(card.source_urls) : card.source_urls) : [];
+      return `
+        <div class="idea-card ${card.selected ? 'selected' : ''}" data-idx="${i}">
+          <div class="idea-card-header">
+            <input type="checkbox" ${card.selected ? 'checked' : ''} onchange="toggleIdeaCard(${i}, this.checked)">
+            <span class="idea-card-angle">${card.angle || 'Untitled idea'}</span>
+            <div class="idea-card-actions">
+              <select class="preset-select" onchange="setIdeaPreset(${i}, this.value)">
+                ${IMAGE_PRESETS.map(p => `<option value="${p}" ${card.image_preset === p ? 'selected' : ''}>${PRESET_LABELS[p]}</option>`).join('')}
+              </select>
+              <button class="btn btn-sm" onclick="deleteIdeaCard(${i})" title="Delete">&times;</button>
+            </div>
+          </div>
+          ${card.hook ? `<div class="idea-card-field"><strong>Hook:</strong> ${card.hook}</div>` : ''}
+          ${keyPoints.length ? `<div class="idea-card-field"><strong>Key Points:</strong> ${keyPoints.join(', ')}</div>` : ''}
+          ${sources.length ? `<div class="idea-card-field"><strong>Sources:</strong> ${sources.map(u => `<a href="#" style="color:var(--accent);font-size:11px">${u.length > 50 ? u.slice(0, 50) + '...' : u}</a>`).join(', ')}</div>` : ''}
+          ${card.image_concept ? `<div class="idea-card-field"><strong>Image:</strong> ${card.image_concept}</div>` : ''}
+          ${card.image_preset === 'meme' && card.image_caption ? `<div class="idea-card-field"><strong>Caption:</strong> "${card.image_caption}"</div>` : ''}
+          <details style="margin-top:6px">
+            <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Per-idea rules</summary>
+            <textarea class="form-textarea" rows="2" style="margin-top:4px;font-size:12px" placeholder="Extra rules for this idea only..."
+              onchange="setIdeaRules(${i}, this.value)">${card.per_idea_rules || ''}</textarea>
+          </details>
+        </div>
+      `;
+    }).join('');
+    updateDraftCount();
+  }
+
+  function toggleIdeaCard(idx, checked) {
+    ideaCards[idx].selected = checked ? 1 : 0;
+    renderIdeaCards();
+  }
+
+  function setIdeaPreset(idx, preset) {
+    ideaCards[idx].image_preset = preset;
+  }
+
+  function setIdeaRules(idx, rules) {
+    ideaCards[idx].per_idea_rules = rules;
+  }
+
+  async function deleteIdeaCard(idx) {
+    const card = ideaCards[idx];
+    if (card.id) await api.plannerDeleteIdeaCard(card.id);
+    ideaCards.splice(idx, 1);
+    renderIdeaCards();
+  }
+
+  function addManualIdeaCard() {
+    ideaCards.push({
+      session_id: currentSessionId,
+      angle: 'New idea',
+      hook: '',
+      key_points: '[]',
+      source_urls: '[]',
+      image_preset: 'none',
+      image_concept: '',
+      image_caption: '',
+      per_idea_rules: '',
+      selected: 1,
+      sort_order: ideaCards.length,
+    });
+    renderIdeaCards();
+  }
+
+  function updateDraftCount() {
+    const count = ideaCards.filter(c => c.selected).length;
+    document.getElementById('btn-draft-selected').textContent = `Draft Selected (${count})`;
+  }
+
+  async function draftSelectedIdeas() {
+    const selected = ideaCards.filter(c => c.selected);
+    if (!selected.length) { alert('Select at least one idea'); return; }
+
+    // Get target
+    const targetId = getSelectedTargetId();
+    if (!targetId) { alert('Select a target'); return; }
+
+    const batchRules = document.getElementById('idea-batch-rules').value.trim();
+
+    const btn = document.getElementById('btn-draft-selected');
+    btn.disabled = true;
+    btn.textContent = 'Drafting...';
+
+    try {
+      const result = await api.plannerDraftSelected({
+        session_id: currentSessionId,
+        cards: selected,
+        target_id: targetId,
+        batch_rules: batchRules,
+      });
+      if (result && result.error) {
+        alert('Draft error: ' + result.error);
+      } else {
+        closePanels();
+        resetIdeaLab();
+        await loadAll();
+      }
+    } catch (err) {
+      alert('Error: ' + (err.message || err));
+    }
+
+    btn.disabled = false;
+    updateDraftCount();
+  }
+
+  function getSelectedTargetId() {
     for (const t of allTargets) {
       const cb = document.getElementById('pt-' + t.id);
-      if (cb && cb.checked) {
-        targetIds.push(t.id);
-        const qty = document.getElementById('qty-' + t.id);
-        if (qty) postsPerTarget[t.id] = parseInt(qty.value) || 1;
-      }
+      if (cb && cb.checked) return t.id;
     }
-    if (targetIds.length === 0) { alert('Select at least one target'); return; }
+    return null;
+  }
 
-    closePanels();
-    document.getElementById('header-stats').textContent = 'Creating plan...';
+  function backToDiscussion() {
+    document.getElementById('idea-lab-phase2').style.display = 'none';
+    document.getElementById('idea-lab-phase1').style.display = '';
+    document.getElementById('discussion-messages').style.display = '';
+    document.getElementById('discussion-input-area').style.display = '';
+  }
 
-    const plan = await api.plannerCreatePlan({
-      title,
-      prompt,
-      source_urls: urls.length > 0 ? urls : undefined,
-      research_mode: researchMode,
-      target_ids: targetIds,
-      posts_per_target: postsPerTarget,
-    });
+  function backToPhase1() {
+    resetIdeaLab();
+  }
 
-    // Clear form
-    document.getElementById('plan-title').value = '';
-    document.getElementById('plan-prompt').value = '';
-    document.getElementById('plan-urls').value = '';
-
-    await loadAll();
-
-    // Auto-generate drafts
-    if (plan && plan.id) {
-      document.getElementById('header-stats').textContent = 'Generating drafts...';
-      await api.plannerGenerateAssets(plan.id);
-      await loadAll();
-    }
+  // Legacy createPlan (backwards compat — redirects to Idea Lab)
+  async function createPlan() {
+    openNewPlanPanel();
   }
 
   // ---- Target management ----
@@ -1580,7 +1878,9 @@
   }
 
   // ---- Init ----
-  loadAll();
+  loadAll().catch(err => {
+    document.body.innerHTML = `<div style="padding:40px;color:#f87171;font-size:14px;"><h2 style="margin-bottom:12px">Content Planner Error</h2><pre style="white-space:pre-wrap;color:#fafafa">${err.stack || err.message || err}</pre></div>`;
+  });
 </script>
 </body>
 </html>

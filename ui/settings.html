@@ -2976,6 +2976,69 @@
                 <button onclick="saveLinkedInSetting('linkedin.nightWindowIntervalMin', 'linkedin-night-window-interval')">Save</button>
               </div>
             </div>
+            <div class="setting-row">
+              <label title="When enabled, app launch and wake will always reschedule stale posts and rebalance the pending queue.">Recovery Rebalance</label>
+              <div class="toggle" id="linkedin.recoveryRebalanceEnabled-toggle" onclick="toggleSetting('linkedin.recoveryRebalanceEnabled')" title="Auto-rebalance LinkedIn queue after restart, wake, or crash recovery"></div>
+            </div>
+            <div class="setting-row">
+              <label title="How many lighter-volume days per week should be selected automatically. 0 disables this mode.">Light Days / Week</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-light-days-per-week" min="0" max="7" step="1" placeholder="0" style="width: 70px; text-align: center;" title="Example: 1 or 2">
+                <button onclick="saveLinkedInSetting('linkedin.lightDaysPerWeek', 'linkedin-light-days-per-week')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Minimum posts on a light day. The scheduler will use a deterministic value between min and max.">Light Day Min Posts</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-light-day-min-posts" min="1" max="50" step="1" placeholder="10" style="width: 70px; text-align: center;" title="Example: 8 or 10">
+                <button onclick="saveLinkedInSetting('linkedin.lightDayMinPosts', 'linkedin-light-day-min-posts')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Maximum posts on a light day. Use the same as min for a fixed cap.">Light Day Max Posts</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-light-day-max-posts" min="1" max="50" step="1" placeholder="10" style="width: 70px; text-align: center;" title="Example: 10 or 12">
+                <button onclick="saveLinkedInSetting('linkedin.lightDayMaxPosts', 'linkedin-light-day-max-posts')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Exact weekday for light day #1. When set, manual light days override the automatic random light-day picker.">Light Day #1</label>
+              <div class="key-input" style="width: 320px; gap: 6px;">
+                <select id="linkedin-light-day-1-weekday" style="width: 90px;">
+                  <option value="">Off</option>
+                  <option value="mon">Mon</option>
+                  <option value="tue">Tue</option>
+                  <option value="wed">Wed</option>
+                  <option value="thu">Thu</option>
+                  <option value="fri">Fri</option>
+                  <option value="sat">Sat</option>
+                  <option value="sun">Sun</option>
+                </select>
+                <input type="number" id="linkedin-light-day-1-min-posts" min="1" max="50" step="1" placeholder="10" style="width: 58px; text-align: center;" title="Min posts">
+                <span style="font-size:11px;color:var(--text-muted)">to</span>
+                <input type="number" id="linkedin-light-day-1-max-posts" min="1" max="50" step="1" placeholder="10" style="width: 58px; text-align: center;" title="Max posts">
+                <button onclick="saveLinkedInSetting('linkedin.lightDay1Weekday', 'linkedin-light-day-1-weekday'); saveLinkedInSetting('linkedin.lightDay1MinPosts', 'linkedin-light-day-1-min-posts'); saveLinkedInSetting('linkedin.lightDay1MaxPosts', 'linkedin-light-day-1-max-posts');">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Exact weekday for light day #2. When set, manual light days override the automatic random light-day picker.">Light Day #2</label>
+              <div class="key-input" style="width: 320px; gap: 6px;">
+                <select id="linkedin-light-day-2-weekday" style="width: 90px;">
+                  <option value="">Off</option>
+                  <option value="mon">Mon</option>
+                  <option value="tue">Tue</option>
+                  <option value="wed">Wed</option>
+                  <option value="thu">Thu</option>
+                  <option value="fri">Fri</option>
+                  <option value="sat">Sat</option>
+                  <option value="sun">Sun</option>
+                </select>
+                <input type="number" id="linkedin-light-day-2-min-posts" min="1" max="50" step="1" placeholder="10" style="width: 58px; text-align: center;" title="Min posts">
+                <span style="font-size:11px;color:var(--text-muted)">to</span>
+                <input type="number" id="linkedin-light-day-2-max-posts" min="1" max="50" step="1" placeholder="10" style="width: 58px; text-align: center;" title="Max posts">
+                <button onclick="saveLinkedInSetting('linkedin.lightDay2Weekday', 'linkedin-light-day-2-weekday'); saveLinkedInSetting('linkedin.lightDay2MinPosts', 'linkedin-light-day-2-min-posts'); saveLinkedInSetting('linkedin.lightDay2MaxPosts', 'linkedin-light-day-2-max-posts');">Save</button>
+              </div>
+            </div>
           </div>
 
           <div class="li-subsection">Research & Draft Engine</div>
@@ -4053,6 +4116,8 @@
       if (linkedinDayWindowToggle) linkedinDayWindowToggle.classList.toggle('active', settings['linkedin.dayWindowEnabled'] !== 'false');
       const linkedinNightWindowToggle = document.getElementById('linkedin.nightWindowEnabled-toggle');
       if (linkedinNightWindowToggle) linkedinNightWindowToggle.classList.toggle('active', settings['linkedin.nightWindowEnabled'] === 'true');
+      const linkedinRecoveryRebalanceToggle = document.getElementById('linkedin.recoveryRebalanceEnabled-toggle');
+      if (linkedinRecoveryRebalanceToggle) linkedinRecoveryRebalanceToggle.classList.toggle('active', settings['linkedin.recoveryRebalanceEnabled'] !== 'false');
       const linkedinKeywords = document.getElementById('linkedin-feed-keywords');
       if (linkedinKeywords && settings['linkedin.feedKeywords']) linkedinKeywords.value = settings['linkedin.feedKeywords'];
       const linkedinQualityMinHook = document.getElementById('linkedin-quality-min-hook');
@@ -4111,6 +4176,24 @@
       if (linkedinNightEnd) linkedinNightEnd.value = settings['linkedin.nightWindowEnd'] || '06:00';
       const linkedinNightInterval = document.getElementById('linkedin-night-window-interval');
       if (linkedinNightInterval) linkedinNightInterval.value = settings['linkedin.nightWindowIntervalMin'] || '120';
+      const linkedinLightDaysPerWeek = document.getElementById('linkedin-light-days-per-week');
+      if (linkedinLightDaysPerWeek) linkedinLightDaysPerWeek.value = settings['linkedin.lightDaysPerWeek'] || '0';
+      const linkedinLightDayMinPosts = document.getElementById('linkedin-light-day-min-posts');
+      if (linkedinLightDayMinPosts) linkedinLightDayMinPosts.value = settings['linkedin.lightDayMinPosts'] || '10';
+      const linkedinLightDayMaxPosts = document.getElementById('linkedin-light-day-max-posts');
+      if (linkedinLightDayMaxPosts) linkedinLightDayMaxPosts.value = settings['linkedin.lightDayMaxPosts'] || '10';
+      const linkedinLightDay1Weekday = document.getElementById('linkedin-light-day-1-weekday');
+      if (linkedinLightDay1Weekday) linkedinLightDay1Weekday.value = settings['linkedin.lightDay1Weekday'] || '';
+      const linkedinLightDay1MinPosts = document.getElementById('linkedin-light-day-1-min-posts');
+      if (linkedinLightDay1MinPosts) linkedinLightDay1MinPosts.value = settings['linkedin.lightDay1MinPosts'] || '10';
+      const linkedinLightDay1MaxPosts = document.getElementById('linkedin-light-day-1-max-posts');
+      if (linkedinLightDay1MaxPosts) linkedinLightDay1MaxPosts.value = settings['linkedin.lightDay1MaxPosts'] || '10';
+      const linkedinLightDay2Weekday = document.getElementById('linkedin-light-day-2-weekday');
+      if (linkedinLightDay2Weekday) linkedinLightDay2Weekday.value = settings['linkedin.lightDay2Weekday'] || '';
+      const linkedinLightDay2MinPosts = document.getElementById('linkedin-light-day-2-min-posts');
+      if (linkedinLightDay2MinPosts) linkedinLightDay2MinPosts.value = settings['linkedin.lightDay2MinPosts'] || '10';
+      const linkedinLightDay2MaxPosts = document.getElementById('linkedin-light-day-2-max-posts');
+      if (linkedinLightDay2MaxPosts) linkedinLightDay2MaxPosts.value = settings['linkedin.lightDay2MaxPosts'] || '10';
       const linkedinDraftMode = document.getElementById('linkedin-draft-mode');
       if (linkedinDraftMode) linkedinDraftMode.value = settings['linkedin.draftMode'] || 'balanced';
       const linkedinPostModel = document.getElementById('linkedin-post-model');

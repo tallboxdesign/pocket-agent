@@ -81,6 +81,9 @@ export class TelegramBot extends BaseChannel {
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   private lastSuccessfulPoll = 0;
   private intentionalStop = false;
+  private processedInboundMessages: Map<string, number> = new Map();
+  private inFlightByChat: Map<number, Promise<void>> = new Map();
+  private static readonly INBOUND_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 
   constructor() {
     super();
@@ -171,75 +174,165 @@ export class TelegramBot extends BaseChannel {
     // Document messages - register BEFORE text to ensure proper handling
     this.bot.on('message:document', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();  // Update on any message
-      void this.acknowledgeIncomingMessage(ctx);
-      await handleDocumentMessage(ctx, {
-        onMessageCallback: this.onMessageCallback,
-        sendResponse: this.sendResponse.bind(this),
+      if (!this.shouldHandleIncomingMessage(ctx)) return;
+      const chatId = ctx.chat?.id;
+      if (!chatId) return;
+      await this.enqueueByChat(chatId, async () => {
+        void this.acknowledgeIncomingMessage(ctx);
+        await handleDocumentMessage(ctx, {
+          onMessageCallback: this.onMessageCallback,
+          sendResponse: this.sendResponse.bind(this),
+        });
       });
     });
 
     // Location messages
     this.bot.on('message:location', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
-      void this.acknowledgeIncomingMessage(ctx);
-      await handleLocationMessage(ctx, {
-        onMessageCallback: this.onMessageCallback,
-        sendResponse: this.sendResponse.bind(this),
+      if (!this.shouldHandleIncomingMessage(ctx)) return;
+      const chatId = ctx.chat?.id;
+      if (!chatId) return;
+      await this.enqueueByChat(chatId, async () => {
+        void this.acknowledgeIncomingMessage(ctx);
+        await handleLocationMessage(ctx, {
+          onMessageCallback: this.onMessageCallback,
+          sendResponse: this.sendResponse.bind(this),
+        });
       });
     });
 
     this.bot.on('edited_message:location', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
-      void this.acknowledgeIncomingMessage(ctx);
-      await handleEditedLocation(ctx, {
-        onMessageCallback: this.onMessageCallback,
-        sendResponse: this.sendResponse.bind(this),
+      if (!this.shouldHandleIncomingMessage(ctx)) return;
+      const chatId = ctx.chat?.id;
+      if (!chatId) return;
+      await this.enqueueByChat(chatId, async () => {
+        void this.acknowledgeIncomingMessage(ctx);
+        await handleEditedLocation(ctx, {
+          onMessageCallback: this.onMessageCallback,
+          sendResponse: this.sendResponse.bind(this),
+        });
       });
     });
 
     // Photo messages
     this.bot.on('message:photo', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
-      void this.acknowledgeIncomingMessage(ctx);
-      await handlePhotoMessage(ctx, {
-        onMessageCallback: this.onMessageCallback,
-        sendResponse: this.sendResponse.bind(this),
+      if (!this.shouldHandleIncomingMessage(ctx)) return;
+      const chatId = ctx.chat?.id;
+      if (!chatId) return;
+      await this.enqueueByChat(chatId, async () => {
+        void this.acknowledgeIncomingMessage(ctx);
+        await handlePhotoMessage(ctx, {
+          onMessageCallback: this.onMessageCallback,
+          sendResponse: this.sendResponse.bind(this),
+        });
       });
     });
 
     // Voice messages
     this.bot.on('message:voice', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
-      void this.acknowledgeIncomingMessage(ctx);
-      await handleVoiceMessage(ctx, {
-        onMessageCallback: this.onMessageCallback,
-        sendResponse: this.sendResponse.bind(this),
+      if (!this.shouldHandleIncomingMessage(ctx)) return;
+      const chatId = ctx.chat?.id;
+      if (!chatId) return;
+      await this.enqueueByChat(chatId, async () => {
+        void this.acknowledgeIncomingMessage(ctx);
+        await handleVoiceMessage(ctx, {
+          onMessageCallback: this.onMessageCallback,
+          sendResponse: this.sendResponse.bind(this),
+        });
       });
     });
 
     // Audio files
     this.bot.on('message:audio', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
-      void this.acknowledgeIncomingMessage(ctx);
-      await handleAudioMessage(ctx, {
-        onMessageCallback: this.onMessageCallback,
-        sendResponse: this.sendResponse.bind(this),
+      if (!this.shouldHandleIncomingMessage(ctx)) return;
+      const chatId = ctx.chat?.id;
+      if (!chatId) return;
+      await this.enqueueByChat(chatId, async () => {
+        void this.acknowledgeIncomingMessage(ctx);
+        await handleAudioMessage(ctx, {
+          onMessageCallback: this.onMessageCallback,
+          sendResponse: this.sendResponse.bind(this),
+        });
       });
     });
 
     // Text messages - register LAST as fallback
     this.bot.on('message:text', async (ctx: Context) => {
       this.lastSuccessfulPoll = Date.now();
-      void this.acknowledgeIncomingMessage(ctx);
-      await handleTextMessage(ctx, {
-        onMessageCallback: this.onMessageCallback,
-        sendResponse: this.sendResponse.bind(this),
+      if (!this.shouldHandleIncomingMessage(ctx)) return;
+      const chatId = ctx.chat?.id;
+      if (!chatId) return;
+      await this.enqueueByChat(chatId, async () => {
+        void this.acknowledgeIncomingMessage(ctx);
+        await handleTextMessage(ctx, {
+          onMessageCallback: this.onMessageCallback,
+          sendResponse: this.sendResponse.bind(this),
+        });
       });
     });
 
     this.bot.catch((err) => {
       console.error('[Telegram] Bot error:', err);
     });
+  }
+
+  /**
+   * Prevent duplicate processing of the same Telegram update message.
+   * This guards against polling races/retries causing double responses.
+   */
+  private enqueueByChat(chatId: number, handler: () => Promise<void>): Promise<void> {
+    const previous = this.inFlightByChat.get(chatId);
+    if (previous) {
+      console.log(`[Telegram] Queueing inbound message for chat ${chatId} behind in-flight handler`);
+    }
+
+    const next = (previous || Promise.resolve())
+      .catch((err) => {
+        console.warn(`[Telegram] Previous in-flight handler failed for chat ${chatId}:`, err);
+      })
+      .then(async () => {
+        await handler();
+      });
+
+    this.inFlightByChat.set(chatId, next);
+    return next.finally(() => {
+      if (this.inFlightByChat.get(chatId) === next) {
+        this.inFlightByChat.delete(chatId);
+      }
+    });
+  }
+
+  /**
+   * Prevent duplicate processing of the same Telegram update message.
+   * This guards against polling races/retries causing double responses.
+   */
+  private shouldHandleIncomingMessage(ctx: Context): boolean {
+    const chatId = ctx.chat?.id;
+    const messageId = ctx.message?.message_id || ctx.editedMessage?.message_id;
+    if (!chatId || !messageId) return true;
+
+    const updateId = (ctx.update as { update_id?: number } | undefined)?.update_id;
+    const key = `${updateId || 'no_update'}:${chatId}:${messageId}`;
+    const now = Date.now();
+    const seenAt = this.processedInboundMessages.get(key);
+    if (seenAt && now - seenAt < TelegramBot.INBOUND_DEDUPE_WINDOW_MS) {
+      console.log(`[Telegram] Skipping duplicate inbound message ${key}`);
+      return false;
+    }
+    this.processedInboundMessages.set(key, now);
+
+    // Opportunistic cleanup to keep memory bounded.
+    if (this.processedInboundMessages.size > 1000) {
+      const cutoff = now - TelegramBot.INBOUND_DEDUPE_WINDOW_MS;
+      for (const [k, ts] of this.processedInboundMessages.entries()) {
+        if (ts < cutoff) this.processedInboundMessages.delete(k);
+      }
+    }
+    return true;
   }
 
   /**

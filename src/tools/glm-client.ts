@@ -51,6 +51,7 @@ const DEFAULT_MODEL = 'glm-5';
 const DEFAULT_FLASH_MODEL = 'glm-4.7-flash';
 const DEFAULT_BULK_MODEL = 'glm-4.7-flashx';
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai';
 const DEFAULT_TEMPERATURE = 0.3;
 const DEFAULT_MAX_TOKENS = 2048;
 const REQUEST_TIMEOUT = 15000;
@@ -60,6 +61,12 @@ const REQUEST_TIMEOUT = 15000;
 // ============================================================================
 
 function resolveModelProvider(model: string): { baseUrl: string; apiKey: string } {
+  if (model.startsWith('gemini-')) {
+    return {
+      baseUrl: GEMINI_BASE_URL,
+      apiKey: SettingsManager.get('gemini.apiKey') || '',
+    };
+  }
   if (model.startsWith('gpt-')) {
     return {
       baseUrl: OPENAI_BASE_URL,
@@ -219,7 +226,7 @@ export function isBulkModelZhipu(): boolean {
  * Check if any worker model is configured (Zhipu or OpenAI key set).
  */
 export function isGlmConfigured(): boolean {
-  return !!SettingsManager.get('zhipu.apiKey') || !!SettingsManager.get('openai.apiKey');
+  return !!SettingsManager.get('zhipu.apiKey') || !!SettingsManager.get('openai.apiKey') || !!SettingsManager.get('gemini.apiKey');
 }
 
 /**

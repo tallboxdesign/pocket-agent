@@ -6,10 +6,187 @@
  */
 
 import path from 'path';
+import { SettingsManager } from '../settings';
+import { getCurrentSessionId } from '../tools/session-context';
 
 export interface ValidationResult {
   allowed: boolean;
   reason?: string;
+}
+
+interface ExternalApprovalRequest {
+  sessionId: string;
+  toolName: string;
+  command: string;
+  normalizedCommand: string;
+  requestedAt: number;
+}
+
+export type ExternalActionAuditStatus =
+  | 'requested'
+  | 'approved'
+  | 'approved_executed'
+  | 'denied'
+  | 'approval_mismatch'
+  | 'allowed_by_setting'
+  | 'expired';
+
+export interface ExternalActionAuditEntry {
+  id: number;
+  status: ExternalActionAuditStatus;
+  sessionId: string;
+  toolName: string;
+  command: string;
+  reason?: string;
+  createdAt: number;
+}
+
+export interface ExternalSafetyState {
+  allowHostIntegrations: boolean;
+  pendingApprovals: Array<{
+    sessionId: string;
+    toolName: string;
+    command: string;
+    requestedAt: number;
+  }>;
+  oneShotApprovals: number;
+  auditEntries: number;
+}
+
+export interface ExternalRegressionCheck {
+  id: string;
+  label: string;
+  pass: boolean;
+  details: string;
+}
+
+export interface ExternalRegressionReport {
+  generatedAt: string;
+  passed: number;
+  failed: number;
+  checks: ExternalRegressionCheck[];
+}
+
+const pendingExternalApprovals = new Map<string, ExternalApprovalRequest>();
+const approvedExternalCommands = new Map<string, { normalizedCommand: string; approvedAt: number }>();
+const EXTERNAL_APPROVAL_TTL_MS = 10 * 60 * 1000;
+const externalActionAuditTrail: ExternalActionAuditEntry[] = [];
+const MAX_EXTERNAL_AUDIT_TRAIL = 500;
+let externalActionAuditId = 0;
+
+function recordExternalAudit(
+  status: ExternalActionAuditStatus,
+  request: Pick<ExternalApprovalRequest, 'sessionId' | 'toolName' | 'command'>,
+  reason?: string
+): void {
+  externalActionAuditTrail.push({
+    id: ++externalActionAuditId,
+    status,
+    sessionId: request.sessionId,
+    toolName: request.toolName,
+    command: request.command,
+    reason,
+    createdAt: Date.now(),
+  });
+  if (externalActionAuditTrail.length > MAX_EXTERNAL_AUDIT_TRAIL) {
+    externalActionAuditTrail.splice(0, externalActionAuditTrail.length - MAX_EXTERNAL_AUDIT_TRAIL);
+  }
+}
+
+function normalizeCommand(command: string): string {
+  return String(command || '').trim().replace(/\s+/g, ' ');
+}
+
+function pruneStaleApprovals(): void {
+  const now = Date.now();
+  for (const [sessionId, req] of pendingExternalApprovals.entries()) {
+    if (now - req.requestedAt > EXTERNAL_APPROVAL_TTL_MS) {
+      pendingExternalApprovals.delete(sessionId);
+      recordExternalAudit('expired', req, 'Pending approval timed out');
+    }
+  }
+  for (const [sessionId, approved] of approvedExternalCommands.entries()) {
+    if (now - approved.approvedAt > EXTERNAL_APPROVAL_TTL_MS) {
+      approvedExternalCommands.delete(sessionId);
+    }
+  }
+}
+
+export function getPendingExternalApproval(sessionId: string): ExternalApprovalRequest | null {
+  pruneStaleApprovals();
+  return pendingExternalApprovals.get(sessionId) || null;
+}
+
+export function clearPendingExternalApproval(sessionId: string): void {
+  const pending = pendingExternalApprovals.get(sessionId);
+  if (pending) {
+    recordExternalAudit('denied', pending, 'Cleared by user');
+  }
+  pendingExternalApprovals.delete(sessionId);
+  approvedExternalCommands.delete(sessionId);
+}
+
+export function approvePendingExternalApproval(
+  sessionId: string,
+  explicitCommand?: string
+): { ok: boolean; command?: string; message: string } {
+  pruneStaleApprovals();
+  const pending = pendingExternalApprovals.get(sessionId);
+  if (!pending) {
+    recordExternalAudit(
+      'denied',
+      {
+        sessionId,
+        toolName: 'Bash',
+        command: explicitCommand || '(none)',
+      },
+      'No pending external action to approve'
+    );
+    return { ok: false, message: 'No pending external action to approve.' };
+  }
+
+  if (explicitCommand) {
+    const explicitNormalized = normalizeCommand(explicitCommand);
+    if (explicitNormalized !== pending.normalizedCommand) {
+      recordExternalAudit('approval_mismatch', pending, 'Explicit command does not match pending request');
+      return {
+        ok: false,
+        message: 'Approval mismatch. Please approve the exact command shown in the prompt.',
+      };
+    }
+  }
+
+  approvedExternalCommands.set(sessionId, {
+    normalizedCommand: pending.normalizedCommand,
+    approvedAt: Date.now(),
+  });
+  recordExternalAudit('approved', pending);
+  pendingExternalApprovals.delete(sessionId);
+  return { ok: true, command: pending.command, message: 'External command approved for one execution.' };
+}
+
+export function getExternalActionAudit(limit: number = 50): ExternalActionAuditEntry[] {
+  pruneStaleApprovals();
+  return externalActionAuditTrail.slice(-Math.max(1, limit)).reverse();
+}
+
+export function clearExternalActionAudit(): void {
+  externalActionAuditTrail.length = 0;
+}
+
+export function getExternalSafetyState(): ExternalSafetyState {
+  pruneStaleApprovals();
+  return {
+    allowHostIntegrations: SettingsManager.get('agent.allowHostIntegrations') === 'true',
+    pendingApprovals: Array.from(pendingExternalApprovals.values()).map((req) => ({
+      sessionId: req.sessionId,
+      toolName: req.toolName,
+      command: req.command,
+      requestedAt: req.requestedAt,
+    })),
+    oneShotApprovals: approvedExternalCommands.size,
+    auditEntries: externalActionAuditTrail.length,
+  };
 }
 
 // ============================================================================
@@ -312,6 +489,58 @@ const DANGEROUS_BASH_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   },
 ];
 
+const HOST_INTEGRATION_BASH_PATTERNS: RegExp[] = [
+  /\bpocket\s+system\b/i,
+  /\bosascript\b/i,
+  /\bremindctl\b/i,
+  /\bthings\s+add\b/i,
+];
+
+function findDangerousBashReason(normalizedCommand: string): string | null {
+  for (const { pattern, reason } of DANGEROUS_BASH_PATTERNS) {
+    if (pattern.test(normalizedCommand)) return reason;
+  }
+  return null;
+}
+
+export function runExternalActionRegression(): ExternalRegressionReport {
+  const checks: ExternalRegressionCheck[] = [];
+
+  const hostProbe = normalizeCommand('pocket system notes write "hello"');
+  checks.push({
+    id: 'host_requires_approval',
+    label: 'Host integrations are guarded by explicit approval',
+    pass: HOST_INTEGRATION_BASH_PATTERNS.some((pattern) => pattern.test(hostProbe)),
+    details: 'Expected host command to match approval guard patterns',
+  });
+
+  const safeProbe = normalizeCommand('echo "safe command"');
+  checks.push({
+    id: 'safe_command_allowed',
+    label: 'Safe shell command remains allowed',
+    pass: !findDangerousBashReason(safeProbe),
+    details: 'Expected no dangerous pattern match for a simple echo command',
+  });
+
+  const destructiveProbe = normalizeCommand('rm -rf /');
+  const destructiveReason = findDangerousBashReason(destructiveProbe);
+  checks.push({
+    id: 'destructive_command_blocked',
+    label: 'Destructive shell command is blocked',
+    pass: !!destructiveReason,
+    details: destructiveReason || 'Expected destructive command to be denied by dangerous pattern list',
+  });
+
+  const now = new Date().toISOString();
+  const passed = checks.filter((c) => c.pass).length;
+  return {
+    generatedAt: now,
+    passed,
+    failed: checks.length - passed,
+    checks,
+  };
+}
+
 // ============================================================================
 // DANGEROUS FILE PATHS - Paths that should never be written to
 // ============================================================================
@@ -487,14 +716,69 @@ const DANGEROUS_BROWSER_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
  * Validate a Bash command against dangerous patterns
  */
 export function validateBashCommand(command: string): ValidationResult {
-  const normalizedCommand = command.trim();
+  pruneStaleApprovals();
+  const normalizedCommand = normalizeCommand(command);
+  const sessionId = getCurrentSessionId();
 
-  for (const { pattern, reason } of DANGEROUS_BASH_PATTERNS) {
-    if (pattern.test(normalizedCommand)) {
-      console.warn(`[Safety] BLOCKED bash command: ${reason}`);
-      console.warn(`[Safety] Command was: ${normalizedCommand.slice(0, 100)}...`);
-      return { allowed: false, reason };
+  const isHostIntegration = HOST_INTEGRATION_BASH_PATTERNS.some((pattern) =>
+    pattern.test(normalizedCommand)
+  );
+  if (isHostIntegration) {
+    const approved = approvedExternalCommands.get(sessionId);
+    if (approved && approved.normalizedCommand === normalizedCommand) {
+      approvedExternalCommands.delete(sessionId);
+      recordExternalAudit(
+        'approved_executed',
+        {
+          sessionId,
+          toolName: 'Bash',
+          command: command.trim(),
+        },
+        'Approved one-shot external command executed'
+      );
+      return { allowed: true };
     }
+
+    const hostIntegrationsEnabled = SettingsManager.get('agent.allowHostIntegrations') === 'true';
+    if (!hostIntegrationsEnabled) {
+      return {
+        allowed: false,
+        reason:
+          'Host integrations are disabled in Settings. Enable "Allow Host Integrations" first, then approve each external command explicitly.',
+      };
+    }
+
+    const nextRequest: ExternalApprovalRequest = {
+      sessionId,
+      toolName: 'Bash',
+      command: command.trim(),
+      normalizedCommand,
+      requestedAt: Date.now(),
+    };
+    const previous = pendingExternalApprovals.get(sessionId);
+    pendingExternalApprovals.set(sessionId, nextRequest);
+    if (!previous || previous.normalizedCommand !== nextRequest.normalizedCommand) {
+      recordExternalAudit('requested', nextRequest, 'Host integration command needs explicit approval');
+    }
+    const shownCmd =
+      normalizedCommand.length > 260
+        ? normalizedCommand.slice(0, 260) + '...'
+        : normalizedCommand;
+    return {
+      allowed: false,
+      reason:
+        `External command needs approval.\n` +
+        `Command: ${shownCmd}\n` +
+        `Ask user to confirm: "approve external: ${shownCmd}"\n` +
+        `Or disable host integration requests for this task.`,
+    };
+  }
+
+  const dangerousReason = findDangerousBashReason(normalizedCommand);
+  if (dangerousReason) {
+    console.warn(`[Safety] BLOCKED bash command: ${dangerousReason}`);
+    console.warn(`[Safety] Command was: ${normalizedCommand.slice(0, 100)}...`);
+    return { allowed: false, reason: dangerousReason };
   }
 
   return { allowed: true };

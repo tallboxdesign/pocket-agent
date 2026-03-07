@@ -22,6 +22,8 @@ let cachedLimitDay: string | null = null;
 let autoPosterRunInFlight = false;
 let postedGuardEnsured = false;
 const ATTEMPT_GUARD_HOURS = 6;
+const PRIORITY_REBALANCE_WINDOW_MINUTES = 30;
+const PRIORITY_BATCH_DENSE_LIMIT = 5;
 const LINKEDIN_CONTROL_SOURCE_KEY = 'linkedin.controlSource';
 const LINKEDIN_CONTROL_EXPIRES_AT_KEY = 'linkedin.controlExpiresAt';
 const LINKEDIN_TELEGRAM_NOTIFY_MODE_KEY = 'linkedin.telegramNotifyMode';
@@ -187,31 +189,192 @@ function activePostingWindow(): { name: 'day' | 'night'; intervalMs: number } | 
 function getDailyLimit(): number {
   const d = today();
   if (cachedLimitDay === d && cachedDailyLimit !== null) return cachedDailyLimit;
-  const hardCap = 50;
-  const explicit = parseInt(SettingsManager.get('linkedin.dailyLimit') || '', 10);
-  if (Number.isFinite(explicit) && explicit > 0) {
-    cachedDailyLimit = Math.min(hardCap, Math.max(1, explicit));
-    cachedLimitDay = d;
-    return cachedDailyLimit;
-  }
-
-  const minRaw = Math.max(1, parseInt(SettingsManager.get('linkedin.dailyLimitMin') || '8', 10) || 8);
-  const maxRaw = Math.max(minRaw, parseInt(SettingsManager.get('linkedin.dailyLimitMax') || '15', 10) || 15);
-  const min = Math.min(hardCap, minRaw);
-  const max = Math.min(hardCap, Math.max(min, maxRaw));
-  cachedDailyLimit = min + Math.floor(Math.random() * (max - min + 1));
+  cachedDailyLimit = getDailyLimitForDay(d);
   cachedLimitDay = d;
   return cachedDailyLimit;
 }
 
-function getScheduleDayCap(): number {
+function getBaseDailyLimitRange(): { min: number; max: number } {
   const hardCap = 50;
   const explicit = parseInt(SettingsManager.get('linkedin.dailyLimit') || '', 10);
   if (Number.isFinite(explicit) && explicit > 0) {
-    return Math.min(hardCap, Math.max(1, explicit));
+    const value = Math.min(hardCap, Math.max(1, explicit));
+    return { min: value, max: value };
   }
-  const fallbackMax = Math.max(1, parseInt(SettingsManager.get('linkedin.dailyLimitMax') || '15', 10) || 15);
-  return Math.min(hardCap, fallbackMax);
+  const minRaw = Math.max(1, parseInt(SettingsManager.get('linkedin.dailyLimitMin') || '8', 10) || 8);
+  const maxRaw = Math.max(minRaw, parseInt(SettingsManager.get('linkedin.dailyLimitMax') || '15', 10) || 15);
+  const min = Math.min(hardCap, minRaw);
+  const max = Math.min(hardCap, Math.max(min, maxRaw));
+  return { min, max };
+}
+
+function getLightDayConfig(): { daysPerWeek: number; min: number; max: number } {
+  const hardCap = 50;
+  const daysPerWeek = Math.max(0, Math.min(7, parseInt(SettingsManager.get('linkedin.lightDaysPerWeek') || '0', 10) || 0));
+  const minRaw = Math.max(1, parseInt(SettingsManager.get('linkedin.lightDayMinPosts') || '10', 10) || 10);
+  const maxRaw = Math.max(minRaw, parseInt(SettingsManager.get('linkedin.lightDayMaxPosts') || String(minRaw), 10) || minRaw);
+  return {
+    daysPerWeek,
+    min: Math.min(hardCap, minRaw),
+    max: Math.min(hardCap, Math.max(minRaw, maxRaw)),
+  };
+}
+
+type ManualLightDayConfig = {
+  weekday: string;
+  min: number;
+  max: number;
+};
+
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+
+function normalizeWeekdayKey(value: string | null | undefined): string {
+  const normalized = String(value || '').trim().toLowerCase().slice(0, 3);
+  return WEEKDAY_KEYS.includes(normalized as typeof WEEKDAY_KEYS[number]) ? normalized : '';
+}
+
+function getManualLightDayConfigs(): ManualLightDayConfig[] {
+  const hardCap = 50;
+  const readSlot = (index: 1 | 2): ManualLightDayConfig | null => {
+    const weekday = normalizeWeekdayKey(SettingsManager.get(`linkedin.lightDay${index}Weekday`) || '');
+    if (!weekday) return null;
+    const minRaw = Math.max(1, parseInt(SettingsManager.get(`linkedin.lightDay${index}MinPosts`) || '10', 10) || 10);
+    const maxRaw = Math.max(minRaw, parseInt(SettingsManager.get(`linkedin.lightDay${index}MaxPosts`) || String(minRaw), 10) || minRaw);
+    return {
+      weekday,
+      min: Math.min(hardCap, minRaw),
+      max: Math.min(hardCap, Math.max(minRaw, maxRaw)),
+    };
+  };
+
+  return [readSlot(1), readSlot(2)].filter((slot): slot is ManualLightDayConfig => Boolean(slot));
+}
+
+function hashString32(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function parseLocalDayKey(dayKey: string): Date | null {
+  const match = String(dayKey || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
+
+function getWeekdayKeyForDay(dayKey: string): string {
+  const date = parseLocalDayKey(dayKey);
+  if (!date) return '';
+  return WEEKDAY_KEYS[date.getDay()] || '';
+}
+
+function getIsoWeekSeed(dayKey: string): string {
+  const date = parseLocalDayKey(dayKey);
+  if (!date) return dayKey;
+  const copy = new Date(date);
+  const day = (copy.getDay() + 6) % 7;
+  copy.setDate(copy.getDate() - day + 3);
+  const year = copy.getFullYear();
+  const jan4 = new Date(year, 0, 4, 12, 0, 0, 0);
+  const jan4Day = (jan4.getDay() + 6) % 7;
+  jan4.setDate(jan4.getDate() - jan4Day + 3);
+  const week = 1 + Math.round((copy.getTime() - jan4.getTime()) / (7 * 24 * 60 * 60 * 1000));
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
+
+function getDeterministicLimitForDay(dayKey: string, min: number, max: number, salt: string): number {
+  const normalizedMin = Math.max(1, Math.floor(min));
+  const normalizedMax = Math.max(normalizedMin, Math.floor(max));
+  if (normalizedMax <= normalizedMin) return normalizedMin;
+  const hash = hashString32(`${salt}:${dayKey}`);
+  return normalizedMin + (hash % (normalizedMax - normalizedMin + 1));
+}
+
+function isLightDay(dayKey: string): boolean {
+  const manual = getManualLightDayConfigs();
+  if (manual.length > 0) {
+    const weekday = getWeekdayKeyForDay(dayKey);
+    return manual.some((slot) => slot.weekday === weekday);
+  }
+  const config = getLightDayConfig();
+  if (config.daysPerWeek <= 0) return false;
+  const targetDate = parseLocalDayKey(dayKey);
+  if (!targetDate) return false;
+  const weekSeed = getIsoWeekSeed(dayKey);
+  const weekStart = new Date(targetDate);
+  weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+  weekStart.setHours(12, 0, 0, 0);
+  const ranked: Array<{ key: string; score: number }> = [];
+  for (let i = 0; i < 7; i++) {
+    const candidate = new Date(weekStart);
+    candidate.setDate(weekStart.getDate() + i);
+    const candidateKey = localDayKeyFromMs(candidate.getTime());
+    ranked.push({
+      key: candidateKey,
+      score: hashString32(`linkedin-light:${weekSeed}:${candidateKey}`),
+    });
+  }
+  ranked.sort((a, b) => a.score - b.score || a.key.localeCompare(b.key));
+  return ranked.slice(0, config.daysPerWeek).some((entry) => entry.key === dayKey);
+}
+
+function getDailyLimitForDay(dayKey: string): number {
+  const manual = getManualLightDayConfigs();
+  if (manual.length > 0) {
+    const weekday = getWeekdayKeyForDay(dayKey);
+    const manualSlot = manual.find((slot) => slot.weekday === weekday);
+    if (manualSlot) {
+      return getDeterministicLimitForDay(dayKey, manualSlot.min, manualSlot.max, `linkedin-manual-light:${weekday}`);
+    }
+    const base = getBaseDailyLimitRange();
+    return getDeterministicLimitForDay(dayKey, base.min, base.max, 'linkedin-base-limit');
+  }
+
+  const base = getBaseDailyLimitRange();
+  if (!isLightDay(dayKey)) {
+    return getDeterministicLimitForDay(dayKey, base.min, base.max, 'linkedin-base-limit');
+  }
+  const light = getLightDayConfig();
+  return Math.min(
+    getDeterministicLimitForDay(dayKey, base.min, base.max, 'linkedin-base-limit'),
+    getDeterministicLimitForDay(dayKey, light.min, light.max, 'linkedin-light-limit'),
+  );
+}
+
+function getActivePostingMinutesPerLocalDay(windows: PostingWindows): number {
+  if (!hasAnyPostingWindow(windows)) return 24 * 60;
+  let activeMinutes = 0;
+  for (let minute = 0; minute < 24 * 60; minute++) {
+    if (windows.dayEnabled && isInWindow(minute, windows.dayStart, windows.dayEnd)) {
+      activeMinutes += 1;
+      continue;
+    }
+    if (windows.nightEnabled && isInWindow(minute, windows.nightStart, windows.nightEnd)) {
+      activeMinutes += 1;
+    }
+  }
+  return Math.max(1, activeMinutes);
+}
+
+function getScheduleDayCap(dayKey: string): number {
+  return getDailyLimitForDay(dayKey);
+}
+
+function getTargetSpacingForDay(dayKey: string, alignedMs: number, windows: PostingWindows, fallbackMs: number): number {
+  if (!isLightDay(dayKey)) {
+    return getPostingWindowIntervalMs(alignedMs, windows, fallbackMs);
+  }
+  const dayCap = getScheduleDayCap(dayKey);
+  const activeMinutes = getActivePostingMinutesPerLocalDay(windows);
+  const broadSpacingMs = Math.floor((activeMinutes * 60 * 1000) / Math.max(1, dayCap));
+  return Math.max(getPostingWindowIntervalMs(alignedMs, windows, fallbackMs), broadSpacingMs);
 }
 
 function getCommentDelayMs(): number {
@@ -396,35 +559,68 @@ function computeAdaptiveSpacingMs(
   position: number,
   total: number,
   minSpacingMs: number,
+  targetSpacingMs: number,
   lastAtMs: number,
   bulkHorizonEndMs: number,
 ): number {
+  const configuredSpacingMs = Math.max(minSpacingMs, targetSpacingMs);
+
   // Small batches can stay near-term (manual burst behavior).
   if (total <= 3) {
-    const min = Math.max(2 * 60_000, Math.floor(minSpacingMs * 0.8));
-    const max = Math.max(min + 60_000, Math.floor(minSpacingMs * 1.9));
+    const min = Math.max(minSpacingMs, Math.floor(configuredSpacingMs * 0.8));
+    const max = Math.max(min + 60_000, Math.floor(configuredSpacingMs * 1.1));
     return randomIntBetween(min, max);
   }
   if (total === 4) {
-    const min = Math.max(3 * 60_000, Math.floor(minSpacingMs * 0.9));
-    const max = Math.max(min + 90_000, Math.floor(7.5 * 60_000));
+    const min = Math.max(minSpacingMs, Math.floor(configuredSpacingMs * 0.82));
+    const max = Math.max(min + 90_000, Math.floor(configuredSpacingMs * 1.15));
     return randomIntBetween(min, max);
   }
 
-  // Larger batches: spread over a broader horizon with jitter.
+  // Larger batches: stay anchored to the configured window interval instead of
+  // stretching aggressively across a broad horizon.
+  const queuePressure = Math.max(0, total - 4);
+  const pressureFactor = Math.min(0.18, queuePressure * 0.0125);
+  const pressuredCenterMs = Math.max(minSpacingMs, Math.floor(configuredSpacingMs * (1 - pressureFactor)));
+  const pressuredMinMs = Math.max(minSpacingMs, Math.floor(pressuredCenterMs * 0.88));
+  const pressuredMaxMs = Math.max(
+    pressuredMinMs + 60_000,
+    Math.floor(configuredSpacingMs * 1.18),
+  );
+
   if (lastAtMs >= bulkHorizonEndMs) {
-    const min = Math.max(8 * 60_000, Math.floor(minSpacingMs * 2));
-    const max = Math.max(min + 120_000, 55 * 60_000);
-    return randomIntBetween(min, max);
+    return randomIntBetween(pressuredMinMs, pressuredMaxMs);
   }
 
   const remaining = Math.max(1, total - position - 1);
-  const remainingHorizonMs = Math.max(minSpacingMs, bulkHorizonEndMs - lastAtMs);
-  const baseline = Math.max(minSpacingMs, Math.floor(remainingHorizonMs / remaining));
-  const min = Math.max(4 * 60_000, Math.floor(minSpacingMs * 1.1));
-  const max = Math.max(min + 60_000, Math.floor(baseline * 1.8));
-  const jittered = Math.floor(baseline * (0.7 + Math.random() * 0.8)); // 0.7x to 1.5x
-  return clampInt(jittered, min, max);
+  const remainingHorizonMs = Math.max(configuredSpacingMs, bulkHorizonEndMs - lastAtMs);
+  const horizonBaselineMs = Math.floor(remainingHorizonMs / remaining);
+  const baselineMs = Math.min(Math.floor(configuredSpacingMs * 1.15), Math.max(pressuredCenterMs, horizonBaselineMs));
+  const jitteredMs = Math.floor(baselineMs * (0.92 + Math.random() * 0.18));
+  return clampInt(jitteredMs, pressuredMinMs, pressuredMaxMs);
+}
+
+function computePriorityBatchSpacingMs(
+  priorityIndex: number,
+  priorityCount: number,
+  minSpacingMs: number,
+): number | null {
+  const denseCount = Math.min(PRIORITY_BATCH_DENSE_LIMIT, Math.max(0, priorityCount));
+  if (denseCount <= 1) return null;
+  if (priorityIndex < 0 || priorityIndex >= denseCount - 1) return null;
+
+  // Keep the first few manual "Post Now" items in a hot near-term cluster, but
+  // do not cram large batches: anything after the dense limit falls back to
+  // normal adaptive spacing.
+  const denseWindowMs = PRIORITY_REBALANCE_WINDOW_MINUTES * 60 * 1000;
+  const baselineMs = Math.max(
+    minSpacingMs,
+    Math.floor(denseWindowMs / Math.max(2, denseCount)),
+  );
+  const jitteredMs = Math.floor(baselineMs * (0.9 + Math.random() * 0.16));
+  const minMs = Math.max(minSpacingMs, Math.floor(baselineMs * 0.88));
+  const maxMs = Math.max(minMs + 60_000, Math.floor(baselineMs * 1.12));
+  return clampInt(jitteredMs, minMs, maxMs);
 }
 
 function normalizeLinkedInPostUrl(raw: string): string {
@@ -573,8 +769,10 @@ type PostingWindows = {
   nightEnabled: boolean;
   dayStart: number;
   dayEnd: number;
+  dayIntervalMs: number;
   nightStart: number;
   nightEnd: number;
+  nightIntervalMs: number;
 };
 
 function getPostingWindows(): PostingWindows {
@@ -583,8 +781,10 @@ function getPostingWindows(): PostingWindows {
     nightEnabled: SettingsManager.get('linkedin.nightWindowEnabled') === 'true',
     dayStart: parseHm(SettingsManager.get('linkedin.dayWindowStart') || '09:00', 9 * 60),
     dayEnd: parseHm(SettingsManager.get('linkedin.dayWindowEnd') || '18:00', 18 * 60),
+    dayIntervalMs: Math.max(1, parseInt(SettingsManager.get('linkedin.dayWindowIntervalMin') || '45', 10) || 45) * 60 * 1000,
     nightStart: parseHm(SettingsManager.get('linkedin.nightWindowStart') || '22:00', 22 * 60),
     nightEnd: parseHm(SettingsManager.get('linkedin.nightWindowEnd') || '06:00', 6 * 60),
+    nightIntervalMs: Math.max(1, parseInt(SettingsManager.get('linkedin.nightWindowIntervalMin') || '120', 10) || 120) * 60 * 1000,
   };
 }
 
@@ -598,6 +798,18 @@ function isWithinPostingWindowMs(tsMs: number, windows: PostingWindows): boolean
   if (windows.dayEnabled && isInWindow(minutes, windows.dayStart, windows.dayEnd)) return true;
   if (windows.nightEnabled && isInWindow(minutes, windows.nightStart, windows.nightEnd)) return true;
   return false;
+}
+
+function getPostingWindowIntervalMs(tsMs: number, windows: PostingWindows, fallbackMs: number): number {
+  const d = new Date(tsMs);
+  const minutes = d.getHours() * 60 + d.getMinutes();
+  if (windows.dayEnabled && isInWindow(minutes, windows.dayStart, windows.dayEnd)) {
+    return Math.max(fallbackMs, windows.dayIntervalMs);
+  }
+  if (windows.nightEnabled && isInWindow(minutes, windows.nightStart, windows.nightEnd)) {
+    return Math.max(fallbackMs, windows.nightIntervalMs);
+  }
+  return fallbackMs;
 }
 
 function alignToPostingWindowMs(tsMs: number, windows: PostingWindows): number | null {
@@ -668,7 +880,7 @@ export interface RebalanceScheduleResult {
   warning?: string;
 }
 
-export function rebalancePendingSchedules(options: { priorityPostId?: number; preferredAt?: string } = {}): RebalanceScheduleResult {
+export function rebalancePendingSchedules(options: { priorityPostId?: number; preferredAt?: string; fromNow?: boolean } = {}): RebalanceScheduleResult {
   const db = getDb();
   if (!db) {
     return {
@@ -693,12 +905,33 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
     }
 
     const rows = db.prepare(
-      `SELECT id, scheduled_at
+      `SELECT id, scheduled_at,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM linkedin_activity_log la
+                  WHERE la.post_id = linkedin_posts.id
+                    AND la.id = (
+                      SELECT MAX(id)
+                      FROM linkedin_activity_log
+                      WHERE post_id = linkedin_posts.id
+                    )
+                    AND la.action = 'priority_scheduled'
+                ) THEN 1
+                ELSE 0
+              END AS has_priority_now
        FROM linkedin_posts
        WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL
          AND scheduled_at IS NOT NULL AND hidden = 0
-       ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, datetime(scheduled_at) ASC`
-    ).all(options.priorityPostId || 0) as Array<{ id: number; scheduled_at: string | null }>;
+       ORDER BY
+         CASE
+           WHEN id = ? THEN 0
+           WHEN has_priority_now = 1 THEN 1
+           WHEN datetime(scheduled_at) <= datetime('now', '+${PRIORITY_REBALANCE_WINDOW_MINUTES} minutes') THEN 2
+           ELSE 3
+         END,
+         datetime(scheduled_at) ASC`
+    ).all(options.priorityPostId || 0) as Array<{ id: number; scheduled_at: string | null; has_priority_now?: number }>;
 
     if (rows.length === 0) {
       return {
@@ -715,7 +948,6 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
     const bulkHorizonEndMs = nowFloorMs + (bulkSpreadHours * 60 * 60 * 1000);
     const preferredMsRaw = parseDbDateTime(options.preferredAt);
     const preferredMs = Number.isFinite(preferredMsRaw) ? preferredMsRaw : NaN;
-    const dayCap = getScheduleDayCap();
     const postedPerDayRows = db.prepare(
       `SELECT date(created_at, 'localtime') AS day, COUNT(*) AS c
        FROM linkedin_activity_log
@@ -728,6 +960,13 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
       if (!key) continue;
       dayUsage.set(key, Math.max(0, Number(row.c || 0)));
     }
+    const priorityRowIds = rows
+      .filter((row) => row.id === (options.priorityPostId || 0) || Number(row.has_priority_now || 0) === 1)
+      .map((row) => row.id);
+    const priorityRowIndex = new Map<number, number>();
+    priorityRowIds.forEach((id, index) => {
+      priorityRowIndex.set(id, index);
+    });
 
     const updates: Array<{ id: number; at: string; changed: boolean }> = [];
     let cursorMs = nowFloorMs;
@@ -737,7 +976,7 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
       const row = rows[i];
       const currentMsRaw = parseDbDateTime(row.scheduled_at);
       const hasCurrent = Number.isFinite(currentMsRaw);
-      let candidateMs = hasCurrent ? currentMsRaw : cursorMs;
+      let candidateMs = options.fromNow ? cursorMs : (hasCurrent ? currentMsRaw : cursorMs);
 
       if (options.priorityPostId && row.id === options.priorityPostId && Number.isFinite(preferredMs)) {
         candidateMs = Math.max(preferredMs, nowFloorMs);
@@ -765,6 +1004,7 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
       let capacityShifted = 0;
       while (aligned !== null) {
         const key = localDayKeyFromMs(aligned);
+        const dayCap = getScheduleDayCap(key);
         const used = dayUsage.get(key) || 0;
         if (used < dayCap) break;
         capacityShifted += 1;
@@ -779,7 +1019,21 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
       if (aligned === null) break;
       alignedMs = aligned;
 
-      const adaptiveSpacingMs = computeAdaptiveSpacingMs(i, rows.length, minSpacingMs, alignedMs, bulkHorizonEndMs);
+      const dayKey = localDayKeyFromMs(alignedMs);
+      const targetSpacingMs = getTargetSpacingForDay(dayKey, alignedMs, windows, minSpacingMs);
+      const prioritySpacingMs = computePriorityBatchSpacingMs(
+        priorityRowIndex.get(row.id) ?? -1,
+        priorityRowIds.length,
+        minSpacingMs,
+      );
+      const adaptiveSpacingMs = prioritySpacingMs ?? computeAdaptiveSpacingMs(
+        i,
+        rows.length,
+        minSpacingMs,
+        targetSpacingMs,
+        alignedMs,
+        bulkHorizonEndMs,
+      );
       const nextCursor = alignToPostingWindowMs(alignedMs + adaptiveSpacingMs, windows);
       if (nextCursor === null) {
         warning = 'Could not compute safe spacing in posting windows.';
@@ -788,8 +1042,8 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
 
       const changed = !hasCurrent || Math.abs(alignedMs - currentMsRaw) >= 30_000;
       updates.push({ id: row.id, at: toDbDateTime(alignedMs), changed });
-      const dayKey = localDayKeyFromMs(alignedMs);
-      dayUsage.set(dayKey, (dayUsage.get(dayKey) || 0) + 1);
+      const scheduledDayKey = localDayKeyFromMs(alignedMs);
+      dayUsage.set(scheduledDayKey, (dayUsage.get(scheduledDayKey) || 0) + 1);
       cursorMs = nextCursor;
     }
 
@@ -962,15 +1216,24 @@ export async function checkAndPostNext(): Promise<void> {
     // Find next eligible post
     const priorityOrder = `CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 2 END`;
     const candidates = db.prepare(
-      `SELECT id, post_url, author, comment_draft, reactions, comments, kanban_task_id FROM linkedin_posts
+      `SELECT id, post_url, author, comment_draft, reactions, comments, kanban_task_id,
+              hook_score, emotion_tag, niche_target, authenticity_flag
+       FROM linkedin_posts
        WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL
          AND scheduled_at IS NOT NULL AND datetime(scheduled_at) <= datetime('now')
          AND hidden = 0
        ORDER BY ${priorityOrder}, scheduled_at ASC
        LIMIT 10`
-    ).all() as Array<{ id: number; post_url: string; author: string; comment_draft: string; reactions: number; comments: number; kanban_task_id: number | null }>;
+    ).all() as Array<{ id: number; post_url: string; author: string; comment_draft: string; reactions: number; comments: number; kanban_task_id: number | null; hook_score: number | null; emotion_tag: string | null; niche_target: string | null; authenticity_flag: string | null }>;
 
     if (candidates.length === 0) return;
+
+    // Quality gate enforcement - block posts missing required metadata
+    const qgEnabled = SettingsManager.get('linkedin.qualityGateEnabled') === 'true';
+    const qgMinHook = parseInt(SettingsManager.get('linkedin.qualityGateMinHook') || '7', 10);
+    const qgRequireEmotion = SettingsManager.get('linkedin.qualityGateRequireEmotion') === 'true';
+    const qgRequireNiche = SettingsManager.get('linkedin.qualityGateRequireNiche') === 'true';
+    const qgRequireAuth = SettingsManager.get('linkedin.qualityGateRequireAuthenticity') === 'true';
 
     const authorPolicy = getAuthorPostingPolicy();
     let rebalanceNeeded = false;
@@ -1045,6 +1308,29 @@ export async function checkAndPostNext(): Promise<void> {
         );
         rebalanceNeeded = true;
         continue;
+      }
+
+      // Quality gate: block posts missing required metadata
+      if (qgEnabled) {
+        const missing: string[] = [];
+        const hookScore = Number(post.hook_score || 0);
+        if (qgMinHook > 0 && (!Number.isFinite(hookScore) || hookScore < qgMinHook)) {
+          missing.push(`hook_score<${qgMinHook}`);
+        }
+        if (qgRequireEmotion && !String(post.emotion_tag || '').trim()) missing.push('emotion_tag');
+        if (qgRequireNiche && !String(post.niche_target || '').trim()) missing.push('niche_target');
+        if (qgRequireAuth && !String(post.authenticity_flag || '').trim()) missing.push('authenticity_flag');
+
+        if (missing.length > 0) {
+          db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL, approved = 0 WHERE id = ?').run(post.id);
+          db.prepare(
+            `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+             VALUES (?, ?, 'quality_blocked', ?, ?, ?)`
+          ).run(post.id, postUrl, `missing:${missing.join(',')}`, dailyLimit, todayCount);
+          await notifyTelegram(`LinkedIn: Quality gate blocked ${post.author}'s post. Missing: ${missing.join(', ')}. Fill metadata and re-approve.`);
+          console.log(`[AutoPoster] Quality gate blocked post ${post.id}: missing ${missing.join(', ')}`);
+          continue;
+        }
       }
 
       // Claim atomically: only one runner should be able to claim this scheduled row.
@@ -1322,6 +1608,9 @@ export function rescheduleStalePosts(): number {
   if (!db) return 0;
 
   try {
+    const windows = getPostingWindows();
+    if (!hasAnyPostingWindow(windows)) return 0;
+
     const stale = db.prepare(
       `SELECT id, author FROM linkedin_posts
        WHERE approved = 1 AND commented = 0 AND comment_draft IS NOT NULL
@@ -1334,20 +1623,23 @@ export function rescheduleStalePosts(): number {
 
     const update = db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?');
     const tx = db.transaction(() => {
-      let cumulativeMs = 0;
+      let cursorMs = Math.max(Date.now() + 30_000, Date.now());
       for (const post of stale) {
-        // Random 3-8 min spacing between each post
-        const spacingMin = 3 + Math.random() * 5;
-        // Plus 10-70s jitter
-        const jitterSec = 10 + Math.floor(Math.random() * 61);
-        cumulativeMs += spacingMin * 60000 + jitterSec * 1000;
-        const newTime = new Date(Date.now() + cumulativeMs).toISOString().replace('T', ' ').slice(0, 19);
-        update.run(newTime, post.id);
+        const aligned = alignToPostingWindowMs(cursorMs, windows);
+        if (aligned === null) break;
+        update.run(toDbDateTime(aligned), post.id);
+        const dayKey = localDayKeyFromMs(aligned);
+        const targetSpacingMs = getTargetSpacingForDay(dayKey, aligned, windows, getBaseCommentDelayMs());
+        const spacingMinMs = Math.max(getBaseCommentDelayMs(), Math.floor(targetSpacingMs * 0.55));
+        const spacingMaxMs = Math.max(spacingMinMs + 60_000, Math.floor(targetSpacingMs * 0.9));
+        const nextSpacingMs = randomIntBetween(spacingMinMs, spacingMaxMs);
+        const nextCursor = alignToPostingWindowMs(aligned + nextSpacingMs, windows);
+        cursorMs = nextCursor ?? (aligned + nextSpacingMs);
       }
     });
     tx();
 
-    console.log(`[AutoPoster] Rescheduled ${stale.length} stale posts with random intervals`);
+    console.log(`[AutoPoster] Rescheduled ${stale.length} stale posts using configured posting window intervals`);
     return stale.length;
   } finally {
     db.close();

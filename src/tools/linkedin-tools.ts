@@ -21,13 +21,19 @@ interface VoicePreset {
   postTypes: string[];
 }
 
-function selectVoiceForPost(postType: string | null | undefined): string {
+function selectVoiceForPost(postType: string | null | undefined, voiceName?: string): string {
   const presetsJson = SettingsManager.get('linkedin.voicePresets') || '';
   let presets: VoicePreset[] = [];
   try {
     const parsed = JSON.parse(presetsJson);
     if (Array.isArray(parsed)) presets = parsed;
   } catch { /* invalid JSON, fall through */ }
+
+  // Explicit voice name requested - find it by name (case-insensitive)
+  if (voiceName && presets.length > 0) {
+    const match = presets.find(p => p.name.toLowerCase() === voiceName.toLowerCase());
+    if (match) return match.prompt;
+  }
 
   if (presets.length === 0) {
     return SettingsManager.get('linkedin.voiceStyle') || '';
@@ -1177,6 +1183,14 @@ async function handleCommentTool(input: unknown): Promise<string> {
   const err = checkEnabled();
   if (err) return err;
 
+  // Hard autoConfirm gate: block direct commenting when autoConfirm is off
+  if (SettingsManager.get('linkedin.autoConfirm') !== 'true') {
+    return JSON.stringify({
+      error: 'Auto-confirm is disabled. The user must approve this comment first. Use draft_linkedin_comment to create a draft for review, or ask the user to enable Auto-Confirm Posts in LinkedIn settings.',
+      autoConfirmRequired: true,
+    });
+  }
+
   const p = input as { url: string; comment: string };
   if (!p.url || !p.comment) return JSON.stringify({ error: 'url and comment are required' });
   const normalizedUrl = normalizeLinkedInPostUrl(p.url);
@@ -1456,6 +1470,14 @@ async function handleCreatePostTool(input: unknown): Promise<string> {
   const err = checkEnabled();
   if (err) return err;
 
+  // Hard autoConfirm gate: block direct posting when autoConfirm is off
+  if (SettingsManager.get('linkedin.autoConfirm') !== 'true') {
+    return JSON.stringify({
+      error: 'Auto-confirm is disabled. The user must approve this post first. Use draft_linkedin_post to create a draft for review, or ask the user to enable Auto-Confirm Posts in LinkedIn settings.',
+      autoConfirmRequired: true,
+    });
+  }
+
   const p = input as { text: string };
   if (!p.text) return JSON.stringify({ error: 'text is required' });
 
@@ -1669,16 +1691,19 @@ Creates a draft using AI with LinkedIn best practices (hook line, short paragrap
 Stores the draft as a Kanban task in the "LinkedIn" project with status "review" for user approval.
 
 Styles: insight (default), story, contrarian, how-to, listicle
+Voice: optional voice preset name to use (e.g. "raw" or "data pro"). If omitted, picks automatically.
 
 Examples:
 - draft_linkedin_post(topic="AI in healthcare", style="insight")
-- draft_linkedin_post(topic="Remote work tips", research_report="...", style="how-to")`,
+- draft_linkedin_post(topic="Remote work tips", research_report="...", style="how-to")
+- draft_linkedin_post(topic="Google entities", style="contrarian", voice="raw")`,
     input_schema: {
       type: 'object' as const,
       properties: {
         topic: { type: 'string', description: 'Topic or theme for the post' },
         research_report: { type: 'string', description: 'Optional research report to base the post on' },
         style: { type: 'string', description: 'Post style: insight, story, contrarian, how-to, listicle (default: insight)' },
+        voice: { type: 'string', description: 'Voice preset name to use (e.g. "raw", "data pro"). If omitted, picks automatically from presets.' },
         reference_post_url: { type: 'string', description: 'Optional URL of a reference post for style inspiration' },
       },
       required: ['topic'],
@@ -1690,7 +1715,7 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
   const err = checkEnabled();
   if (err) return err;
 
-  const p = input as { topic: string; research_report?: string; style?: string; reference_post_url?: string };
+  const p = input as { topic: string; research_report?: string; style?: string; voice?: string; reference_post_url?: string };
   if (!p.topic) return JSON.stringify({ error: 'topic is required' });
 
   if (!isGlmConfigured()) {
@@ -1702,7 +1727,7 @@ async function handleDraftPostTool(input: unknown): Promise<string> {
   const dateContext = dateAwarenessContext();
 
   // Load user's voice/rules/direction from settings
-  const voiceStyle = selectVoiceForPost(style);
+  const voiceStyle = selectVoiceForPost(style, p.voice);
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
   const contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
 
@@ -1800,7 +1825,8 @@ After user approval, use linkedin_comment to post it.
 
 Examples:
 - draft_linkedin_comment(post_url="https://...", post_text="...", tone="supportive")
-- draft_linkedin_comment(post_url="https://...", post_text="...", tone="insightful", instruction="mention our experience with RAG")`,
+- draft_linkedin_comment(post_url="https://...", post_text="...", tone="insightful", instruction="mention our experience with RAG")
+- draft_linkedin_comment(post_url="https://...", post_text="...", tone="contrarian", voice="raw")`,
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -1808,6 +1834,7 @@ Examples:
         post_text: { type: 'string', description: 'Post content (text_preview or full text)' },
         post_author: { type: 'string', description: 'Post author name (for context)' },
         tone: { type: 'string', description: 'Comment tone: supportive, insightful, contrarian, curious, congratulatory (default: insightful)' },
+        voice: { type: 'string', description: 'Voice preset name to use (e.g. "raw", "data pro"). If omitted, picks automatically from presets.' },
         instruction: { type: 'string', description: 'Optional specific instruction for the comment (e.g. "mention our product", "share a personal anecdote")' },
       },
       required: ['post_url', 'post_text'],
@@ -1827,7 +1854,7 @@ async function handleDraftCommentTool(input: unknown): Promise<string> {
   const err = checkEnabled();
   if (err) return err;
 
-  const p = input as { post_url: string; post_text: string; post_author?: string; tone?: string; instruction?: string };
+  const p = input as { post_url: string; post_text: string; post_author?: string; tone?: string; voice?: string; instruction?: string };
   if (!p.post_url || !p.post_text) {
     return JSON.stringify({ error: 'post_url and post_text are required' });
   }
@@ -1844,7 +1871,7 @@ async function handleDraftCommentTool(input: unknown): Promise<string> {
     : 'Start sentence 1 by acknowledging a concrete point from the post.';
 
   // Load user's voice/rules from settings
-  const voiceStyle = selectVoiceForPost(null);
+  const voiceStyle = selectVoiceForPost(null, p.voice);
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
 
   let systemPrompt = `You are a real person leaving a LinkedIn comment. You have hands-on experience in this field.

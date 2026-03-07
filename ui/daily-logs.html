@@ -386,6 +386,16 @@
       <span class="log-count" id="log-count"></span>
     </div>
     <div class="header-actions">
+      <label class="toggle" style="gap:6px; padding:6px 10px;">
+        <span style="font-size:11px; opacity:0.8;">Range</span>
+        <select id="range-days" style="font-size:11px;">
+          <option value="3">3 days</option>
+          <option value="7">7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+          <option value="90">90 days</option>
+        </select>
+      </label>
       <button onclick="playNormalClick(); window.close()">Done</button>
       <button onclick="playNormalClick(); loadLogs()">Refresh</button>
     </div>
@@ -413,8 +423,15 @@
       }
     });
 
+    function formatLocalDate(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
     function getTodayDate() {
-      return new Date().toISOString().split('T')[0];
+      return formatLocalDate(new Date());
     }
 
     function formatDate(dateStr) {
@@ -423,7 +440,7 @@
 
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      if (dateStr === yesterday.toISOString().split('T')[0]) return 'Yesterday';
+      if (dateStr === formatLocalDate(yesterday)) return 'Yesterday';
 
       const date = new Date(dateStr + 'T00:00:00');
       return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
@@ -442,9 +459,25 @@
       return { time: '', text: String(line || '') };
     }
 
+    async function getRangeDays() {
+      try {
+        const raw = await window.pocketAgent.getSetting('dailyLogs.days');
+        const parsed = Number(raw || 0);
+        return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 3;
+      } catch {
+        return 3;
+      }
+    }
+
+    async function setRangeDays(days) {
+      const safe = Number.isFinite(days) && days > 0 ? Math.floor(days) : 3;
+      await window.pocketAgent.setSetting('dailyLogs.days', String(Math.max(3, safe)));
+    }
+
     async function loadLogs() {
       try {
-        const logs = await window.pocketAgent.listDailyLogs();
+        const rangeDays = await getRangeDays();
+        const logs = await window.pocketAgent.listDailyLogs(Math.max(3, rangeDays));
         const content = document.getElementById('content');
         const countEl = document.getElementById('log-count');
 
@@ -541,7 +574,19 @@
     }
 
     // Initialize
-    loadLogs();
+    (async () => {
+      const rangeSelect = document.getElementById('range-days');
+      if (rangeSelect) {
+        const days = await getRangeDays();
+        rangeSelect.value = String(Math.max(3, days));
+        rangeSelect.addEventListener('change', async (e) => {
+          const next = Number(e.target.value || 3);
+          await setRangeDays(next);
+          loadLogs();
+        });
+      }
+      loadLogs();
+    })();
   </script>
 </body>
 </html>
