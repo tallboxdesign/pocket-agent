@@ -334,6 +334,27 @@ let dailyLogsWindow: BrowserWindow | null = null;
 let linkedInActivityWindow: BrowserWindow | null = null;
 let linkedInPlannerWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
+let linkedInAutoPosterNudgeTimer: ReturnType<typeof setTimeout> | null = null;
+let linkedInAutoPosterNudgeAt = 0;
+
+function nudgeLinkedInAutoPosterAt(targetAt: string | null | undefined): void {
+  const targetMs = Date.parse(String(targetAt || '').replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(targetMs)) return;
+  const nudgeAt = Math.max(Date.now() + 1_000, targetMs + 1_000);
+  if (linkedInAutoPosterNudgeTimer && linkedInAutoPosterNudgeAt <= nudgeAt) return;
+  if (linkedInAutoPosterNudgeTimer) {
+    clearTimeout(linkedInAutoPosterNudgeTimer);
+    linkedInAutoPosterNudgeTimer = null;
+  }
+  linkedInAutoPosterNudgeAt = nudgeAt;
+  linkedInAutoPosterNudgeTimer = setTimeout(() => {
+    linkedInAutoPosterNudgeTimer = null;
+    linkedInAutoPosterNudgeAt = 0;
+    void checkAndPostNext().catch((err) => {
+      console.error('[LinkedIn] Post-now nudge failed:', err);
+    });
+  }, Math.max(1_000, nudgeAt - Date.now()));
+}
 
 /**
  * Get the agent's isolated workspace directory.
@@ -2821,6 +2842,41 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('linkedin:confirmNotPosted', async (_, postId: number) => {
+    try {
+      markLinkedInControlSource('desktop');
+      const Database = (await import('better-sqlite3')).default;
+      const dbPath = getLinkedInDbPath();
+      if (!dbPath) return { success: false, error: 'Database not found' };
+      const db = new Database(dbPath);
+      db.pragma('journal_mode = WAL');
+      const row = db.prepare('SELECT post_url, author FROM linkedin_posts WHERE id = ?')
+        .get(postId) as { post_url?: string; author?: string } | undefined;
+      if (!row?.post_url) {
+        db.close();
+        return { success: false, error: 'Post not found' };
+      }
+
+      db.prepare(
+        `UPDATE linkedin_posts
+         SET commented = 0,
+             approved = 1,
+             scheduled_at = NULL
+         WHERE id = ?`
+      ).run(postId);
+      db.prepare(
+        `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason)
+         VALUES (?, ?, 'retry_allowed', 'user_confirmed_not_posted')`
+      ).run(postId, normalizeLinkedInPostUrl(row.post_url));
+      db.close();
+
+      return { success: true, author: row.author || '' };
+    } catch (err) {
+      console.error('[LinkedIn] Failed to confirm not-posted state:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle('linkedin:hidePost', async (_, postId: number) => {
     try {
       markLinkedInControlSource('desktop');
@@ -2845,6 +2901,30 @@ function setupIPC(): void {
       console.error('[LinkedIn] Failed to hide post:', err);
       return { success: false, error: String(err) };
     }
+  });
+
+  ipcMain.handle('linkedin:reauth', async () => {
+    try {
+      markLinkedInControlSource('desktop');
+      const { linkedinExec: liExec } = await import('../tools/linkedin-wrapper');
+      const stdout = await liExec('auth_manager', ['setup'], 600000);
+      // Clear session expired flag on success
+      SettingsManager.set('linkedin.sessionExpired', 'false');
+      console.log('[LinkedIn] Re-authenticated successfully');
+      return { success: true, output: stdout };
+    } catch (err) {
+      console.error('[LinkedIn] Re-auth failed:', err);
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('linkedin:sessionStatus', async () => {
+    return { expired: SettingsManager.get('linkedin.sessionExpired') === 'true' };
+  });
+
+  ipcMain.handle('linkedin:clearSessionExpired', async () => {
+    SettingsManager.set('linkedin.sessionExpired', 'false');
+    return { success: true };
   });
 
   ipcMain.handle('linkedin:snoozePost', async (_, postId: number, days: number) => {
@@ -2999,6 +3079,7 @@ function setupIPC(): void {
       let scheduledAt = datetime;
       let adjustedOthers = 0;
       let warning: string | undefined;
+
       try {
         const { rebalancePendingSchedules } = await import('../tools/linkedin-autoposter');
         const rebalance = rebalancePendingSchedules({
@@ -3012,6 +3093,10 @@ function setupIPC(): void {
       } catch (rebalanceErr) {
         console.warn('[LinkedIn] schedule rebalance failed:', rebalanceErr);
         warning = 'Scheduled, but could not rebalance nearby posts.';
+      }
+
+      if (isImmediatePrioritySchedule) {
+        nudgeLinkedInAutoPosterAt(scheduledAt);
       }
       return { success: true, scheduledAt, adjustedOthers, warning };
     } catch (err) {

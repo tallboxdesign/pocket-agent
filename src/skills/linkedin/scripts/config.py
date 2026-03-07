@@ -118,21 +118,31 @@ POST_SUBMIT_SELECTORS = [
 COMMENT_BUTTON_SELECTORS = [
     "button.comment-button",
     "button[aria-label='Comment']",
+    "button[aria-label*='Comment']",
     "[data-finite-scroll-hotkey='c']",
 ]
 
 # Comment box (dynamic — appears after clicking Comment button)
 COMMENT_BOX_SELECTORS = [
+    ".editor-content .ql-editor[contenteditable='true']",
     ".ql-editor[contenteditable='true']",
     ".comments-comment-texteditor .ql-editor",
+    "[data-test-ql-editor-contenteditable='true']",
+    "[aria-label='Text editor for creating content'][role='textbox']",
     "[data-placeholder='Add a comment…']",
+    "[data-placeholder='Add a comment...']",
+    "[aria-placeholder='Add a comment…']",
+    "[aria-placeholder='Add a comment...']",
 ]
 
 # Comment submit button (dynamic)
 COMMENT_SUBMIT_SELECTORS = [
     "button.comments-comment-box__submit-button--cr",
-    "button[class*='comments-comment-box__submit-button']",
     "button.comments-comment-box__submit-button",
+    "form.comments-comment-box__form button[type='submit']",
+    "button[aria-label='Post comment']",
+    "button[class*='comments-comment-box__submit-button']",
+    ".comments-comment-box__form button.artdeco-button--primary",
 ]
 
 # Search bar

@@ -42,21 +42,36 @@ export async function linkedinExec(script: string, args: string[], timeoutMs = 1
   const runPy = path.join(getScriptsDir(), 'run.py');
   const python = findPython3();
 
-  // Build a minimal clean env from scratch — inheriting Electron's full env
-  // (even after stripping ELECTRON_* vars) leaks macOS security context
-  // (__CFBundleIdentifier, DYLD_*, MallocNanoZone, etc.) that causes
-  // the child Chromium to crash with SIGTRAP under Electron's sandbox.
+  // Start from the parent env so Chromium keeps the normal macOS session/profile
+  // context, then strip only the Electron/runtime variables that previously
+  // caused Patchright's Chromium to crash under Electron.
   const home = process.env.HOME || os.homedir();
+  const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(cleanEnv)) {
+    if (
+      key.startsWith('ELECTRON') ||
+      key.startsWith('CHROME_') ||
+      key.startsWith('GOOGLE_') ||
+      key.startsWith('DYLD_') ||
+      key === '__CFBundleIdentifier' ||
+      key === 'MallocNanoZone' ||
+      key === 'NODE_ENV' ||
+      key === 'ORIGINAL_XDG_CURRENT_DESKTOP'
+    ) {
+      delete cleanEnv[key];
+    }
+  }
   const execEnv: Record<string, string> = {
+    ...Object.fromEntries(
+      Object.entries(cleanEnv).filter(([, value]) => typeof value === 'string')
+    ) as Record<string, string>,
     HOME: home,
-    USER: process.env.USER || '',
-    PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
-    TMPDIR: process.env.TMPDIR || '/tmp',
-    LANG: process.env.LANG || 'en_US.UTF-8',
-    SHELL: process.env.SHELL || '/bin/zsh',
+    USER: process.env.USER || cleanEnv.USER || '',
+    PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${cleanEnv.PATH || ''}`,
+    TMPDIR: process.env.TMPDIR || cleanEnv.TMPDIR || '/tmp',
+    LANG: process.env.LANG || cleanEnv.LANG || 'en_US.UTF-8',
+    SHELL: process.env.SHELL || cleanEnv.SHELL || '/bin/zsh',
     PYTHONUNBUFFERED: '1',
-    XPC_FLAGS: '0x0',
-    XPC_SERVICE_NAME: '0',
   };
   console.log(`[LinkedIn] exec: ${python} ${runPy} ${script} ${args.join(' ')}`);
   console.log(`[LinkedIn] HOME=${execEnv.HOME}, isPackaged=${app.isPackaged}, scriptsDir=${path.dirname(runPy)}`);

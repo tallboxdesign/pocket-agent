@@ -27,6 +27,166 @@ from browser_utils import BrowserFactory, StealthUtils
 
 
 DEBUG_HTML = str(DATA_DIR / "debug_reply.html")
+DEBUG_SCREENSHOT = str(DATA_DIR / "debug_reply.png")
+
+
+def _is_visible(el) -> bool:
+    try:
+        if not el:
+            return False
+        if hasattr(el, "is_visible") and not el.is_visible():
+            return False
+        box = el.bounding_box()
+        return bool(box and box.get("width", 0) > 0 and box.get("height", 0) > 0)
+    except Exception:
+        return False
+
+
+def _is_comment_editor(el) -> bool:
+    try:
+        cls = (el.get_attribute("class") or "").lower()
+        if "ql-clipboard" in cls:
+            return False
+        contenteditable = (el.get_attribute("contenteditable") or "").lower()
+        if contenteditable != "true":
+            return False
+
+        placeholder = " ".join([
+            el.get_attribute("data-placeholder") or "",
+            el.get_attribute("aria-placeholder") or "",
+            el.get_attribute("aria-label") or "",
+            cls,
+        ]).lower()
+
+        if "comment" in placeholder:
+            return True
+
+        role = (el.get_attribute("role") or "").lower()
+        return role == "textbox" and "creating content" in placeholder
+    except Exception:
+        return False
+
+
+def _find_comment_editor(page):
+    seen = set()
+    for sel in COMMENT_BOX_SELECTORS + ["[contenteditable='true']"]:
+        try:
+            elements = page.query_selector_all(sel)
+        except Exception:
+            continue
+        for el in elements:
+            try:
+                key = str(el)
+            except Exception:
+                key = None
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            if not _is_visible(el):
+                continue
+            if _is_comment_editor(el):
+                return el
+    return None
+
+
+def _find_comment_button(page):
+    for sel in COMMENT_BUTTON_SELECTORS:
+        try:
+            elements = page.query_selector_all(sel)
+        except Exception:
+            continue
+        for el in elements:
+            if not _is_visible(el):
+                continue
+            return el
+    return None
+
+
+def _find_submit_button(page):
+    for sel in COMMENT_SUBMIT_SELECTORS:
+        try:
+            elements = page.query_selector_all(sel)
+        except Exception:
+            continue
+        for el in elements:
+            if not _is_visible(el):
+                continue
+            try:
+                if not el.is_enabled():
+                    continue
+            except Exception:
+                pass
+            return el
+    return None
+
+
+def _click_element(page, el, label: str) -> bool:
+    if not el:
+        return False
+    try:
+        el.scroll_into_view_if_needed(timeout=3000)
+    except Exception:
+        pass
+
+    try:
+        box = el.bounding_box()
+        if box:
+            page.mouse.move(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2, steps=4)
+    except Exception:
+        pass
+
+    click_attempts = (
+        lambda: el.click(timeout=3000),
+        lambda: el.click(force=True, timeout=3000),
+        lambda: el.evaluate("(node) => node.click()"),
+    )
+    for attempt in click_attempts:
+        try:
+            attempt()
+            return True
+        except Exception:
+            continue
+    print(f"DEBUG: Failed to click {label}", file=sys.stderr)
+    return False
+
+
+def _wait_for_comment_editor(page, timeout_ms: int = 12000):
+    deadline = time.time() + (timeout_ms / 1000.0)
+    while time.time() < deadline:
+        editor = _find_comment_editor(page)
+        if editor:
+            return editor
+        time.sleep(0.35)
+    return None
+
+
+def _wait_for_submit_button(page, timeout_ms: int = 8000):
+    deadline = time.time() + (timeout_ms / 1000.0)
+    while time.time() < deadline:
+        btn = _find_submit_button(page)
+        if btn:
+            return btn
+        time.sleep(0.3)
+    return None
+
+
+def _dump_reply_debug(page, reason: str):
+    try:
+        Path(DEBUG_HTML).write_text(page.content())
+        print(f"DEBUG: HTML dumped to {DEBUG_HTML}", file=sys.stderr)
+    except Exception:
+        pass
+    try:
+        page.screenshot(path=DEBUG_SCREENSHOT, full_page=True)
+        print(f"DEBUG: Screenshot dumped to {DEBUG_SCREENSHOT}", file=sys.stderr)
+    except Exception:
+        pass
+    try:
+        visible_editors = sum(1 for el in page.query_selector_all("[contenteditable='true']") if _is_visible(el))
+        print(f"DEBUG: {reason}; visible contenteditable nodes={visible_editors}", file=sys.stderr)
+    except Exception:
+        pass
 
 
 def extract_post_content(page) -> dict:
@@ -139,79 +299,50 @@ def post_comment(page, comment_text: str) -> bool:
     page.evaluate("window.scrollBy(0, 400)")
     StealthUtils.random_delay(1000, 2000)
 
-    # Try clicking Comment button up to 3 times with increasing waits
-    comment_btn_clicked = False
-    for attempt in range(3):
-        for sel in COMMENT_BUTTON_SELECTORS:
-            btn = page.query_selector(sel)
-            if btn:
-                try:
-                    btn.scroll_into_view_if_needed(timeout=3000)
-                except Exception:
-                    pass
-                StealthUtils.random_delay(500, 1000)
-                StealthUtils.realistic_click(page, sel)
-                StealthUtils.random_delay(2000, 3000)
-                comment_btn_clicked = True
-                break
-        if comment_btn_clicked:
-            break
-        # Scroll more and retry
-        page.evaluate("window.scrollBy(0, 300)")
-        StealthUtils.random_delay(1500, 2500)
+    # LinkedIn often renders the composer already open. Use it directly if present.
+    comment_el = _wait_for_comment_editor(page, timeout_ms=2500)
 
-    # Wait for comment box with longer timeout and multiple attempts
-    comment_el = None
+    # Try opening the comment UI only when the editor is not already available.
     for attempt in range(3):
-        for sel in COMMENT_BOX_SELECTORS:
-            try:
-                comment_el = page.wait_for_selector(sel, timeout=8000)
-            except Exception:
-                continue
-            if comment_el:
-                break
         if comment_el:
             break
-        # If not found, try clicking Comment button again
-        for sel in COMMENT_BUTTON_SELECTORS:
-            btn = page.query_selector(sel)
-            if btn:
-                btn.click()
-                StealthUtils.random_delay(2000, 3000)
-                break
+        btn = _find_comment_button(page)
+        if btn:
+            StealthUtils.random_delay(400, 900)
+            _click_element(page, btn, "comment button")
+        StealthUtils.random_delay(1500, 2500)
+        comment_el = _wait_for_comment_editor(page, timeout_ms=7000)
+        if comment_el:
+            break
+        page.evaluate("window.scrollBy(0, 250)")
+        StealthUtils.random_delay(1200, 2200)
 
     if not comment_el:
-        # Dump HTML for debugging
-        try:
-            Path(DEBUG_HTML).write_text(page.content())
-            print(f"DEBUG: HTML dumped to {DEBUG_HTML}", file=sys.stderr)
-        except Exception:
-            pass
+        _dump_reply_debug(page, "comment editor not found")
         print("ERROR: Could not find comment box after 3 attempts", file=sys.stderr)
         return False
 
     # Click into the contenteditable div and type
-    comment_el.click()
+    _click_element(page, comment_el, "comment editor")
     StealthUtils.random_delay(500, 1000)
-    page.keyboard.type(comment_text, delay=80)
+    try:
+        page.keyboard.insert_text(comment_text)
+    except Exception:
+        page.keyboard.type(comment_text, delay=60)
     StealthUtils.random_delay(1500, 2500)
 
     # Wait for submit button to become enabled, then click
-    for attempt in range(3):
-        for sel in COMMENT_SUBMIT_SELECTORS:
-            try:
-                btn = page.wait_for_selector(sel, timeout=5000)
-            except Exception:
-                continue
-            if btn:
-                StealthUtils.random_delay(500, 1000)
-                if btn.is_enabled():
-                    btn.click()
-                    StealthUtils.random_delay(2000, 4000)
-                    print("Comment posted successfully")
-                    return True
-        StealthUtils.random_delay(1000, 2000)
+    for _ in range(3):
+        btn = _wait_for_submit_button(page, timeout_ms=5000)
+        if btn:
+            StealthUtils.random_delay(400, 900)
+            if _click_element(page, btn, "submit comment"):
+                StealthUtils.random_delay(2000, 4000)
+                print("Comment posted successfully")
+                return True
+        StealthUtils.random_delay(800, 1500)
 
+    _dump_reply_debug(page, "submit button not found or not clickable")
     print("ERROR: Could not find or click submit button", file=sys.stderr)
     return False
 

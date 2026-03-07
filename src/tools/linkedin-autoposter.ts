@@ -22,8 +22,11 @@ let cachedLimitDay: string | null = null;
 let autoPosterRunInFlight = false;
 let postedGuardEnsured = false;
 const ATTEMPT_GUARD_HOURS = 6;
-const PRIORITY_REBALANCE_WINDOW_MINUTES = 30;
-const PRIORITY_BATCH_DENSE_LIMIT = 5;
+const DEFAULT_POST_NOW_FIRST_DELAY_SEC = 10;
+const DEFAULT_POST_NOW_HOT_COUNT = 5;
+const DEFAULT_POST_NOW_HOT_WINDOW_MINUTES = 15;
+const DEFAULT_POST_NOW_PRIORITY_COUNT = 10;
+const DEFAULT_POST_NOW_PRIORITY_WINDOW_MINUTES = 120;
 const LINKEDIN_CONTROL_SOURCE_KEY = 'linkedin.controlSource';
 const LINKEDIN_CONTROL_EXPIRES_AT_KEY = 'linkedin.controlExpiresAt';
 const LINKEDIN_TELEGRAM_NOTIFY_MODE_KEY = 'linkedin.telegramNotifyMode';
@@ -555,6 +558,58 @@ function randomIntBetween(min: number, max: number): number {
   return lo + Math.floor(Math.random() * (hi - lo + 1));
 }
 
+type PostNowPriorityConfig = {
+  firstDelayMs: number;
+  hotCount: number;
+  hotWindowMs: number;
+  priorityCount: number;
+  priorityWindowMs: number;
+};
+
+function getPostNowPriorityConfig(): PostNowPriorityConfig {
+  const firstDelaySec = clampInt(
+    parseInt(SettingsManager.get('linkedin.postNowFirstDelaySec') || String(DEFAULT_POST_NOW_FIRST_DELAY_SEC), 10) || DEFAULT_POST_NOW_FIRST_DELAY_SEC,
+    1,
+    300,
+  );
+  const hotCount = clampInt(
+    parseInt(SettingsManager.get('linkedin.postNowHotCount') || String(DEFAULT_POST_NOW_HOT_COUNT), 10) || DEFAULT_POST_NOW_HOT_COUNT,
+    1,
+    20,
+  );
+  const hotWindowMin = clampInt(
+    parseInt(SettingsManager.get('linkedin.postNowHotWindowMin') || String(DEFAULT_POST_NOW_HOT_WINDOW_MINUTES), 10) || DEFAULT_POST_NOW_HOT_WINDOW_MINUTES,
+    1,
+    240,
+  );
+  const priorityCountRaw = clampInt(
+    parseInt(SettingsManager.get('linkedin.postNowPriorityCount') || String(DEFAULT_POST_NOW_PRIORITY_COUNT), 10) || DEFAULT_POST_NOW_PRIORITY_COUNT,
+    1,
+    50,
+  );
+  const priorityCount = Math.max(hotCount, priorityCountRaw);
+  const priorityWindowMinRaw = clampInt(
+    parseInt(SettingsManager.get('linkedin.postNowPriorityWindowMin') || String(DEFAULT_POST_NOW_PRIORITY_WINDOW_MINUTES), 10) || DEFAULT_POST_NOW_PRIORITY_WINDOW_MINUTES,
+    1,
+    24 * 60,
+  );
+  const hotWindowMs = hotWindowMin * 60 * 1000;
+  const priorityWindowMs = Math.max(hotWindowMs, priorityWindowMinRaw * 60 * 1000);
+  return {
+    firstDelayMs: firstDelaySec * 1000,
+    hotCount,
+    hotWindowMs,
+    priorityCount,
+    priorityWindowMs,
+  };
+}
+
+function interpolateRangeInt(start: number, end: number, fraction: number): number {
+  if (!Number.isFinite(fraction) || fraction <= 0) return Math.floor(start);
+  if (fraction >= 1) return Math.floor(end);
+  return Math.floor(start + ((end - start) * fraction));
+}
+
 function computeAdaptiveSpacingMs(
   position: number,
   total: number,
@@ -600,27 +655,49 @@ function computeAdaptiveSpacingMs(
   return clampInt(jitteredMs, pressuredMinMs, pressuredMaxMs);
 }
 
-function computePriorityBatchSpacingMs(
+function computePriorityTargetOffsetMs(
   priorityIndex: number,
   priorityCount: number,
   minSpacingMs: number,
 ): number | null {
-  const denseCount = Math.min(PRIORITY_BATCH_DENSE_LIMIT, Math.max(0, priorityCount));
-  if (denseCount <= 1) return null;
-  if (priorityIndex < 0 || priorityIndex >= denseCount - 1) return null;
+  if (priorityIndex < 0 || priorityCount <= 0) return null;
+  const config = getPostNowPriorityConfig();
+  const cappedPriorityCount = Math.max(1, Math.min(priorityCount, config.priorityCount));
+  if (priorityIndex >= cappedPriorityCount) return null;
 
-  // Keep the first few manual "Post Now" items in a hot near-term cluster, but
-  // do not cram large batches: anything after the dense limit falls back to
-  // normal adaptive spacing.
-  const denseWindowMs = PRIORITY_REBALANCE_WINDOW_MINUTES * 60 * 1000;
-  const baselineMs = Math.max(
-    minSpacingMs,
-    Math.floor(denseWindowMs / Math.max(2, denseCount)),
+  const hotCount = Math.max(1, Math.min(config.hotCount, cappedPriorityCount));
+  const hotWindowMs = Math.max(config.firstDelayMs, config.hotWindowMs);
+  const safeHotWindowMs = Math.max(
+    hotWindowMs,
+    config.firstDelayMs + Math.max(0, hotCount - 1) * minSpacingMs,
   );
-  const jitteredMs = Math.floor(baselineMs * (0.9 + Math.random() * 0.16));
-  const minMs = Math.max(minSpacingMs, Math.floor(baselineMs * 0.88));
-  const maxMs = Math.max(minMs + 60_000, Math.floor(baselineMs * 1.12));
-  return clampInt(jitteredMs, minMs, maxMs);
+
+  if (priorityIndex === 0) return config.firstDelayMs;
+
+  if (priorityIndex < hotCount) {
+    if (hotCount === 1) return config.firstDelayMs;
+    return interpolateRangeInt(
+      config.firstDelayMs,
+      safeHotWindowMs,
+      priorityIndex / (hotCount - 1),
+    );
+  }
+
+  const extendedCount = cappedPriorityCount - hotCount;
+  if (extendedCount <= 0) return null;
+
+  const extendedStartMs = safeHotWindowMs + minSpacingMs;
+  const safePriorityWindowMs = Math.max(
+    config.priorityWindowMs,
+    extendedStartMs + Math.max(0, extendedCount - 1) * minSpacingMs,
+  );
+  const extendedIndex = priorityIndex - hotCount;
+  if (extendedCount === 1) return extendedStartMs;
+  return interpolateRangeInt(
+    extendedStartMs,
+    safePriorityWindowMs,
+    extendedIndex / (extendedCount - 1),
+  );
 }
 
 function normalizeLinkedInPostUrl(raw: string): string {
@@ -717,27 +794,31 @@ function hasAnyPostedOnUrl(
 
 function hasRecentAttemptGuard(db: Database.Database, postUrl: string): boolean {
   const activityId = extractActivityId(postUrl);
-  let row: { created_at: string } | undefined;
+  let row: { action: string; created_at: string } | undefined;
   if (activityId) {
     row = db.prepare(
-      `SELECT created_at
+      `SELECT action, created_at
        FROM linkedin_activity_log
-       WHERE action IN ('posting_attempt', 'verify_needed')
+       WHERE action IN ('posting_attempt', 'verify_needed', 'session_expired', 'retry_allowed')
          AND (post_url = ? OR post_url LIKE ?)
        ORDER BY id DESC
        LIMIT 1`
-    ).get(postUrl, `%activity:${activityId}%`) as { created_at: string } | undefined;
+    ).get(postUrl, `%activity:${activityId}%`) as { action: string; created_at: string } | undefined;
   } else {
     row = db.prepare(
-      `SELECT created_at
+      `SELECT action, created_at
        FROM linkedin_activity_log
-       WHERE action IN ('posting_attempt', 'verify_needed')
+       WHERE action IN ('posting_attempt', 'verify_needed', 'session_expired', 'retry_allowed')
          AND post_url = ?
        ORDER BY id DESC
        LIMIT 1`
-    ).get(postUrl) as { created_at: string } | undefined;
+    ).get(postUrl) as { action: string; created_at: string } | undefined;
   }
   if (!row?.created_at) return false;
+  const action = String(row.action || '').trim().toLowerCase();
+  if (action === 'session_expired' || action === 'retry_allowed') {
+    return false;
+  }
   const ts = parseDbDateTime(row.created_at);
   if (!Number.isFinite(ts)) return true;
   return (Date.now() - ts) < ATTEMPT_GUARD_HOURS * 60 * 60 * 1000;
@@ -814,6 +895,7 @@ function getPostingWindowIntervalMs(tsMs: number, windows: PostingWindows, fallb
 
 function alignToPostingWindowMs(tsMs: number, windows: PostingWindows): number | null {
   if (!hasAnyPostingWindow(windows)) return tsMs;
+  if (isWithinPostingWindowMs(tsMs, windows)) return tsMs;
   const roundedStart = Math.max(0, Math.ceil(tsMs / 60000) * 60000);
   const maxMinutesToScan = 14 * 24 * 60; // two weeks safety cap
   for (let i = 0; i <= maxMinutesToScan; i++) {
@@ -904,20 +986,29 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
       };
     }
 
+    const priorityConfig = getPostNowPriorityConfig();
     const rows = db.prepare(
       `SELECT id, scheduled_at,
+              (
+                SELECT MAX(created_at)
+                FROM linkedin_activity_log la
+                WHERE la.post_id = linkedin_posts.id
+                  AND la.action = 'priority_scheduled'
+              ) AS last_priority_scheduled_at,
               CASE
-                WHEN EXISTS (
-                  SELECT 1
+                WHEN (
+                  SELECT MAX(created_at)
                   FROM linkedin_activity_log la
                   WHERE la.post_id = linkedin_posts.id
-                    AND la.id = (
-                      SELECT MAX(id)
-                      FROM linkedin_activity_log
-                      WHERE post_id = linkedin_posts.id
-                    )
                     AND la.action = 'priority_scheduled'
-                ) THEN 1
+                ) IS NOT NULL
+                 AND datetime((
+                  SELECT MAX(created_at)
+                  FROM linkedin_activity_log la
+                  WHERE la.post_id = linkedin_posts.id
+                    AND la.action = 'priority_scheduled'
+                 )) >= datetime('now', '-${priorityConfig.priorityWindowMs / 60000} minutes')
+                THEN 1
                 ELSE 0
               END AS has_priority_now
        FROM linkedin_posts
@@ -926,12 +1017,15 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
        ORDER BY
          CASE
            WHEN id = ? THEN 0
-           WHEN has_priority_now = 1 THEN 1
-           WHEN datetime(scheduled_at) <= datetime('now', '+${PRIORITY_REBALANCE_WINDOW_MINUTES} minutes') THEN 2
-           ELSE 3
+           WHEN has_priority_now = 1
+             AND datetime(scheduled_at) <= datetime('now', '+${priorityConfig.priorityWindowMs / 60000} minutes') THEN 1
+           WHEN datetime(scheduled_at) <= datetime('now', '+${priorityConfig.priorityWindowMs / 60000} minutes') THEN 2
+           WHEN has_priority_now = 1 THEN 3
+           ELSE 4
          END,
+         datetime(last_priority_scheduled_at) DESC,
          datetime(scheduled_at) ASC`
-    ).all(options.priorityPostId || 0) as Array<{ id: number; scheduled_at: string | null; has_priority_now?: number }>;
+    ).all(options.priorityPostId || 0) as Array<{ id: number; scheduled_at: string | null; has_priority_now?: number; last_priority_scheduled_at?: string | null }>;
 
     if (rows.length === 0) {
       return {
@@ -942,7 +1036,8 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
       };
     }
 
-    const nowFloorMs = Math.max(0, Date.now() + 60_000);
+    const hasPriorityRows = rows.some((row) => row.id === (options.priorityPostId || 0) || Number(row.has_priority_now || 0) === 1);
+    const nowFloorMs = Math.max(0, Date.now() + (hasPriorityRows ? 1_000 : 60_000));
     const minSpacingMs = getBaseCommentDelayMs();
     const bulkSpreadHours = 6;
     const bulkHorizonEndMs = nowFloorMs + (bulkSpreadHours * 60 * 60 * 1000);
@@ -978,7 +1073,16 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
       const hasCurrent = Number.isFinite(currentMsRaw);
       let candidateMs = options.fromNow ? cursorMs : (hasCurrent ? currentMsRaw : cursorMs);
 
-      if (options.priorityPostId && row.id === options.priorityPostId && Number.isFinite(preferredMs)) {
+      const priorityIndex = priorityRowIndex.get(row.id) ?? -1;
+      const priorityTargetOffsetMs = computePriorityTargetOffsetMs(
+        priorityIndex,
+        priorityRowIds.length,
+        minSpacingMs,
+      );
+
+      if (priorityTargetOffsetMs !== null) {
+        candidateMs = Math.max(nowFloorMs + priorityTargetOffsetMs, nowFloorMs);
+      } else if (options.priorityPostId && row.id === options.priorityPostId && Number.isFinite(preferredMs)) {
         candidateMs = Math.max(preferredMs, nowFloorMs);
       }
 
@@ -1021,12 +1125,7 @@ export function rebalancePendingSchedules(options: { priorityPostId?: number; pr
 
       const dayKey = localDayKeyFromMs(alignedMs);
       const targetSpacingMs = getTargetSpacingForDay(dayKey, alignedMs, windows, minSpacingMs);
-      const prioritySpacingMs = computePriorityBatchSpacingMs(
-        priorityRowIndex.get(row.id) ?? -1,
-        priorityRowIds.length,
-        minSpacingMs,
-      );
-      const adaptiveSpacingMs = prioritySpacingMs ?? computeAdaptiveSpacingMs(
+      const adaptiveSpacingMs = computeAdaptiveSpacingMs(
         i,
         rows.length,
         minSpacingMs,
@@ -1106,6 +1205,10 @@ export async function notifyTelegram(message: string): Promise<void> {
 
 export async function checkAndPostNext(): Promise<void> {
   if (SettingsManager.get('linkedin.autoPosterEnabled') !== 'true') return;
+  // Halt if session is expired - wait for re-authentication
+  if (SettingsManager.get('linkedin.sessionExpired') === 'true') {
+    return;
+  }
   const window = activePostingWindow();
   if (!window) return;
   if (autoPosterRunInFlight) {
@@ -1379,12 +1482,43 @@ export async function checkAndPostNext(): Promise<void> {
         if (errMsg.includes('Comment posted successfully')) {
           console.log(`[AutoPoster] Comment was actually posted despite timeout for ${post.author}`);
           posted = true;
+        } else if (errMsg.includes('Not authenticated')) {
+          // Explicit auth failure: restore the post's schedule and halt all further attempts
+          db.prepare('UPDATE linkedin_posts SET scheduled_at = ? WHERE id = ?')
+            .run(toDbDateTime(Date.now() + 30 * 60_000), post.id);
+          db.prepare(
+            `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+             VALUES (?, ?, 'session_expired', 'linkedin_login_required', ?, ?)`
+          ).run(post.id, postUrl, dailyLimit, todayCount);
+          await notifyTelegram(
+            `LinkedIn: Session expired (login redirect detected). ` +
+            `Auto-poster PAUSED. Re-authenticate in the app, then posting will resume automatically.`
+          );
+          console.error(`[AutoPoster] SESSION EXPIRED - halting autoposter until re-auth`);
+          // Set a flag so the autoposter skips all further ticks until session is restored
+          SettingsManager.set('linkedin.sessionExpired', 'true');
+          return;
+        } else if (errMsg.includes('Could not find comment box')) {
+          db.prepare('UPDATE linkedin_posts SET scheduled_at = NULL WHERE id = ?').run(post.id);
+          db.prepare(
+            `INSERT INTO linkedin_activity_log (post_id, post_url, action, reason, daily_limit, daily_count)
+             VALUES (?, ?, 'verify_needed', 'comment_box_not_found', ?, ?)`
+          ).run(post.id, postUrl, dailyLimit, todayCount);
+          await notifyTelegram(
+            `LinkedIn: Could not find comment box for ${post.author}'s post. Marked for manual review instead of pausing the whole auto-poster.`
+          );
+          console.warn(`[AutoPoster] Comment box not found for ${post.author}; marked verify_needed without expiring session`);
+          continue;
         } else {
           failureReason = errMsg.replace(/\s+/g, ' ').trim().slice(0, 500);
         }
       }
 
       if (posted) {
+        // Clear session expired flag on successful post
+        if (SettingsManager.get('linkedin.sessionExpired') === 'true') {
+          SettingsManager.set('linkedin.sessionExpired', 'false');
+        }
         db.prepare('UPDATE linkedin_posts SET commented = 1, scheduled_at = NULL WHERE id = ?').run(post.id);
 
         db.prepare(

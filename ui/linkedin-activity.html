@@ -1941,6 +1941,10 @@
     </div>
   </header>
 
+  <div id="session-expired-banner" style="display:none;background:#c0392b;color:#fff;padding:10px 16px;text-align:center;font-weight:600;font-size:14px;cursor:pointer" onclick="handleReauth()">
+    LinkedIn session expired - Auto-poster PAUSED. Click here to re-authenticate.
+  </div>
+
   <div class="li-quick-settings" id="li-quick-settings">
     <div class="li-quick-header">
       <div class="li-quick-title">LinkedIn Quick Settings</div>
@@ -2132,6 +2136,26 @@
               <option value="true">On</option>
               <option value="false">Off</option>
             </select>
+          </div>
+          <div class="li-quick-field">
+            <label title="Delay before the first Post Now item becomes eligible.">Post Now First (sec)</label>
+            <input type="number" id="qs-post-now-first-delay" min="1" max="300" step="1" title="Default: 10 seconds">
+          </div>
+          <div class="li-quick-field">
+            <label title="How many Post Now items stay in the hot near-term cluster.">Post Now Hot Count</label>
+            <input type="number" id="qs-post-now-hot-count" min="1" max="20" step="1" title="Default: 5">
+          </div>
+          <div class="li-quick-field">
+            <label title="Time window used to spread the hot Post Now cluster.">Post Now Hot Window</label>
+            <input type="number" id="qs-post-now-hot-window" min="1" max="240" step="1" title="Default: 15 minutes">
+          </div>
+          <div class="li-quick-field">
+            <label title="How many Post Now items stay prioritized before the normal queue takes over.">Post Now Priority Count</label>
+            <input type="number" id="qs-post-now-priority-count" min="1" max="50" step="1" title="Default: 10">
+          </div>
+          <div class="li-quick-field">
+            <label title="Outer time window used to spread prioritized Post Now items after the hot cluster.">Post Now Priority Window</label>
+            <input type="number" id="qs-post-now-priority-window" min="1" max="1440" step="1" title="Default: 120 minutes">
           </div>
           <div class="li-quick-field">
             <label title="Number of lighter-volume days per week selected automatically.">Light Days / Week</label>
@@ -4403,6 +4427,11 @@
           dailyLimit,
           autoPoster,
           recoveryRebalanceEnabled,
+          postNowFirstDelaySec,
+          postNowHotCount,
+          postNowHotWindowMin,
+          postNowPriorityCount,
+          postNowPriorityWindowMin,
           lightDaysPerWeek,
           lightDayMinPosts,
           lightDayMaxPosts,
@@ -4451,6 +4480,11 @@
           window.pocketAgent.getSetting('linkedin.dailyLimit'),
           window.pocketAgent.getSetting('linkedin.autoPosterEnabled'),
           window.pocketAgent.getSetting('linkedin.recoveryRebalanceEnabled'),
+          window.pocketAgent.getSetting('linkedin.postNowFirstDelaySec'),
+          window.pocketAgent.getSetting('linkedin.postNowHotCount'),
+          window.pocketAgent.getSetting('linkedin.postNowHotWindowMin'),
+          window.pocketAgent.getSetting('linkedin.postNowPriorityCount'),
+          window.pocketAgent.getSetting('linkedin.postNowPriorityWindowMin'),
           window.pocketAgent.getSetting('linkedin.lightDaysPerWeek'),
           window.pocketAgent.getSetting('linkedin.lightDayMinPosts'),
           window.pocketAgent.getSetting('linkedin.lightDayMaxPosts'),
@@ -4509,6 +4543,11 @@
         updateQuickDailyLimitHint(dailyLimit || '15');
         setInputValue('qs-auto-poster', autoPoster === 'true' ? 'true' : 'false');
         setInputValue('qs-recovery-rebalance-enabled', recoveryRebalanceEnabled === 'false' ? 'false' : 'true');
+        setInputValue('qs-post-now-first-delay', String(clampInt(postNowFirstDelaySec || '10', 10, 1, 300)));
+        setInputValue('qs-post-now-hot-count', String(clampInt(postNowHotCount || '5', 5, 1, 20)));
+        setInputValue('qs-post-now-hot-window', String(clampInt(postNowHotWindowMin || '15', 15, 1, 240)));
+        setInputValue('qs-post-now-priority-count', String(clampInt(postNowPriorityCount || '10', 10, 1, 50)));
+        setInputValue('qs-post-now-priority-window', String(clampInt(postNowPriorityWindowMin || '120', 120, 1, 1440)));
         setInputValue('qs-light-days-per-week', String(clampInt(lightDaysPerWeek || '0', 0, 0, 7)));
         setInputValue('qs-light-day-min-posts', String(clampInt(lightDayMinPosts || '10', 10, 1, 50)));
         setInputValue('qs-light-day-max-posts', String(clampInt(lightDayMaxPosts || '10', 10, 1, 50)));
@@ -4564,6 +4603,11 @@
         const dailyLimit = String(clampInt(getInputValue('qs-daily-limit'), 15, 1, 50));
         const autoPoster = getInputValue('qs-auto-poster');
         const recoveryRebalanceEnabled = getInputValue('qs-recovery-rebalance-enabled') === 'false' ? 'false' : 'true';
+        const postNowFirstDelaySec = String(clampInt(getInputValue('qs-post-now-first-delay'), 10, 1, 300));
+        const postNowHotCount = String(clampInt(getInputValue('qs-post-now-hot-count'), 5, 1, 20));
+        const postNowHotWindowMin = String(clampInt(getInputValue('qs-post-now-hot-window'), 15, 1, 240));
+        const postNowPriorityCount = String(clampInt(getInputValue('qs-post-now-priority-count'), Math.max(10, Number(postNowHotCount)), Number(postNowHotCount), 50));
+        const postNowPriorityWindowMin = String(clampInt(getInputValue('qs-post-now-priority-window'), 120, Number(postNowHotWindowMin), 1440));
         const lightDaysPerWeek = String(clampInt(getInputValue('qs-light-days-per-week'), 0, 0, 7));
         const lightDayMinPosts = String(clampInt(getInputValue('qs-light-day-min-posts'), 10, 1, 50));
         const lightDayMaxPosts = String(clampInt(getInputValue('qs-light-day-max-posts'), Number(lightDayMinPosts), Number(lightDayMinPosts), 50));
@@ -4620,6 +4664,11 @@
           window.pocketAgent.setSetting('linkedin.dailyLimitMax', dailyLimit),
           window.pocketAgent.setSetting('linkedin.autoPosterEnabled', autoPoster),
           window.pocketAgent.setSetting('linkedin.recoveryRebalanceEnabled', recoveryRebalanceEnabled),
+          window.pocketAgent.setSetting('linkedin.postNowFirstDelaySec', postNowFirstDelaySec),
+          window.pocketAgent.setSetting('linkedin.postNowHotCount', postNowHotCount),
+          window.pocketAgent.setSetting('linkedin.postNowHotWindowMin', postNowHotWindowMin),
+          window.pocketAgent.setSetting('linkedin.postNowPriorityCount', postNowPriorityCount),
+          window.pocketAgent.setSetting('linkedin.postNowPriorityWindowMin', postNowPriorityWindowMin),
           window.pocketAgent.setSetting('linkedin.lightDaysPerWeek', lightDaysPerWeek),
           window.pocketAgent.setSetting('linkedin.lightDayMinPosts', lightDayMinPosts),
           window.pocketAgent.setSetting('linkedin.lightDayMaxPosts', lightDayMaxPosts),
@@ -5878,9 +5927,43 @@
       return false;
     }
 
+    async function checkSessionExpired() {
+      try {
+        if (window.pocketAgent.linkedinSessionStatus) {
+          const status = await window.pocketAgent.linkedinSessionStatus();
+          const banner = document.getElementById('session-expired-banner');
+          if (banner) banner.style.display = status.expired ? 'block' : 'none';
+        }
+      } catch { /* best effort */ }
+    }
+
+    async function handleReauth() {
+      const banner = document.getElementById('session-expired-banner');
+      if (banner) banner.textContent = 'Opening browser for LinkedIn login... Please wait.';
+      try {
+        // Clear the flag first so the banner disappears on next load even if reauth times out
+        if (window.pocketAgent.linkedinClearSessionExpired) {
+          await window.pocketAgent.linkedinClearSessionExpired();
+        }
+        const result = await window.pocketAgent.linkedinReauth();
+        if (result.success) {
+          if (banner) { banner.style.display = 'none'; }
+          showToast('LinkedIn session restored. Auto-poster resumed.', 'success');
+          loadPosts(true);
+        } else {
+          if (banner) banner.textContent = 'Re-auth failed: ' + (result.error || 'Unknown error') + '. Click to retry.';
+        }
+      } catch (err) {
+        // Even on error, hide the banner - user can manually trigger reauth again
+        if (banner) { banner.style.display = 'none'; }
+        showToast('Re-auth timed out. Session may still be valid.', 'error');
+      }
+    }
+
     async function loadPosts(force = false) {
       if (!force && isDraftEditActive()) return;
       try {
+        await checkSessionExpired();
         await ensurePostBankEntries();
         await refreshQualityGateSettings(false);
         let dailyStats = null;
@@ -6063,21 +6146,21 @@
                   </label>
                 </th>
                 <th class="col-num" data-col="num">#</th>
-                <th class="col-priority ${col.pri ? '' : 'column-hidden'}" data-col="pri">PRI<span class="th-resize-handle" data-col="pri"></span></th>
+                <th class="col-priority ${col.pri ? '' : 'column-hidden'}" data-col="pri" style="cursor:pointer" onclick="toggleSort('priority')" title="Sort by priority">PRI${sortField === 'priority' ? (sortAsc ? ' ▲' : ' ▼') : ''}<span class="th-resize-handle" data-col="pri"></span></th>
                 <th data-col="quality" class="${col.quality ? '' : 'column-hidden'}">Quality<span class="th-resize-handle" data-col="quality"></span></th>
                 <th class="col-actions ${col.actions ? '' : 'column-hidden'}" data-col="actions"><span class="th-resize-handle" data-col="actions"></span></th>
-                <th class="col-stats ${col.reacts ? '' : 'column-hidden'}" data-col="reacts" title="Reactions">
-                  <span class="th-filter" onclick="toggleSort('reactions'); loadPosts();" title="Sort by reactions (toggle)">❤️</span>
+                <th class="col-stats ${col.reacts ? '' : 'column-hidden'}" data-col="reacts" title="Reactions" style="cursor:pointer" onclick="toggleSort('reactions')">
+                  <span>❤️</span>${sortField === 'reactions' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                   <span class="th-resize-handle" data-col="reacts"></span>
                 </th>
-                <th class="col-stats ${col.cmts ? '' : 'column-hidden'}" data-col="cmts" title="Comments">
-                  <span class="th-filter" onclick="toggleSort('comments'); loadPosts();" title="Sort by comments (toggle)">💬</span>
+                <th class="col-stats ${col.cmts ? '' : 'column-hidden'}" data-col="cmts" title="Comments" style="cursor:pointer" onclick="toggleSort('comments')">
+                  <span>💬</span>${sortField === 'comments' ? (sortAsc ? ' ▲' : ' ▼') : ''}
                   <span class="th-resize-handle" data-col="cmts"></span>
                 </th>
-                <th class="col-type ${col.type ? '' : 'column-hidden'}" data-col="type">Type<span class="th-resize-handle" data-col="type"></span></th>
-                <th class="col-status ${col.status ? '' : 'column-hidden'}" data-col="status">Status<span class="th-resize-handle" data-col="status"></span></th>
-                <th class="col-scheduled ${col.scheduled ? '' : 'column-hidden'}" data-col="scheduled">Scheduled<span class="th-resize-handle" data-col="scheduled"></span></th>
-                <th class="col-author ${col.author ? '' : 'column-hidden'}" data-col="author">Author<span class="th-resize-handle" data-col="author"></span></th>
+                <th class="col-type ${col.type ? '' : 'column-hidden'}" data-col="type" style="cursor:pointer" onclick="toggleSort('type')" title="Sort by type">Type${sortField === 'type' ? (sortAsc ? ' ▲' : ' ▼') : ''}<span class="th-resize-handle" data-col="type"></span></th>
+                <th class="col-status ${col.status ? '' : 'column-hidden'}" data-col="status" style="cursor:pointer" onclick="toggleSort('status')" title="Sort by status">Status${sortField === 'status' ? (sortAsc ? ' ▲' : ' ▼') : ''}<span class="th-resize-handle" data-col="status"></span></th>
+                <th class="col-scheduled ${col.scheduled ? '' : 'column-hidden'}" data-col="scheduled" style="cursor:pointer" onclick="toggleSort('scheduled')" title="Sort by scheduled time">Scheduled${sortField === 'scheduled' ? (sortAsc ? ' ▲' : ' ▼') : ''}<span class="th-resize-handle" data-col="scheduled"></span></th>
+                <th class="col-author ${col.author ? '' : 'column-hidden'}" data-col="author" style="cursor:pointer" onclick="toggleSort('author')" title="Sort by author">Author${sortField === 'author' ? (sortAsc ? ' ▲' : ' ▼') : ''}<span class="th-resize-handle" data-col="author"></span></th>
                 <th data-col="preview">Post Summary & Draft<span class="th-resize-handle" data-col="preview"></span></th>
               </tr>
             </thead>
@@ -6190,6 +6273,7 @@
         attentionActions.push(`<button class="evidence-link" style="margin-left:8px;" onclick="openPostUrl(${p.id})">Open Post</button>`);
       }
       if (canConfirmPosted) {
+        attentionActions.push(`<button class="evidence-link" style="margin-left:8px;" onclick="confirmNotPosted(${p.id})">Not Posted</button>`);
         attentionActions.push(`<button class="evidence-link" style="margin-left:8px;" onclick="confirmPosted(${p.id})">Mark Posted</button>`);
       }
       const attentionUrlHtml = attentionActions.join('');
@@ -6725,6 +6809,28 @@
       }
     }
 
+    async function confirmNotPosted(postId) {
+      const post = currentPosts.find(p => p.id === postId) || currentSnoozed.find(p => p.id === postId);
+      if (!post) {
+        showToast('Post not found', 'error');
+        return;
+      }
+      const author = String(post.author || 'this author').trim() || 'this author';
+      const ok = window.confirm(`Confirm this was not posted on LinkedIn for ${author}? This will clear the duplicate-safety block so you can retry it now.`);
+      if (!ok) return;
+      try {
+        const result = await window.pocketAgent.confirmLinkedInNotPosted(postId);
+        if (!result?.success) {
+          showToast(`Failed to clear retry block: ${shortError(result?.error || 'Unknown error')}`, 'error');
+          return;
+        }
+        showToast(`Retry unlocked for ${result.author || author}`, 'success');
+        loadPosts(true);
+      } catch (err) {
+        showToast(`Failed to clear retry block: ${shortError(err)}`, 'error');
+      }
+    }
+
     function toggleSnoozedSection(header) {
       header.classList.toggle('collapsed');
       const table = document.getElementById('snoozed-table');
@@ -7038,7 +7144,7 @@
           }
         }
         approvedIds.add(postId);
-        const iso = new Date(Date.now() + 5000).toISOString().replace('T', ' ').slice(0, 19);
+        const iso = new Date(Date.now() + 10_000).toISOString().replace('T', ' ').slice(0, 19);
         const result = await window.pocketAgent.scheduleLinkedInPost(postId, iso);
         if (!result?.success) {
           showToast(`Failed to schedule immediate post: ${shortError(result?.error || 'Unknown error')}`, 'error');
@@ -7062,7 +7168,7 @@
       });
       if (ids.length === 0) { showToast('No eligible posts selected', 'error'); return; }
       try {
-        let cumulativeMs = 0;
+        const iso = new Date(Date.now() + 10_000).toISOString().replace('T', ' ').slice(0, 19);
         for (let i = 0; i < ids.length; i++) {
           const p = currentPosts.find(pp => pp.id === ids[i]);
           if (!allowQualityAction(p, 'posting')) continue;
@@ -7071,18 +7177,11 @@
             if (!approve?.success) throw new Error(`Approve failed for #${ids[i]}: ${shortError(approve?.error || 'Unknown error')}`);
           }
           approvedIds.add(ids[i]);
-          if (i === 0) {
-            cumulativeMs = 5000; // First one: now
-          } else {
-            cumulativeMs += jitterMs(3 + Math.random() * 2); // 3-5 min + jitter
-          }
-          const dt = new Date(Date.now() + cumulativeMs);
-          const iso = dt.toISOString().replace('T', ' ').slice(0, 19);
           const result = await window.pocketAgent.scheduleLinkedInPost(ids[i], iso);
           if (!result?.success) throw new Error(`Schedule failed for #${ids[i]}: ${shortError(result?.error || 'Unknown error')}`);
           if (result?.warning) showToast(result.warning, 'error');
         }
-        showToast(`${ids.length} posts scheduled for immediate posting`, 'success');
+        showToast(`${ids.length} posts queued into the Post Now priority flow`, 'success');
         loadPosts();
       } catch (err) {
         console.error('Post now selected failed:', err);

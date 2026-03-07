@@ -2981,6 +2981,41 @@
               <div class="toggle" id="linkedin.recoveryRebalanceEnabled-toggle" onclick="toggleSetting('linkedin.recoveryRebalanceEnabled')" title="Auto-rebalance LinkedIn queue after restart, wake, or crash recovery"></div>
             </div>
             <div class="setting-row">
+              <label title="Delay before the first Post Now item becomes eligible.">Post Now First Delay (sec)</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-post-now-first-delay" min="1" max="300" step="1" placeholder="10" style="width: 70px; text-align: center;" title="Default: 10 seconds">
+                <button onclick="saveLinkedInSetting('linkedin.postNowFirstDelaySec', 'linkedin-post-now-first-delay')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="How many Post Now items stay in the hot near-term cluster.">Post Now Hot Count</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-post-now-hot-count" min="1" max="20" step="1" placeholder="5" style="width: 70px; text-align: center;" title="Default: 5">
+                <button onclick="saveLinkedInSetting('linkedin.postNowHotCount', 'linkedin-post-now-hot-count')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Time window used to spread the hot Post Now cluster.">Post Now Hot Window (min)</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-post-now-hot-window" min="1" max="240" step="1" placeholder="15" style="width: 70px; text-align: center;" title="Default: 15 minutes">
+                <button onclick="saveLinkedInSetting('linkedin.postNowHotWindowMin', 'linkedin-post-now-hot-window')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="How many Post Now items stay prioritized before normal queue expansion takes over.">Post Now Priority Count</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-post-now-priority-count" min="1" max="50" step="1" placeholder="10" style="width: 70px; text-align: center;" title="Default: 10">
+                <button onclick="saveLinkedInSetting('linkedin.postNowPriorityCount', 'linkedin-post-now-priority-count')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label title="Outer time window used to spread prioritized Post Now items after the hot cluster.">Post Now Priority Window (min)</label>
+              <div class="key-input" style="width: 145px;">
+                <input type="number" id="linkedin-post-now-priority-window" min="1" max="1440" step="1" placeholder="120" style="width: 70px; text-align: center;" title="Default: 120 minutes">
+                <button onclick="saveLinkedInSetting('linkedin.postNowPriorityWindowMin', 'linkedin-post-now-priority-window')">Save</button>
+              </div>
+            </div>
+            <div class="setting-row">
               <label title="How many lighter-volume days per week should be selected automatically. 0 disables this mode.">Light Days / Week</label>
               <div class="key-input" style="width: 145px;">
                 <input type="number" id="linkedin-light-days-per-week" min="0" max="7" step="1" placeholder="0" style="width: 70px; text-align: center;" title="Example: 1 or 2">
@@ -4176,6 +4211,16 @@
       if (linkedinNightEnd) linkedinNightEnd.value = settings['linkedin.nightWindowEnd'] || '06:00';
       const linkedinNightInterval = document.getElementById('linkedin-night-window-interval');
       if (linkedinNightInterval) linkedinNightInterval.value = settings['linkedin.nightWindowIntervalMin'] || '120';
+      const linkedinPostNowFirstDelay = document.getElementById('linkedin-post-now-first-delay');
+      if (linkedinPostNowFirstDelay) linkedinPostNowFirstDelay.value = settings['linkedin.postNowFirstDelaySec'] || '10';
+      const linkedinPostNowHotCount = document.getElementById('linkedin-post-now-hot-count');
+      if (linkedinPostNowHotCount) linkedinPostNowHotCount.value = settings['linkedin.postNowHotCount'] || '5';
+      const linkedinPostNowHotWindow = document.getElementById('linkedin-post-now-hot-window');
+      if (linkedinPostNowHotWindow) linkedinPostNowHotWindow.value = settings['linkedin.postNowHotWindowMin'] || '15';
+      const linkedinPostNowPriorityCount = document.getElementById('linkedin-post-now-priority-count');
+      if (linkedinPostNowPriorityCount) linkedinPostNowPriorityCount.value = settings['linkedin.postNowPriorityCount'] || '10';
+      const linkedinPostNowPriorityWindow = document.getElementById('linkedin-post-now-priority-window');
+      if (linkedinPostNowPriorityWindow) linkedinPostNowPriorityWindow.value = settings['linkedin.postNowPriorityWindowMin'] || '120';
       const linkedinLightDaysPerWeek = document.getElementById('linkedin-light-days-per-week');
       if (linkedinLightDaysPerWeek) linkedinLightDaysPerWeek.value = settings['linkedin.lightDaysPerWeek'] || '0';
       const linkedinLightDayMinPosts = document.getElementById('linkedin-light-day-min-posts');

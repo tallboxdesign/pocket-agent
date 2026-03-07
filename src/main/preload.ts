@@ -85,6 +85,10 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   getLinkedInPostContent: (postId: number, forceRefresh?: boolean) => ipcRenderer.invoke('linkedin:getPostContent', postId, forceRefresh),
   approveLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:approveDraft', id),
   confirmLinkedInPosted: (id: number) => ipcRenderer.invoke('linkedin:confirmPosted', id),
+  confirmLinkedInNotPosted: (id: number) => ipcRenderer.invoke('linkedin:confirmNotPosted', id),
+  linkedinReauth: () => ipcRenderer.invoke('linkedin:reauth'),
+  linkedinSessionStatus: () => ipcRenderer.invoke('linkedin:sessionStatus'),
+  linkedinClearSessionExpired: () => ipcRenderer.invoke('linkedin:clearSessionExpired'),
   rejectLinkedInDraft: (id: number) => ipcRenderer.invoke('linkedin:rejectDraft', id),
   updateLinkedInDraft: (id: number, text: string) => ipcRenderer.invoke('linkedin:updateDraft', id, text),
   updateLinkedInPostMeta: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('linkedin:updatePostMeta', id, updates),
@@ -492,6 +496,7 @@ declare global {
       getLinkedInPostContent: (postId: number, forceRefresh?: boolean) => Promise<{ success: boolean; error?: string; warning?: string; postId?: number; postUrl?: string; author?: string; fullText?: string; summary?: string; cached?: boolean; fetchedAt?: string | null }>;
       approveLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string; postUrl?: string; draft?: string }>;
       confirmLinkedInPosted: (id: number) => Promise<{ success: boolean; error?: string; author?: string }>;
+      confirmLinkedInNotPosted: (id: number) => Promise<{ success: boolean; error?: string; author?: string }>;
       rejectLinkedInDraft: (id: number) => Promise<{ success: boolean; error?: string }>;
       updateLinkedInDraft: (id: number, text: string) => Promise<{ success: boolean; error?: string }>;
       rewriteLinkedInDraft: (id: number, currentText: string, instructions: string) => Promise<{ success: boolean; error?: string; rewritten?: string; model?: string }>;

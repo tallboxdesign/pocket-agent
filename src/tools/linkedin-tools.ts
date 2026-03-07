@@ -1539,6 +1539,11 @@ async function handleAuthStatusTool(input: unknown): Promise<string> {
     // setup needs longer timeout since user logs in manually
     const timeout = action === 'setup' ? 600000 : 30000;
     const stdout = await linkedinExec('auth_manager', [action], timeout);
+    // Clear session expired flag on successful auth setup or validation
+    if ((action === 'setup' || action === 'validate') && SettingsManager.get('linkedin.sessionExpired') === 'true') {
+      SettingsManager.set('linkedin.sessionExpired', 'false');
+      console.log('[LinkedIn] Session expired flag cleared after successful auth');
+    }
     return JSON.stringify({ success: true, action, output: stdout });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
