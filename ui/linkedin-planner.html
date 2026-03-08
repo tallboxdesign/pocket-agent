@@ -105,42 +105,200 @@
 
     /* Sidebar filters */
     .sidebar {
-      width: 180px;
+      width: 224px;
+      min-width: 224px;
       background: var(--bg-secondary);
       border-right: 1px solid var(--border);
-      padding: 12px;
+      padding: 14px 12px 18px;
       overflow-y: auto;
+      overflow-x: hidden;
+      box-sizing: border-box;
       flex-shrink: 0;
     }
 
-    .filter-group { margin-bottom: 16px; }
+    .sidebar-top {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .sidebar-summary {
+      padding: 10px 12px;
+      background: linear-gradient(180deg, rgba(168,85,247,0.12), rgba(168,85,247,0.04));
+      border: 1px solid rgba(168,85,247,0.18);
+      border-radius: 12px;
+    }
+    .sidebar-summary-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      font-weight: 700;
+    }
+    .sidebar-summary-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.35;
+    }
+    .sidebar-reset {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .sidebar-reset:hover {
+      color: var(--text-primary);
+      background: rgba(255,255,255,0.04);
+    }
+
+    .filter-group {
+      margin-bottom: 12px;
+      padding: 10px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 12px;
+    }
+    .filter-group.is-empty { display: none; }
+    .filter-group-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
     .filter-group-title {
       font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--text-muted);
-      margin-bottom: 6px;
+    }
+    .filter-group-meta {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .filter-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
 
-    .filter-item {
+    .filter-pill {
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 4px 6px;
-      border-radius: 6px;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid transparent;
       cursor: pointer;
       font-size: 12px;
       color: var(--text-secondary);
-      transition: background 0.1s;
+      background: rgba(255,255,255,0.02);
+      transition: all 0.12s ease;
+      text-align: left;
     }
-    .filter-item:hover { background: var(--bg-tertiary); }
-    .filter-item.active { color: var(--text-primary); background: var(--bg-tertiary); }
-    .filter-item input[type="checkbox"] { accent-color: var(--accent); }
+    .filter-pill:hover {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.08);
+      color: var(--text-primary);
+    }
+    .filter-pill.active {
+      color: var(--text-primary);
+      background: rgba(168,85,247,0.12);
+      border-color: rgba(168,85,247,0.24);
+      box-shadow: inset 0 0 0 1px rgba(168,85,247,0.08);
+    }
+    .filter-pill-label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .filter-pill-icon {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+    .filter-pill-state {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.16);
+      flex-shrink: 0;
+    }
+    .filter-pill.active .filter-pill-state {
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(168,85,247,0.12);
+    }
     .filter-count {
-      margin-left: auto;
       font-size: 11px;
       color: var(--text-muted);
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.05);
+      flex-shrink: 0;
+    }
+    .filter-pill.active .filter-count {
+      color: #e9d5ff;
+      background: rgba(168,85,247,0.18);
+    }
+    .filter-row {
+      display: flex;
+      align-items: stretch;
+      gap: 6px;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .filter-row .filter-pill {
+      flex: 1;
+      min-width: 0;
+    }
+    .filter-delete {
+      width: 28px;
+      min-width: 28px;
+      flex-shrink: 0;
+      padding: 0;
+      border-radius: 10px;
+      border: 1px solid rgba(239,68,68,0.15);
+      background: rgba(239,68,68,0.08);
+      color: #f87171;
+      cursor: pointer;
+      font-size: 14px;
+      align-self: stretch;
+      transition: all 0.12s ease;
+    }
+    .filter-delete:hover {
+      background: rgba(239,68,68,0.16);
+      border-color: rgba(239,68,68,0.26);
+    }
+    .filter-subgroup {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .filter-subgroup-title {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 2px 2px 0;
+    }
+    .filter-empty {
+      font-size: 11px;
+      color: var(--text-muted);
+      padding: 2px 2px 0;
     }
 
     /* Content area */
@@ -161,6 +319,19 @@
     }
     .selection-bar.visible { display: flex; }
     .sel-count { font-size: 12px; color: var(--text-muted); margin-right: 8px; }
+    .planner-bulk-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(12,12,16,0.94);
+    }
+    .planner-bulk-meta {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
 
     /* Asset table */
     .asset-table {
@@ -221,12 +392,31 @@
       white-space: nowrap;
     }
     .status-badge.pending { color: var(--text-muted); }
+    .status-badge.draft { color: #60a5fa; }
     .status-badge.drafted { color: #60a5fa; }
     .status-badge.approved { color: #a78bfa; }
     .status-badge.scheduled { color: #fbbf24; }
     .status-badge.published { color: #4ade80; }
     .status-badge.rejected { color: #f87171; }
+    .status-badge.failed { color: #f87171; }
     .status-badge.copied { color: #94a3b8; }
+    .status-badge.live { color: var(--accent); }
+    .status-badge.stuck { color: #fbbf24; }
+    .status-badge.live,
+    .asset-idea-pill.live {
+      animation: plannerPulse 1.15s ease-in-out infinite alternate;
+    }
+
+    @keyframes plannerPulse {
+      from {
+        opacity: 0.55;
+        filter: saturate(0.85);
+      }
+      to {
+        opacity: 1;
+        filter: saturate(1.15);
+      }
+    }
 
     .plan-tag {
       font-size: 11px;
@@ -240,9 +430,60 @@
     .content-preview {
       max-width: 400px;
       overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
       color: var(--text-secondary);
+    }
+    .content-preview-main {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    .asset-idea-title {
+      color: var(--text-primary);
+      font-weight: 600;
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .asset-idea-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+    .asset-idea-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: var(--text-muted);
+    }
+    .asset-idea-pill.live {
+      color: var(--accent);
+      border-color: rgba(168,85,247,0.35);
+      background: rgba(168,85,247,0.10);
+    }
+    .asset-idea-pill.stuck {
+      color: #fbbf24;
+      border-color: rgba(251,191,36,0.28);
+      background: rgba(251,191,36,0.10);
+    }
+    .asset-preview-copy.error {
+      color: #fca5a5;
+    }
+    .asset-preview-copy.stuck {
+      color: #fcd34d;
+    }
+    .asset-preview-copy {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     /* Expanded row detail */
@@ -270,7 +511,84 @@
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 44px;
+      z-index: 4;
+      padding: 10px 0;
+      margin-bottom: 10px;
+      background: linear-gradient(180deg, rgba(18,18,20,0.96), rgba(18,18,20,0.9));
+      backdrop-filter: blur(6px);
     }
+    .asset-detail-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .asset-detail-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1.35;
+    }
+    .asset-detail-subtitle {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .trace-panel {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.02);
+      overflow: hidden;
+    }
+    .trace-panel summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      background: rgba(255,255,255,0.03);
+    }
+    .trace-body {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .trace-block {
+      display: grid;
+      gap: 6px;
+    }
+    .trace-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+    .trace-value {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .trace-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .trace-link {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 12px;
+    }
+    .trace-link:hover { text-decoration: underline; }
 
     /* Side panel (new plan / target management) */
     .side-panel {
@@ -650,6 +968,8 @@
 
   <div class="selection-bar" id="selection-bar">
     <span class="sel-count" id="sel-count">0 selected</span>
+    <button class="btn btn-sm" onclick="clearSelection()">Clear</button>
+    <button class="btn btn-blue btn-sm" onclick="bulkRedraftSelected()">Bulk Redraft</button>
     <button class="btn btn-success btn-sm" onclick="approveSelected()">Approve</button>
     <button class="btn btn-sm" onclick="scheduleSelected()">Schedule</button>
     <button class="btn btn-danger btn-sm" onclick="rejectSelected()">Reject</button>
@@ -658,25 +978,49 @@
 
   <div class="main-layout">
     <div class="sidebar" id="sidebar">
-      <div class="filter-group">
-        <div class="filter-group-title">Status</div>
-        <div id="status-filters"></div>
+      <div class="sidebar-top">
+        <div class="sidebar-summary">
+          <div class="sidebar-summary-title">Current View</div>
+          <div class="sidebar-summary-value" id="sidebar-summary">All content</div>
+        </div>
+        <button class="sidebar-reset" id="sidebar-reset-btn" onclick="resetAllFilters()" style="display:none">Reset Filters</button>
       </div>
-      <div class="filter-group">
-        <div class="filter-group-title">Target</div>
-        <div id="target-filters"></div>
+
+      <div class="filter-group" id="status-filter-group">
+        <div class="filter-group-header">
+          <div class="filter-group-title">Status</div>
+          <div class="filter-group-meta" id="status-filter-meta"></div>
+        </div>
+        <div id="status-filters" class="filter-stack"></div>
       </div>
-      <div class="filter-group">
-        <div class="filter-group-title">Plan</div>
-        <div id="plan-filters"></div>
+      <div class="filter-group" id="target-filter-group">
+        <div class="filter-group-header">
+          <div class="filter-group-title">Targets</div>
+          <div class="filter-group-meta" id="target-filter-meta"></div>
+        </div>
+        <div id="target-filters" class="filter-stack"></div>
+      </div>
+      <div class="filter-group" id="plan-filter-group">
+        <div class="filter-group-header">
+          <div class="filter-group-title">Plans</div>
+          <div class="filter-group-meta" id="plan-filter-meta"></div>
+        </div>
+        <div id="plan-filters" class="filter-stack"></div>
       </div>
     </div>
 
     <div class="content" id="content">
+      <div class="planner-bulk-bar">
+        <button class="btn btn-sm" onclick="selectAllVisible()">Select All</button>
+        <button class="btn btn-sm" onclick="selectUndrafted()">Select Undrafted</button>
+        <button class="btn btn-sm" onclick="clearSelection()">Clear Selection</button>
+        <button class="btn btn-blue btn-sm" onclick="bulkRedraftSelected()">Bulk Redraft</button>
+        <span class="planner-bulk-meta" id="planner-bulk-meta"></span>
+      </div>
       <table class="asset-table">
         <thead>
           <tr>
-            <th style="width:30px"><input type="checkbox" id="select-all" onchange="toggleSelectAll()"></th>
+            <th style="width:30px"></th>
             <th>Target</th>
             <th>Content</th>
             <th>Plan</th>
@@ -818,14 +1162,50 @@
         <div class="form-group">
           <label class="form-label">Image Generation</label>
           <select class="form-select" id="planner-image-model">
-            <option value="nano-banana">Nano Banana (Gemini 3 Pro Image)</option>
+            <option value="nano-banana-2">Nano Banana 2</option>
+            <option value="nano-banana-pro">Nano Banana Pro</option>
+            <option value="nano-banana-fast">Nano Banana Fast</option>
             <option value="none">No auto-image</option>
           </select>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Auto-generate images when creating drafts</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Default model for planner-generated images. Asset rows can override this before regenerating.</div>
         </div>
         <div class="form-group">
           <label class="form-label">Image Style Template</label>
           <textarea class="form-textarea" id="planner-image-style" rows="3" placeholder="Professional LinkedIn post illustration. Clean, modern, bold colors..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Preset Style Defaults</label>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Each preset can carry its own default look. Example: meme = photorealistic, gritty, old-phone photo; comparison = cleaner, more polished side-by-side.</div>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Meme</div>
+              <textarea class="form-textarea" id="planner-image-style-preset-meme" rows="3" placeholder="Photorealistic, gritty, amateurish, authentic, old-phone photo, not polished, not AI-looking."></textarea>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Explainer Card</div>
+              <textarea class="form-textarea" id="planner-image-style-preset-explainer-card" rows="3" placeholder="Clean but believable, editorial, high-clarity layout, modern but not generic SaaS blue."></textarea>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Annotated Screenshot</div>
+              <textarea class="form-textarea" id="planner-image-style-preset-annotated-screenshot" rows="3" placeholder="Real interface feel, practical annotations, believable screen detail, not overdesigned."></textarea>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Data Visual</div>
+              <textarea class="form-textarea" id="planner-image-style-preset-data-visual" rows="3" placeholder="Editorial, evidence-first, crisp chart language, restrained styling, realistic information design."></textarea>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Quote Card</div>
+              <textarea class="form-textarea" id="planner-image-style-preset-quote-card" rows="3" placeholder="Premium typography, minimal composition, polished but not corporate, social-first."></textarea>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Comparison</div>
+              <textarea class="form-textarea" id="planner-image-style-preset-comparison" rows="3" placeholder="Strong before-vs-after contrast, highly readable, practical, believable, not gimmicky."></textarea>
+            </div>
+            <div style="grid-column:1 / -1">
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Default / No Preset</div>
+              <textarea class="form-textarea" id="planner-image-style-preset-none" rows="2" placeholder="Photorealistic, authentic, social-first, distinctive, not generic stock, not obvious AI."></textarea>
+            </div>
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">Avatar Overlay (top-right corner of images)</label>
@@ -848,6 +1228,16 @@
         <div class="form-group">
           <label class="form-label">Post Format (profile posts)</label>
           <textarea class="form-textarea" id="planner-post-format" rows="3" placeholder="Write a LinkedIn post (100-300 words). Strong hook..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Post Structure</label>
+          <textarea class="form-textarea" id="planner-post-structure" rows="3" placeholder="Readable and varied. Mix short and medium paragraphs. Break dense logic into scannable chunks."></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">How the post should be shaped, not what it should say.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Structure Guidance</label>
+          <textarea class="form-textarea" id="planner-structure-guidance" rows="4" placeholder="- Keep the core claim, just improve flow&#10;- Avoid long uniform paragraphs&#10;- Use one or two short standalone lines when needed&#10;- Keep examples, but make them easier to scan"></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Extra rules for sentence flow, paragraphing, scannability, and pacing.</div>
         </div>
         <div class="form-group">
           <label class="form-label">Article Format (long-form)</label>
@@ -968,10 +1358,12 @@
   let targetFilters = new Set(); // empty = all
   let planFilters = new Set(); // empty = all
   let researchMode = 'balanced';
+  let plannerProgressByAsset = new Map();
+  let loadAllTimer = null;
 
   // Icons
   const TARGET_ICONS = { profile: '\u{1F9D1}', company: '\u{1F3E2}', group: '\u{1F465}', article: '\u{1F4C4}' };
-  const STATUS_ICONS = { pending: '\u23F3', drafted: '\u{1F4DD}', approved: '\u2705', scheduled: '\u23F0', published: '\u2705', rejected: '\u274C', copied: '\u{1F4CB}' };
+  const STATUS_ICONS = { pending: '\u23F3', drafted: '\u{1F4DD}', approved: '\u2705', scheduled: '\u23F0', published: '\u2705', rejected: '\u274C', failed: '\u26A0\uFE0F', copied: '\u{1F4CB}' };
 
   // ---- Load data ----
   async function loadAll() {
@@ -983,6 +1375,317 @@
     renderFilters();
     renderAssets();
     updateStats();
+  }
+
+  function scheduleLoadAll(delay = 150) {
+    if (loadAllTimer) clearTimeout(loadAllTimer);
+    loadAllTimer = setTimeout(() => {
+      loadAll().catch(err => console.error('[Planner] loadAll failed:', err));
+    }, delay);
+  }
+
+  function phaseLabel(progress) {
+    if (!progress) return '';
+    return progress.message || ({
+      queued: `Queued ${progress.index}/${progress.total}`,
+      writing: `Writing post ${progress.index}/${progress.total}`,
+      drafted: `Drafted post ${progress.index}/${progress.total}`,
+      image_generating: `Generating image ${progress.index}/${progress.total}`,
+      image_done: `Image ready ${progress.index}/${progress.total}`,
+      done: `Completed post ${progress.index}/${progress.total}`,
+      error: `Error on post ${progress.index}/${progress.total}`,
+    }[progress.phase] || progress.phase);
+  }
+
+  function getAssetProgress(asset) {
+    return plannerProgressByAsset.get(asset.id) || null;
+  }
+
+  function getTraceEvents(asset) {
+    const trace = parseJsonValue(asset.trace_json, {});
+    return Array.isArray(trace.events) ? trace.events : [];
+  }
+
+  function inferTraceProgress(asset) {
+    const events = getTraceEvents(asset);
+    if (!events.length) return null;
+    const last = events[events.length - 1] || null;
+    if (!last || !last.phase) return null;
+    const phase = String(last.phase);
+    const activePhases = new Set(['queued', 'writing', 'image_generating']);
+    const errorPhases = new Set(['error']);
+    if (!activePhases.has(phase) && !errorPhases.has(phase)) return null;
+    const at = parseSqliteDate(last.at || asset.updated_at || asset.created_at);
+    const ageMs = at ? Math.max(0, Date.now() - at.getTime()) : null;
+    const ageMin = ageMs == null ? null : Math.floor(ageMs / 60000);
+    const synthesized = {
+      assetId: asset.id,
+      phase,
+      index: Number(asset.idea_sort_order) + 1 || 1,
+      total: 1,
+      message: last.message || '',
+      inferred: true,
+      ageMs,
+      ageMin,
+      at: last.at || '',
+    };
+    if (errorPhases.has(phase)) {
+      synthesized.phase = 'error';
+      synthesized.message = asset.last_error || last.message || 'Draft failed';
+      return synthesized;
+    }
+    if (ageMs != null && ageMs <= 180000) return synthesized;
+    synthesized.phase = 'stuck';
+    synthesized.message = ageMin != null
+      ? `Stuck at ${phase.replace(/_/g, ' ')} for ${ageMin}m`
+      : `Stuck at ${phase.replace(/_/g, ' ')}`;
+    return synthesized;
+  }
+
+  function parseSqliteDate(value) {
+    if (!value) return null;
+    const normalized = String(value).includes('T') ? String(value) : String(value).replace(' ', 'T');
+    const dt = new Date(normalized);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  function getAssetDisplayTitle(asset) {
+    const direct = String(asset.idea_angle || '').trim();
+    if (direct) return direct;
+    const draftLead = String(asset.final_text || asset.draft_text || '').trim().split('\n').find(Boolean) || '';
+    if (draftLead) return draftLead.slice(0, 110);
+    const slot = Number.isFinite(Number(asset.idea_sort_order)) ? `Idea ${Number(asset.idea_sort_order) + 1}` : `Asset #${asset.id}`;
+    return `${slot} in ${asset.plan_title || 'planner batch'}`;
+  }
+
+  function getAssetDisplayMeta(asset, progress) {
+    const bits = [];
+    if (Number.isFinite(Number(asset.idea_sort_order))) bits.push(`Idea ${Number(asset.idea_sort_order) + 1}`);
+    const traceProgress = !progress ? inferTraceProgress(asset) : null;
+    const state = progress || traceProgress;
+    if (state) bits.push(phaseLabel(state));
+    else if (asset.last_error) bits.push('Failed');
+    else if (asset.status === 'pending') {
+      const updated = parseSqliteDate(asset.updated_at || asset.created_at);
+      if (updated) {
+        const ageMin = Math.max(0, Math.floor((Date.now() - updated.getTime()) / 60000));
+        bits.push(ageMin >= 5 ? `Stalled for ${ageMin}m` : 'Queued');
+      } else {
+        bits.push('Queued');
+      }
+    }
+    return bits;
+  }
+
+  function getLiveStatus(asset, progress) {
+    const traceProgress = !progress ? inferTraceProgress(asset) : null;
+    const state = progress || traceProgress;
+    if (state) {
+      if (state.phase === 'stuck') {
+        return {
+          className: 'stuck',
+          icon: '\u26A0\uFE0F',
+          text: state.message || 'Stuck',
+        };
+      }
+      const phase = String(state.phase || 'pending');
+      return {
+        className: state.phase === 'error' ? 'rejected' : 'live',
+        icon: state.phase === 'error' ? '\u26A0\uFE0F' : '\u23F3',
+        text: phaseLabel(state) || phase,
+      };
+    }
+    if (asset.last_error) {
+      return {
+        className: 'rejected',
+        icon: '\u26A0\uFE0F',
+        text: asset.error_step ? `Failed at ${asset.error_step}` : 'Failed',
+      };
+    }
+    return {
+      className: asset.status,
+      icon: STATUS_ICONS[asset.status] || '',
+      text: asset.status,
+    };
+  }
+
+  function parseJsonValue(value, fallback) {
+    if (!value) return fallback;
+    try { return JSON.parse(value); } catch { return fallback; }
+  }
+
+  function formatTraceTime(value) {
+    if (!value) return '';
+    try {
+      return new Date(value).toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    } catch {
+      return String(value);
+    }
+  }
+
+  function openExternalUrl(url, event) {
+    if (event) event.preventDefault();
+    if (!url) return;
+    void api.openExternal(url);
+  }
+
+  function renderTracePanel(asset) {
+    const trace = parseJsonValue(asset.trace_json, {});
+    const sourceUrls = Array.isArray(trace.sourceUrls) && trace.sourceUrls.length
+      ? trace.sourceUrls
+      : parseJsonValue(asset.source_urls_json, []);
+    const queries = Array.isArray(trace.queries) ? trace.queries.filter(Boolean) : [];
+    const events = Array.isArray(trace.events) ? trace.events : [];
+    const prompts = trace.prompts || {};
+    const timings = trace.timings || {};
+    const postMeta = trace.postMeta || {};
+    const imageMeta = trace.image || {};
+    const pieces = [];
+
+    const postMetaBits = [
+      postMeta.targetLabel ? `Target: ${postMeta.targetLabel}` : '',
+      postMeta.targetType ? `Post type: ${postMeta.targetType}` : '',
+      postMeta.ideaIndex ? `Batch slot: Idea ${postMeta.ideaIndex}` : '',
+      postMeta.ideaHook ? `Hook: ${postMeta.ideaHook}` : '',
+      postMeta.continuityMode ? `Continuity: ${postMeta.continuityMode}` : '',
+      postMeta.batchShape ? `Batch shape: ${postMeta.batchShape}` : '',
+    ].filter(Boolean);
+    if (postMetaBits.length) {
+      pieces.push(`<div class="trace-block">
+        <div class="trace-label">Post Metadata</div>
+        <div class="trace-value">${postMetaBits.map(escHtml).join('<br>')}</div>
+      </div>`);
+    }
+
+    if (sourceUrls.length) {
+      pieces.push(`<div class="trace-block">
+        <div class="trace-label">Sources Checked</div>
+        <div class="trace-value">${sourceUrls.map((url) => `<a href="#" class="trace-link" onclick="openExternalUrl('${String(url).replace(/'/g, "\\'")}', event)">${escHtml(String(url))}</a>`).join('<br>')}</div>
+      </div>`);
+    }
+
+    if (queries.length) {
+      pieces.push(`<div class="trace-block">
+        <div class="trace-label">Queries / Angles</div>
+        <div class="trace-pills">${queries.map((q) => `<span class="asset-idea-pill">${escHtml(String(q))}</span>`).join('')}</div>
+      </div>`);
+    }
+
+    const timingBits = [
+      timings.startedAt ? `Started: ${formatTraceTime(timings.startedAt)}` : '',
+      timings.finishedAt ? `Finished: ${formatTraceTime(timings.finishedAt)}` : '',
+      Number.isFinite(Number(asset.retry_count)) && Number(asset.retry_count) > 0 ? `Retries: ${Number(asset.retry_count)}` : '',
+      asset.error_step ? `Error step: ${asset.error_step}` : '',
+    ].filter(Boolean);
+    if (timingBits.length) {
+      pieces.push(`<div class="trace-block">
+        <div class="trace-label">Timings</div>
+        <div class="trace-value">${timingBits.map(escHtml).join('<br>')}</div>
+      </div>`);
+    }
+
+    const presetBits = [
+      asset.image_model ? `Image model: ${imageModelLabel(asset.image_model)}` : '',
+      asset.image_preset ? `Image preset: ${asset.image_preset}` : '',
+      asset.image_caption ? `Image direction: ${asset.image_caption}` : '',
+      asset.per_idea_rules ? `Per-idea rules:\n${asset.per_idea_rules}` : '',
+      asset.batch_rules ? `Batch rules:\n${asset.batch_rules}` : '',
+    ].filter(Boolean);
+    if (presetBits.length) {
+      pieces.push(`<div class="trace-block">
+        <div class="trace-label">Preset & Rules</div>
+        <div class="trace-value">${presetBits.map(escHtml).join('\n\n')}</div>
+      </div>`);
+    }
+
+    const imageOutputBits = [
+      imageMeta.modelLabel ? `Model used: ${imageMeta.modelLabel}` : '',
+      imageMeta.stripEnabled === true ? 'Metadata strip: enabled' : imageMeta.stripEnabled === false ? 'Metadata strip: disabled' : '',
+      imageMeta.stripStatus ? `Strip result: ${imageMeta.stripStatus}` : '',
+      imageMeta.stripNote ? imageMeta.stripNote : '',
+      imageMeta.generatedAt ? `Generated: ${formatTraceTime(imageMeta.generatedAt)}` : '',
+    ].filter(Boolean);
+    if (imageOutputBits.length) {
+      pieces.push(`<div class="trace-block">
+        <div class="trace-label">Image Output</div>
+        <div class="trace-value">${imageOutputBits.map(escHtml).join('<br>')}</div>
+      </div>`);
+    }
+
+    if (events.length) {
+      pieces.push(`<div class="trace-block">
+        <div class="trace-label">Execution Timeline</div>
+        <div class="trace-value">${events.map((item) => `${formatTraceTime(item.at)}  ${item.phase}${item.message ? `  ${item.message}` : ''}`).map(escHtml).join('<br>')}</div>
+      </div>`);
+    }
+
+    const promptBits = [
+      prompts.assetBrief ? `Asset brief:\n${prompts.assetBrief}` : '',
+      prompts.sharedContext ? `Shared context:\n${prompts.sharedContext}` : '',
+      prompts.draftPrompt ? `Draft prompt:\n${prompts.draftPrompt}` : '',
+      prompts.imagePrompt ? `Image prompt:\n${prompts.imagePrompt}` : '',
+      asset.discussion_context ? `Discussion context:\n${asset.discussion_context}` : '',
+    ].filter(Boolean);
+    if (promptBits.length) {
+      pieces.push(`<div class="trace-block">
+        <div class="trace-label">Prompts Used</div>
+        <div class="trace-value">${promptBits.map(escHtml).join('\n\n')}</div>
+      </div>`);
+    }
+
+    if (asset.last_error) {
+      pieces.push(`<div class="trace-block">
+        <div class="trace-label">Last Error</div>
+        <div class="trace-value">${escHtml(asset.last_error)}</div>
+      </div>`);
+    }
+
+    if (!pieces.length) return '';
+    return `<details class="trace-panel">
+      <summary>Evidence & Trace</summary>
+      <div class="trace-body">${pieces.join('')}</div>
+    </details>`;
+  }
+
+  function getAssetImagePrompt(asset) {
+    const trace = parseJsonValue(asset.trace_json, {});
+    return String(trace?.prompts?.imagePrompt || '').trim();
+  }
+
+  function patchLocalAsset(id, updates) {
+    const asset = allAssets.find(a => a.id === id);
+    if (!asset) return;
+    Object.assign(asset, updates || {});
+  }
+
+  async function updateAssetImageField(id, field, value) {
+    const normalized = field === 'image_model' ? normalizeImageModel(value) : value;
+    patchLocalAsset(id, { [field]: normalized });
+    renderAssets();
+    try {
+      const result = await api.plannerUpdateAsset(id, { [field]: normalized });
+      if (result?.success === false) {
+        alert(result.error || 'Failed to update image settings');
+        await loadAll();
+      } else if (result?.asset) {
+        patchLocalAsset(id, result.asset);
+        renderAssets();
+      }
+    } catch (e) {
+      alert('Failed to update image settings: ' + (e.message || e));
+      await loadAll();
+    }
+  }
+
+  function isUndraftedAsset(asset) {
+    const hasText = Boolean(String(asset.final_text || asset.draft_text || '').trim());
+    return !hasText && asset.status !== 'published' && asset.status !== 'scheduled' && asset.status !== 'approved' && asset.status !== 'copied';
   }
 
   function updateStats() {
@@ -997,36 +1700,148 @@
     document.getElementById('header-stats').textContent = parts.length ? parts.join(' \u00B7 ') : 'No assets';
   }
 
+  function summarizeActiveFilters() {
+    const bits = [];
+    if (statusFilter) bits.push(`Status: ${statusFilter}`);
+    if (targetFilters.size > 0) {
+      const labels = allTargets
+        .filter(t => targetFilters.has(t.id))
+        .map(t => t.label)
+        .slice(0, 2);
+      const extra = targetFilters.size > labels.length ? ` +${targetFilters.size - labels.length}` : '';
+      bits.push(`Targets: ${labels.join(', ')}${extra}`);
+    }
+    if (planFilters.size > 0) {
+      const labels = allPlans
+        .filter(p => planFilters.has(p.id))
+        .map(p => p.title)
+        .slice(0, 2);
+      const extra = planFilters.size > labels.length ? ` +${planFilters.size - labels.length}` : '';
+      bits.push(`Plans: ${labels.join(', ')}${extra}`);
+    }
+    return bits.length ? bits.join(' • ') : 'All content';
+  }
+
+  function hasActiveFilters() {
+    return Boolean(statusFilter) || targetFilters.size > 0 || planFilters.size > 0;
+  }
+
+  function makeFilterPill(label, count, active, onClick, opts = {}) {
+    const icon = opts.icon ? `<span class="filter-pill-icon">${opts.icon}</span>` : '';
+    const state = `<span class="filter-pill-state"></span>`;
+    return `<button class="filter-pill ${active ? 'active' : ''}" onclick="${onClick}">
+      ${state}
+      ${icon}
+      <span class="filter-pill-label" title="${escHtml(label)}">${escHtml(label)}</span>
+      ${typeof count === 'number' ? `<span class="filter-count">${count}</span>` : ''}
+    </button>`;
+  }
+
+  function planTimeBucket(plan) {
+    const raw = plan.updated_at || plan.created_at;
+    const d = raw ? new Date(raw) : null;
+    if (!d || Number.isNaN(d.getTime())) return 'Older';
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const bucketDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diffDays = Math.floor((today - bucketDate) / 86400000);
+    if (diffDays <= 0) return 'Today';
+    if (diffDays < 7) return 'This Week';
+    if (diffDays < 31) return 'This Month';
+    return 'Older';
+  }
+
   // ---- Filters ----
   function renderFilters() {
+    document.getElementById('sidebar-summary').textContent = summarizeActiveFilters();
+    document.getElementById('sidebar-reset-btn').style.display = hasActiveFilters() ? '' : 'none';
+
     // Status
-    const statuses = ['pending', 'drafted', 'approved', 'scheduled', 'published', 'rejected', 'copied'];
+    const statuses = ['pending', 'draft', 'drafted', 'approved', 'scheduled', 'published', 'failed', 'rejected', 'copied'];
     const statusCounts = {};
     for (const a of allAssets) statusCounts[a.status] = (statusCounts[a.status] || 0) + 1;
-    let html = `<div class="filter-item ${!statusFilter ? 'active' : ''}" onclick="setStatusFilter(null)">All <span class="filter-count">${allAssets.length}</span></div>`;
+    let html = makeFilterPill('All content', allAssets.length, !statusFilter, 'setStatusFilter(null)');
     for (const s of statuses) {
       if (!statusCounts[s]) continue;
-      html += `<div class="filter-item ${statusFilter === s ? 'active' : ''}" onclick="setStatusFilter('${s}')">${s.charAt(0).toUpperCase() + s.slice(1)} <span class="filter-count">${statusCounts[s]}</span></div>`;
+      html += makeFilterPill(
+        s.charAt(0).toUpperCase() + s.slice(1),
+        statusCounts[s],
+        statusFilter === s,
+        `setStatusFilter('${s}')`
+      );
     }
     document.getElementById('status-filters').innerHTML = html;
+    document.getElementById('status-filter-meta').textContent = `${Object.keys(statusCounts).length || 1} shown`;
+    document.getElementById('status-filter-group').classList.toggle('is-empty', allAssets.length === 0);
 
     // Targets
+    const visibleTargets = allTargets
+      .map(t => ({ target: t, count: allAssets.filter(a => a.target_id === t.id).length }))
+      .filter(entry => entry.count > 0)
+      .sort((a, b) => b.count - a.count || a.target.label.localeCompare(b.target.label));
     let thtml = '';
-    for (const t of allTargets) {
-      const count = allAssets.filter(a => a.target_id === t.id).length;
-      const checked = targetFilters.size === 0 || targetFilters.has(t.id);
-      thtml += `<div class="filter-item"><input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleTargetFilter(${t.id})"> ${TARGET_ICONS[t.target_type] || ''} ${t.label} <span class="filter-count">${count}</span></div>`;
+    for (const entry of visibleTargets) {
+      const t = entry.target;
+      const active = targetFilters.has(t.id);
+      thtml += makeFilterPill(
+        t.label,
+        entry.count,
+        active,
+        `toggleTargetFilter(${t.id})`,
+        { icon: TARGET_ICONS[t.target_type] || '' }
+      );
     }
-    document.getElementById('target-filters').innerHTML = thtml || '<div style="font-size:11px;color:var(--text-muted)">No targets</div>';
+    document.getElementById('target-filters').innerHTML = thtml || '<div class="filter-empty">No active targets</div>';
+    document.getElementById('target-filter-meta').textContent = visibleTargets.length ? `${visibleTargets.length} active` : '';
+    document.getElementById('target-filter-group').classList.toggle('is-empty', visibleTargets.length === 0);
 
     // Plans
+    const visiblePlans = allPlans
+      .map(p => ({ plan: p, count: allAssets.filter(a => a.plan_id === p.id).length }))
+      .filter(entry => entry.count > 0)
+      .sort((a, b) => b.count - a.count || a.plan.title.localeCompare(b.plan.title));
     let phtml = '';
-    for (const p of allPlans) {
-      const count = allAssets.filter(a => a.plan_id === p.id).length;
-      const checked = planFilters.size === 0 || planFilters.has(p.id);
-      phtml += `<div class="filter-item"><input type="checkbox" ${checked ? 'checked' : ''} onchange="togglePlanFilter(${p.id})"> ${p.title.slice(0, 20)} <span class="filter-count">${count}</span></div>`;
+    const planBuckets = { Today: [], 'This Week': [], 'This Month': [], Older: [] };
+    for (const entry of visiblePlans) {
+      planBuckets[planTimeBucket(entry.plan)].push(entry);
     }
-    document.getElementById('plan-filters').innerHTML = phtml || '<div style="font-size:11px;color:var(--text-muted)">No plans</div>';
+    for (const bucket of ['Today', 'This Week', 'This Month', 'Older']) {
+      if (!planBuckets[bucket].length) continue;
+      phtml += `<div class="filter-subgroup"><div class="filter-subgroup-title">${bucket}</div>`;
+      for (const entry of planBuckets[bucket]) {
+        const p = entry.plan;
+        phtml += `<div class="filter-row">
+          ${makeFilterPill(p.title, entry.count, planFilters.has(p.id), `togglePlanFilter(${p.id})`)}
+          <button class="filter-delete" title="Delete plan" onclick="deletePlanFromRail(${p.id}, event)">&times;</button>
+        </div>`;
+      }
+      phtml += `</div>`;
+    }
+    document.getElementById('plan-filters').innerHTML = phtml || '<div class="filter-empty">No active plans</div>';
+    document.getElementById('plan-filter-meta').textContent = visiblePlans.length ? `${visiblePlans.length} active` : '';
+    document.getElementById('plan-filter-group').classList.toggle('is-empty', visiblePlans.length === 0);
+  }
+
+  function resetAllFilters() {
+    statusFilter = null;
+    targetFilters.clear();
+    planFilters.clear();
+    renderFilters();
+    renderAssets();
+  }
+
+  async function deletePlanFromRail(id, event) {
+    if (event) event.stopPropagation();
+    const plan = allPlans.find(p => p.id === id);
+    const label = plan ? plan.title : `Plan #${id}`;
+    if (!confirm(`Delete "${label}"?`)) return;
+    const result = await api.plannerDeletePlan(id);
+    if (result && result.success === false) {
+      alert(result.error || 'Failed to delete plan');
+      return;
+    }
+    if (planFilters.has(id)) planFilters.delete(id);
+    await loadAll();
   }
 
   function setStatusFilter(status) {
@@ -1038,12 +1853,14 @@
   function toggleTargetFilter(id) {
     if (targetFilters.has(id)) targetFilters.delete(id);
     else targetFilters.add(id);
+    renderFilters();
     renderAssets();
   }
 
   function togglePlanFilter(id) {
     if (planFilters.has(id)) planFilters.delete(id);
     else planFilters.add(id);
+    renderFilters();
     renderAssets();
   }
 
@@ -1054,6 +1871,13 @@
       if (targetFilters.size > 0 && !targetFilters.has(a.target_id)) return false;
       if (planFilters.size > 0 && !planFilters.has(a.plan_id)) return false;
       return true;
+    }).sort((a, b) => {
+      if (a.plan_id === b.plan_id && Number.isFinite(Number(a.idea_sort_order)) && Number.isFinite(Number(b.idea_sort_order))) {
+        return Number(a.idea_sort_order) - Number(b.idea_sort_order);
+      }
+      const aTime = parseSqliteDate(a.created_at)?.getTime() || 0;
+      const bTime = parseSqliteDate(b.created_at)?.getTime() || 0;
+      return bTime - aTime;
     });
   }
 
@@ -1075,13 +1899,48 @@
       const icon = TARGET_ICONS[a.target_type] || '';
       const preview = (a.draft_text || a.final_text || '').slice(0, 80);
       const when = a.published_at ? formatTime(a.published_at) : a.scheduled_at ? formatTime(a.scheduled_at) : '\u2014';
+      const progress = getAssetProgress(a);
+      const inferredProgress = !progress ? inferTraceProgress(a) : null;
+      const effectiveProgress = progress || inferredProgress;
+      const progressLabelText = phaseLabel(effectiveProgress);
+      const displayTitle = getAssetDisplayTitle(a);
+      const displayMeta = getAssetDisplayMeta(a, effectiveProgress);
+      const liveStatus = getLiveStatus(a, progress);
+      const imagePromptUsed = getAssetImagePrompt(a);
+      let previewHtml = '';
+      if (preview) {
+        previewHtml = escHtml(preview);
+      } else if (a.last_error) {
+        previewHtml = `<span class="asset-preview-copy error">${escHtml(a.last_error)}</span>`;
+      } else if (effectiveProgress && effectiveProgress.phase === 'stuck') {
+        previewHtml = `<span class="asset-preview-copy stuck">${escHtml(effectiveProgress.message || 'Stuck')}</span>`;
+      } else if (progressLabelText) {
+        previewHtml = `<span class="asset-preview-copy ${liveStatus.className === 'live' ? 'live' : ''}" style="color:var(--accent)">${escHtml(progressLabelText)}</span>`;
+      } else {
+        previewHtml = '<em style="color:var(--text-muted)">No content yet</em>';
+      }
+      const hasEditableText = Boolean(String(a.final_text || a.draft_text || '').trim());
+      const canRetryDraft =
+        a.status === 'pending' ||
+        a.status === 'failed' ||
+        (a.status === 'rejected' && !a.final_text && !a.draft_text);
 
       html += `<tr class="asset-row ${sel ? 'selected' : ''}" data-id="${a.id}">
         <td class="cb"><input type="checkbox" ${sel ? 'checked' : ''} onchange="toggleSelect(${a.id}, event)"></td>
         <td><span class="target-badge ${a.target_type}">${icon} ${a.target_label || a.target_type}</span></td>
-        <td class="content-preview" onclick="toggleExpand(${a.id})">${a.image_path ? '<span title="Has image" style="margin-right:4px">🖼</span>' : ''}${escHtml(preview) || '<em style="color:var(--text-muted)">pending</em>'}</td>
+        <td class="content-preview" onclick="toggleExpand(${a.id})">
+          <div class="content-preview-main">
+            <div class="asset-idea-title">${a.image_path ? '<span title="Has image" style="margin-right:4px">🖼</span>' : ''}${escHtml(displayTitle)}</div>
+            ${displayMeta.length ? `<div class="asset-idea-meta">${displayMeta.map((bit, idx) => {
+              const isLiveBit = idx === displayMeta.length - 1 && effectiveProgress && effectiveProgress.phase !== 'stuck' && effectiveProgress.phase !== 'error';
+              const isStuckBit = idx === displayMeta.length - 1 && effectiveProgress && effectiveProgress.phase === 'stuck';
+              return `<span class="asset-idea-pill ${isLiveBit ? 'live' : ''} ${isStuckBit ? 'stuck' : ''}">${escHtml(bit)}</span>`;
+            }).join('')}</div>` : ''}
+            <div class="asset-preview-copy">${previewHtml}</div>
+          </div>
+        </td>
         <td><span class="plan-tag" title="${escHtml(a.plan_title || '')}">${escHtml((a.plan_title || '').slice(0, 20))}</span></td>
-        <td><span class="status-badge ${a.status}">${STATUS_ICONS[a.status] || ''} ${a.status}</span></td>
+        <td><span class="status-badge ${liveStatus.className}">${liveStatus.icon} ${escHtml(liveStatus.text)}</span></td>
         <td style="font-size:12px;color:var(--text-muted);white-space:nowrap">${when}</td>
       </tr>`;
 
@@ -1090,21 +1949,71 @@
         <td colspan="6" style="padding:0">
           <div class="asset-detail ${expandedId === a.id ? 'visible' : ''}">
             ${a.image_path ? `<div class="asset-detail-image"><img src="file://${a.image_path}" alt="Post image" style="max-width:100%;max-height:300px;border-radius:8px;margin-bottom:12px;border:1px solid var(--border);cursor:pointer" onclick="openLightbox('${a.image_path.replace(/'/g, "\\'")}')" title="Click to zoom"></div>` : ''}
-            <div class="asset-detail-text">${escHtml(a.final_text || a.draft_text || 'No content yet')}</div>
+            <div class="asset-detail-heading">
+              <div>
+                <div class="asset-detail-title">${escHtml(displayTitle)}</div>
+                <div class="asset-detail-subtitle">
+                  ${Number.isFinite(Number(a.idea_sort_order)) ? `<span>Idea ${Number(a.idea_sort_order) + 1}</span>` : ''}
+                  <span>${escHtml(a.plan_title || 'Planner batch')}</span>
+                  <span>Status: ${escHtml(liveStatus.text)}</span>
+                </div>
+              </div>
+            </div>
+            ${progressLabelText ? `<div style="font-size:12px;color:${effectiveProgress && effectiveProgress.phase === 'stuck' ? '#fbbf24' : 'var(--accent)'};margin-bottom:8px">${escHtml(progressLabelText)}</div>` : ''}
             <div class="asset-detail-actions">
+              ${canRetryDraft ? `<button class="btn btn-blue btn-sm" onclick="retryAssetDraft(${a.id})">${a.status === 'pending' ? 'Retry Draft' : 'Redraft'}</button>` : ''}
               ${a.status === 'drafted' || a.status === 'draft' ? `<button class="btn btn-success btn-sm" onclick="approveOne(${a.id})">Approve</button>` : ''}
-              ${a.status === 'approved' ? `<button class="btn btn-sm" onclick="scheduleOne(${a.id})">Schedule</button>` : ''}
-              ${a.status === 'approved' && a.can_auto_publish ? `<button class="btn btn-success btn-sm" onclick="publishOne(${a.id})">Publish Now</button>` : ''}
-              ${!a.can_auto_publish && (a.status === 'approved' || a.status === 'drafted' || a.status === 'draft') ? `<button class="btn btn-sm" onclick="copyOne(${a.id})">Copy Text</button>` : ''}
+              ${(a.status === 'approved' || a.status === 'scheduled') ? `<button class="btn btn-sm" onclick="scheduleOne(${a.id})">${a.status === 'scheduled' ? 'Reschedule' : 'Schedule'}</button>` : ''}
+              ${(a.status === 'approved' || a.status === 'scheduled') && a.can_auto_publish ? `<button class="btn btn-success btn-sm" onclick="publishOne(${a.id})">Publish Now</button>` : ''}
+              ${!a.can_auto_publish && (a.status === 'approved' || a.status === 'drafted' || a.status === 'draft' || a.status === 'scheduled') ? `<button class="btn btn-sm" onclick="copyOne(${a.id})">Copy Text</button>` : ''}
               ${a.status !== 'published' ? `<button class="btn btn-sm" onclick="regenImage(${a.id})" title="Generate or regenerate post image">${a.image_path ? 'Regen Image' : 'Generate Image'}</button>` : ''}
               ${a.status !== 'published' && a.status !== 'rejected' ? `<button class="btn btn-danger btn-sm" onclick="rejectOne(${a.id})">Reject</button>` : ''}
             </div>
+            ${a.last_error ? `<div class="trace-block" style="margin-bottom:10px;border-color:rgba(248,113,113,0.22);background:rgba(248,113,113,0.08)"><div class="trace-label">Current Error</div><div class="trace-value">${escHtml(a.last_error)}</div></div>` : ''}
             ${a.status !== 'published' ? `
+            <div class="trace-block" style="margin-bottom:10px">
+              <div class="trace-label">Image Controls</div>
+              <div style="display:grid;grid-template-columns:180px 180px;gap:8px;margin-bottom:8px">
+                <div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Image Model</div>
+                  <select class="form-select" onchange="updateAssetImageField(${a.id}, 'image_model', this.value)">
+                    ${imageModelOptions(a.image_model)}
+                  </select>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Image Preset</div>
+                  <select class="form-select" onchange="updateAssetImageField(${a.id}, 'image_preset', this.value)">
+                    ${IMAGE_PRESETS.map(p => `<option value="${p}" ${String(a.image_preset || 'none') === p ? 'selected' : ''}>${PRESET_LABELS[p]}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+              <div style="margin-bottom:8px">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Image Direction</div>
+                <textarea class="form-textarea" rows="2" placeholder="Make this a meme, less technical, more social-first..." onchange="updateAssetImageField(${a.id}, 'image_caption', this.value)">${escHtml(a.image_caption || '')}</textarea>
+              </div>
+              <details class="trace-panel" style="margin-top:8px">
+                <summary>Prompt Used</summary>
+                <div class="trace-body" style="padding-top:8px">
+                  <div class="asset-detail-text" style="font-size:12px;min-height:0">${escHtml(imagePromptUsed || 'No image prompt generated yet')}</div>
+                </div>
+              </details>
+            </div>` : ''}
+            <div class="trace-block" style="margin-top:10px">
+              <div class="trace-label">Proposed Content</div>
+              <textarea class="form-textarea" id="draft-editor-${a.id}" rows="10" ${a.status === 'published' ? 'readonly' : ''} placeholder="No content yet">${escHtml(a.final_text || a.draft_text || '')}</textarea>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+                ${a.status !== 'published' ? `<button class="btn btn-sm" onclick="saveAssetText(${a.id})">Save Draft</button>` : ''}
+                <span id="draft-save-status-${a.id}" style="font-size:12px;color:var(--text-muted)">${a.status === 'published' ? 'Published copy is read-only here' : ''}</span>
+              </div>
+            </div>
+            ${renderTracePanel(a)}
+            ${hasEditableText || canRetryDraft ? `
             <div class="feedback-section">
               <textarea class="feedback-textarea" id="feedback-${a.id}" placeholder="Add feedback... e.g. 'make it shorter', 'add a concrete example', 'more aggressive tone'"></textarea>
               <div class="feedback-actions">
-                <button class="btn btn-blue btn-sm" onclick="improveDraft(${a.id}, 'improve')">AI Improve</button>
-                <button class="btn btn-accent btn-sm" onclick="improveDraft(${a.id}, 'redo')">AI Re-do</button>
+                ${hasEditableText ? `<button class="btn btn-blue btn-sm" onclick="improveDraft(${a.id}, 'improve')">AI Improve</button>` : ''}
+                ${hasEditableText ? `<button class="btn btn-sm" onclick="improveDraft(${a.id}, 'restructure')">Restructure Only</button>` : ''}
+                <button class="btn btn-accent btn-sm" onclick="improveDraft(${a.id}, 'redo')">${hasEditableText ? 'AI Re-do' : 'Redraft'}</button>
                 <span class="feedback-status" id="feedback-status-${a.id}"></span>
               </div>
             </div>` : ''}
@@ -1114,6 +2023,7 @@
     }
     tbody.innerHTML = html;
     updateSelectionBar();
+    updateBulkMeta();
   }
 
   function toggleExpand(id) {
@@ -1129,16 +2039,6 @@
     renderAssets();
   }
 
-  function toggleSelectAll() {
-    const filtered = getFilteredAssets();
-    if (selectedIds.size === filtered.length) {
-      selectedIds.clear();
-    } else {
-      for (const a of filtered) selectedIds.add(a.id);
-    }
-    renderAssets();
-  }
-
   function updateSelectionBar() {
     const bar = document.getElementById('selection-bar');
     if (selectedIds.size > 0) {
@@ -1147,6 +2047,35 @@
     } else {
       bar.classList.remove('visible');
     }
+  }
+
+  function updateBulkMeta() {
+    const filtered = getFilteredAssets();
+    const undraftedCount = filtered.filter(isUndraftedAsset).length;
+    const selectedUndrafted = filtered.filter(a => selectedIds.has(a.id) && isUndraftedAsset(a)).length;
+    const meta = document.getElementById('planner-bulk-meta');
+    meta.textContent = selectedIds.size > 0
+      ? `${selectedIds.size} selected • ${selectedUndrafted} undrafted`
+      : `${undraftedCount} undrafted in view`;
+  }
+
+  function clearSelection() {
+    selectedIds.clear();
+    renderAssets();
+  }
+
+  function selectAllVisible() {
+    selectedIds.clear();
+    for (const asset of getFilteredAssets()) selectedIds.add(asset.id);
+    renderAssets();
+  }
+
+  function selectUndrafted() {
+    selectedIds.clear();
+    for (const asset of getFilteredAssets()) {
+      if (isUndraftedAsset(asset)) selectedIds.add(asset.id);
+    }
+    renderAssets();
   }
 
   // ---- Actions ----
@@ -1161,8 +2090,10 @@
   }
 
   async function scheduleOne(id) {
-    const when = new Date(Date.now() + 3600000).toISOString();
+    const when = await pickScheduleDateTime('this post');
+    if (!when) return;
     await api.plannerScheduleAssets([id], when);
+    alert(`Scheduled for ${formatTraceTime(when)}`);
     await loadAll();
   }
 
@@ -1194,6 +2125,47 @@
     }
   }
 
+  async function retryAssetDraft(id) {
+    const btn = event?.target;
+    if (btn) { btn.disabled = true; btn.textContent = 'Retrying...'; }
+    plannerProgressByAsset.set(id, { assetId: id, phase: 'queued', message: 'Retry queued' });
+    renderAssets();
+    try {
+      const result = await api.plannerRetryAsset(id);
+      if (result && result.success === false) {
+        alert(result.error || 'Retry failed');
+      }
+      expandedId = id;
+      await loadAll();
+    } catch (e) {
+      alert('Retry failed: ' + (e.message || e));
+      renderAssets();
+    }
+  }
+
+  async function bulkRedraftSelected() {
+    const eligible = [...selectedIds]
+      .map(id => allAssets.find(a => a.id === id))
+      .filter(a => a && isUndraftedAsset(a));
+    if (!eligible.length) {
+      alert('Select one or more undrafted items first');
+      return;
+    }
+    for (const asset of eligible) {
+      plannerProgressByAsset.set(asset.id, { assetId: asset.id, phase: 'queued', message: 'Retry queued' });
+    }
+    renderAssets();
+    for (const asset of eligible) {
+      try {
+        await api.plannerRetryAsset(asset.id);
+      } catch (e) {
+        console.warn('[Planner] Bulk redraft failed for asset', asset.id, e);
+      }
+    }
+    if (eligible.length === 1) expandedId = eligible[0].id;
+    await loadAll();
+  }
+
   async function approveSelected() {
     for (const id of selectedIds) await api.plannerApproveAsset(id);
     selectedIds.clear();
@@ -1207,8 +2179,10 @@
   }
 
   async function scheduleSelected() {
-    const when = new Date(Date.now() + 3600000).toISOString();
+    const when = await pickScheduleDateTime(`${selectedIds.size} selected post${selectedIds.size === 1 ? '' : 's'}`);
+    if (!when) return;
     await api.plannerScheduleAssets([...selectedIds], when);
+    alert(`Scheduled for ${formatTraceTime(when)}`);
     selectedIds.clear();
     await loadAll();
   }
@@ -1231,6 +2205,7 @@
     renderPlanTargets();
     document.getElementById('overlay').classList.add('visible');
     document.getElementById('new-plan-panel').classList.add('open');
+    void resumeLatestIdeaSession();
   }
 
   function openTargetPanel() {
@@ -1287,6 +2262,30 @@
   let ideaCards = [];
   const IMAGE_PRESETS = ['meme', 'explainer_card', 'annotated_screenshot', 'data_visual', 'quote_card', 'comparison', 'none'];
   const PRESET_LABELS = { meme: 'Meme', explainer_card: 'Explainer Card', annotated_screenshot: 'Screenshot', data_visual: 'Data Visual', quote_card: 'Quote Card', comparison: 'Comparison', none: 'No Image' };
+  const IMAGE_MODELS = [
+    { id: 'nano-banana-2', label: 'Nano Banana 2' },
+    { id: 'nano-banana-pro', label: 'Nano Banana Pro' },
+    { id: 'nano-banana-fast', label: 'Nano Banana Fast' },
+    { id: 'none', label: 'No auto-image' },
+  ];
+
+  function normalizeImageModel(model) {
+    const raw = String(model || '').trim().toLowerCase();
+    if (!raw) return 'nano-banana-pro';
+    if (raw === 'nano-banana') return 'nano-banana-pro';
+    return IMAGE_MODELS.some(m => m.id === raw) ? raw : 'nano-banana-pro';
+  }
+
+  function imageModelLabel(model) {
+    const normalized = normalizeImageModel(model);
+    const found = IMAGE_MODELS.find(m => m.id === normalized);
+    return found ? found.label : normalized;
+  }
+
+  function imageModelOptions(selected) {
+    const normalized = normalizeImageModel(selected);
+    return IMAGE_MODELS.map(m => `<option value="${m.id}" ${m.id === normalized ? 'selected' : ''}>${m.label}</option>`).join('');
+  }
 
   function resetIdeaLab() {
     currentSessionId = null;
@@ -1300,6 +2299,85 @@
     document.getElementById('idea-cards-container').innerHTML = '';
     document.getElementById('btn-go-research').disabled = false;
     document.getElementById('btn-go-research').textContent = 'Go - Research & Ideate';
+  }
+
+  function parseMaybeJson(raw, fallback) {
+    if (!raw) return fallback;
+    if (Array.isArray(raw)) return raw;
+    try { return JSON.parse(raw); } catch { return fallback; }
+  }
+
+  function renderDiscussionHistory(history) {
+    const container = document.getElementById('discussion-messages');
+    container.innerHTML = '';
+    history.forEach(msg => addDiscussionMessage(msg.role === 'assistant' ? 'ai' : msg.role, msg.content || ''));
+  }
+
+  async function resumeLatestIdeaSession() {
+    try {
+      const sessions = await api.plannerListIdeaSessions();
+      if (!Array.isArray(sessions) || !sessions.length) return;
+
+      const hydrated = [];
+      for (const session of sessions.slice(0, 8)) {
+        if (!session || !session.id) continue;
+        const cards = await api.plannerGetIdeaCards(session.id);
+        const safeCards = Array.isArray(cards) ? cards : [];
+        const history = parseMaybeJson(session.discussion_history, []);
+        hydrated.push({ session, cards: safeCards, history });
+      }
+      if (!hydrated.length) return;
+
+      const ranked = hydrated.sort((a, b) => {
+        const score = (entry) => {
+          let value = 0;
+          if (entry.cards.length > 0) value += 1000;
+          if ((entry.session.status || '') === 'drafting') value += 400;
+          if ((entry.session.status || '') === 'ideas_ready') value += 300;
+          if ((entry.session.status || '') === 'discussion') value += 150;
+          if ((entry.session.status || '') === 'researching') value += 120;
+          if (entry.history.length > 0) value += 40;
+          if (entry.session.initial_dump) value += 10;
+          return value;
+        };
+        return score(b) - score(a);
+      });
+
+      const picked = ranked[0];
+      if (!picked) return;
+      const { session, cards: safeCards, history } = picked;
+      if (!session.initial_dump && !history.length && !safeCards.length) return;
+
+      currentSessionId = session.id;
+      ideaCards = safeCards;
+      document.getElementById('idea-dump').value = session.initial_dump || '';
+      document.getElementById('idea-batch-rules').value = session.batch_rules || '';
+
+      const sources = parseMaybeJson(session.research_sources, {});
+      if (sources && typeof sources === 'object') {
+        document.getElementById('src-web').checked = sources.web !== false;
+        document.getElementById('src-patents').checked = Boolean(sources.patents);
+        document.getElementById('src-linkedin').checked = Boolean(sources.linkedin);
+        document.getElementById('src-feed').checked = Boolean(sources.feed);
+      }
+
+      renderDiscussionHistory(Array.isArray(history) ? history : []);
+
+      if (safeCards.length > 0) {
+        document.getElementById('idea-lab-phase1').style.display = 'none';
+        document.getElementById('discussion-input-area').style.display = 'none';
+        document.getElementById('discussion-messages').style.display = 'none';
+        document.getElementById('idea-lab-phase2').style.display = '';
+        renderIdeaCards();
+      } else if (history.length > 0 || session.initial_dump) {
+        document.getElementById('discussion-input-area').style.display = '';
+        document.getElementById('discussion-messages').style.display = '';
+        document.getElementById('idea-lab-phase1').style.display = '';
+        document.getElementById('idea-lab-phase2').style.display = 'none';
+      }
+    } catch (err) {
+      console.warn('[Planner] Failed to resume idea session:', err);
+    }
   }
 
   function addDiscussionMessage(role, text) {
@@ -1418,6 +2496,9 @@
             <input type="checkbox" ${card.selected ? 'checked' : ''} onchange="toggleIdeaCard(${i}, this.checked)">
             <span class="idea-card-angle">${card.angle || 'Untitled idea'}</span>
             <div class="idea-card-actions">
+              <select class="preset-select" onchange="setIdeaImageModel(${i}, this.value)">
+                ${imageModelOptions(card.image_model)}
+              </select>
               <select class="preset-select" onchange="setIdeaPreset(${i}, this.value)">
                 ${IMAGE_PRESETS.map(p => `<option value="${p}" ${card.image_preset === p ? 'selected' : ''}>${PRESET_LABELS[p]}</option>`).join('')}
               </select>
@@ -1428,7 +2509,11 @@
           ${keyPoints.length ? `<div class="idea-card-field"><strong>Key Points:</strong> ${keyPoints.join(', ')}</div>` : ''}
           ${sources.length ? `<div class="idea-card-field"><strong>Sources:</strong> ${sources.map(u => `<a href="#" style="color:var(--accent);font-size:11px">${u.length > 50 ? u.slice(0, 50) + '...' : u}</a>`).join(', ')}</div>` : ''}
           ${card.image_concept ? `<div class="idea-card-field"><strong>Image:</strong> ${card.image_concept}</div>` : ''}
-          ${card.image_preset === 'meme' && card.image_caption ? `<div class="idea-card-field"><strong>Caption:</strong> "${card.image_caption}"</div>` : ''}
+          <div class="idea-card-field">
+            <strong>Image Direction:</strong>
+            <textarea class="form-textarea" rows="2" style="margin-top:4px;font-size:12px" placeholder="Make this a meme, less technical, more social-first..."
+              onchange="setIdeaImageDirection(${i}, this.value)">${card.image_caption || ''}</textarea>
+          </div>
           <details style="margin-top:6px">
             <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Per-idea rules</summary>
             <textarea class="form-textarea" rows="2" style="margin-top:4px;font-size:12px" placeholder="Extra rules for this idea only..."
@@ -1442,15 +2527,38 @@
 
   function toggleIdeaCard(idx, checked) {
     ideaCards[idx].selected = checked ? 1 : 0;
+    if (ideaCards[idx].id) {
+      void api.plannerUpdateIdeaCard(ideaCards[idx].id, { selected: ideaCards[idx].selected });
+    }
     renderIdeaCards();
   }
 
   function setIdeaPreset(idx, preset) {
     ideaCards[idx].image_preset = preset;
+    if (ideaCards[idx].id) {
+      void api.plannerUpdateIdeaCard(ideaCards[idx].id, { image_preset: preset });
+    }
+  }
+
+  function setIdeaImageModel(idx, model) {
+    ideaCards[idx].image_model = normalizeImageModel(model);
+    if (ideaCards[idx].id) {
+      void api.plannerUpdateIdeaCard(ideaCards[idx].id, { image_model: ideaCards[idx].image_model });
+    }
+  }
+
+  function setIdeaImageDirection(idx, direction) {
+    ideaCards[idx].image_caption = direction;
+    if (ideaCards[idx].id) {
+      void api.plannerUpdateIdeaCard(ideaCards[idx].id, { image_caption: direction });
+    }
   }
 
   function setIdeaRules(idx, rules) {
     ideaCards[idx].per_idea_rules = rules;
+    if (ideaCards[idx].id) {
+      void api.plannerUpdateIdeaCard(ideaCards[idx].id, { per_idea_rules: rules });
+    }
   }
 
   async function deleteIdeaCard(idx) {
@@ -1460,20 +2568,31 @@
     renderIdeaCards();
   }
 
-  function addManualIdeaCard() {
-    ideaCards.push({
+  async function addManualIdeaCard() {
+    const cardInput = {
       session_id: currentSessionId,
       angle: 'New idea',
       hook: '',
       key_points: '[]',
       source_urls: '[]',
+      image_model: normalizeImageModel(document.getElementById('planner-image-model')?.value),
       image_preset: 'none',
       image_concept: '',
       image_caption: '',
       per_idea_rules: '',
       selected: 1,
       sort_order: ideaCards.length,
-    });
+    };
+    if (currentSessionId) {
+      const created = await api.plannerCreateIdeaCard(cardInput);
+      if (created && !created.error) {
+        ideaCards.push(created);
+      } else {
+        ideaCards.push(cardInput);
+      }
+    } else {
+      ideaCards.push(cardInput);
+    }
     renderIdeaCards();
   }
 
@@ -1595,10 +2714,13 @@
 
   // ---- Settings Panel ----
   let bankEntries = [];
+  let loadedPlannerImageModel = 'nano-banana-pro';
 
   const SETTINGS_MAP = {
     'planner-hard-rules': 'linkedin.plannerHardRules',
     'planner-post-format': 'linkedin.plannerPostFormat',
+    'planner-post-structure': 'linkedin.plannerPostStructure',
+    'planner-structure-guidance': 'linkedin.plannerStructureGuidance',
     'planner-article-format': 'linkedin.plannerArticleFormat',
     'planner-group-format': 'linkedin.plannerGroupFormat',
     'planner-pre-publish-checklist': 'linkedin.plannerPrePublishChecklist',
@@ -1607,6 +2729,13 @@
     'planner-post-strategy': 'linkedin.postStrategy',
     'planner-writing-rules': 'linkedin.writingRules',
     'planner-image-style': 'linkedin.plannerImageStyle',
+    'planner-image-style-preset-meme': 'linkedin.plannerImageStylePreset.meme',
+    'planner-image-style-preset-explainer-card': 'linkedin.plannerImageStylePreset.explainer_card',
+    'planner-image-style-preset-annotated-screenshot': 'linkedin.plannerImageStylePreset.annotated_screenshot',
+    'planner-image-style-preset-data-visual': 'linkedin.plannerImageStylePreset.data_visual',
+    'planner-image-style-preset-quote-card': 'linkedin.plannerImageStylePreset.quote_card',
+    'planner-image-style-preset-comparison': 'linkedin.plannerImageStylePreset.comparison',
+    'planner-image-style-preset-none': 'linkedin.plannerImageStylePreset.none',
     'planner-avatar-path': 'linkedin.plannerAvatarPath',
     'planner-schedule-from': 'linkedin.plannerScheduleFrom',
     'planner-schedule-to': 'linkedin.plannerScheduleTo',
@@ -1674,7 +2803,8 @@
 
     // Image model
     const imgModel = await api.getSetting('linkedin.plannerImageModel');
-    if (imgModel) document.getElementById('planner-image-model').value = imgModel;
+    loadedPlannerImageModel = normalizeImageModel(imgModel);
+    document.getElementById('planner-image-model').value = loadedPlannerImageModel;
 
     // Load all text settings
     for (const [elId, key] of Object.entries(SETTINGS_MAP)) {
@@ -1759,11 +2889,18 @@
       // Save model pickers
       const researchModel = document.getElementById('planner-research-model').value;
       const writerModel = document.getElementById('planner-writer-model').value;
+      const plannerImageModel = normalizeImageModel(document.getElementById('planner-image-model').value);
       await api.setSetting('linkedin.plannerResearchModel', researchModel);
       await api.setSetting('linkedin.plannerWriterModel', writerModel);
+      await api.setSetting('linkedin.plannerImageModel', plannerImageModel);
+      if (plannerImageModel !== loadedPlannerImageModel && api.plannerSyncInheritedImageModelDefaults) {
+        await api.plannerSyncInheritedImageModelDefaults(plannerImageModel, loadedPlannerImageModel);
+        loadedPlannerImageModel = plannerImageModel;
+      }
 
       // Save all text settings
       for (const [elId, key] of Object.entries(SETTINGS_MAP)) {
+        if (elId === 'planner-image-model') continue;
         const el = document.getElementById(elId);
         if (!el) continue;
         await api.setSetting(key, el.value);
@@ -1835,12 +2972,18 @@
     const statusEl = document.getElementById('feedback-status-' + assetId);
     const feedback = textarea ? textarea.value.trim() : '';
 
-    if (!feedback) {
+    if (!feedback && mode !== 'restructure') {
       if (statusEl) statusEl.textContent = 'Please enter feedback first';
       return;
     }
 
-    if (statusEl) statusEl.textContent = mode === 'redo' ? 'Re-writing...' : 'Improving...';
+    if (statusEl) {
+      statusEl.textContent = mode === 'redo'
+        ? 'Re-writing...'
+        : mode === 'restructure'
+          ? 'Restructuring...'
+          : 'Improving...';
+    }
 
     try {
       const result = await api.plannerImproveDraft(assetId, feedback, mode);
@@ -1850,9 +2993,33 @@
         if (statusEl) statusEl.textContent = 'Done!';
         if (textarea) textarea.value = '';
         await loadAll();
-        expandedId = assetId;
+        expandedId = result?.assetId || assetId;
         renderAssets();
       }
+    } catch (e) {
+      if (statusEl) statusEl.textContent = 'Failed: ' + e.message;
+    }
+  }
+
+  async function saveAssetText(assetId) {
+    const textarea = document.getElementById('draft-editor-' + assetId);
+    const statusEl = document.getElementById('draft-save-status-' + assetId);
+    const text = textarea ? textarea.value.trim() : '';
+    if (!text) {
+      if (statusEl) statusEl.textContent = 'Draft is empty';
+      return;
+    }
+    if (statusEl) statusEl.textContent = 'Saving...';
+    try {
+      const result = await api.plannerEditAsset(assetId, text);
+      if (result?.error) {
+        if (statusEl) statusEl.textContent = 'Error: ' + result.error;
+        return;
+      }
+      if (statusEl) statusEl.textContent = 'Saved';
+      await loadAll();
+      expandedId = assetId;
+      renderAssets();
     } catch (e) {
       if (statusEl) statusEl.textContent = 'Failed: ' + e.message;
     }
@@ -1877,7 +3044,124 @@
     } catch { return isoStr; }
   }
 
+  function pad2(n) {
+    return String(n).padStart(2, '0');
+  }
+
+  function formatLocalDateTimeInput(date) {
+    return [
+      date.getFullYear(),
+      '-',
+      pad2(date.getMonth() + 1),
+      '-',
+      pad2(date.getDate()),
+      ' ',
+      pad2(date.getHours()),
+      ':',
+      pad2(date.getMinutes()),
+    ].join('');
+  }
+
+  function parseLocalScheduleInput(raw) {
+    const value = String(raw || '').trim();
+    if (!value) return null;
+    const normalized = value.replace('T', ' ');
+    const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/);
+    if (!match) return null;
+    const [, y, m, d, hh, mm] = match;
+    const dt = new Date(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), 0, 0);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  function roundUpToQuarterHour(date) {
+    const next = new Date(date.getTime());
+    next.setSeconds(0, 0);
+    const minutes = next.getMinutes();
+    const rounded = Math.ceil(minutes / 15) * 15;
+    if (rounded >= 60) {
+      next.setHours(next.getHours() + 1, 0, 0, 0);
+    } else {
+      next.setMinutes(rounded, 0, 0);
+    }
+    return next;
+  }
+
+  function plannerDayLabel(date) {
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
+  }
+
+  function applyTimeOnDate(baseDate, timeStr) {
+    const match = String(timeStr || '').match(/^(\d{2}):(\d{2})$/);
+    if (!match) return null;
+    const [, hh, mm] = match;
+    return new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), Number(hh), Number(mm), 0, 0);
+  }
+
+  async function getSuggestedPlannerScheduleDate() {
+    const now = new Date();
+    const [fromStr, toStr, daysStr] = await Promise.all([
+      api.getSetting('linkedin.plannerScheduleFrom'),
+      api.getSetting('linkedin.plannerScheduleTo'),
+      api.getSetting('linkedin.plannerScheduleDays'),
+    ]);
+    let candidate = roundUpToQuarterHour(new Date(now.getTime() + 60 * 60 * 1000));
+    const enabledDays = new Set(String(daysStr || 'Mon,Tue,Wed,Thu,Fri').split(',').map(s => s.trim()).filter(Boolean));
+    const fromTime = String(fromStr || '09:00');
+    const toTime = String(toStr || '11:00');
+
+    for (let offset = 0; offset < 14; offset++) {
+      const day = new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate() + offset, candidate.getHours(), candidate.getMinutes(), 0, 0);
+      if (enabledDays.size && !enabledDays.has(plannerDayLabel(day))) continue;
+      const dayStart = applyTimeOnDate(day, fromTime);
+      const dayEnd = applyTimeOnDate(day, toTime);
+      if (!dayStart || !dayEnd) return candidate;
+
+      if (fromTime === toTime || dayEnd <= dayStart) {
+        return offset === 0 ? candidate : dayStart;
+      }
+
+      const probe = offset === 0 ? candidate : dayStart;
+      if (probe < dayStart) return dayStart;
+      if (probe <= dayEnd) return probe;
+    }
+
+    return candidate;
+  }
+
+  async function pickScheduleDateTime(label) {
+    const suggested = await getSuggestedPlannerScheduleDate();
+    const suggestedValue = formatLocalDateTimeInput(suggested);
+    const raw = prompt(
+      `Schedule ${label} for when?\nUse local time in YYYY-MM-DD HH:MM.\nSuggested from planner settings:`,
+      suggestedValue
+    );
+    if (raw == null) return null;
+    const parsed = parseLocalScheduleInput(raw);
+    if (!parsed) {
+      alert('Use YYYY-MM-DD HH:MM, for example 2026-03-08 19:30');
+      return null;
+    }
+    return parsed.toISOString();
+  }
+
+  function handlePlannerDraftProgress(data) {
+    if (!data || typeof data !== 'object') return;
+    if (data.assetId) {
+      plannerProgressByAsset.set(data.assetId, data);
+    }
+    if (data.phase === 'drafted' || data.phase === 'image_done' || data.phase === 'done' || data.phase === 'error' || data.status === 'complete' || data.status === 'error') {
+      scheduleLoadAll();
+    } else {
+      renderAssets();
+    }
+  }
+
   // ---- Init ----
+  const offPlannerDraftProgress = api.onPlannerDraftProgress(handlePlannerDraftProgress);
+  window.addEventListener('beforeunload', () => {
+    try { offPlannerDraftProgress && offPlannerDraftProgress(); } catch {}
+  });
+
   loadAll().catch(err => {
     document.body.innerHTML = `<div style="padding:40px;color:#f87171;font-size:14px;"><h2 style="margin-bottom:12px">Content Planner Error</h2><pre style="white-space:pre-wrap;color:#fafafa">${err.stack || err.message || err}</pre></div>`;
   });

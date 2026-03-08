@@ -136,12 +136,19 @@ contextBridge.exposeInMainWorld('pocketAgent', {
   plannerMarkCopied: (id: number) => ipcRenderer.invoke('planner:markCopied', id),
   plannerRunResearch: (planId: number) => ipcRenderer.invoke('planner:runResearch', planId),
   plannerGenerateAssets: (planId: number) => ipcRenderer.invoke('planner:generateAssets', planId),
+  plannerRetryAsset: (assetId: number) => ipcRenderer.invoke('planner:retryAsset', assetId),
+  plannerUpdateAsset: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('planner:updateAsset', id, updates),
+  plannerSyncInheritedImageModelDefaults: (nextModel: string, previousModel?: string | null) => ipcRenderer.invoke('planner:syncInheritedImageModelDefaults', nextModel, previousModel),
   plannerRegenerateImage: (assetId: number) => ipcRenderer.invoke('planner:regenerateImage', assetId),
-  plannerImproveDraft: (assetId: number, feedback: string, mode: 'improve' | 'redo') => ipcRenderer.invoke('planner:improveDraft', assetId, feedback, mode),
+  plannerImproveDraft: (assetId: number, feedback: string, mode: 'improve' | 'redo' | 'restructure') => ipcRenderer.invoke('planner:improveDraft', assetId, feedback, mode),
   plannerScreenshot: (options: Record<string, unknown>, outputPath?: string) => ipcRenderer.invoke('planner:screenshot', options, outputPath),
   plannerRenderHtml: (html: string, css?: string, outputPath?: string) => ipcRenderer.invoke('planner:renderHtml', html, css, outputPath),
   // Idea Lab
   plannerCreateIdeaSession: (input: Record<string, unknown>) => ipcRenderer.invoke('planner:createIdeaSession', input),
+  plannerListIdeaSessions: (status?: string) => ipcRenderer.invoke('planner:listIdeaSessions', status),
+  plannerGetIdeaSession: (sessionId: number) => ipcRenderer.invoke('planner:getIdeaSession', sessionId),
+  plannerGetIdeaCards: (sessionId: number) => ipcRenderer.invoke('planner:getIdeaCards', sessionId),
+  plannerCreateIdeaCard: (card: Record<string, unknown>) => ipcRenderer.invoke('planner:createIdeaCard', card),
   plannerSendMessage: (sessionId: number, message: string, sources?: Record<string, boolean>) => ipcRenderer.invoke('planner:sendMessage', sessionId, message, sources),
   plannerGenerateIdeas: (sessionId: number) => ipcRenderer.invoke('planner:generateIdeas', sessionId),
   plannerUpdateIdeaCard: (id: number, updates: Record<string, unknown>) => ipcRenderer.invoke('planner:updateIdeaCard', id, updates),
@@ -478,12 +485,19 @@ declare global {
       plannerMarkCopied: (id: number) => Promise<unknown>;
       plannerRunResearch: (planId: number) => Promise<unknown>;
       plannerGenerateAssets: (planId: number) => Promise<unknown>;
+      plannerRetryAsset: (assetId: number) => Promise<unknown>;
+      plannerUpdateAsset: (id: number, updates: Record<string, unknown>) => Promise<unknown>;
+      plannerSyncInheritedImageModelDefaults: (nextModel: string, previousModel?: string | null) => Promise<unknown>;
       plannerRegenerateImage: (assetId: number) => Promise<unknown>;
-      plannerImproveDraft: (assetId: number, feedback: string, mode: 'improve' | 'redo') => Promise<unknown>;
+      plannerImproveDraft: (assetId: number, feedback: string, mode: 'improve' | 'redo' | 'restructure') => Promise<unknown>;
       plannerScreenshot: (options: Record<string, unknown>, outputPath?: string) => Promise<unknown>;
       plannerRenderHtml: (html: string, css?: string, outputPath?: string) => Promise<unknown>;
       // Idea Lab
       plannerCreateIdeaSession: (input: Record<string, unknown>) => Promise<unknown>;
+      plannerListIdeaSessions: (status?: string) => Promise<unknown>;
+      plannerGetIdeaSession: (sessionId: number) => Promise<unknown>;
+      plannerGetIdeaCards: (sessionId: number) => Promise<unknown>;
+      plannerCreateIdeaCard: (card: Record<string, unknown>) => Promise<unknown>;
       plannerSendMessage: (sessionId: number, message: string, sources?: Record<string, boolean>) => Promise<unknown>;
       plannerGenerateIdeas: (sessionId: number) => Promise<unknown>;
       plannerUpdateIdeaCard: (id: number, updates: Record<string, unknown>) => Promise<unknown>;

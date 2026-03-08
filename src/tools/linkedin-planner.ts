@@ -67,6 +67,19 @@ export interface PlanAsset {
   published_at: string | null;
   publish_error: string | null;
   image_path: string | null;
+  session_id?: number | null;
+  idea_card_id?: number | null;
+  batch_rules?: string | null;
+  per_idea_rules?: string | null;
+  discussion_context?: string | null;
+  last_error?: string | null;
+  error_step?: string | null;
+  retry_count?: number | null;
+  image_model?: string | null;
+  image_preset?: string | null;
+  image_caption?: string | null;
+  source_urls_json?: string | null;
+  trace_json?: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields (optional)
@@ -76,6 +89,9 @@ export interface PlanAsset {
   plan_title?: string;
   plan_prompt?: string;
   can_auto_publish?: number;
+  idea_angle?: string | null;
+  idea_hook?: string | null;
+  idea_sort_order?: number | null;
 }
 
 export interface PlanWithAssets extends ContentPlan {
@@ -83,6 +99,23 @@ export interface PlanWithAssets extends ContentPlan {
 }
 
 export type ImagePreset = 'meme' | 'explainer_card' | 'annotated_screenshot' | 'data_visual' | 'quote_card' | 'comparison' | 'none';
+export const PLANNER_IMAGE_MODELS = [
+  { id: 'nano-banana-2', label: 'Nano Banana 2', model: 'gemini-3.1-flash-image-preview' },
+  { id: 'nano-banana-pro', label: 'Nano Banana Pro', model: 'gemini-3-pro-image-preview' },
+  { id: 'nano-banana-fast', label: 'Nano Banana Fast', model: 'gemini-2.5-flash-image' },
+  { id: 'none', label: 'No auto-image', model: 'none' },
+] as const;
+type PlannerImageModelId = typeof PLANNER_IMAGE_MODELS[number]['id'];
+
+const PRESET_STYLE_SETTING_KEYS: Record<string, string> = {
+  meme: 'linkedin.plannerImageStylePreset.meme',
+  explainer_card: 'linkedin.plannerImageStylePreset.explainer_card',
+  annotated_screenshot: 'linkedin.plannerImageStylePreset.annotated_screenshot',
+  data_visual: 'linkedin.plannerImageStylePreset.data_visual',
+  quote_card: 'linkedin.plannerImageStylePreset.quote_card',
+  comparison: 'linkedin.plannerImageStylePreset.comparison',
+  none: 'linkedin.plannerImageStylePreset.none',
+};
 
 export interface IdeaSession {
   id: number;
@@ -103,6 +136,7 @@ export interface IdeaCard {
   hook: string | null;
   key_points: string | null;
   source_urls: string | null;
+  image_model: string | null;
   image_preset: ImagePreset;
   image_concept: string | null;
   image_caption: string | null;
@@ -309,9 +343,11 @@ export function getPlanWithAssets(id: number): PlanWithAssets | null {
     const plan = db.prepare('SELECT * FROM linkedin_content_plans WHERE id = ?').get(id) as ContentPlan | undefined;
     if (!plan) return null;
     const assets = db.prepare(`
-      SELECT a.*, t.label as target_label, t.target_type, t.url as target_url, t.can_auto_publish
+      SELECT a.*, t.label as target_label, t.target_type, t.url as target_url, t.can_auto_publish,
+             ic.angle as idea_angle, ic.hook as idea_hook, ic.sort_order as idea_sort_order
       FROM linkedin_plan_assets a
       JOIN linkedin_targets t ON t.id = a.target_id
+      LEFT JOIN linkedin_idea_cards ic ON ic.asset_id = a.id
       WHERE a.plan_id = ?
       ORDER BY t.target_type, t.label, a.id
     `).all(id) as PlanAsset[];
@@ -427,13 +463,21 @@ export function listAssets(filters?: {
     if (filters?.status) { conditions.push('a.status = ?'); params.push(filters.status); }
     if (filters?.target_id) { conditions.push('a.target_id = ?'); params.push(filters.target_id); }
     if (filters?.plan_id) { conditions.push('a.plan_id = ?'); params.push(filters.plan_id); }
+    conditions.push(`NOT (
+      a.status = 'rejected'
+      AND COALESCE(TRIM(a.final_text), '') = ''
+      AND COALESCE(TRIM(a.draft_text), '') = ''
+      AND a.image_path IS NULL
+    )`);
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     return db.prepare(`
       SELECT a.*, t.label as target_label, t.target_type, t.url as target_url, t.can_auto_publish,
-             p.title as plan_title, p.prompt as plan_prompt
+             p.title as plan_title, p.prompt as plan_prompt,
+             ic.angle as idea_angle, ic.hook as idea_hook, ic.sort_order as idea_sort_order
       FROM linkedin_plan_assets a
       JOIN linkedin_targets t ON t.id = a.target_id
       JOIN linkedin_content_plans p ON p.id = a.plan_id
+      LEFT JOIN linkedin_idea_cards ic ON ic.asset_id = a.id
       ${where}
       ORDER BY a.created_at DESC
     `).all(...params) as PlanAsset[];
@@ -448,10 +492,12 @@ export function getAsset(id: number): PlanAsset | null {
   try {
     return (db.prepare(`
       SELECT a.*, t.label as target_label, t.target_type, t.url as target_url, t.can_auto_publish,
-             p.title as plan_title, p.prompt as plan_prompt
+             p.title as plan_title, p.prompt as plan_prompt,
+             ic.angle as idea_angle, ic.hook as idea_hook, ic.sort_order as idea_sort_order
       FROM linkedin_plan_assets a
       JOIN linkedin_targets t ON t.id = a.target_id
       JOIN linkedin_content_plans p ON p.id = a.plan_id
+      LEFT JOIN linkedin_idea_cards ic ON ic.asset_id = a.id
       WHERE a.id = ?
     `).get(id) as PlanAsset) || null;
   } finally {
@@ -471,6 +517,19 @@ export function updateAsset(id: number, updates: Partial<{
   published_at: string | null;
   publish_error: string | null;
   image_path: string | null;
+  session_id: number | null;
+  idea_card_id: number | null;
+  batch_rules: string | null;
+  per_idea_rules: string | null;
+  discussion_context: string | null;
+  last_error: string | null;
+  error_step: string | null;
+  retry_count: number | null;
+  image_model: string | null;
+  image_preset: string | null;
+  image_caption: string | null;
+  source_urls_json: string | null;
+  trace_json: string | null;
 }>): PlanAsset | null {
   const db = getDb();
   if (!db) return null;
@@ -487,6 +546,35 @@ export function updateAsset(id: number, updates: Partial<{
     values.push(id);
     db.prepare(`UPDATE linkedin_plan_assets SET ${fields.join(', ')} WHERE id = ?`).run(...values);
     return getAsset(id);
+  } finally {
+    db.close();
+  }
+}
+
+export function syncInheritedImageModelDefaults(nextModel: string, previousModel?: string | null): { assetsUpdated: number; cardsUpdated: number } {
+  const db = getDb();
+  if (!db) return { assetsUpdated: 0, cardsUpdated: 0 };
+  const normalizedNext = resolvePlannerImageModel(nextModel);
+  const normalizedPrev = previousModel ? resolvePlannerImageModel(previousModel) : null;
+  try {
+    const assetWhere = normalizedPrev
+      ? `status IN ('pending', 'draft', 'drafted', 'approved') AND image_path IS NULL AND (image_model IS NULL OR image_model = ?)`
+      : `status IN ('pending', 'draft', 'drafted', 'approved') AND image_path IS NULL AND image_model IS NULL`;
+    const assetResult = normalizedPrev
+      ? db.prepare(`UPDATE linkedin_plan_assets SET image_model = ?, updated_at = datetime('now') WHERE ${assetWhere}`).run(normalizedNext, normalizedPrev)
+      : db.prepare(`UPDATE linkedin_plan_assets SET image_model = ?, updated_at = datetime('now') WHERE ${assetWhere}`).run(normalizedNext);
+
+    const cardWhere = normalizedPrev
+      ? `asset_id IS NULL AND (image_model IS NULL OR image_model = ?)`
+      : `asset_id IS NULL AND image_model IS NULL`;
+    const cardResult = normalizedPrev
+      ? db.prepare(`UPDATE linkedin_idea_cards SET image_model = ? WHERE ${cardWhere}`).run(normalizedNext, normalizedPrev)
+      : db.prepare(`UPDATE linkedin_idea_cards SET image_model = ? WHERE ${cardWhere}`).run(normalizedNext);
+
+    return {
+      assetsUpdated: assetResult.changes,
+      cardsUpdated: cardResult.changes,
+    };
   } finally {
     db.close();
   }
@@ -512,6 +600,73 @@ export function approveAsset(id: number): PlanAsset | null {
     }
 
     return getAsset(id);
+  } finally {
+    db.close();
+  }
+}
+
+export function forkAssetForRewrite(id: number): PlanAsset | null {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const asset = db.prepare('SELECT * FROM linkedin_plan_assets WHERE id = ?').get(id) as PlanAsset | undefined;
+    if (!asset) return null;
+    const text = asset.final_text || asset.draft_text;
+    if (!text) throw new Error('Cannot rework asset without draft text');
+
+    const nowIso = new Date().toISOString();
+    let priorTrace: PlannerAssetTrace = {};
+    try {
+      priorTrace = asset.trace_json ? JSON.parse(asset.trace_json) as PlannerAssetTrace : {};
+    } catch {
+      priorTrace = {};
+    }
+    const forkTrace: PlannerAssetTrace = {
+      sourceUrls: priorTrace.sourceUrls || [],
+      queries: priorTrace.queries || [],
+      prompts: priorTrace.prompts || {},
+      postMeta: priorTrace.postMeta || {},
+      image: priorTrace.image || {},
+      events: [
+        {
+          at: nowIso,
+          phase: 'forked',
+          message: `Forked from asset #${id} (${asset.status}) for rework`,
+        },
+      ],
+      timings: {
+        ...(priorTrace.timings || {}),
+        forkedAt: nowIso,
+      },
+    };
+
+    const result = db.prepare(`
+      INSERT INTO linkedin_plan_assets (
+        plan_id, target_id, draft_text, final_text, quality_score, fingerprint, evidence_id,
+        kanban_task_id, status, scheduled_at, published_at, publish_error, image_path, session_id,
+        idea_card_id, batch_rules, per_idea_rules, discussion_context, last_error, error_step,
+        retry_count, image_model, image_preset, image_caption, source_urls_json, trace_json
+      ) VALUES (?, ?, ?, NULL, ?, ?, ?, NULL, 'draft', NULL, NULL, NULL, ?, ?, NULL, ?, ?, ?, NULL, NULL, 0, ?, ?, ?, ?, ?)
+    `).run(
+      asset.plan_id,
+      asset.target_id,
+      text,
+      asset.quality_score || null,
+      asset.fingerprint || null,
+      asset.evidence_id || null,
+      asset.image_path || null,
+      asset.session_id || null,
+      asset.batch_rules || null,
+      asset.per_idea_rules || null,
+      asset.discussion_context || null,
+      asset.image_model || null,
+      asset.image_preset || null,
+      asset.image_caption || null,
+      asset.source_urls_json || null,
+      JSON.stringify(forkTrace),
+    );
+
+    return getAsset(Number(result.lastInsertRowid)) || null;
   } finally {
     db.close();
   }
@@ -774,6 +929,7 @@ export function createIdeaCard(card: {
   hook?: string;
   key_points?: string[];
   source_urls?: string[];
+  image_model?: string;
   image_preset?: ImagePreset;
   image_concept?: string;
   image_caption?: string;
@@ -785,12 +941,13 @@ export function createIdeaCard(card: {
   try {
     const result = db.prepare(`
       INSERT INTO linkedin_idea_cards (session_id, target_id, angle, hook, key_points, source_urls,
-        image_preset, image_concept, image_caption, per_idea_rules, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        image_model, image_preset, image_concept, image_caption, per_idea_rules, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       card.session_id, card.target_id || null, card.angle, card.hook || null,
       card.key_points ? JSON.stringify(card.key_points) : null,
       card.source_urls ? JSON.stringify(card.source_urls) : null,
+      card.image_model || SettingsManager.get('linkedin.plannerImageModel') || 'nano-banana-pro',
       card.image_preset || 'none', card.image_concept || null,
       card.image_caption || null, card.per_idea_rules || null, card.sort_order || 0,
     );
@@ -811,6 +968,7 @@ export function updateIdeaCard(id: number, updates: Partial<{
   hook: string;
   key_points: string;
   source_urls: string;
+  image_model: string;
   image_preset: string;
   image_concept: string;
   image_caption: string;
@@ -854,6 +1012,81 @@ export interface PlanResearchResult {
   implications: string;
 }
 
+interface PlannerAssetTraceEvent {
+  phase: string;
+  at: string;
+  message?: string;
+}
+
+interface PlannerAssetTrace {
+  createdAt?: string;
+  postMeta?: {
+    targetLabel?: string;
+    targetType?: string;
+    planTitle?: string;
+    ideaTitle?: string;
+    ideaHook?: string;
+    ideaIndex?: number;
+    continuityMode?: string;
+    batchShape?: string;
+  };
+  prompts?: {
+    assetBrief?: string;
+    sharedContext?: string;
+    draftPrompt?: string;
+    imagePrompt?: string;
+  };
+  image?: {
+    model?: string;
+    modelLabel?: string;
+    modelApiName?: string;
+    preset?: string;
+    direction?: string;
+    prompt?: string;
+    generatedAt?: string;
+    outputPath?: string;
+    stripEnabled?: boolean;
+    stripStatus?: string;
+    stripNote?: string;
+  };
+  queries?: string[];
+  sourceUrls?: string[];
+  timings?: {
+    startedAt?: string;
+    finishedAt?: string;
+    imageStartedAt?: string;
+    imageFinishedAt?: string;
+    forkedAt?: string;
+  };
+  events?: PlannerAssetTraceEvent[];
+}
+
+function safeParseJson<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function updatePlannerAssetTrace(assetId: number, updater: (trace: PlannerAssetTrace) => PlannerAssetTrace): void {
+  const asset = getAsset(assetId);
+  if (!asset) return;
+  const next = updater(safeParseJson<PlannerAssetTrace>(asset.trace_json, {}));
+  updateAsset(assetId, { trace_json: JSON.stringify(next) });
+}
+
+function appendPlannerAssetTraceEvent(assetId: number, phase: string, message?: string): void {
+  updatePlannerAssetTrace(assetId, (trace) => ({
+    ...trace,
+    events: [
+      ...(trace.events || []),
+      { phase, message, at: new Date().toISOString() },
+    ],
+  }));
+}
+
 export async function runPlanResearch(planId: number): Promise<PlanResearchResult> {
   const plan = getPlan(planId);
   if (!plan) throw new Error(`Plan ${planId} not found`);
@@ -880,8 +1113,8 @@ IMPLICATIONS: [What this means practically, actionable insights]
 Be specific and factual. Cite real data where possible.`;
 
   try {
-    const response = await AgentManager.processMessage(researchPrompt, 'planner:research');
-    const text = typeof response === 'string' ? response : String(response || '');
+    const response = await AgentManager.processMessage(researchPrompt, 'planner:research', `planner:research:${planId}`);
+    const text = extractAgentText(response);
 
     // Parse structured response
     const thesisMatch = text.match(/THESIS:\s*(.+?)(?=\nEVIDENCE:|\n\n|$)/s);
@@ -908,7 +1141,21 @@ Be specific and factual. Cite real data where possible.`;
 // Image generation (Nano Banana / Gemini 3 Pro Image)
 // ---------------------------------------------------------------------------
 
+function resolvePlannerImageModel(raw: string | null | undefined): PlannerImageModelId {
+  const normalized = String(raw || '').trim().toLowerCase();
+  if (normalized === 'nano-banana') return 'nano-banana-pro';
+  if (PLANNER_IMAGE_MODELS.some(item => item.id === normalized)) return normalized as PlannerImageModelId;
+  return 'nano-banana-pro';
+}
+
+function getPlannerImageModelMeta(raw: string | null | undefined) {
+  const resolved = resolvePlannerImageModel(raw);
+  return PLANNER_IMAGE_MODELS.find(item => item.id === resolved) || PLANNER_IMAGE_MODELS[1];
+}
+
 function getNanoBananaScript(): string | null {
+  const localScript = path.resolve(__dirname, '..', '..', 'src', 'skills', 'nanobanana', 'scripts', 'generate.py');
+  if (fs.existsSync(localScript)) return localScript;
   const skillPath = path.join(
     os.homedir(), '.claude', 'plugins', 'marketplaces', 'opc-skills',
     'skills', 'nanobanana', 'scripts', 'generate.py'
@@ -927,6 +1174,43 @@ function findPython3(): string {
  * Generate a LinkedIn post image using Nano Banana (Gemini 3 Pro Image).
  * Returns the image path on success, null on failure.
  */
+function buildPlannerImagePrompt(
+  postText: string,
+  planTitle: string,
+  imageModel: string | null | undefined,
+  preset: string | null | undefined,
+  direction: string | null | undefined,
+): string {
+  const hook = postText.split('\n')[0].slice(0, 100);
+  const styleTemplate = (SettingsManager.get('linkedin.plannerImageStyle') || SettingsManager.get('linkedin.imagePromptStyle') || '').trim();
+  const presetStyleTemplate = (SettingsManager.get(PRESET_STYLE_SETTING_KEYS[preset || 'none'] || PRESET_STYLE_SETTING_KEYS.none) || '').trim();
+  const presetGuide: Record<string, string> = {
+    meme: 'Use a punchy social meme composition. Prioritize humor, contrast, immediacy, and one clear visual joke or misconception callout.',
+    explainer_card: 'Use an explainer-card treatment with strong hierarchy, clean educational framing, and easy visual scanning.',
+    annotated_screenshot: 'Use an annotated screenshot treatment with callouts, highlights, and a more real-world product or interface feel.',
+    data_visual: 'Use a data-led visual with chart-like composition, evidence emphasis, and less decorative filler.',
+    quote_card: 'Use a premium text-led quote-card style with typography-driven composition and minimal supporting elements.',
+    comparison: 'Use a side-by-side comparison layout with strong contrast between wrong approach and correct approach.',
+    none: 'Use a clean, modern social visual, not a generic technical diagram.',
+  };
+  const modelMeta = getPlannerImageModelMeta(imageModel);
+  const directionGuide = direction ? `Per-post image direction: "${direction}".` : '';
+  const presetStyleGuide = presetStyleTemplate ? `Preset style default: "${presetStyleTemplate}".` : '';
+  const styleGuide = styleTemplate ? `Global image style template: "${styleTemplate}".` : '';
+  return [
+    `Create a LinkedIn social image for the post titled "${planTitle}".`,
+    `Core message: "${hook}".`,
+    presetGuide[preset || 'none'] || presetGuide.none,
+    directionGuide,
+    presetStyleGuide,
+    styleGuide,
+    `Render intent: strong single-idea composition, social-first, distinctive, suitable for a LinkedIn feed image.`,
+    `Model note: use the strengths of ${modelMeta.label}.`,
+    'Avoid bland stock visuals, generic blue technical diagrams, and overloaded text blocks.',
+    'No people faces unless clearly necessary. Keep any text minimal and only if the preset strongly implies a text-led card.',
+  ].filter(Boolean).join(' ');
+}
+
 export async function generatePostImage(
   postText: string,
   planTitle: string,
@@ -944,12 +1228,43 @@ export async function generatePostImage(
     return null;
   }
 
-  // Build image prompt from the post text
-  const hook = postText.split('\n')[0].slice(0, 100);
-  const imagePrompt = `Professional LinkedIn post illustration. Topic: "${planTitle}". `
-    + `Key message: "${hook}". `
-    + `Style: clean, modern, professional, subtle gradient background, minimal text overlay. `
-    + `No people faces. No text in the image. Suitable as a LinkedIn post header image.`;
+  const asset = getAsset(assetId);
+  const imageModel = asset?.image_model || SettingsManager.get('linkedin.plannerImageModel') || 'nano-banana-pro';
+  const imageModelMeta = getPlannerImageModelMeta(imageModel);
+  const stripMetadata = SettingsManager.get('linkedin.plannerExifStrip') !== 'false';
+  if (imageModelMeta.id === 'none') {
+    console.log(`[Planner] Skipping image generation for asset #${assetId}: model disabled`);
+    return null;
+  }
+  const imagePrompt = buildPlannerImagePrompt(
+    postText,
+    planTitle,
+    imageModel,
+    asset?.image_preset,
+    asset?.image_caption,
+  );
+  updatePlannerAssetTrace(assetId, (trace) => ({
+    ...trace,
+    prompts: {
+      ...(trace.prompts || {}),
+      imagePrompt,
+    },
+    timings: {
+      ...(trace.timings || {}),
+      imageStartedAt: new Date().toISOString(),
+    },
+    image: {
+      ...((trace as PlannerAssetTrace & { image?: Record<string, unknown> }).image || {}),
+      model: imageModelMeta.id,
+      modelLabel: imageModelMeta.label,
+      modelApiName: imageModelMeta.model,
+      preset: asset?.image_preset || 'none',
+      direction: asset?.image_caption || '',
+      prompt: imagePrompt,
+      stripEnabled: stripMetadata,
+      stripStatus: 'pending',
+    },
+  } as PlannerAssetTrace));
 
   const outputDir = path.join(os.homedir(), '.pocket-agent', 'linkedin', 'planner-images');
   fs.mkdirSync(outputDir, { recursive: true });
@@ -957,10 +1272,12 @@ export async function generatePostImage(
 
   try {
     const python = findPython3();
-    const { stdout } = await execFile(python, [
+    const { stdout, stderr } = await execFile(python, [
       script, imagePrompt,
       '-o', outputPath,
+      '--model', imageModelMeta.model,
       '--ratio', '3:2',
+      '--strip-metadata', stripMetadata ? 'true' : 'false',
     ], {
       timeout: 60000,
       env: {
@@ -972,13 +1289,61 @@ export async function generatePostImage(
     });
 
     if (fs.existsSync(outputPath)) {
+      const stripStatusMatch = stderr.match(/strip_result=([a-z_]+)/i);
+      const stripStatus = (stripStatusMatch?.[1] || (stripMetadata ? 'unknown' : 'disabled')).toLowerCase();
+      const stripNoteMap: Record<string, string> = {
+        stripped: 'Planner removed embedded image metadata before saving.',
+        disabled: 'Planner kept the original generated file metadata because EXIF auto-strip is disabled.',
+        unavailable: 'Planner could not strip metadata because the sanitizer dependency was unavailable.',
+        fallback_raw: 'Planner failed to sanitize metadata cleanly and kept the original generated file.',
+        unknown: stripMetadata ? 'Planner generated the image, but strip status was not reported.' : 'Metadata stripping was not requested.',
+      };
       console.log(`[Planner] Generated image for asset #${assetId}: ${outputPath}`);
+      updatePlannerAssetTrace(assetId, (trace) => ({
+        ...trace,
+        timings: {
+          ...(trace.timings || {}),
+          imageFinishedAt: new Date().toISOString(),
+        },
+        image: {
+          ...((trace as PlannerAssetTrace & { image?: Record<string, unknown> }).image || {}),
+          generatedAt: new Date().toISOString(),
+          outputPath,
+          stripEnabled: stripMetadata,
+          stripStatus,
+          stripNote: stripNoteMap[stripStatus] || stripNoteMap.unknown,
+        },
+      } as PlannerAssetTrace));
       return outputPath;
     }
 
     // generate.py prints the path to stdout on success
     const resultPath = stdout.trim();
     if (resultPath && fs.existsSync(resultPath)) {
+      const stripStatusMatch = stderr.match(/strip_result=([a-z_]+)/i);
+      const stripStatus = (stripStatusMatch?.[1] || (stripMetadata ? 'unknown' : 'disabled')).toLowerCase();
+      const stripNoteMap: Record<string, string> = {
+        stripped: 'Planner removed embedded image metadata before saving.',
+        disabled: 'Planner kept the original generated file metadata because EXIF auto-strip is disabled.',
+        unavailable: 'Planner could not strip metadata because the sanitizer dependency was unavailable.',
+        fallback_raw: 'Planner failed to sanitize metadata cleanly and kept the original generated file.',
+        unknown: stripMetadata ? 'Planner generated the image, but strip status was not reported.' : 'Metadata stripping was not requested.',
+      };
+      updatePlannerAssetTrace(assetId, (trace) => ({
+        ...trace,
+        timings: {
+          ...(trace.timings || {}),
+          imageFinishedAt: new Date().toISOString(),
+        },
+        image: {
+          ...((trace as PlannerAssetTrace & { image?: Record<string, unknown> }).image || {}),
+          generatedAt: new Date().toISOString(),
+          outputPath: resultPath,
+          stripEnabled: stripMetadata,
+          stripStatus,
+          stripNote: stripNoteMap[stripStatus] || stripNoteMap.unknown,
+        },
+      } as PlannerAssetTrace));
       return resultPath;
     }
 
@@ -1260,15 +1625,47 @@ const DEFAULT_POST_FORMAT = 'Write a LinkedIn post (100-300 words). Strong hook 
 const DEFAULT_ARTICLE_FORMAT = 'Write a long-form LinkedIn article (800-1500 words) with clear sections and headers.';
 const DEFAULT_GROUP_FORMAT = 'Write a group discussion post (100-250 words). Frame as a question or discussion starter, not self-promotion.';
 
-export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
+export type PlannerDraftPhase = 'queued' | 'writing' | 'drafted' | 'image_generating' | 'image_done' | 'done' | 'error';
+
+export interface PlannerDraftProgressEvent {
+  planId: number;
+  assetId: number;
+  index: number;
+  total: number;
+  phase: PlannerDraftPhase;
+  message: string;
+}
+
+function extractAgentText(result: unknown): string {
+  if (typeof result === 'string') return result;
+  if (result && typeof result === 'object') {
+    const maybe = result as { response?: unknown; content?: unknown };
+    if (typeof maybe.response === 'string') return maybe.response;
+    if (typeof maybe.content === 'string') return maybe.content;
+  }
+  return String(result || '');
+}
+
+export async function generatePlanAssets(
+  planId: number,
+  onProgress?: (event: PlannerDraftProgressEvent) => void,
+  assetIds?: number[],
+): Promise<PlanAsset[]> {
   const planData = getPlanWithAssets(planId);
   if (!planData) throw new Error(`Plan ${planId} not found`);
 
   updatePlan(planId, { status: 'generating' });
 
-  const pendingAssets = planData.assets.filter(a => a.status === 'pending');
+  const assetFilter = Array.isArray(assetIds) && assetIds.length
+    ? new Set(assetIds.map(id => Number(id)).filter(id => Number.isFinite(id)))
+    : null;
+  const pendingAssets = planData.assets.filter(a => {
+    if (assetFilter && !assetFilter.has(a.id)) return false;
+    return a.status === 'pending';
+  });
   if (pendingAssets.length === 0) {
-    updatePlan(planId, { status: 'ready' });
+    const hasAnyPending = planData.assets.some(a => a.status === 'pending');
+    updatePlan(planId, { status: hasAnyPending ? 'generating' : 'ready' });
     return [];
   }
 
@@ -1277,6 +1674,8 @@ export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
   const contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
   const postStrategy = SettingsManager.get('linkedin.postStrategy') || '';
+  const postStructure = SettingsManager.get('linkedin.plannerPostStructure') || '';
+  const structureGuidance = SettingsManager.get('linkedin.plannerStructureGuidance') || '';
   const customRules = SettingsManager.get('linkedin.plannerHardRules') || '';
   const hardRules = customRules
     ? `${DEFAULT_HARD_RULES}\n${customRules}`
@@ -1286,6 +1685,13 @@ export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
   const articleFormat = SettingsManager.get('linkedin.plannerArticleFormat') || DEFAULT_ARTICLE_FORMAT;
   const groupFormat = SettingsManager.get('linkedin.plannerGroupFormat') || DEFAULT_GROUP_FORMAT;
   const bankEntryCount = parseInt(SettingsManager.get('linkedin.plannerBankEntries') || '3', 10);
+  const [briefsBlock, sharedContextRaw] = planData.prompt.includes('## SHARED_CONTEXT')
+    ? planData.prompt.split('\n\n## SHARED_CONTEXT\n', 2)
+    : [planData.prompt, ''];
+  const perAssetBriefs = briefsBlock.includes('<<<POST_BRIEF_SEPARATOR>>>')
+    ? briefsBlock.split('\n\n<<<POST_BRIEF_SEPARATOR>>>\n\n').map(s => s.trim()).filter(Boolean)
+    : [];
+  const sharedContext = sharedContextRaw.trim();
 
   // Load Post Bank entries for voice anchoring
   const postBankEntries = loadPostBankEntries();
@@ -1293,10 +1699,39 @@ export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
 
   const results: PlanAsset[] = [];
   const usedOpenings: string[] = [];
+  const emitProgress = (event: PlannerDraftProgressEvent) => {
+    try {
+      onProgress?.(event);
+    } catch (err) {
+      console.warn('[Planner] Progress callback failed:', err);
+    }
+  };
 
-  for (const asset of pendingAssets) {
+  pendingAssets.forEach((asset, idx) => {
+    appendPlannerAssetTraceEvent(asset.id, 'queued', `Queued ${idx + 1}/${pendingAssets.length}`);
+    emitProgress({
+      planId,
+      assetId: asset.id,
+      index: idx + 1,
+      total: pendingAssets.length,
+      phase: 'queued',
+      message: `Queued ${idx + 1}/${pendingAssets.length}`,
+    });
+  });
+
+  for (let idx = 0; idx < pendingAssets.length; idx++) {
+    const asset = pendingAssets[idx];
     const target = getTarget(asset.target_id);
     if (!target) continue;
+
+    emitProgress({
+      planId,
+      assetId: asset.id,
+      index: idx + 1,
+      total: pendingAssets.length,
+      phase: 'writing',
+      message: `Writing post ${idx + 1}/${pendingAssets.length}`,
+    });
 
     const targetContext = [
       target.audience_summary ? `Audience: ${target.audience_summary}` : '',
@@ -1315,9 +1750,11 @@ export async function generatePlanAssets(planId: number): Promise<PlanAsset[]> {
       ? `\nAvoid these opening patterns already used in this plan: ${usedOpenings.join(' | ')}`
       : '';
 
+    const assetBrief = perAssetBriefs[idx] || planData.prompt;
+    const sharedContextBlock = sharedContext ? `\n\nShared batch context:\n${sharedContext}` : '';
     const draftPrompt = `You are writing an original LinkedIn post. Write ONLY the post text - no commentary, no labels, no "Here's your post:" preamble.
 
-Plan prompt: ${planData.prompt}
+Plan prompt: ${assetBrief}${sharedContextBlock}
 ${planData.topic ? `Topic: ${planData.topic}` : ''}
 
 Target: ${target.label} (${target.target_type})
@@ -1327,6 +1764,8 @@ ${formatGuidance}
 
 ${voiceStyle ? `Voice/Style: ${voiceStyle}` : ''}
 ${writingRules ? `Writing rules: ${writingRules}` : ''}
+${postStructure ? `Post structure: ${postStructure}` : ''}
+${structureGuidance ? `Structure guidance: ${structureGuidance}` : ''}
 ${contentDirection ? `Content direction: ${contentDirection}` : ''}
 ${postStrategy ? `Strategy: ${postStrategy}` : ''}
 ${postBankBlock}
@@ -1337,16 +1776,74 @@ ${prePublishChecklist ? `\nPRE-PUBLISH CHECKLIST (verify ALL before finishing):\
 OUTPUT:
 Return only the final post text.`;
 
+    updatePlannerAssetTrace(asset.id, (trace) => ({
+      ...trace,
+      createdAt: trace.createdAt || new Date().toISOString(),
+      postMeta: {
+        targetLabel: target.label,
+        targetType: target.target_type,
+        planTitle: planData.title,
+        ideaTitle: asset.idea_angle || undefined,
+        ideaHook: asset.idea_hook || undefined,
+        ideaIndex: Number.isFinite(Number(asset.idea_sort_order)) ? Number(asset.idea_sort_order) + 1 : undefined,
+        continuityMode: sharedContext ? 'standalone but connected' : 'independent',
+        batchShape: pendingAssets.length > 1 ? `${pendingAssets.length}-post batch` : 'single post',
+      },
+      prompts: {
+        ...(trace.prompts || {}),
+        assetBrief,
+        sharedContext,
+        draftPrompt,
+      },
+      queries: Array.from(new Set([
+        String(target.label || '').trim(),
+        String(planData.topic || '').trim(),
+        String(asset.idea_angle || '').trim(),
+        String(asset.idea_hook || '').trim(),
+      ].filter(Boolean))),
+      sourceUrls: safeParseJson<string[]>(asset.source_urls_json, []),
+      timings: {
+        ...(trace.timings || {}),
+        startedAt: trace.timings?.startedAt || new Date().toISOString(),
+      },
+    }));
+
     try {
-      const response = await AgentManager.processMessage(draftPrompt, 'planner:draft');
-      let draftText = typeof response === 'string' ? response : String(response || '');
+      appendPlannerAssetTraceEvent(asset.id, 'writing', `Writing post ${idx + 1}/${pendingAssets.length}`);
+      const response = await AgentManager.processMessage(draftPrompt, 'planner:draft', `planner:draft:${planId}`);
+      let draftText = extractAgentText(response);
 
       // Clean draft (strip emojis, dashes, preamble, AI slop)
       draftText = cleanPlannerDraft(draftText);
 
       if (!draftText || draftText.length < 50) {
-        console.warn(`[Planner] Draft too short for asset ${asset.id}, skipping`);
-        continue;
+        console.warn(`[Planner] Draft too short for asset ${asset.id}, retrying once with stricter length guidance`);
+        appendPlannerAssetTraceEvent(asset.id, 'retry', 'Draft too short, retrying with stricter length guidance');
+        const retryResponse = await AgentManager.processMessage(
+          `${draftPrompt}\n\nThe previous draft was too short. Rewrite as a complete LinkedIn post between 120 and 220 words. Return only the finished post text.`,
+          'planner:draft',
+          `planner:draft:${planId}`
+        );
+        const retryText = cleanPlannerDraft(extractAgentText(retryResponse));
+        if (retryText && retryText.length >= 50) {
+          draftText = retryText;
+        } else {
+          updateAsset(asset.id, {
+            status: 'failed',
+            last_error: 'Draft too short',
+            error_step: 'writing',
+          });
+          appendPlannerAssetTraceEvent(asset.id, 'error', `Draft ${idx + 1}/${pendingAssets.length} was too short`);
+          emitProgress({
+            planId,
+            assetId: asset.id,
+            index: idx + 1,
+            total: pendingAssets.length,
+            phase: 'error',
+            message: `Draft ${idx + 1}/${pendingAssets.length} was too short`,
+          });
+          continue;
+        }
       }
 
       // Quality gate: check for AI slop and retry once
@@ -1354,9 +1851,10 @@ Return only the final post text.`;
         console.warn(`[Planner] AI slop detected in asset ${asset.id}, retrying`);
         const retryResponse = await AgentManager.processMessage(
           draftPrompt + '\n\nThe previous draft contained AI-sounding jargon. Rewrite with natural, direct language. No corporate buzzwords.',
-          'planner:draft'
+          'planner:draft',
+          `planner:draft:${planId}`
         );
-        const retryText = cleanPlannerDraft(typeof retryResponse === 'string' ? retryResponse : String(retryResponse || ''));
+        const retryText = cleanPlannerDraft(extractAgentText(retryResponse));
         if (retryText && retryText.length >= 50) draftText = retryText;
       }
 
@@ -1368,6 +1866,20 @@ Return only the final post text.`;
       const fp = normalizeFingerprint(draftText);
       if (isDuplicateAsset(draftText, planId)) {
         console.warn(`[Planner] Duplicate draft detected for asset ${asset.id}, skipping`);
+        updateAsset(asset.id, {
+          status: 'failed',
+          last_error: 'Draft matched an existing idea in this plan',
+          error_step: 'writing',
+        });
+        appendPlannerAssetTraceEvent(asset.id, 'error', `Draft ${idx + 1}/${pendingAssets.length} matched an existing idea`);
+        emitProgress({
+          planId,
+          assetId: asset.id,
+          index: idx + 1,
+          total: pendingAssets.length,
+          phase: 'error',
+          message: `Draft ${idx + 1}/${pendingAssets.length} matched an existing idea`,
+        });
         continue;
       }
 
@@ -1390,25 +1902,99 @@ Return only the final post text.`;
         }
       } catch { /* kanban is optional */ }
 
-      // Generate post image if enabled
-      let imagePath: string | null = null;
-      if (SettingsManager.get('linkedin.plannerAutoImage') !== 'false') {
-        try {
-          imagePath = await generatePostImage(draftText, planData.title, asset.id);
-        } catch { /* image generation is optional */ }
-      }
-
-      const updated = updateAsset(asset.id, {
+      let updated = updateAsset(asset.id, {
         draft_text: draftText,
         fingerprint: fp,
         kanban_task_id: kanbanTaskId,
-        image_path: imagePath,
         status: 'drafted',
+        last_error: null,
+        error_step: null,
       });
 
-      if (updated) results.push(updated);
+      appendPlannerAssetTraceEvent(asset.id, 'drafted', `Drafted post ${idx + 1}/${pendingAssets.length}`);
+
+      emitProgress({
+        planId,
+        assetId: asset.id,
+        index: idx + 1,
+        total: pendingAssets.length,
+        phase: 'drafted',
+        message: `Drafted post ${idx + 1}/${pendingAssets.length}`,
+      });
+
+      // Generate post image after the draft is already persisted and visible.
+      let imagePath: string | null = null;
+      if (SettingsManager.get('linkedin.plannerAutoImage') !== 'false') {
+        appendPlannerAssetTraceEvent(asset.id, 'image_generating', `Generating image ${idx + 1}/${pendingAssets.length}`);
+        updatePlannerAssetTrace(asset.id, (trace) => ({
+          ...trace,
+          prompts: {
+            ...(trace.prompts || {}),
+            imagePrompt: buildPlannerImagePrompt(draftText, planData.title, asset.image_model, asset.image_preset, asset.image_caption),
+          },
+        }));
+        emitProgress({
+          planId,
+          assetId: asset.id,
+          index: idx + 1,
+          total: pendingAssets.length,
+          phase: 'image_generating',
+          message: `Generating image ${idx + 1}/${pendingAssets.length}`,
+        });
+        try {
+          imagePath = await generatePostImage(draftText, planData.title, asset.id);
+          if (imagePath) {
+            updated = updateAsset(asset.id, { image_path: imagePath });
+            appendPlannerAssetTraceEvent(asset.id, 'image_done', `Image ready for post ${idx + 1}/${pendingAssets.length}`);
+            emitProgress({
+              planId,
+              assetId: asset.id,
+              index: idx + 1,
+              total: pendingAssets.length,
+              phase: 'image_done',
+              message: `Image ready for post ${idx + 1}/${pendingAssets.length}`,
+            });
+          }
+        } catch {
+          /* image generation is optional */
+        }
+      }
+
+      if (updated) {
+        updatePlannerAssetTrace(asset.id, (trace) => ({
+          ...trace,
+          timings: {
+            ...(trace.timings || {}),
+            finishedAt: new Date().toISOString(),
+          },
+        }));
+        appendPlannerAssetTraceEvent(asset.id, 'done', `Completed post ${idx + 1}/${pendingAssets.length}`);
+        results.push(updated);
+        emitProgress({
+          planId,
+          assetId: asset.id,
+          index: idx + 1,
+          total: pendingAssets.length,
+          phase: 'done',
+          message: `Completed post ${idx + 1}/${pendingAssets.length}`,
+        });
+      }
     } catch (err) {
       console.error(`[Planner] Failed to generate draft for asset ${asset.id}:`, err);
+      updateAsset(asset.id, {
+        status: 'failed',
+        last_error: err instanceof Error ? err.message : String(err),
+        error_step: 'writing',
+      });
+      appendPlannerAssetTraceEvent(asset.id, 'error', err instanceof Error ? err.message : String(err));
+      emitProgress({
+        planId,
+        assetId: asset.id,
+        index: idx + 1,
+        total: pendingAssets.length,
+        phase: 'error',
+        message: `Failed post ${idx + 1}/${pendingAssets.length}: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
   }
 
@@ -1418,6 +2004,24 @@ Return only the final post text.`;
   updatePlan(planId, { status: allDone ? 'ready' : 'generating' });
 
   return results;
+}
+
+export async function retryPlanAsset(
+  assetId: number,
+  onProgress?: (event: PlannerDraftProgressEvent) => void,
+): Promise<PlanAsset | null> {
+  const asset = getAsset(assetId);
+  if (!asset) throw new Error(`Asset ${assetId} not found`);
+
+  updateAsset(assetId, {
+    status: 'pending',
+    publish_error: null,
+    retry_count: (asset.retry_count || 0) + 1,
+  });
+  appendPlannerAssetTraceEvent(assetId, 'retry', 'Manual retry requested');
+
+  const generated = await generatePlanAssets(asset.plan_id, onProgress, [assetId]);
+  return generated.find(item => item.id === assetId) || getAsset(assetId);
 }
 
 // ---------------------------------------------------------------------------

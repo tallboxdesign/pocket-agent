@@ -831,6 +831,22 @@ async function readFullLinkedInPostContent(postUrl: string, abortController?: Ab
   };
 }
 
+async function readFullLinkedInPostContentWithRetry(
+  postUrl: string,
+  abortController?: AbortController,
+): Promise<LinkedInPostContent> {
+  const first = await readFullLinkedInPostContent(postUrl, abortController);
+  if (first.text) return first;
+  if (abortController?.signal.aborted) return first;
+  await new Promise(resolve => setTimeout(resolve, 2500));
+  if (abortController?.signal.aborted) return first;
+  const second = await readFullLinkedInPostContent(postUrl, abortController);
+  if (!second.text && first.imageAnalysisNote && second.imageAnalysisNote) {
+    second.imageAnalysisNote = `${second.imageAnalysisNote}. Auto-retry after empty full-text fetch also failed`;
+  }
+  return second;
+}
+
 function setImageAnalysisState(
   postId: number,
   status: ImageAnalysisStatus,
@@ -3482,7 +3498,7 @@ async function draftOnePost(
   const deadline = Date.now() + (effectiveTimeoutSec * 1000);
   let fullPost: LinkedInPostContent;
   try {
-    fullPost = await readFullLinkedInPostContent(post.post_url, abortController);
+    fullPost = await readFullLinkedInPostContentWithRetry(post.post_url, abortController);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     setImageAnalysisState(post.id, 'failed', 0, `Post read failed: ${clipForPrompt(msg, 120)}`);
@@ -3679,7 +3695,7 @@ async function redraftOnePost(
 
   let fullPost: LinkedInPostContent;
   try {
-    fullPost = await readFullLinkedInPostContent(post.post_url, abortController);
+    fullPost = await readFullLinkedInPostContentWithRetry(post.post_url, abortController);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     setImageAnalysisState(post.id, 'failed', 0, `Post read failed: ${clipForPrompt(msg, 120)}`);

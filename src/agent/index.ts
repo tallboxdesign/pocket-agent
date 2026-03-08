@@ -986,6 +986,14 @@ class AgentManagerClass extends EventEmitter {
     const memory = this.memory; // Local reference for TypeScript narrowing
     const activeModel = modelOverride || this.model;
     const usingTemporaryModel = !!modelOverride && modelOverride !== this.model;
+    if (!memory.getSession(sessionId)) {
+      const inferredName = sessionId
+        .split(':')
+        .map(part => part || 'session')
+        .join(' ')
+        .replace(/\b\w/g, ch => ch.toUpperCase());
+      memory.ensureSession(sessionId, inferredName, 'coder');
+    }
     let sessionMode = memory.getSessionMode(sessionId);
     let autoSwitchNotice: string | null = null;
     const safeHints = (turnContext?.hints || [])

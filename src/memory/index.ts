@@ -879,6 +879,7 @@ export class MemoryManager {
         published_at TEXT,
         publish_error TEXT,
         image_path TEXT,
+        image_model TEXT DEFAULT 'nano-banana-pro',
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
       )
@@ -902,8 +903,11 @@ export class MemoryManager {
       'ALTER TABLE linkedin_plan_assets ADD COLUMN last_error TEXT',
       'ALTER TABLE linkedin_plan_assets ADD COLUMN error_step TEXT',
       'ALTER TABLE linkedin_plan_assets ADD COLUMN retry_count INTEGER DEFAULT 0',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN image_model TEXT DEFAULT \'nano-banana-pro\'',
       'ALTER TABLE linkedin_plan_assets ADD COLUMN image_preset TEXT DEFAULT \'none\'',
       'ALTER TABLE linkedin_plan_assets ADD COLUMN image_caption TEXT',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN source_urls_json TEXT',
+      'ALTER TABLE linkedin_plan_assets ADD COLUMN trace_json TEXT',
     ];
     for (const sql of assetMigrations) {
       try { this.db.exec(sql); } catch { /* column already exists */ } // eslint-disable-line no-empty
@@ -933,6 +937,7 @@ export class MemoryManager {
         hook TEXT,
         key_points TEXT,
         source_urls TEXT,
+        image_model TEXT DEFAULT 'nano-banana-pro',
         image_preset TEXT DEFAULT 'none',
         image_concept TEXT,
         image_caption TEXT,
@@ -944,6 +949,7 @@ export class MemoryManager {
       )
     `);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_lic_session ON linkedin_idea_cards(session_id)`);
+    try { this.db.exec(`ALTER TABLE linkedin_idea_cards ADD COLUMN image_model TEXT DEFAULT 'nano-banana-pro'`); } catch { /* column already exists */ }
 
     // URL Registry: central source database for all URLs
     this.db.exec(`
@@ -1215,6 +1221,18 @@ export class MemoryManager {
     if (!row) return null;
     row.mode = this.normalizeSessionMode(row.mode || null);
     return row;
+  }
+
+  ensureSession(id: string, name?: string, mode: 'coder' | 'manager' = 'coder'): Session {
+    const existing = this.getSession(id);
+    if (existing) return existing;
+
+    const sessionName = String(name || id || 'Session').trim() || id;
+    this.db.prepare(`
+      INSERT INTO sessions (id, name, mode, created_at, updated_at)
+      VALUES (?, ?, ?, (strftime('%Y-%m-%dT%H:%M:%fZ')), (strftime('%Y-%m-%dT%H:%M:%fZ')))
+    `).run(id, sessionName, mode);
+    return this.getSession(id)!;
   }
 
   /**

@@ -3637,8 +3637,14 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('planner:editAsset', async (_event, id: number, draftText: string) => {
-    const { updateAsset } = await import('../tools/linkedin-planner');
-    return updateAsset(id, { draft_text: draftText });
+    const { getAsset, updateAsset } = await import('../tools/linkedin-planner');
+    const asset = getAsset(id);
+    if (!asset) return null;
+    const updates: Record<string, string> = { draft_text: draftText };
+    if (asset.status !== 'published') {
+      updates.final_text = draftText;
+    }
+    return updateAsset(id, updates);
   });
 
   ipcMain.handle('planner:scheduleAssets', async (_event, assetIds: number[], scheduledAt: string) => {
@@ -3679,12 +3685,64 @@ function setupIPC(): void {
   ipcMain.handle('planner:generateAssets', async (_event, planId: number) => {
     const { generatePlanAssets } = await import('../tools/linkedin-planner');
     try {
-      const assets = await generatePlanAssets(planId);
+      const assets = await generatePlanAssets(planId, (progress) => {
+        linkedInPlannerWindow?.webContents.send('planner:draftProgress', progress);
+      });
       linkedInPlannerWindow?.webContents.send('planner:draftProgress', { planId, status: 'complete', count: assets.length });
       return assets;
     } catch (err) {
       linkedInPlannerWindow?.webContents.send('planner:draftProgress', { planId, status: 'error', error: String(err) });
       return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:retryAsset', async (_event, assetId: number) => {
+    const { getAsset, retryPlanAsset } = await import('../tools/linkedin-planner');
+    const asset = getAsset(assetId);
+    if (!asset) return { success: false, error: 'Asset not found' };
+    try {
+      linkedInPlannerWindow?.webContents.send('planner:draftProgress', {
+        planId: asset.plan_id,
+        assetId,
+        phase: 'queued',
+        status: 'progress',
+        message: 'Retry queued',
+      });
+      const retried = await retryPlanAsset(assetId, (progress) => {
+        linkedInPlannerWindow?.webContents.send('planner:draftProgress', progress);
+      });
+      linkedInPlannerWindow?.webContents.send('planner:draftProgress', { planId: asset.plan_id, assetId, status: 'complete' });
+      return { success: true, asset: retried };
+    } catch (err) {
+      linkedInPlannerWindow?.webContents.send('planner:draftProgress', {
+        planId: asset.plan_id,
+        assetId,
+        phase: 'error',
+        status: 'error',
+        error: String(err),
+        message: String(err),
+      });
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:updateAsset', async (_event, id: number, updates: Record<string, unknown>) => {
+    const { updateAsset } = await import('../tools/linkedin-planner');
+    try {
+      const asset = updateAsset(id, updates as Parameters<typeof updateAsset>[1]);
+      return { success: true, asset };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:syncInheritedImageModelDefaults', async (_event, nextModel: string, previousModel?: string | null) => {
+    const { syncInheritedImageModelDefaults } = await import('../tools/linkedin-planner');
+    try {
+      const result = syncInheritedImageModelDefaults(nextModel, previousModel);
+      return { success: true, ...result };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -3706,12 +3764,19 @@ function setupIPC(): void {
     }
   });
 
-  ipcMain.handle('planner:improveDraft', async (_event, assetId: number, feedback: string, mode: 'improve' | 'redo') => {
-    const { getAsset, updateAsset } = await import('../tools/linkedin-planner');
+  ipcMain.handle('planner:improveDraft', async (_event, assetId: number, feedback: string, mode: 'improve' | 'redo' | 'restructure') => {
+    const { getAsset, updateAsset, forkAssetForRewrite } = await import('../tools/linkedin-planner');
     const { AgentManager } = await import('../agent');
     try {
-      const asset = getAsset(assetId);
+      let asset = getAsset(assetId);
       if (!asset) return { error: 'Asset not found' };
+      let workingAssetId = assetId;
+      if (asset.status === 'published') {
+        const forked = forkAssetForRewrite(assetId);
+        if (!forked) return { error: 'Failed to create rework draft' };
+        asset = forked;
+        workingAssetId = forked.id;
+      }
       const currentText = asset.final_text || asset.draft_text || '';
       if (!currentText && mode === 'improve') return { error: 'No text to improve' };
 
@@ -3719,6 +3784,8 @@ function setupIPC(): void {
       const { DEFAULT_HARD_RULES } = await import('../tools/linkedin-planner');
       const customRules = SettingsManager.get('linkedin.plannerHardRules') || '';
       const checklist = SettingsManager.get('linkedin.plannerPrePublishChecklist') || '';
+      const postStructure = SettingsManager.get('linkedin.plannerPostStructure') || '';
+      const structureGuidance = SettingsManager.get('linkedin.plannerStructureGuidance') || '';
       const allRules = customRules
         ? `${DEFAULT_HARD_RULES}\n${customRules}`
         : DEFAULT_HARD_RULES;
@@ -3726,18 +3793,26 @@ function setupIPC(): void {
       const rulesBlock = [
         `HARD RULES:\n${allRules}`,
         checklist ? `PRE-PUBLISH CHECKLIST (verify ALL before finishing):\n${checklist}` : '',
+        postStructure ? `POST STRUCTURE:\n${postStructure}` : '',
+        structureGuidance ? `STRUCTURE GUIDANCE:\n${structureGuidance}` : '',
       ].filter(Boolean).join('\n\n');
 
+      const restructureFeedback = feedback || 'Keep the same claim, examples, and stance. Only improve sentence flow, paragraphing, scannability, and pacing.';
       const prompt = mode === 'redo'
         ? `You are writing an original LinkedIn post. Write ONLY the post text - no commentary, no labels, no preamble.\n\nOriginal topic/plan: ${asset.plan_prompt || asset.plan_title || ''}\n\nUser feedback: ${feedback}\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the final post text.`
-        : `Improve this LinkedIn post based on user feedback. Return ONLY the improved post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser feedback: ${feedback}\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the improved post text.`;
+        : mode === 'restructure'
+          ? `Restructure this LinkedIn post without changing what it says. Return ONLY the restructured post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser instruction: ${restructureFeedback}\n\nKeep the same substance, stance, examples, and practical point. Do not invent new claims. Improve only readability, rhythm, sentence flow, paragraphing, and scanning.\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the restructured post text.`
+          : `Improve this LinkedIn post based on user feedback. Return ONLY the improved post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser feedback: ${feedback}\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the improved post text.`;
 
-      const response = await AgentManager.processMessage(prompt, 'planner:improve') as unknown;
-      const newText = (typeof response === 'string' ? response : String(response || '')).trim();
+      const response = await AgentManager.processMessage(prompt, 'planner:improve', `planner:improve:${workingAssetId}`) as unknown;
+      const responseObj = response as { response?: string; content?: string } | string | null | undefined;
+      const newText = (typeof responseObj === 'string'
+        ? responseObj
+        : responseObj?.response || responseObj?.content || '').trim();
       if (!newText || newText.length < 30) return { error: 'AI returned insufficient text' };
 
-      updateAsset(assetId, { draft_text: newText, final_text: newText, status: 'draft' });
-      return { text: newText };
+      updateAsset(workingAssetId, { draft_text: newText, final_text: newText, status: 'draft' });
+      return { text: newText, assetId: workingAssetId };
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };
     }
@@ -3778,6 +3853,42 @@ function setupIPC(): void {
     }
   });
 
+  ipcMain.handle('planner:listIdeaSessions', async (_event, status?: string) => {
+    const { listIdeaSessions } = await import('../tools/linkedin-planner');
+    try {
+      return listIdeaSessions(status);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:getIdeaSession', async (_event, sessionId: number) => {
+    const { getIdeaSession } = await import('../tools/linkedin-planner');
+    try {
+      return getIdeaSession(sessionId);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:getIdeaCards', async (_event, sessionId: number) => {
+    const { getIdeaCards } = await import('../tools/linkedin-planner');
+    try {
+      return getIdeaCards(sessionId);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('planner:createIdeaCard', async (_event, card: Record<string, unknown>) => {
+    const { createIdeaCard } = await import('../tools/linkedin-planner');
+    try {
+      return createIdeaCard(card as Parameters<typeof createIdeaCard>[0]);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('planner:sendMessage', async (_event, sessionId: number, message: string, sources?: Record<string, boolean>) => {
     const { getIdeaSession, updateIdeaSession } = await import('../tools/linkedin-planner');
     try {
@@ -3800,18 +3911,20 @@ function setupIPC(): void {
       let context: string;
       if (isFirstMessage) {
         // First message: do actual research
+        updateIdeaSession(sessionId, { status: 'researching' });
         context = `You are a LinkedIn content research assistant. The user wants to create LinkedIn posts about:\n\n"${session.initial_dump}"\n\nDo the following:\n1. RESEARCH the topic thoroughly using your available tools:${sourceInstructions}\n2. Find specific facts, data points, examples, and recent developments\n3. Identify interesting angles for LinkedIn posts\n4. Present your findings in a clear, organized way\n5. Suggest 2-4 possible post angles based on your research\n\nIMPORTANT: Actually use your web search and research tools to find real, current information. Do NOT just brainstorm from memory — search and cite real sources with URLs.\n\nUser's request: ${message}`;
       } else {
         // Follow-up messages: continue discussion with research capability
+        updateIdeaSession(sessionId, { status: 'discussion' });
         context = `You are a LinkedIn content research assistant continuing a brainstorming session.\n\nOriginal idea: ${session.initial_dump}\n\nDiscussion so far:\n${history.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n')}\n\nThe user's latest message is a follow-up. If they ask for more research or new angles, use your web search tools to find real information. If they're refining existing ideas, help them sharpen the angles.\n\nRespond helpfully and keep responses focused and actionable. Always cite real sources with URLs when referencing external information.`;
       }
 
-      const response = await AgentManager.processMessage(context, 'planner:ideaLab') as unknown;
+      const response = await AgentManager.processMessage(context, 'planner:ideaLab', `planner:idea:${sessionId}`) as unknown;
       const responseObj = response as { response?: string };
       const aiMessage = responseObj?.response || 'I could not generate a response. Please try again.';
 
       history.push({ role: 'assistant', content: aiMessage });
-      updateIdeaSession(sessionId, { discussion_history: JSON.stringify(history) });
+      updateIdeaSession(sessionId, { discussion_history: JSON.stringify(history), status: 'discussion' });
 
       return { success: true, message: aiMessage };
     } catch (err) {
@@ -3820,20 +3933,59 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('planner:generateIdeas', async (_event, sessionId: number) => {
-    const { getIdeaSession, createIdeaCard } = await import('../tools/linkedin-planner');
+    const { getIdeaSession, getIdeaCards, createIdeaCard, updateIdeaSession } = await import('../tools/linkedin-planner');
     try {
       const session = getIdeaSession(sessionId);
       if (!session) return { success: false, error: 'Session not found' };
 
-      const history = session.discussion_history ? JSON.parse(session.discussion_history) as Array<{ role: string; content: string }> : [];
-      const context = `Based on this brainstorming session, generate 3-5 distinct LinkedIn post ideas as JSON.\n\nInitial dump: ${session.initial_dump}\n\nDiscussion:\n${history.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n')}\n\nRespond ONLY with a JSON array of objects, each with: angle (the post angle/topic), hook (opening hook line), key_points (array of strings), image_preset (one of: meme, explainer, screenshot, data_visual, quote_card, comparison, none), suggested_sources (array of URL strings if any). No other text.`;
+      const existingCards = getIdeaCards(sessionId);
+      if (existingCards.length > 0) {
+        return { success: true, cards: existingCards, resumed: true };
+      }
 
-      const response = await AgentManager.processMessage(context, 'planner:ideaLab') as unknown;
+      const history = session.discussion_history ? JSON.parse(session.discussion_history) as Array<{ role: string; content: string }> : [];
+      const context = `Based on this brainstorming session, generate 3-5 LinkedIn post ideas as JSON.
+
+Initial dump: ${session.initial_dump}
+
+Discussion:
+${history.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n')}
+
+Treat the ideas as one cohesive mini-series.
+- Keep all ideas inside one shared branch/theme.
+- Give each idea a different role when possible: thesis, mechanism, proof, mistake, playbook.
+- Avoid overlap in hook, core claim, evidence, and takeaway.
+- Vary image_preset across the batch when possible.
+
+Respond ONLY with a JSON array of objects, each with:
+- angle
+- hook
+- key_points (array of strings)
+- image_preset (one of: meme, explainer_card, annotated_screenshot, data_visual, quote_card, comparison, none)
+- image_concept
+- image_caption
+- series_branch
+- series_role
+- suggested_sources (array of URL strings if any)
+
+No other text.`;
+
+      const response = await AgentManager.processMessage(context, 'planner:ideaLab', `planner:idea:${sessionId}:cards`) as unknown;
       const responseObj = response as { response?: string };
       const raw = responseObj?.response || '[]';
 
       // Parse JSON from response (handle markdown code blocks)
-      let ideas: Array<{ angle?: string; hook?: string; key_points?: string[]; image_preset?: string; suggested_sources?: string[] }> = [];
+      let ideas: Array<{
+        angle?: string;
+        hook?: string;
+        key_points?: string[];
+        image_preset?: string;
+        image_concept?: string;
+        image_caption?: string;
+        series_branch?: string;
+        series_role?: string;
+        suggested_sources?: string[];
+      }> = [];
       try {
         const jsonMatch = raw.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
@@ -3851,9 +4003,18 @@ function setupIPC(): void {
           key_points: idea.key_points || [],
           source_urls: idea.suggested_sources || [],
           image_preset: (idea.image_preset as 'none') || 'none',
+          image_concept: idea.image_concept || '',
+          image_caption: idea.image_caption || '',
+          per_idea_rules: [
+            idea.series_branch ? `Series branch: ${idea.series_branch}` : '',
+            idea.series_role ? `Series role: ${idea.series_role}` : '',
+            'Keep this post distinct from sibling posts in the same batch.',
+          ].filter(Boolean).join('\n'),
           sort_order: idx,
         });
       });
+
+      updateIdeaSession(sessionId, { status: 'ideas_ready' });
 
       return { success: true, cards };
     } catch (err) {
@@ -3882,27 +4043,108 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('planner:draftSelected', async (_event, input: Record<string, unknown>) => {
-    const { getIdeaCards, getIdeaSession, createPlan, generatePlanAssets } = await import('../tools/linkedin-planner');
+    const {
+      getIdeaCards,
+      getIdeaSession,
+      createPlan,
+      generatePlanAssets,
+      updateIdeaSession,
+      updateIdeaCard,
+      updateAsset,
+      registerUrl,
+      linkUrlToAsset,
+    } = await import('../tools/linkedin-planner');
     try {
+      const deriveIdeaLabPlanTitle = (
+        selected: Array<{ angle: string; per_idea_rules: string | null }>,
+        sessionDump: string | null | undefined,
+      ): string => {
+        const branchLine = selected
+          .map(c => String(c.per_idea_rules || '').split('\n').find(line => /^Series branch:/i.test(line.trim())) || '')
+          .find(Boolean);
+        if (branchLine) {
+          const branch = branchLine.replace(/^Series branch:\s*/i, '').trim();
+          if (branch) return `Idea Lab: ${branch}`;
+        }
+        const dump = String(sessionDump || '').trim().replace(/\s+/g, ' ');
+        if (dump) {
+          const shortened = dump
+            .replace(/^let'?s\s+(make|do|create)\s+/i, '')
+            .replace(/^i\s+want\s+to\s+/i, '')
+            .slice(0, 52)
+            .trim();
+          if (shortened) return `Idea Lab: ${shortened}`;
+        }
+        const firstAngle = String(selected[0]?.angle || '').trim();
+        if (firstAngle) return `Idea Lab: ${firstAngle.slice(0, 48)}`;
+        return 'Idea Lab Batch';
+      };
+
+      const formatPlannerDiscussionContext = (raw: string | null | undefined): string => {
+        const text = String(raw || '').trim();
+        if (!text) return '';
+        try {
+          const items = JSON.parse(text) as Array<{ role?: string; content?: string }>;
+          if (!Array.isArray(items)) throw new Error('not-array');
+          return items
+            .slice(-4)
+            .map((item) => {
+              const role = String(item?.role || 'message').trim().toUpperCase();
+              const content = String(item?.content || '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, role === 'ASSISTANT' ? 1200 : 500);
+              return `${role}: ${content}`;
+            })
+            .filter(Boolean)
+            .join('\n\n');
+        } catch {
+          return text.replace(/\s+/g, ' ').slice(0, 2000);
+        }
+      };
+
       const sessionId = (input.session_id ?? input.sessionId) as number;
       const batchRules = ((input.batch_rules ?? input.batchRules) as string) || '';
 
       // UI sends full card objects as `cards`, or card IDs as `cardIds`
-      const cards = input.cards as Array<{ id?: number; angle?: string; hook?: string; key_points?: string; image_preset?: string; per_idea_rules?: string }> | undefined;
+      const cards = input.cards as Array<{ id?: number; angle?: string; hook?: string; key_points?: string; source_urls?: string[] | string; image_model?: string; image_preset?: string; image_caption?: string; per_idea_rules?: string }> | undefined;
       const cardIds = input.cardIds as number[] | undefined;
 
-      let selectedCards: Array<{ angle: string; hook: string | null; key_points: string | null; image_preset: string; per_idea_rules: string | null }>;
+      const defaultPlannerImageModel = SettingsManager.get('linkedin.plannerImageModel') || 'nano-banana-pro';
+      let selectedCards: Array<{ id?: number; angle: string; hook: string | null; key_points: string | null; source_urls?: string[]; image_model: string; image_preset: string; image_caption?: string | null; per_idea_rules: string | null }>;
       if (cards && cards.length > 0) {
         selectedCards = cards.map(c => ({
+          id: c.id,
           angle: c.angle || '',
           hook: c.hook || null,
           key_points: c.key_points || null,
+          source_urls: Array.isArray(c.source_urls)
+            ? c.source_urls
+            : typeof c.source_urls === 'string'
+              ? (() => { try { return JSON.parse(c.source_urls) as string[]; } catch { return []; } })()
+              : [],
+          image_model: c.image_model || defaultPlannerImageModel,
           image_preset: c.image_preset || 'none',
+          image_caption: c.image_caption || null,
           per_idea_rules: c.per_idea_rules || null,
         }));
       } else if (cardIds && cardIds.length > 0) {
         const allCards = getIdeaCards(sessionId);
-        selectedCards = allCards.filter(c => cardIds.includes(c.id));
+        selectedCards = allCards
+          .filter(c => cardIds.includes(c.id))
+          .map(c => ({
+            id: c.id,
+            angle: c.angle || '',
+            hook: c.hook || null,
+            key_points: c.key_points || null,
+            source_urls: (() => {
+              try { return c.source_urls ? JSON.parse(c.source_urls) as string[] : []; } catch { return []; }
+            })(),
+            image_model: c.image_model || defaultPlannerImageModel,
+            image_preset: c.image_preset || 'none',
+            image_caption: c.image_caption || null,
+            per_idea_rules: c.per_idea_rules || null,
+          }));
       } else {
         return { success: false, error: 'No cards selected' };
       }
@@ -3910,19 +4152,30 @@ function setupIPC(): void {
 
       if (selectedCards.length === 0) return { success: false, error: 'No cards selected' };
 
-      const planTopics = selectedCards.map(c => c.angle).join(', ');
-      const instructionParts = selectedCards.map(c => {
+      const planTitle = deriveIdeaLabPlanTitle(selectedCards, session?.initial_dump);
+      const instructionParts = selectedCards.map((c, idx) => {
         let keyPoints: string[] = [];
         if (c.key_points) {
           try { keyPoints = typeof c.key_points === 'string' ? JSON.parse(c.key_points) as string[] : c.key_points as unknown as string[]; } catch { keyPoints = []; }
         }
-        return `Post: ${c.angle}\nHook: ${c.hook || ''}\nKey Points: ${keyPoints.join(', ')}\nImage: ${c.image_preset || 'none'}${c.per_idea_rules ? `\nRules: ${c.per_idea_rules}` : ''}`;
+        return `Post brief ${idx + 1}:
+Post: ${c.angle}
+Hook: ${c.hook || ''}
+Key Points: ${keyPoints.join(', ')}
+Image model: ${c.image_model || defaultPlannerImageModel}
+Image preset: ${c.image_preset || 'none'}${c.image_caption ? `\nImage direction: ${c.image_caption}` : ''}${c.per_idea_rules ? `\nRules: ${c.per_idea_rules}` : ''}`;
       });
 
       // Include batch rules and discussion context in prompt
-      let prompt = instructionParts.join('\n\n---\n\n');
-      if (batchRules) prompt += `\n\n## Batch Rules\n${batchRules}`;
-      if (session?.discussion_history) prompt += `\n\n## Discussion Context\n${session.discussion_history}`;
+      const defaultSeriesRules = selectedCards.length > 1
+        ? 'Treat the selected posts as one series. Keep the same branch/theme, but make each post distinct in role, hook, evidence, and practical takeaway. A reader should benefit from consuming all of them in sequence.'
+        : '';
+      const discussionContext = formatPlannerDiscussionContext(session?.discussion_history);
+      let sharedContext = defaultSeriesRules;
+      if (batchRules) sharedContext += `${sharedContext ? '\n' : ''}${batchRules}`;
+      if (discussionContext) sharedContext += `${sharedContext ? '\n\n' : ''}Discussion Context:\n${discussionContext}`;
+      let prompt = instructionParts.join('\n\n<<<POST_BRIEF_SEPARATOR>>>\n\n');
+      if (sharedContext) prompt += `\n\n## SHARED_CONTEXT\n${sharedContext}`;
 
       // Use target from UI, or fall back to first available
       const targetId = input.target_id as number | undefined;
@@ -3936,15 +4189,79 @@ function setupIPC(): void {
       }
 
       const plan = createPlan({
-        title: `Idea Lab: ${planTopics}`,
+        title: planTitle,
         prompt,
         target_ids: targetIds,
+        posts_per_target: targetId ? { [targetId]: selectedCards.length } : undefined,
       });
 
-      const assets = await generatePlanAssets(plan.id);
-      linkedInPlannerWindow?.webContents.send('planner:draftProgress', { planId: plan.id, status: 'complete', count: assets.length });
+      if (sessionId) {
+        updateIdeaSession(sessionId, { status: 'drafting', batch_rules: batchRules || session?.batch_rules || '' });
+      }
 
-      return { success: true, planId: plan.id, assetCount: assets.length };
+      const selectedCardIds = cards && cards.length > 0
+        ? cards.map(c => Number(c.id)).filter(id => Number.isFinite(id))
+        : Array.isArray(cardIds) ? cardIds.filter(id => Number.isFinite(id)) : [];
+      const sortedAssets = [...plan.assets].sort((a, b) => a.id - b.id);
+      selectedCardIds.slice(0, sortedAssets.length).forEach((cardId, idx) => {
+        try {
+          updateIdeaCard(cardId, { asset_id: sortedAssets[idx].id, target_id: sortedAssets[idx].target_id });
+        } catch (err) {
+          console.warn('[Planner] Failed to link idea card to asset:', err);
+        }
+      });
+      sortedAssets.forEach((asset, idx) => {
+        const card = selectedCards[idx];
+        const sourceUrls = Array.from(new Set([
+          ...(card?.source_urls || []),
+          ...(() => {
+            try { return plan.source_urls ? JSON.parse(plan.source_urls) as string[] : []; } catch { return []; }
+          })(),
+        ].filter((url): url is string => /^https?:\/\//i.test(String(url || '')))));
+        try {
+          updateAsset(asset.id, {
+            session_id: sessionId || null,
+            idea_card_id: card?.id || null,
+            batch_rules: batchRules || session?.batch_rules || null,
+            per_idea_rules: card?.per_idea_rules || null,
+            discussion_context: discussionContext || null,
+            image_model: card?.image_model || defaultPlannerImageModel,
+            image_preset: card?.image_preset || 'none',
+            image_caption: card?.image_caption || null,
+            source_urls_json: JSON.stringify(sourceUrls),
+            trace_json: JSON.stringify({
+              createdAt: new Date().toISOString(),
+              queries: [card?.angle || '', card?.hook || '', plan.topic || ''].filter(Boolean),
+              sourceUrls,
+              prompts: {
+                assetBrief: instructionParts[idx] || '',
+                sharedContext,
+              },
+              events: [{ phase: 'queued', at: new Date().toISOString(), message: 'Asset created from Idea Lab selection' }],
+            }),
+          });
+          for (const url of sourceUrls) {
+            const entry = registerUrl({ url, url_type: 'reference' });
+            if (entry) linkUrlToAsset(entry.id, asset.id, 'source');
+          }
+        } catch (err) {
+          console.warn('[Planner] Failed to enrich planner asset metadata:', err);
+        }
+      });
+
+      void (async () => {
+        try {
+          const assets = await generatePlanAssets(plan.id, (progress) => {
+            linkedInPlannerWindow?.webContents.send('planner:draftProgress', progress);
+          });
+          if (sessionId) updateIdeaSession(sessionId, { status: 'drafted' });
+          linkedInPlannerWindow?.webContents.send('planner:draftProgress', { planId: plan.id, status: 'complete', count: assets.length });
+        } catch (err) {
+          linkedInPlannerWindow?.webContents.send('planner:draftProgress', { planId: plan.id, status: 'error', error: String(err) });
+        }
+      })();
+
+      return { success: true, planId: plan.id, assetCount: plan.assets.length, started: true };
     } catch (err) {
       linkedInPlannerWindow?.webContents.send('planner:draftProgress', { status: 'error', error: String(err) });
       return { success: false, error: err instanceof Error ? err.message : String(err) };
