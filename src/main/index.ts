@@ -66,6 +66,34 @@ const IS_WINDOWS = process.platform === 'win32';
 const IS_MACOS = process.platform === 'darwin';
 const HOME_DIR = process.env.HOME || process.env.USERPROFILE || '';
 
+function getLegacyUserDataPath(): string {
+  if (!HOME_DIR) return '';
+  if (IS_MACOS) return path.join(HOME_DIR, 'Library/Application Support/pocket-agent');
+  if (IS_WINDOWS) return path.join(HOME_DIR, 'AppData/Roaming/pocket-agent');
+  return path.join(HOME_DIR, '.config/pocket-agent');
+}
+
+function pinLegacyUserDataPathIfNeeded(): void {
+  try {
+    const legacyUserDataPath = getLegacyUserDataPath();
+    if (!legacyUserDataPath) return;
+
+    const defaultUserDataPath = app.getPath('userData');
+    const legacyDbPath = path.join(legacyUserDataPath, 'pocket-agent.db');
+    if (!fs.existsSync(legacyDbPath)) return;
+
+    if (path.resolve(defaultUserDataPath) === path.resolve(legacyUserDataPath)) return;
+
+    fs.mkdirSync(legacyUserDataPath, { recursive: true });
+    app.setPath('userData', legacyUserDataPath);
+    console.log(`[Main] Using legacy userData path: ${legacyUserDataPath}`);
+  } catch (err) {
+    console.warn('[Main] Failed to pin legacy userData path:', err);
+  }
+}
+
+pinLegacyUserDataPathIfNeeded();
+
 /**
  * Scan a directory for version subdirectories containing a bin/ folder.
  * Used by nvm, n, and nvm-windows to find installed Node versions.
@@ -3786,6 +3814,7 @@ function setupIPC(): void {
       const checklist = SettingsManager.get('linkedin.plannerPrePublishChecklist') || '';
       const postStructure = SettingsManager.get('linkedin.plannerPostStructure') || '';
       const structureGuidance = SettingsManager.get('linkedin.plannerStructureGuidance') || '';
+      const plannerMaxPostChars = Math.min(2800, Math.max(800, Number(SettingsManager.get('linkedin.plannerMaxPostChars') || '2200') || 2200));
       const allRules = customRules
         ? `${DEFAULT_HARD_RULES}\n${customRules}`
         : DEFAULT_HARD_RULES;
@@ -3795,6 +3824,7 @@ function setupIPC(): void {
         checklist ? `PRE-PUBLISH CHECKLIST (verify ALL before finishing):\n${checklist}` : '',
         postStructure ? `POST STRUCTURE:\n${postStructure}` : '',
         structureGuidance ? `STRUCTURE GUIDANCE:\n${structureGuidance}` : '',
+        `POST LENGTH:\nKeep the finished post under ${plannerMaxPostChars} characters total, including line breaks.`,
       ].filter(Boolean).join('\n\n');
 
       const restructureFeedback = feedback || 'Keep the same claim, examples, and stance. Only improve sentence flow, paragraphing, scannability, and pacing.';

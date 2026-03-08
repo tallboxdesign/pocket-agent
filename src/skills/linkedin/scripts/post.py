@@ -97,6 +97,58 @@ def attach_image(page, image_path: str) -> bool:
     return True
 
 
+def finalize_publish(page) -> bool:
+    """Handle any extra LinkedIn audience/confirmation modals after clicking Post."""
+    for attempt in range(6):
+        state = page.evaluate('''() => {
+            const visibleButtons = Array.from(document.querySelectorAll('button')).filter((btn) => {
+                const rect = btn.getBoundingClientRect();
+                const style = window.getComputedStyle(btn);
+                return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && !btn.disabled;
+            });
+            const buttonText = (btn) => ((btn.innerText || btn.getAttribute('aria-label') || '').trim().toLowerCase());
+            const texts = visibleButtons.map(buttonText);
+            const composerOpen = Boolean(
+                document.querySelector('[data-placeholder*="What do you want to talk about"]') ||
+                document.querySelector('[role="textbox"][contenteditable="true"]') ||
+                document.querySelector('.ql-editor')
+            );
+
+            const clickByLabels = (labels, action) => {
+                for (const label of labels) {
+                    const btn = visibleButtons.find((candidate) => buttonText(candidate) === label);
+                    if (btn) {
+                        btn.click();
+                        return { action, label, composerOpen, texts };
+                    }
+                }
+                return null;
+            };
+
+            const audienceChoice = clickByLabels(['anyone', 'public', 'connections only', 'connections'], 'audience');
+            if (audienceChoice) return audienceChoice;
+
+            const confirmChoice = clickByLabels(['done', 'save', 'next', 'post'], 'confirm');
+            if (confirmChoice) return confirmChoice;
+
+            if (!composerOpen) return { action: 'success', composerOpen, texts };
+            return { action: 'wait', composerOpen, texts };
+        }''')
+
+        action = state.get('action')
+        if action == 'success':
+            return True
+
+        if action in ('audience', 'confirm'):
+            print(f"Handled LinkedIn publish modal: {state.get('label')}", file=sys.stderr)
+            StealthUtils.random_delay(1500, 2500)
+            continue
+
+        StealthUtils.random_delay(1500, 2500)
+
+    return False
+
+
 def create_post(page, text: str, image_path: str = None) -> bool:
     """Create a new LinkedIn post, optionally with an image."""
     # Click "Start a post"
@@ -139,8 +191,11 @@ def create_post(page, text: str, image_path: str = None) -> bool:
         if btn and btn.is_enabled():
             btn.click()
             StealthUtils.random_delay(3000, 5000)
-            print("Post published successfully")
-            return True
+            if finalize_publish(page):
+                print("Post published successfully")
+                return True
+            print("ERROR: Publish flow did not fully complete", file=sys.stderr)
+            return False
 
     print("ERROR: Could not find Post button", file=sys.stderr)
     return False

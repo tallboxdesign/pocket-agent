@@ -1230,6 +1230,11 @@
           <textarea class="form-textarea" id="planner-post-format" rows="3" placeholder="Write a LinkedIn post (100-300 words). Strong hook..."></textarea>
         </div>
         <div class="form-group">
+          <label class="form-label">Safe LinkedIn Max Characters</label>
+          <input class="form-input" id="planner-max-post-chars" type="number" min="800" max="2800" step="50" placeholder="2200">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Planner drafts and publish actions stay under this cap. Use a safe limit lower than LinkedIn's hard edge so auto-publish does not walk into extra composer flow.</div>
+        </div>
+        <div class="form-group">
           <label class="form-label">Post Structure</label>
           <textarea class="form-textarea" id="planner-post-structure" rows="3" placeholder="Readable and varied. Mix short and medium paragraphs. Break dense logic into scannable chunks."></textarea>
           <div style="font-size:11px;color:var(--text-muted);margin-top:3px">How the post should be shaped, not what it should say.</div>
@@ -2719,6 +2724,7 @@
   const SETTINGS_MAP = {
     'planner-hard-rules': 'linkedin.plannerHardRules',
     'planner-post-format': 'linkedin.plannerPostFormat',
+    'planner-max-post-chars': 'linkedin.plannerMaxPostChars',
     'planner-post-structure': 'linkedin.plannerPostStructure',
     'planner-structure-guidance': 'linkedin.plannerStructureGuidance',
     'planner-article-format': 'linkedin.plannerArticleFormat',

@@ -1621,9 +1621,15 @@ export const DEFAULT_HARD_RULES = `- No emojis, no hashtags, no em dashes, no en
 - Concrete stance with practical takeaway.
 - End with a statement or a take. Never a question.`;
 
-const DEFAULT_POST_FORMAT = 'Write a LinkedIn post (100-300 words). Strong hook in first line, clear structure, practical takeaway.';
+const DEFAULT_POST_FORMAT = 'Write a LinkedIn post (100-240 words). Strong hook in first line, clear structure, practical takeaway.';
 const DEFAULT_ARTICLE_FORMAT = 'Write a long-form LinkedIn article (800-1500 words) with clear sections and headers.';
 const DEFAULT_GROUP_FORMAT = 'Write a group discussion post (100-250 words). Frame as a question or discussion starter, not self-promotion.';
+
+function getPlannerSafeMaxPostChars(): number {
+  const raw = Number(SettingsManager.get('linkedin.plannerMaxPostChars') || '2200');
+  if (!Number.isFinite(raw)) return 2200;
+  return Math.min(2800, Math.max(800, Math.floor(raw)));
+}
 
 export type PlannerDraftPhase = 'queued' | 'writing' | 'drafted' | 'image_generating' | 'image_done' | 'done' | 'error';
 
@@ -1745,6 +1751,7 @@ export async function generatePlanAssets(
       : target.target_type === 'group'
         ? groupFormat
         : postFormat;
+    const maxPostChars = getPlannerSafeMaxPostChars();
 
     const avoidOpeningsBlock = usedOpenings.length
       ? `\nAvoid these opening patterns already used in this plan: ${usedOpenings.join(' | ')}`
@@ -1761,6 +1768,7 @@ Target: ${target.label} (${target.target_type})
 ${targetContext}
 
 ${formatGuidance}
+Keep the finished post under ${maxPostChars} characters total, including line breaks.
 
 ${voiceStyle ? `Voice/Style: ${voiceStyle}` : ''}
 ${writingRules ? `Writing rules: ${writingRules}` : ''}
@@ -1841,6 +1849,36 @@ Return only the final post text.`;
             total: pendingAssets.length,
             phase: 'error',
             message: `Draft ${idx + 1}/${pendingAssets.length} was too short`,
+          });
+          continue;
+        }
+      }
+
+      if (draftText.length > maxPostChars) {
+        console.warn(`[Planner] Draft too long for asset ${asset.id}, retrying with stricter character guidance`);
+        appendPlannerAssetTraceEvent(asset.id, 'retry', `Draft too long (${draftText.length} chars), retrying under ${maxPostChars} chars`);
+        const retryResponse = await AgentManager.processMessage(
+          `${draftPrompt}\n\nThe previous draft was ${draftText.length} characters long. Rewrite it under ${maxPostChars} characters while keeping the same main claim and practical takeaway. Return only the finished post text.`,
+          'planner:draft',
+          `planner:draft:${planId}`
+        );
+        const retryText = cleanPlannerDraft(extractAgentText(retryResponse));
+        if (retryText && retryText.length >= 50 && retryText.length <= maxPostChars) {
+          draftText = retryText;
+        } else {
+          updateAsset(asset.id, {
+            status: 'failed',
+            last_error: `Draft too long (${draftText.length} chars, limit ${maxPostChars})`,
+            error_step: 'writing',
+          });
+          appendPlannerAssetTraceEvent(asset.id, 'error', `Draft ${idx + 1}/${pendingAssets.length} exceeded ${maxPostChars} characters`);
+          emitProgress({
+            planId,
+            assetId: asset.id,
+            index: idx + 1,
+            total: pendingAssets.length,
+            phase: 'error',
+            message: `Draft ${idx + 1}/${pendingAssets.length} exceeded ${maxPostChars} characters`,
           });
           continue;
         }
@@ -2037,6 +2075,10 @@ export async function publishAsset(id: number): Promise<PlanAsset> {
 
   const text = asset.final_text || asset.draft_text;
   if (!text) throw new Error('No text to publish');
+  const maxPostChars = getPlannerSafeMaxPostChars();
+  if (text.length > maxPostChars) {
+    throw new Error(`Post is too long for safe LinkedIn auto-publish (${text.length} chars, limit ${maxPostChars}). Shorten or restructure it first.`);
+  }
 
   if (!asset.can_auto_publish) {
     throw new Error(`Target "${asset.target_label}" does not support auto-publishing. Use "Copy Text" and post manually.`);

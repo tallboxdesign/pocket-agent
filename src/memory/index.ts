@@ -13,6 +13,7 @@ export interface Session {
   id: string;
   name: string;
   mode?: 'coder' | 'manager';
+  hidden?: boolean;
   created_at: string;
   updated_at: string;
   telegram_linked?: boolean;
@@ -188,6 +189,7 @@ export class MemoryManager {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         mode TEXT DEFAULT 'coder',
+        hidden INTEGER DEFAULT 0,
         created_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ'))),
         updated_at TEXT DEFAULT ((strftime('%Y-%m-%dT%H:%M:%fZ')))
       );
@@ -552,6 +554,11 @@ export class MemoryManager {
       this.db.exec(`ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT 'coder'`);
       this.db.exec(`UPDATE sessions SET mode = 'coder' WHERE mode IS NULL OR trim(mode) = ''`);
       console.log('[Memory] Migrated sessions table: added mode column');
+    }
+    if (!sessColumns.some(c => c.name === 'hidden')) {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN hidden INTEGER DEFAULT 0`);
+      this.db.exec(`UPDATE sessions SET hidden = 1 WHERE id != 'default' AND instr(id, ':') > 0`);
+      console.log('[Memory] Migrated sessions table: added hidden column');
     }
     // Mode cleanup: "general" has been merged into "manager"
     this.db.exec(`UPDATE sessions SET mode = 'manager' WHERE lower(trim(mode)) = 'general'`);
