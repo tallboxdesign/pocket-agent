@@ -1193,11 +1193,15 @@ export class MemoryManager {
 
     const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     this.db.prepare(`
-      INSERT INTO sessions (id, name, mode, created_at, updated_at)
-      VALUES (?, ?, ?, (strftime('%Y-%m-%dT%H:%M:%fZ')), (strftime('%Y-%m-%dT%H:%M:%fZ')))
+      INSERT INTO sessions (id, name, mode, hidden, created_at, updated_at)
+      VALUES (?, ?, ?, 0, (strftime('%Y-%m-%dT%H:%M:%fZ')), (strftime('%Y-%m-%dT%H:%M:%fZ')))
     `).run(id, name, mode);
 
     return this.getSession(id)!;
+  }
+
+  private shouldHideSession(id: string): boolean {
+    return id !== 'default' && id.includes(':');
   }
 
   /**
@@ -1205,7 +1209,7 @@ export class MemoryManager {
    */
   getSessionByName(name: string): Session | null {
     const row = this.db.prepare(`
-      SELECT id, name, mode, created_at, updated_at
+      SELECT id, name, mode, COALESCE(hidden, 0) AS hidden, created_at, updated_at
       FROM sessions
       WHERE name = ?
     `).get(name) as Session | undefined;
@@ -1220,7 +1224,7 @@ export class MemoryManager {
    */
   getSession(id: string): Session | null {
     const row = this.db.prepare(`
-      SELECT id, name, mode, created_at, updated_at
+      SELECT id, name, mode, COALESCE(hidden, 0) AS hidden, created_at, updated_at
       FROM sessions
       WHERE id = ?
     `).get(id) as Session | undefined;
@@ -1232,13 +1236,24 @@ export class MemoryManager {
 
   ensureSession(id: string, name?: string, mode: 'coder' | 'manager' = 'coder'): Session {
     const existing = this.getSession(id);
-    if (existing) return existing;
+    if (existing) {
+      if (this.shouldHideSession(id) && !existing.hidden) {
+        this.db.prepare(`
+          UPDATE sessions
+          SET hidden = 1, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ'))
+          WHERE id = ?
+        `).run(id);
+        return this.getSession(id)!;
+      }
+      return existing;
+    }
 
     const sessionName = String(name || id || 'Session').trim() || id;
+    const hidden = this.shouldHideSession(id) ? 1 : 0;
     this.db.prepare(`
-      INSERT INTO sessions (id, name, mode, created_at, updated_at)
-      VALUES (?, ?, ?, (strftime('%Y-%m-%dT%H:%M:%fZ')), (strftime('%Y-%m-%dT%H:%M:%fZ')))
-    `).run(id, sessionName, mode);
+      INSERT INTO sessions (id, name, mode, hidden, created_at, updated_at)
+      VALUES (?, ?, ?, ?, (strftime('%Y-%m-%dT%H:%M:%fZ')), (strftime('%Y-%m-%dT%H:%M:%fZ')))
+    `).run(id, sessionName, mode, hidden);
     return this.getSession(id)!;
   }
 
@@ -1267,6 +1282,8 @@ export class MemoryManager {
         t.group_name as telegram_group_name
       FROM sessions s
       LEFT JOIN telegram_chat_sessions t ON s.id = t.session_id
+      WHERE COALESCE(s.hidden, 0) = 0
+        AND (s.id = 'default' OR instr(s.id, ':') = 0)
       ORDER BY s.updated_at DESC
     `).all() as SessionRow[];
     return rows.map(row => ({
