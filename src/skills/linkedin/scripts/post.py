@@ -93,6 +93,54 @@ def attach_image(page, image_path: str) -> bool:
         # Some flows auto-return to share modal
         StealthUtils.random_delay(1000, 2000)
 
+    # Step 5: Make sure we are back in the share composer, not stuck in media editor
+    for _ in range(6):
+        state = page.evaluate('''() => {
+            const isVisible = (el) => {
+                if (!el) return false;
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+            };
+
+            const editorOpen = Array.from(document.querySelectorAll('[role="textbox"], .ql-editor'))
+                .some((el) => isVisible(el));
+
+            const fileInputVisible = Array.from(document.querySelectorAll("input[type='file']"))
+                .some((el) => isVisible(el));
+
+            const buttons = Array.from(document.querySelectorAll('button')).filter((btn) => isVisible(btn) && !btn.disabled);
+            const buttonText = (btn) => ((btn.innerText || btn.getAttribute('aria-label') || '').trim().toLowerCase());
+
+            if (editorOpen && !fileInputVisible) {
+                const closeBtn = buttons.find((btn) => ['close', 'dismiss'].includes(buttonText(btn)));
+                if (closeBtn) closeBtn.click();
+                return { action: 'ready' };
+            }
+
+            for (const label of ['done', 'next', 'save']) {
+                const btn = buttons.find((candidate) => buttonText(candidate) === label);
+                if (btn) {
+                    btn.click();
+                    return { action: 'confirm', label };
+                }
+            }
+
+            const closeBtn = buttons.find((btn) => ['close', 'dismiss'].includes(buttonText(btn)));
+            if (closeBtn) {
+                closeBtn.click();
+                return { action: 'close' };
+            }
+
+            return { action: 'wait', editorOpen, fileInputVisible };
+        }''')
+
+        if state.get('action') == 'ready':
+            break
+        if state.get('action') in ('confirm', 'close'):
+            print(f"Settled media flow via '{state.get('label', state.get('action'))}'", file=sys.stderr)
+        StealthUtils.random_delay(1200, 2200)
+
     print(f"Image attached: {image_path}", file=sys.stderr)
     return True
 
@@ -147,6 +195,49 @@ def finalize_publish(page) -> bool:
         StealthUtils.random_delay(1500, 2500)
 
     return False
+
+
+def cleanup_composer_state(page) -> None:
+    """Dismiss any lingering composer/save-draft UI before shutdown."""
+    for _ in range(8):
+        state = page.evaluate('''() => {
+            const isVisible = (el) => {
+                if (!el) return false;
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+            };
+
+            const buttons = Array.from(document.querySelectorAll('button')).filter((btn) => isVisible(btn) && !btn.disabled);
+            const buttonText = (btn) => ((btn.innerText || btn.getAttribute('aria-label') || '').trim().toLowerCase());
+            const composerOpen = Array.from(document.querySelectorAll('[role="dialog"], [role="textbox"], .ql-editor'))
+                .some((el) => isVisible(el));
+
+            for (const label of ['discard', 'discard draft']) {
+                const btn = buttons.find((candidate) => buttonText(candidate) === label);
+                if (btn) {
+                    btn.click();
+                    return { action: 'discard', label };
+                }
+            }
+
+            for (const label of ['close', 'dismiss', 'cancel']) {
+                const btn = buttons.find((candidate) => buttonText(candidate) === label);
+                if (btn) {
+                    btn.click();
+                    return { action: 'close', label, composerOpen };
+                }
+            }
+
+            return { action: composerOpen ? 'wait' : 'done', composerOpen };
+        }''')
+
+        action = state.get('action')
+        if action == 'done':
+            return
+        if action in ('discard', 'close'):
+            print(f"Cleared lingering composer via '{state.get('label')}'", file=sys.stderr)
+        StealthUtils.random_delay(800, 1500)
 
 
 def create_post(page, text: str, image_path: str = None) -> bool:
@@ -237,6 +328,7 @@ def main():
     headless = not args.show_browser and not image_path
     playwright = None
     context = None
+    page = None
 
     try:
         playwright = sync_playwright().start()
@@ -264,6 +356,11 @@ def main():
         sys.exit(1)
 
     finally:
+        if page:
+            try:
+                cleanup_composer_state(page)
+            except Exception:
+                pass
         if context:
             try:
                 context.close()

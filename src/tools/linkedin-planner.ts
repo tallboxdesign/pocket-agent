@@ -1606,7 +1606,46 @@ function cleanPlannerDraft(draft: string): string {
   return text.replace(/[ \t]{2,}/g, ' ').trim();
 }
 
+function extractIdeaRule(rules: string | null | undefined, label: string): string {
+  const match = String(rules || '')
+    .split('\n')
+    .find(line => line.trim().toLowerCase().startsWith(`${label.toLowerCase()}:`));
+  return match ? match.replace(new RegExp(`^${label}:\\s*`, 'i'), '').trim() : '';
+}
+
+function getOpeningLead(text: string): string {
+  const firstLine = String(text || '').split('\n').find(line => line.trim()) || '';
+  return firstLine
+    .trim()
+    .replace(/^[^A-Za-z0-9]+/, '')
+    .split(/\s+/)
+    .slice(0, 4)
+    .join(' ')
+    .toLowerCase();
+}
+
+function hasRepeatedOpeningLead(text: string, priorOpenings: string[]): boolean {
+  const lead = getOpeningLead(text);
+  if (!lead) return false;
+  return priorOpenings.some(prev => getOpeningLead(prev) === lead);
+}
+
 const AI_SLOP_PATTERN = /\b(landscape|leverage|robust|comprehensive|holistic|streamline|optimize|paradigm|game[- ]changing|cutting-edge|transformative|unprecedented|synergy|foster|harness|delve|elevate|dramatically|significantly|meaningful|importantly|more importantly|most importantly)\b/i;
+const PLANNER_REFUSAL_PATTERN = /\b(duplicate request|exact same brief|brief is identical|i just wrote this exact post|i['']?ve written this same post|i have written this same post|if you['']?d like me to draft a different post|let me know and i['']?ll write that instead|let me know what you need and i['']?ll adjust|this appears to be a duplicate request|i['']?ve already written|i have already written|are you asking for)\b/i;
+
+function isPlannerMetaResponse(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (PLANNER_REFUSAL_PATTERN.test(trimmed)) return true;
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('this appears to be a duplicate request')) return true;
+  if (lower.startsWith('if you would like me to draft a different post')) return true;
+  if (lower.startsWith('i just wrote this exact post for you')) return true;
+  if (lower.includes('the brief is identical')) return true;
+  if (lower.includes('are you asking for')) return true;
+  if (lower.includes('let me know what you need and i\'ll adjust')) return true;
+  return false;
+}
 
 export const DEFAULT_HARD_RULES = `- No emojis, no hashtags, no em dashes, no en dashes. Hyphens only.
 - No generic openers: "I'm excited to share", "In today's world", "Let me tell you."
@@ -1624,8 +1663,13 @@ export const DEFAULT_HARD_RULES = `- No emojis, no hashtags, no em dashes, no en
 const DEFAULT_POST_FORMAT = 'Write a LinkedIn post (100-240 words). Strong hook in first line, clear structure, practical takeaway.';
 const DEFAULT_ARTICLE_FORMAT = 'Write a long-form LinkedIn article (800-1500 words) with clear sections and headers.';
 const DEFAULT_GROUP_FORMAT = 'Write a group discussion post (100-250 words). Frame as a question or discussion starter, not self-promotion.';
+export const DEFAULT_POST_STRUCTURE = 'Use a highly scannable LinkedIn structure. Build the post in short readable chunks. Open with a concrete claim or scenario, not a long setup. If the post covers multiple points, feel free to number them. Keep each paragraph focused on one move at a time. If you use examples, make them easy to scan instead of burying them in a dense block.';
+export const DEFAULT_STRUCTURE_GUIDANCE = 'Format for LinkedIn mobile reading. Avoid walls of text. Most paragraphs should be one sentence or two short sentences max. Use white space aggressively. Break dense explanations into smaller blocks. If examples, lessons, or takeaways are easier to scan as bullets or numbered sections, format them that way. Preserve the substance, but make the reading rhythm lighter, sharper, and easier to scan in-feed.';
+export function getPlannerLengthGuidance(targetChars: number): string {
+  return `Keep the post under ${targetChars} characters total, including line breaks. Aim to land comfortably below that limit, ideally by roughly 50-150 characters, so it remains safe for LinkedIn auto-publish without feeling cut down.`;
+}
 
-function getPlannerSafeMaxPostChars(): number {
+function getPlannerTargetPostChars(): number {
   const raw = Number(SettingsManager.get('linkedin.plannerMaxPostChars') || '2200');
   if (!Number.isFinite(raw)) return 2200;
   return Math.min(2800, Math.max(800, Math.floor(raw)));
@@ -1680,8 +1724,8 @@ export async function generatePlanAssets(
   const writingRules = SettingsManager.get('linkedin.writingRules') || '';
   const contentDirection = SettingsManager.get('linkedin.contentDirection') || '';
   const postStrategy = SettingsManager.get('linkedin.postStrategy') || '';
-  const postStructure = SettingsManager.get('linkedin.plannerPostStructure') || '';
-  const structureGuidance = SettingsManager.get('linkedin.plannerStructureGuidance') || '';
+  const postStructure = (SettingsManager.get('linkedin.plannerPostStructure') || DEFAULT_POST_STRUCTURE).trim();
+  const structureGuidance = (SettingsManager.get('linkedin.plannerStructureGuidance') || DEFAULT_STRUCTURE_GUIDANCE).trim();
   const customRules = SettingsManager.get('linkedin.plannerHardRules') || '';
   const hardRules = customRules
     ? `${DEFAULT_HARD_RULES}\n${customRules}`
@@ -1729,6 +1773,10 @@ export async function generatePlanAssets(
     const asset = pendingAssets[idx];
     const target = getTarget(asset.target_id);
     if (!target) continue;
+    const lens = extractIdeaRule(asset.per_idea_rules, 'Series role');
+    const openingStyle = extractIdeaRule(asset.per_idea_rules, 'Opening style');
+    const exampleAnchor = extractIdeaRule(asset.per_idea_rules, 'Example anchor');
+    const takeawayStyle = extractIdeaRule(asset.per_idea_rules, 'Takeaway style');
 
     emitProgress({
       planId,
@@ -1751,11 +1799,20 @@ export async function generatePlanAssets(
       : target.target_type === 'group'
         ? groupFormat
         : postFormat;
-    const maxPostChars = getPlannerSafeMaxPostChars();
+    const targetPostChars = getPlannerTargetPostChars();
 
+    const priorOpeningLeads = Array.from(new Set(usedOpenings.map(getOpeningLead).filter(Boolean)));
     const avoidOpeningsBlock = usedOpenings.length
-      ? `\nAvoid these opening patterns already used in this plan: ${usedOpenings.join(' | ')}`
+      ? `\nAvoid these opening patterns already used in this plan: ${usedOpenings.join(' | ')}\nDo not reuse these first-line leads: ${priorOpeningLeads.join(' | ')}`
       : '';
+    const openingStyleBlock = openingStyle
+      ? `\nFIRST-LINE OPENING STYLE:\n${openingStyle}\nMake the first line clearly feel like this opening style. Do not default back to a generic explanatory "Google ..." opener.`
+      : '\nFIRST-LINE OPENING STYLE:\nUse a fresh opener. Do not default to a generic explanatory "Google ..." opener.';
+    const distinctnessBlock = [
+      lens ? `Lens: ${lens}` : '',
+      exampleAnchor ? `Example anchor: ${exampleAnchor}` : '',
+      takeawayStyle ? `Takeaway style: ${takeawayStyle}` : '',
+    ].filter(Boolean).join('\n');
 
     const assetBrief = perAssetBriefs[idx] || planData.prompt;
     const sharedContextBlock = sharedContext ? `\n\nShared batch context:\n${sharedContext}` : '';
@@ -1768,12 +1825,14 @@ Target: ${target.label} (${target.target_type})
 ${targetContext}
 
 ${formatGuidance}
-Keep the finished post under ${maxPostChars} characters total, including line breaks.
+${getPlannerLengthGuidance(targetPostChars)}
 
 ${voiceStyle ? `Voice/Style: ${voiceStyle}` : ''}
 ${writingRules ? `Writing rules: ${writingRules}` : ''}
 ${postStructure ? `Post structure: ${postStructure}` : ''}
 ${structureGuidance ? `Structure guidance: ${structureGuidance}` : ''}
+${distinctnessBlock ? `${distinctnessBlock}` : ''}
+${openingStyleBlock}
 ${contentDirection ? `Content direction: ${contentDirection}` : ''}
 ${postStrategy ? `Strategy: ${postStrategy}` : ''}
 ${postBankBlock}
@@ -1828,7 +1887,7 @@ Return only the final post text.`;
         console.warn(`[Planner] Draft too short for asset ${asset.id}, retrying once with stricter length guidance`);
         appendPlannerAssetTraceEvent(asset.id, 'retry', 'Draft too short, retrying with stricter length guidance');
         const retryResponse = await AgentManager.processMessage(
-          `${draftPrompt}\n\nThe previous draft was too short. Rewrite as a complete LinkedIn post between 120 and 220 words. Return only the finished post text.`,
+          `${draftPrompt}\n\nThe previous draft was too short. Rewrite as a complete LinkedIn post between 120 and 220 words while still staying under the character limit above. Return only the finished post text.`,
           'planner:draft',
           `planner:draft:${planId}`
         );
@@ -1854,31 +1913,32 @@ Return only the final post text.`;
         }
       }
 
-      if (draftText.length > maxPostChars) {
-        console.warn(`[Planner] Draft too long for asset ${asset.id}, retrying with stricter character guidance`);
-        appendPlannerAssetTraceEvent(asset.id, 'retry', `Draft too long (${draftText.length} chars), retrying under ${maxPostChars} chars`);
+      // Quality gate: reject meta/refusal responses and retry once with stronger uniqueness guidance
+      if (isPlannerMetaResponse(draftText)) {
+        console.warn(`[Planner] Meta/refusal draft detected for asset ${asset.id}, retrying with stronger uniqueness guidance`);
+        appendPlannerAssetTraceEvent(asset.id, 'retry', 'Model returned meta/refusal text, retrying with stronger uniqueness guidance');
         const retryResponse = await AgentManager.processMessage(
-          `${draftPrompt}\n\nThe previous draft was ${draftText.length} characters long. Rewrite it under ${maxPostChars} characters while keeping the same main claim and practical takeaway. Return only the finished post text.`,
+          `${draftPrompt}\n\nThe previous response was not a draft. It was meta commentary about duplication. Do NOT comment on whether the brief is similar to other posts. Write the post anyway. Stay on the same branch, but make this card distinct through its assigned lens, opening style, example anchor, and takeaway style. Return only the finished post text.`,
           'planner:draft',
           `planner:draft:${planId}`
         );
         const retryText = cleanPlannerDraft(extractAgentText(retryResponse));
-        if (retryText && retryText.length >= 50 && retryText.length <= maxPostChars) {
+        if (retryText && retryText.length >= 50 && !isPlannerMetaResponse(retryText)) {
           draftText = retryText;
         } else {
           updateAsset(asset.id, {
             status: 'failed',
-            last_error: `Draft too long (${draftText.length} chars, limit ${maxPostChars})`,
+            last_error: 'Model returned a duplicate-refusal response instead of a post',
             error_step: 'writing',
           });
-          appendPlannerAssetTraceEvent(asset.id, 'error', `Draft ${idx + 1}/${pendingAssets.length} exceeded ${maxPostChars} characters`);
+          appendPlannerAssetTraceEvent(asset.id, 'error', `Draft ${idx + 1}/${pendingAssets.length} returned meta/refusal text`);
           emitProgress({
             planId,
             assetId: asset.id,
             index: idx + 1,
             total: pendingAssets.length,
             phase: 'error',
-            message: `Draft ${idx + 1}/${pendingAssets.length} exceeded ${maxPostChars} characters`,
+            message: `Draft ${idx + 1}/${pendingAssets.length} returned meta/refusal text`,
           });
           continue;
         }
@@ -1894,6 +1954,20 @@ Return only the final post text.`;
         );
         const retryText = cleanPlannerDraft(extractAgentText(retryResponse));
         if (retryText && retryText.length >= 50) draftText = retryText;
+      }
+
+      if (hasRepeatedOpeningLead(draftText, usedOpenings)) {
+        console.warn(`[Planner] Repeated opening lead detected for asset ${asset.id}, retrying with stronger first-line guidance`);
+        appendPlannerAssetTraceEvent(asset.id, 'retry', 'Opening lead repeated an earlier post, retrying with stronger first-line guidance');
+        const retryResponse = await AgentManager.processMessage(
+          `${draftPrompt}\n\nThe previous draft reused the same first-line lead as another post in this batch. Rewrite it with a genuinely different opener. Do not start with the same first 3-4 words as earlier posts. Do not start with a generic explanatory "Google ..." lead. Return only the final post text.`,
+          'planner:draft',
+          `planner:draft:${planId}`
+        );
+        const retryText = cleanPlannerDraft(extractAgentText(retryResponse));
+        if (retryText && retryText.length >= 50 && !hasRepeatedOpeningLead(retryText, usedOpenings)) {
+          draftText = retryText;
+        }
       }
 
       // Track opening for diversity
@@ -2075,11 +2149,6 @@ export async function publishAsset(id: number): Promise<PlanAsset> {
 
   const text = asset.final_text || asset.draft_text;
   if (!text) throw new Error('No text to publish');
-  const maxPostChars = getPlannerSafeMaxPostChars();
-  if (text.length > maxPostChars) {
-    throw new Error(`Post is too long for safe LinkedIn auto-publish (${text.length} chars, limit ${maxPostChars}). Shorten or restructure it first.`);
-  }
-
   if (!asset.can_auto_publish) {
     throw new Error(`Target "${asset.target_label}" does not support auto-publishing. Use "Copy Text" and post manually.`);
   }

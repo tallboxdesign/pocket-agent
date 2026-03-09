@@ -1230,19 +1230,39 @@
           <textarea class="form-textarea" id="planner-post-format" rows="3" placeholder="Write a LinkedIn post (100-300 words). Strong hook..."></textarea>
         </div>
         <div class="form-group">
-          <label class="form-label">Safe LinkedIn Max Characters</label>
+          <label class="form-label">Target LinkedIn Characters</label>
           <input class="form-input" id="planner-max-post-chars" type="number" min="800" max="2800" step="50" placeholder="2200">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Planner drafts and publish actions stay under this cap. Use a safe limit lower than LinkedIn's hard edge so auto-publish does not walk into extra composer flow.</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Soft target for planner writing. The model will aim around this length, but the app will not hard-block drafting or publishing if a post runs a bit over.</div>
         </div>
         <div class="form-group">
-          <label class="form-label">Post Structure</label>
-          <textarea class="form-textarea" id="planner-post-structure" rows="3" placeholder="Readable and varied. Mix short and medium paragraphs. Break dense logic into scannable chunks."></textarea>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">How the post should be shaped, not what it should say.</div>
+          <label class="form-label">Structure Preset</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select class="form-select" id="planner-structure-preset" style="flex:1">
+              <option value="">Custom</option>
+              <option value="scannable_numbered">Scannable numbered post</option>
+              <option value="short_line_authority">Short-line authority post</option>
+              <option value="bullet_practical">Bullet-led practical post</option>
+              <option value="narrative_breaks">Narrative with hard breaks</option>
+            </select>
+            <button class="btn btn-sm" type="button" onclick="applyStructurePreset()">Apply</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">This is a starter template picker. If the fields below no longer match a built-in preset exactly, this shows as Custom.</div>
         </div>
         <div class="form-group">
-          <label class="form-label">Structure Guidance</label>
-          <textarea class="form-textarea" id="planner-structure-guidance" rows="4" placeholder="- Keep the core claim, just improve flow&#10;- Avoid long uniform paragraphs&#10;- Use one or two short standalone lines when needed&#10;- Keep examples, but make them easier to scan"></textarea>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Extra rules for sentence flow, paragraphing, scannability, and pacing.</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <label class="form-label" style="margin:0">Post Structure</label>
+            <button class="btn btn-sm" type="button" onclick="resetStructureField('planner-post-structure')">Return to default</button>
+          </div>
+          <textarea class="form-textarea" id="planner-post-structure" rows="3" placeholder="Readable and varied. Mix short and medium paragraphs. Break dense logic into scannable chunks." oninput="syncStructurePresetSelection()"></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">This is the actual structure instruction the AI uses. Editing this box changes the live structure rule, it does not append hidden text behind the scenes.</div>
+        </div>
+        <div class="form-group">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <label class="form-label" style="margin:0">Structure Guidance</label>
+            <button class="btn btn-sm" type="button" onclick="resetStructureField('planner-structure-guidance')">Return to default</button>
+          </div>
+          <textarea class="form-textarea" id="planner-structure-guidance" rows="4" placeholder="- Keep the core claim, just improve flow&#10;- Avoid long uniform paragraphs&#10;- Use one or two short standalone lines when needed&#10;- Keep examples, but make them easier to scan" oninput="syncStructurePresetSelection()"></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Extra rules for sentence flow, paragraphing, scannability, and pacing. This box is also used directly, not merged with a hidden custom layer.</div>
         </div>
         <div class="form-group">
           <label class="form-label">Article Format (long-form)</label>
@@ -1365,6 +1385,29 @@
   let researchMode = 'balanced';
   let plannerProgressByAsset = new Map();
   let loadAllTimer = null;
+  let loadedPlannerTargetChars = 2200;
+  const STRUCTURE_PRESETS = {
+    scannable_numbered: {
+      structure: 'Use a highly scannable LinkedIn structure. Break the post into short sections. If the post teaches multiple points, number them. Keep most paragraphs to one sentence or two short sentences max. Use bullets when examples or supporting points are easier to scan that way.',
+      guidance: 'Format for LinkedIn mobile reading. Use white space aggressively. Prefer one clear thought per line. Reset attention often with short standalone lines. Avoid dense explanatory blocks. If you use numbered sections, make each section earn its place and land a practical point quickly.'
+    },
+    short_line_authority: {
+      structure: 'Shape the post around short declarative lines. Keep the flow sharp, direct, and punchy. Use a strong opening line, then build with compact paragraphs that feel confident rather than explanatory.',
+      guidance: 'Most paragraphs should be one sentence. Mix in occasional 2-sentence blocks for depth. Cut filler transitions. Let short standalone lines carry emphasis. Keep the cadence varied, but tight and easy to scan.'
+    },
+    bullet_practical: {
+      structure: 'Use a practical operator structure. Open with the main claim, then break tactics, examples, or lessons into bullets when that makes the post easier to follow.',
+      guidance: 'If the post includes examples, mistakes, or takeaways, format them as bullets instead of burying them inside a large paragraph. Keep intro and closing tight. Make the body useful and skimmable.'
+    },
+    narrative_breaks: {
+      structure: 'Open with a concrete scenario or observation, then move into short narrative blocks with hard paragraph breaks. Keep the story moving without turning it into an essay.',
+      guidance: 'Use short paragraphs and strong visual breaks. Let one line set the scene, another line land the lesson, then move on. Avoid long setup paragraphs. Preserve momentum all the way to the closing takeaway.'
+    },
+  };
+  const DEFAULT_STRUCTURE_FIELDS = {
+    'planner-post-structure': 'Use a highly scannable LinkedIn structure. Build the post in short readable chunks. Open with a concrete claim or scenario, not a long setup. If the post covers multiple points, feel free to number them. Keep each paragraph focused on one move at a time. If you use examples, make them easy to scan instead of burying them in a dense block.',
+    'planner-structure-guidance': 'Format for LinkedIn mobile reading. Avoid walls of text. Most paragraphs should be one sentence or two short sentences max. Use white space aggressively. Break dense explanations into smaller blocks. If examples, lessons, or takeaways are easier to scan as bullets or numbered sections, format them that way. Preserve the substance, but make the reading rhythm lighter, sharper, and easier to scan in-feed.',
+  };
 
   // Icons
   const TARGET_ICONS = { profile: '\u{1F9D1}', company: '\u{1F3E2}', group: '\u{1F465}', article: '\u{1F4C4}' };
@@ -1372,14 +1415,61 @@
 
   // ---- Load data ----
   async function loadAll() {
-    [allTargets, allPlans, allAssets] = await Promise.all([
+    const [targets, plans, assets, plannerTargetCharsRaw] = await Promise.all([
       api.plannerListTargets(),
       api.plannerListPlans(),
       api.plannerListAssets(),
+      api.getSetting('linkedin.plannerMaxPostChars'),
     ]);
+    allTargets = targets;
+    allPlans = plans;
+    allAssets = assets;
+    const parsedTargetChars = Number(plannerTargetCharsRaw || '2200');
+    loadedPlannerTargetChars = Number.isFinite(parsedTargetChars) ? Math.max(800, Math.min(2800, Math.floor(parsedTargetChars))) : 2200;
     renderFilters();
     renderAssets();
     updateStats();
+  }
+
+  function getPlannerTargetChars() {
+    return loadedPlannerTargetChars || 2200;
+  }
+
+  function getDraftCounterMeta(text) {
+    const current = String(text || '').length;
+    const target = getPlannerTargetChars();
+    const ratio = target > 0 ? (current / target) : 0;
+    const className = ratio > 1.08 ? 'error' : ratio > 0.95 ? 'warn' : 'ok';
+    return { current, target, className };
+  }
+
+  function applyStructurePreset() {
+    const presetId = document.getElementById('planner-structure-preset')?.value || '';
+    const preset = STRUCTURE_PRESETS[presetId];
+    if (!preset) return;
+    const structureEl = document.getElementById('planner-post-structure');
+    const guidanceEl = document.getElementById('planner-structure-guidance');
+    if (structureEl) structureEl.value = preset.structure;
+    if (guidanceEl) guidanceEl.value = preset.guidance;
+    syncStructurePresetSelection();
+  }
+
+  function resetStructureField(fieldId) {
+    const el = document.getElementById(fieldId);
+    const defaultValue = DEFAULT_STRUCTURE_FIELDS[fieldId] || '';
+    if (el) el.value = defaultValue;
+    syncStructurePresetSelection();
+  }
+
+  function syncStructurePresetSelection() {
+    const presetEl = document.getElementById('planner-structure-preset');
+    const structure = (document.getElementById('planner-post-structure')?.value || '').trim();
+    const guidance = (document.getElementById('planner-structure-guidance')?.value || '').trim();
+    if (!presetEl) return;
+    const matched = Object.entries(STRUCTURE_PRESETS).find(([, preset]) =>
+      preset.structure.trim() === structure && preset.guidance.trim() === guidance
+    );
+    presetEl.value = matched ? matched[0] : '';
   }
 
   function scheduleLoadAll(delay = 150) {
@@ -1903,6 +1993,7 @@
       const sel = selectedIds.has(a.id);
       const icon = TARGET_ICONS[a.target_type] || '';
       const preview = (a.draft_text || a.final_text || '').slice(0, 80);
+      const draftCounter = getDraftCounterMeta(a.final_text || a.draft_text || '');
       const when = a.published_at ? formatTime(a.published_at) : a.scheduled_at ? formatTime(a.scheduled_at) : '\u2014';
       const progress = getAssetProgress(a);
       const inferredProgress = !progress ? inferTraceProgress(a) : null;
@@ -2004,8 +2095,11 @@
               </details>
             </div>` : ''}
             <div class="trace-block" style="margin-top:10px">
-              <div class="trace-label">Proposed Content</div>
-              <textarea class="form-textarea" id="draft-editor-${a.id}" rows="10" ${a.status === 'published' ? 'readonly' : ''} placeholder="No content yet">${escHtml(a.final_text || a.draft_text || '')}</textarea>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px">
+                <div class="trace-label" style="margin-bottom:0">Proposed Content</div>
+                <div id="draft-counter-${a.id}" style="font-size:12px;color:${draftCounter.className === 'error' ? '#fca5a5' : draftCounter.className === 'warn' ? '#fbbf24' : 'var(--text-muted)'}">${draftCounter.current} / ${draftCounter.target} chars</div>
+              </div>
+              <textarea class="form-textarea" id="draft-editor-${a.id}" rows="10" ${a.status === 'published' ? 'readonly' : ''} placeholder="No content yet" oninput="updateDraftMetrics(${a.id})">${escHtml(a.final_text || a.draft_text || '')}</textarea>
               <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
                 ${a.status !== 'published' ? `<button class="btn btn-sm" onclick="saveAssetText(${a.id})">Save Draft</button>` : ''}
                 <span id="draft-save-status-${a.id}" style="font-size:12px;color:var(--text-muted)">${a.status === 'published' ? 'Published copy is read-only here' : ''}</span>
@@ -2016,9 +2110,9 @@
             <div class="feedback-section">
               <textarea class="feedback-textarea" id="feedback-${a.id}" placeholder="Add feedback... e.g. 'make it shorter', 'add a concrete example', 'more aggressive tone'"></textarea>
               <div class="feedback-actions">
-                ${hasEditableText ? `<button class="btn btn-blue btn-sm" onclick="improveDraft(${a.id}, 'improve')">AI Improve</button>` : ''}
-                ${hasEditableText ? `<button class="btn btn-sm" onclick="improveDraft(${a.id}, 'restructure')">Restructure Only</button>` : ''}
-                <button class="btn btn-accent btn-sm" onclick="improveDraft(${a.id}, 'redo')">${hasEditableText ? 'AI Re-do' : 'Redraft'}</button>
+                ${hasEditableText ? `<button class="btn btn-blue btn-sm" title="Edit the current draft while keeping its substance" onclick="improveDraft(${a.id}, 'improve')">Improve Current</button>` : ''}
+                ${hasEditableText ? `<button class="btn btn-sm" title="Keep the same meaning, only improve flow and structure" onclick="improveDraft(${a.id}, 'restructure')">Restructure Only</button>` : ''}
+                <button class="btn btn-accent btn-sm" title="${hasEditableText ? 'Rewrite from the same topic, but preserve strong specifics unless you ask for a full reset' : 'Create a fresh draft from the plan'}" onclick="improveDraft(${a.id}, 'redo')">${hasEditableText ? 'Rewrite From Topic' : 'Redraft'}</button>
                 <span class="feedback-status" id="feedback-status-${a.id}"></span>
               </div>
             </div>` : ''}
@@ -2490,11 +2584,46 @@
     }
   }
 
+  function parseIdeaRuleFields(rules) {
+    const text = String(rules || '');
+    const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+    const read = (label) => {
+      const found = lines.find(line => line.toLowerCase().startsWith(label.toLowerCase() + ':'));
+      return found ? found.replace(new RegExp(`^${label}:\\s*`, 'i'), '').trim() : '';
+    };
+    return {
+      seriesBranch: read('Series branch'),
+      seriesRole: read('Series role'),
+      openingStyle: read('Opening style'),
+      exampleAnchor: read('Example anchor'),
+      takeawayStyle: read('Takeaway style'),
+      otherLines: lines.filter(line => !/^(series branch|series role|opening style|example anchor|takeaway style):/i.test(line)),
+    };
+  }
+
+  function buildIdeaRuleText(fields) {
+    return [
+      fields.seriesBranch ? `Series branch: ${fields.seriesBranch}` : '',
+      fields.seriesRole ? `Series role: ${fields.seriesRole}` : '',
+      fields.openingStyle ? `Opening style: ${fields.openingStyle}` : '',
+      fields.exampleAnchor ? `Example anchor: ${fields.exampleAnchor}` : '',
+      fields.takeawayStyle ? `Takeaway style: ${fields.takeawayStyle}` : '',
+      ...(fields.otherLines || []),
+    ].filter(Boolean).join('\n');
+  }
+
+  function updateIdeaRuleField(idx, field, value) {
+    const parsed = parseIdeaRuleFields(ideaCards[idx].per_idea_rules || '');
+    parsed[field] = String(value || '').trim();
+    setIdeaRules(idx, buildIdeaRuleText(parsed));
+  }
+
   function renderIdeaCards() {
     const container = document.getElementById('idea-cards-container');
     container.innerHTML = ideaCards.map((card, i) => {
       const keyPoints = card.key_points ? (typeof card.key_points === 'string' ? JSON.parse(card.key_points) : card.key_points) : [];
       const sources = card.source_urls ? (typeof card.source_urls === 'string' ? JSON.parse(card.source_urls) : card.source_urls) : [];
+      const ruleFields = parseIdeaRuleFields(card.per_idea_rules || '');
       return `
         <div class="idea-card ${card.selected ? 'selected' : ''}" data-idx="${i}">
           <div class="idea-card-header">
@@ -2511,6 +2640,26 @@
             </div>
           </div>
           ${card.hook ? `<div class="idea-card-field"><strong>Hook:</strong> ${card.hook}</div>` : ''}
+          <div class="idea-card-field" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+            <div>
+              <strong>Lens:</strong>
+              <input class="form-input" style="margin-top:4px;font-size:12px" placeholder="misconception, mechanism, proof..." value="${escHtml(ruleFields.seriesRole || '')}" onchange="updateIdeaRuleField(${i}, 'seriesRole', this.value)">
+            </div>
+            <div>
+              <strong>Opening Style:</strong>
+              <input class="form-input" style="margin-top:4px;font-size:12px" placeholder="scenario, blunt statement, competitor framing..." value="${escHtml(ruleFields.openingStyle || '')}" onchange="updateIdeaRuleField(${i}, 'openingStyle', this.value)">
+            </div>
+          </div>
+          <div class="idea-card-field" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+            <div>
+              <strong>Example Anchor:</strong>
+              <input class="form-input" style="margin-top:4px;font-size:12px" placeholder="e-bike company, local business, SaaS site..." value="${escHtml(ruleFields.exampleAnchor || '')}" onchange="updateIdeaRuleField(${i}, 'exampleAnchor', this.value)">
+            </div>
+            <div>
+              <strong>Takeaway Style:</strong>
+              <input class="form-input" style="margin-top:4px;font-size:12px" placeholder="operator takeaway, checklist, warning..." value="${escHtml(ruleFields.takeawayStyle || '')}" onchange="updateIdeaRuleField(${i}, 'takeawayStyle', this.value)">
+            </div>
+          </div>
           ${keyPoints.length ? `<div class="idea-card-field"><strong>Key Points:</strong> ${keyPoints.join(', ')}</div>` : ''}
           ${sources.length ? `<div class="idea-card-field"><strong>Sources:</strong> ${sources.map(u => `<a href="#" style="color:var(--accent);font-size:11px">${u.length > 50 ? u.slice(0, 50) + '...' : u}</a>`).join(', ')}</div>` : ''}
           ${card.image_concept ? `<div class="idea-card-field"><strong>Image:</strong> ${card.image_concept}</div>` : ''}
@@ -2751,6 +2900,10 @@
     'planner-bank-count': 'linkedin.plannerBankEntries',
     'planner-image-model': 'linkedin.plannerImageModel',
   };
+  const SETTINGS_DEFAULTS = {
+    'planner-post-structure': DEFAULT_STRUCTURE_FIELDS['planner-post-structure'],
+    'planner-structure-guidance': DEFAULT_STRUCTURE_FIELDS['planner-structure-guidance'],
+  };
 
   function switchSettingsTab(tabId, btn) {
     document.querySelectorAll('.settings-tab-content').forEach(t => t.classList.remove('active'));
@@ -2819,8 +2972,10 @@
       try {
         const val = await api.getSetting(key);
         if (val) el.value = val;
+        else if (SETTINGS_DEFAULTS[elId]) el.value = SETTINGS_DEFAULTS[elId];
       } catch { /* ok */ }
     }
+    syncStructurePresetSelection();
 
     // Schedule days
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -2911,6 +3066,8 @@
         if (!el) continue;
         await api.setSetting(key, el.value);
       }
+      const plannerTargetChars = Number(document.getElementById('planner-max-post-chars').value || '2200');
+      loadedPlannerTargetChars = Number.isFinite(plannerTargetChars) ? Math.max(800, Math.min(2800, Math.floor(plannerTargetChars))) : 2200;
 
       // Save schedule days
       const dayCheckboxes = document.querySelectorAll('.schedule-day:checked');
@@ -2985,10 +3142,10 @@
 
     if (statusEl) {
       statusEl.textContent = mode === 'redo'
-        ? 'Re-writing...'
+        ? 'Rewriting from topic...'
         : mode === 'restructure'
           ? 'Restructuring...'
-          : 'Improving...';
+          : 'Improving current draft...';
     }
 
     try {
@@ -3029,6 +3186,19 @@
     } catch (e) {
       if (statusEl) statusEl.textContent = 'Failed: ' + e.message;
     }
+  }
+
+  function updateDraftMetrics(assetId) {
+    const textarea = document.getElementById('draft-editor-' + assetId);
+    const counter = document.getElementById('draft-counter-' + assetId);
+    if (!textarea || !counter) return;
+    const meta = getDraftCounterMeta(textarea.value || '');
+    counter.textContent = `${meta.current} / ${meta.target} chars`;
+    counter.style.color = meta.className === 'error'
+      ? '#fca5a5'
+      : meta.className === 'warn'
+        ? '#fbbf24'
+        : 'var(--text-muted)';
   }
 
   // ---- Helpers ----

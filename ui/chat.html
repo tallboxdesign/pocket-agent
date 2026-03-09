@@ -3175,13 +3175,17 @@
     async function loadSessions() {
       try {
         sessions = await window.pocketAgent.getSessions();
+        const defaultSession = sessions.find(s => s.id === 'default');
         // Restore persisted session if it still exists
         const savedSessionId = localStorage.getItem('currentSessionId');
         if (savedSessionId && sessions.find(s => s.id === savedSessionId)) {
           currentSessionId = savedSessionId;
+        } else if (defaultSession) {
+          currentSessionId = defaultSession.id;
         } else if (sessions.length > 0) {
           currentSessionId = sessions[0].id;
         }
+        localStorage.setItem('currentSessionId', currentSessionId);
         renderTabs();
       } catch (err) {
         console.error('Failed to load sessions:', err);
@@ -3707,7 +3711,13 @@
 
     async function loadHistory() {
       try {
-        const history = await window.pocketAgent.getHistory(100, currentSessionId);
+        let history = await window.pocketAgent.getHistory(100, currentSessionId);
+        if ((!history || history.length === 0) && currentSessionId !== 'default' && sessions.find(s => s.id === 'default')) {
+          currentSessionId = 'default';
+          localStorage.setItem('currentSessionId', currentSessionId);
+          renderTabs();
+          history = await window.pocketAgent.getHistory(100, currentSessionId);
+        }
         messagesDiv.innerHTML = '';
 
         if (history.length === 0) {

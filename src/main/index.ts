@@ -3809,11 +3809,11 @@ function setupIPC(): void {
       if (!currentText && mode === 'improve') return { error: 'No text to improve' };
 
       const { SettingsManager } = await import('../settings');
-      const { DEFAULT_HARD_RULES } = await import('../tools/linkedin-planner');
+      const { DEFAULT_HARD_RULES, DEFAULT_POST_STRUCTURE, DEFAULT_STRUCTURE_GUIDANCE, getPlannerLengthGuidance } = await import('../tools/linkedin-planner');
       const customRules = SettingsManager.get('linkedin.plannerHardRules') || '';
       const checklist = SettingsManager.get('linkedin.plannerPrePublishChecklist') || '';
-      const postStructure = SettingsManager.get('linkedin.plannerPostStructure') || '';
-      const structureGuidance = SettingsManager.get('linkedin.plannerStructureGuidance') || '';
+      const postStructure = (SettingsManager.get('linkedin.plannerPostStructure') || DEFAULT_POST_STRUCTURE).trim();
+      const structureGuidance = (SettingsManager.get('linkedin.plannerStructureGuidance') || DEFAULT_STRUCTURE_GUIDANCE).trim();
       const plannerMaxPostChars = Math.min(2800, Math.max(800, Number(SettingsManager.get('linkedin.plannerMaxPostChars') || '2200') || 2200));
       const allRules = customRules
         ? `${DEFAULT_HARD_RULES}\n${customRules}`
@@ -3824,15 +3824,21 @@ function setupIPC(): void {
         checklist ? `PRE-PUBLISH CHECKLIST (verify ALL before finishing):\n${checklist}` : '',
         postStructure ? `POST STRUCTURE:\n${postStructure}` : '',
         structureGuidance ? `STRUCTURE GUIDANCE:\n${structureGuidance}` : '',
-        `POST LENGTH:\nKeep the finished post under ${plannerMaxPostChars} characters total, including line breaks.`,
+        `POST LENGTH:\n${getPlannerLengthGuidance(plannerMaxPostChars)}`,
       ].filter(Boolean).join('\n\n');
 
       const restructureFeedback = feedback || 'Keep the same claim, examples, and stance. Only improve sentence flow, paragraphing, scannability, and pacing.';
+      const redoFeedback = feedback || 'Refresh the post while preserving the strongest useful specifics, examples, and practical points unless they clearly hurt the draft.';
+      const feedbackPriorityBlock = `FEEDBACK PRIORITY:
+Treat the user feedback as the highest-priority instruction.
+If the feedback asks you to stop using a hook, example, phrase, opening pattern, framing, or repeated detail, remove it completely.
+Do not reintroduce anything the user is trying to get rid of from the current draft, the original plan, or prior discussion context.
+If the user wants a stronger opener or a different structure, keep the substance but change the actual opening pattern and reading flow.`;
       const prompt = mode === 'redo'
-        ? `You are writing an original LinkedIn post. Write ONLY the post text - no commentary, no labels, no preamble.\n\nOriginal topic/plan: ${asset.plan_prompt || asset.plan_title || ''}\n\nUser feedback: ${feedback}\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the final post text.`
+        ? `You are rewriting a LinkedIn post from the same core topic. Write ONLY the final post text - no commentary, no labels, no preamble.\n\nOriginal topic/plan: ${asset.plan_prompt || asset.plan_title || ''}\n\nCurrent post:\n${currentText}\n\nUser feedback: ${redoFeedback}\n\n${feedbackPriorityBlock}\n\nPreserve the strongest useful specifics from the current post unless the user clearly asks to replace them. Keep any good examples, concrete details, or practical takeaways that still support the topic. Start fresher than a light edit, but do not throw away the best information by default.\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the final post text.`
         : mode === 'restructure'
-          ? `Restructure this LinkedIn post without changing what it says. Return ONLY the restructured post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser instruction: ${restructureFeedback}\n\nKeep the same substance, stance, examples, and practical point. Do not invent new claims. Improve only readability, rhythm, sentence flow, paragraphing, and scanning.\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the restructured post text.`
-          : `Improve this LinkedIn post based on user feedback. Return ONLY the improved post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser feedback: ${feedback}\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the improved post text.`;
+          ? `Restructure this LinkedIn post without changing what it says. Return ONLY the restructured post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser instruction: ${restructureFeedback}\n\n${feedbackPriorityBlock}\n\nKeep the same substance, stance, examples, and practical point. Do not invent new claims. Improve only readability, rhythm, sentence flow, paragraphing, and scanning.\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the restructured post text.`
+          : `Improve this LinkedIn post based on user feedback. Return ONLY the improved post text - no commentary, no labels, no preamble.\n\nCurrent post:\n${currentText}\n\nUser feedback: ${feedback}\n\n${feedbackPriorityBlock}\n\n${rulesBlock ? `${rulesBlock}\n\n` : ''}OUTPUT: Return only the improved post text.`;
 
       const response = await AgentManager.processMessage(prompt, 'planner:improve', `planner:improve:${workingAssetId}`) as unknown;
       const responseObj = response as { response?: string; content?: string } | string | null | undefined;
@@ -3983,8 +3989,11 @@ ${history.map((m: { role: string; content: string }) => `${m.role}: ${m.content}
 
 Treat the ideas as one cohesive mini-series.
 - Keep all ideas inside one shared branch/theme.
-- Give each idea a different role when possible: thesis, mechanism, proof, mistake, playbook.
-- Avoid overlap in hook, core claim, evidence, and takeaway.
+- Give each idea a different role or lens when possible: misconception, mechanism, proof, implementation mistake, tactical shortcut, competitive implication, case example, checklist, playbook.
+- Give each idea a different opening style. Do not let multiple ideas start with the same rhetorical move.
+- Vary the first-line feel across the batch: blunt statement, concrete scenario, proof-led opener, competitor framing, tactical warning, operator observation, contrast, mini-story.
+- Vary example type and takeaway style across the batch when possible.
+- Avoid overlap in hook, core claim, evidence, example, and takeaway.
 - Vary image_preset across the batch when possible.
 
 Respond ONLY with a JSON array of objects, each with:
@@ -3996,6 +4005,9 @@ Respond ONLY with a JSON array of objects, each with:
 - image_caption
 - series_branch
 - series_role
+- opening_style
+- example_anchor
+- takeaway_style
 - suggested_sources (array of URL strings if any)
 
 No other text.`;
@@ -4014,6 +4026,9 @@ No other text.`;
         image_caption?: string;
         series_branch?: string;
         series_role?: string;
+        opening_style?: string;
+        example_anchor?: string;
+        takeaway_style?: string;
         suggested_sources?: string[];
       }> = [];
       try {
@@ -4038,6 +4053,9 @@ No other text.`;
           per_idea_rules: [
             idea.series_branch ? `Series branch: ${idea.series_branch}` : '',
             idea.series_role ? `Series role: ${idea.series_role}` : '',
+            idea.opening_style ? `Opening style: ${idea.opening_style}` : '',
+            idea.example_anchor ? `Example anchor: ${idea.example_anchor}` : '',
+            idea.takeaway_style ? `Takeaway style: ${idea.takeaway_style}` : '',
             'Keep this post distinct from sibling posts in the same batch.',
           ].filter(Boolean).join('\n'),
           sort_order: idx,
@@ -4183,22 +4201,30 @@ No other text.`;
       if (selectedCards.length === 0) return { success: false, error: 'No cards selected' };
 
       const planTitle = deriveIdeaLabPlanTitle(selectedCards, session?.initial_dump);
+      const extractRule = (rules: string | null | undefined, label: string): string => {
+        const match = String(rules || '').split('\n').find(line => line.trim().toLowerCase().startsWith(`${label.toLowerCase()}:`));
+        return match ? match.replace(new RegExp(`^${label}:\\s*`, 'i'), '').trim() : '';
+      };
       const instructionParts = selectedCards.map((c, idx) => {
         let keyPoints: string[] = [];
         if (c.key_points) {
           try { keyPoints = typeof c.key_points === 'string' ? JSON.parse(c.key_points) as string[] : c.key_points as unknown as string[]; } catch { keyPoints = []; }
         }
+        const lens = extractRule(c.per_idea_rules, 'Series role');
+        const openingStyle = extractRule(c.per_idea_rules, 'Opening style');
+        const exampleAnchor = extractRule(c.per_idea_rules, 'Example anchor');
+        const takeawayStyle = extractRule(c.per_idea_rules, 'Takeaway style');
         return `Post brief ${idx + 1}:
 Post: ${c.angle}
 Hook: ${c.hook || ''}
 Key Points: ${keyPoints.join(', ')}
-Image model: ${c.image_model || defaultPlannerImageModel}
+${lens ? `Lens: ${lens}\n` : ''}${openingStyle ? `Opening style: ${openingStyle}\n` : ''}${exampleAnchor ? `Example anchor: ${exampleAnchor}\n` : ''}${takeawayStyle ? `Takeaway style: ${takeawayStyle}\n` : ''}Image model: ${c.image_model || defaultPlannerImageModel}
 Image preset: ${c.image_preset || 'none'}${c.image_caption ? `\nImage direction: ${c.image_caption}` : ''}${c.per_idea_rules ? `\nRules: ${c.per_idea_rules}` : ''}`;
       });
 
       // Include batch rules and discussion context in prompt
       const defaultSeriesRules = selectedCards.length > 1
-        ? 'Treat the selected posts as one series. Keep the same branch/theme, but make each post distinct in role, hook, evidence, and practical takeaway. A reader should benefit from consuming all of them in sequence.'
+        ? 'Treat the selected posts as one series. Keep the same branch/theme, but make each post distinct in role, opening style, example, evidence, and practical takeaway. A reader should benefit from consuming all of them in sequence without feeling like they all start the same way.'
         : '';
       const discussionContext = formatPlannerDiscussionContext(session?.discussion_history);
       let sharedContext = defaultSeriesRules;
