@@ -688,16 +688,20 @@ export class TelegramBot extends BaseChannel {
     this.stopHealthCheck();
     this.healthCheckTimer = setInterval(async () => {
       if (!this.isRunning || this.intentionalStop) return;
-      const elapsed = Date.now() - this.lastSuccessfulPoll;
-      if (elapsed > 120_000) {
-        console.warn(`[Telegram] No activity for ${Math.round(elapsed / 1000)}s -connection stale, reconnecting...`);
-        // Actually reconnect instead of just logging!
+      // Ping Telegram directly — message silence is NOT a connectivity problem.
+      // Only reconnect if the API itself is unreachable.
+      try {
+        await this.bot.api.getMe();
+        // API responded — connection is healthy, keep lastSuccessfulPoll fresh
+        this.lastSuccessfulPoll = Date.now();
+      } catch (e) {
+        console.warn(`[Telegram] Health check ping failed, reconnecting...`, e);
         try {
           await this.bot.stop();
-        } catch (e) {
-          console.warn('[Telegram] Error stopping bot during health check reconnect:', e);
+        } catch {
+          // ignore stop errors
         }
-        this.scheduleReconnect('health check detected stale connection');
+        this.scheduleReconnect('health check ping failed');
       }
     }, 60_000);
   }
