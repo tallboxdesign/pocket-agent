@@ -8,6 +8,7 @@
 
 import { EventEmitter } from 'events';
 import { SettingsManager } from '../settings';
+import { supervisorCheck } from './research-supervisor';
 
 // SDK types (loaded dynamically)
 type SDKQuery = AsyncGenerator<unknown, void>;
@@ -259,8 +260,13 @@ async function runResearchAgent(
   topic: string,
   maxTurns: number,
   abortController: AbortController,
-  onProgress?: (sourcesFound: number) => void
+  onProgress?: (sourcesFound: number) => void,
+  supervisorFeedback?: string,
 ): Promise<AgentResult> {
+  const feedbackSection = supervisorFeedback
+    ? `\n\nIMPORTANT — Previous attempt was flagged by quality reviewer:\n${supervisorFeedback}\nPlease address these issues in your research.`
+    : '';
+
   const systemPrompt = `You are a focused research agent. Your task is to thoroughly research this specific topic:
 
 "${topic}"
@@ -272,7 +278,7 @@ Instructions:
 4. Note your sources with URLs
 
 Be thorough but efficient. Focus only on this topic, ignore tangential information.
-When done, provide a clear summary of your findings.`;
+When done, provide a clear summary of your findings.${feedbackSection}`;
 
   configureSonnetEnvironment();
 
@@ -282,7 +288,7 @@ When done, provide a clear summary of your findings.`;
   const result = queryFn({
     prompt: `Research this topic thoroughly: "${topic}"`,
     options: {
-      model: 'claude-sonnet-4-6',
+      model: SettingsManager.get('agent.researchAgentModel') || 'claude-sonnet-4-6',
       maxTurns,
       abortController,
       tools: { type: 'preset', preset: 'claude_code' },
@@ -430,15 +436,71 @@ export class ResearchOrchestrator extends EventEmitter {
 
     const agentResults = await Promise.all(agentPromises);
 
+    // Step 2.5: Supervisor quality gate (optional)
+    let finalResults = agentResults;
+    const supervisorEnabled = SettingsManager.get('agent.researchSupervisor') === 'true';
+
+    if (supervisorEnabled) {
+      this.emit('supervisor-start', { jobId });
+      console.log('[Research] Running supervisor quality check...');
+
+      const verdict = await supervisorCheck(request.query, agentResults, jobAbort.signal);
+      console.log(`[Research] Supervisor: ${verdict.summary}`);
+
+      this.emit('supervisor-done', {
+        jobId,
+        approved: verdict.approved.length,
+        flagged: verdict.flagged.length,
+        retrying: verdict.retry.length,
+        summary: verdict.summary,
+      });
+
+      // Re-run flagged agents once with supervisor feedback
+      if (verdict.retry.length > 0) {
+        console.log(`[Research] Retrying ${verdict.retry.length} flagged agent(s)...`);
+        this.emit('supervisor-retry', { jobId, count: verdict.retry.length });
+
+        const retryResults = await Promise.all(
+          verdict.retry.map(async (req) => {
+            try {
+              return await runResearchAgent(
+                req.topic,
+                maxTurnsPerAgent,
+                jobAbort,
+                undefined,
+                req.feedback,
+              );
+            } catch (err) {
+              console.error(`[Research] Retry failed for topic "${req.topic}":`, err);
+              // Fallback: find the original flagged result for this topic
+              return agentResults.find(r => r.topic === req.topic) ?? {
+                topic: req.topic,
+                findings: `Retry failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                sources: [],
+                tokenUsage: { prompt: 0, completion: 0 },
+              };
+            }
+          })
+        );
+
+        // Merge: approved originals + retried results
+        finalResults = [...verdict.approved, ...retryResults];
+      } else {
+        // No retries needed — use approved set (may exclude warning-only flagged results)
+        // If approved is empty (e.g. all flagged as warning), fall back to all results
+        finalResults = verdict.approved.length > 0 ? verdict.approved : agentResults;
+      }
+    }
+
     // Step 3: Use GLM to compile results
     this.emit('compiling', { jobId });
-    const { report, summary } = await glmCompileResults(request.query, agentResults);
+    const { report, summary } = await glmCompileResults(request.query, finalResults);
 
     // Collect all sources
-    const allSources = agentResults.flatMap(r => r.sources);
+    const allSources = finalResults.flatMap(r => r.sources);
 
-    // Calculate total token usage
-    const totalUsage = agentResults.reduce(
+    // Calculate total token usage (use finalResults so retried agents replace originals)
+    const totalUsage = finalResults.reduce(
       (acc, r) => ({
         prompt: acc.prompt + r.tokenUsage.prompt,
         completion: acc.completion + r.tokenUsage.completion,

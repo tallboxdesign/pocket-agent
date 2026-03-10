@@ -17,6 +17,7 @@ import {
   getPendingExternalApproval,
 } from './safety';
 import { PersistentSDKSession, TurnResult } from './persistent-session';
+import { classifyMessage, RouteDecision, TOOL_SETS, ToolSet } from './router';
 
 // Provider configuration for different LLM backends
 type ProviderType = 'anthropic' | 'moonshot' | 'glm' | 'minimax' | 'qwen' | 'openrouter' | 'gemini';
@@ -821,7 +822,16 @@ class AgentManagerClass extends EventEmitter {
       return this.queueMessage(effectiveUserMessage, channel, sessionId, images, attachmentInfo, turnContext);
     }
 
-    return this.executeMessage(effectiveUserMessage, channel, sessionId, images, attachmentInfo, false, undefined, turnContext);
+    // Smart Router: classify Telegram messages to pick cheapest model + tool set
+    let routeDecision: RouteDecision | undefined;
+    if (SettingsManager.get('agent.smartRouter') === 'true' && channel === 'telegram') {
+      const recentCtx = this.memory
+        ? this.memory.getRecentMessages(2, sessionId).map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 150)}`)
+        : [];
+      routeDecision = await classifyMessage(effectiveUserMessage, recentCtx);
+    }
+
+    return this.executeMessage(effectiveUserMessage, channel, sessionId, images, attachmentInfo, false, undefined, turnContext, routeDecision);
   }
 
   /**
@@ -977,6 +987,7 @@ class AgentManagerClass extends EventEmitter {
     retryWithFallback = false,
     modelOverride?: string,
     turnContext?: TurnContext,
+    routeDecision?: RouteDecision,
   ): Promise<ProcessResult> {
     // Memory should already be checked by processMessage, but guard anyway
     if (!this.memory) {
@@ -984,7 +995,8 @@ class AgentManagerClass extends EventEmitter {
     }
 
     const memory = this.memory; // Local reference for TypeScript narrowing
-    const activeModel = modelOverride || this.model;
+    // Smart Router: prefer routeDecision.model over modelOverride over configured model
+    const activeModel = modelOverride || (routeDecision ? routeDecision.model : this.model);
     const usingTemporaryModel = !!modelOverride && modelOverride !== this.model;
     if (!memory.getSession(sessionId)) {
       const inferredName = sessionId
@@ -995,6 +1007,15 @@ class AgentManagerClass extends EventEmitter {
       memory.ensureSession(sessionId, inferredName, 'coder');
     }
     let sessionMode = memory.getSessionMode(sessionId);
+    // Smart Router: if routeDecision prescribes a mode, apply it (skip auto-switch below)
+    if (routeDecision && routeDecision.mode !== sessionMode) {
+      const switched = memory.setSessionMode(sessionId, routeDecision.mode);
+      if (switched) {
+        this.clearSdkSessionMapping(sessionId);
+        sessionMode = routeDecision.mode;
+        console.log(`[AgentManager] Smart Router set session ${sessionId} to ${routeDecision.mode} mode (route: ${routeDecision.route})`);
+      }
+    }
     let autoSwitchNotice: string | null = null;
     const safeHints = (turnContext?.hints || [])
       .map(h => String(h || '').trim())
@@ -1081,7 +1102,7 @@ class AgentManagerClass extends EventEmitter {
         if (!queryFn) throw new Error('Failed to load SDK');
 
         // Build options with dynamic context
-        const options = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, channel, sdkSessionId);
+        const options = await this.buildPersistentOptions(memory, sessionId, sessionMode, activeModel, channel, sdkSessionId, routeDecision?.toolSet, routeDecision?.maxTurns);
 
         console.log('[AgentManager] Calling query() with model:', options.model, 'thinking:', JSON.stringify(options.thinking) || 'default', 'effort:', options.effort || 'default');
         this.emitStatus({ type: 'thinking', sessionId, message: '*stretches paws* thinking...' });
@@ -1766,6 +1787,8 @@ class AgentManagerClass extends EventEmitter {
     model: string,
     channel: string,
     sdkSessionId?: string,
+    toolSet?: ToolSet,
+    routeMaxTurns?: number,
   ): Promise<SDKOptions> {
     // === Static context (set once at session creation) ===
     // NOTE: CLAUDE.md (this.instructions) is NOT included here because the SDK
@@ -1951,14 +1974,21 @@ class AgentManagerClass extends EventEmitter {
     ];
     const managerHardRestrictionsEnabled = SettingsManager.get('agent.managerHardToolRestrictions') === 'true';
     const riskyManagerTools = new Set(['Write', 'Edit', 'Bash', 'Task', 'TaskOutput', 'TaskStop', 'BashOutput', 'KillBash']);
-    const allowedTools = sessionMode === 'manager' && managerHardRestrictionsEnabled
+    let allowedTools = sessionMode === 'manager' && managerHardRestrictionsEnabled
       ? fullAllowedTools.filter(tool => !riskyManagerTools.has(tool))
       : fullAllowedTools;
+
+    // Smart Router: apply tool set filtering if a non-full toolSet is specified
+    if (toolSet && toolSet !== 'full') {
+      const toolSetAllowed = new Set(TOOL_SETS[toolSet]);
+      allowedTools = allowedTools.filter(t => toolSetAllowed.has(t));
+      console.log(`[AgentManager] Smart Router applied toolSet="${toolSet}": ${allowedTools.length} tools allowed`);
+    }
 
     const options: SDKOptions = {
       model,
       cwd: this.workspace,
-      maxTurns: 100,
+      maxTurns: routeMaxTurns ?? 100,
       ...(isAnthropicModel && { thinking: thinkingEntry.thinking }),
       ...(isAnthropicModel && thinkingEntry.effort && { effort: thinkingEntry.effort }),
       tools: { type: 'preset', preset: 'claude_code' },
