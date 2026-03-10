@@ -57,6 +57,38 @@ export interface JobResult {
 }
 
 /**
+ * Match a single cron field spec against a concrete value.
+ * Supports: *, N, N-M, *\/step, N\/step, N-M\/step, and comma-separated combinations.
+ */
+function matchesCronField(spec: string, value: number, min: number, max: number): boolean {
+  if (spec === '*') return true;
+
+  return spec.split(',').some(part => {
+    const slashIdx = part.indexOf('/');
+    const step = slashIdx !== -1 ? parseInt(part.slice(slashIdx + 1), 10) : 1;
+    const range = slashIdx !== -1 ? part.slice(0, slashIdx) : part;
+
+    let start: number, end: number;
+    if (range === '*') {
+      start = min;
+      end = max;
+    } else if (range.includes('-')) {
+      const [s, e] = range.split('-');
+      start = parseInt(s, 10);
+      end = parseInt(e, 10);
+    } else {
+      // Single value — only valid without a step
+      if (slashIdx === -1) return value === parseInt(range, 10);
+      start = parseInt(range, 10);
+      end = max;
+    }
+
+    if (value < start || value > end) return false;
+    return (value - start) % step === 0;
+  });
+}
+
+/**
  * CronScheduler - Manages scheduled jobs from SQLite
  *
  * Loads jobs from cron_jobs table, runs them on schedule,
@@ -543,13 +575,19 @@ export class CronScheduler {
   }
 
   /**
-   * Calculate next run time based on schedule type
+   * Calculate next run time based on schedule type.
+   *
+   * For 'cron' schedules this performs a minute-by-minute forward scan
+   * covering all 5 fields (minute, hour, day-of-month, month, day-of-week)
+   * with full support for *, N, N-M, step (*\/N, N\/N, N-M\/N), and
+   * comma-separated lists.  The scan is capped at one year to avoid an
+   * infinite loop on impossible expressions.
    */
   private calculateNextRun(type: string, schedule: string | null, intervalMs: number | null): string | null {
     const now = new Date();
 
     if (type === 'at') {
-      // One-time job, no next run
+      // One-time job — no next run
       return null;
     }
 
@@ -558,68 +596,47 @@ export class CronScheduler {
     }
 
     if (type === 'cron' && schedule) {
-      // Parse cron expression for next run calculation
-      const parts = schedule.split(/\s+/);
+      const parts = schedule.trim().split(/\s+/);
       if (parts.length !== 5) {
         console.warn(`[Scheduler] Invalid cron expression (expected 5 parts): "${schedule}"`);
         return new Date(now.getTime() + 86400000).toISOString();
       }
 
-      const [min, hour] = parts;
+      const [minSpec, hourSpec, domSpec, monSpec, dowSpec] = parts;
 
-      // If both minute and hour are wildcards (e.g. "* * * * *"), next run is the next minute
-      if (min === '*' && hour === '*') {
-        const next = new Date(now);
-        next.setSeconds(0, 0);
-        next.setMinutes(next.getMinutes() + 1);
-        return next.toISOString();
-      }
+      // Start scanning from the next minute
+      const candidate = new Date(now);
+      candidate.setSeconds(0, 0);
+      candidate.setMinutes(candidate.getMinutes() + 1);
 
-      // If only minute is wildcard (e.g. "* 14 * * *"), next run is next minute within that hour
-      if (min === '*' && hour !== '*') {
-        const targetHour = parseInt(hour, 10);
-        const next = new Date(now);
-        next.setSeconds(0, 0);
-        if (next.getHours() === targetHour && next > now) {
-          return next.toISOString();
-        } else if (next.getHours() === targetHour) {
-          next.setMinutes(next.getMinutes() + 1);
-          if (next.getHours() !== targetHour) {
-            next.setDate(next.getDate() + 1);
-            next.setHours(targetHour, 0, 0, 0);
-          }
-          return next.toISOString();
-        } else {
-          next.setHours(targetHour, 0, 0, 0);
-          if (next <= now) next.setDate(next.getDate() + 1);
-          return next.toISOString();
+      // Cap at 366 days × 24 h × 60 min = 527_040 iterations
+      const MAX_ITERATIONS = 366 * 24 * 60;
+
+      for (let i = 0; i < MAX_ITERATIONS; i++) {
+        const month    = candidate.getMonth() + 1;  // 1-12
+        const dom      = candidate.getDate();        // 1-31
+        const dow      = candidate.getDay();         // 0-6 (Sun=0)
+        const hour     = candidate.getHours();       // 0-23
+        const minute   = candidate.getMinutes();     // 0-59
+
+        if (
+          matchesCronField(monSpec,  month,  1, 12) &&
+          matchesCronField(domSpec,  dom,    1, 31) &&
+          matchesCronField(dowSpec,  dow,    0,  6) &&
+          matchesCronField(hourSpec, hour,   0, 23) &&
+          matchesCronField(minSpec,  minute, 0, 59)
+        ) {
+          return candidate.toISOString();
         }
+
+        candidate.setMinutes(candidate.getMinutes() + 1);
       }
 
-      // If only hour is wildcard (e.g. "30 * * * *"), next run is :30 of the next matching hour
-      if (min !== '*' && hour === '*') {
-        const targetMin = parseInt(min, 10);
-        const next = new Date(now);
-        next.setSeconds(0, 0);
-        next.setMinutes(targetMin);
-        if (next <= now) {
-          next.setHours(next.getHours() + 1);
-        }
-        return next.toISOString();
-      }
-
-      // Both specified (e.g. "30 14 * * *")
-      const next = new Date(now);
-      next.setSeconds(0, 0);
-      next.setMinutes(parseInt(min, 10));
-      next.setHours(parseInt(hour, 10));
-      if (next <= now) {
-        next.setDate(next.getDate() + 1);
-      }
-      return next.toISOString();
+      console.warn(`[Scheduler] Could not find next run within one year for schedule: "${schedule}"`);
+      return new Date(now.getTime() + 86400000).toISOString();
     }
 
-    // Fallback for unknown schedule types - don't disable the job
+    // Fallback for unknown schedule types — don't disable the job
     console.warn(`[Scheduler] Unknown schedule type "${type}", defaulting to 24h interval`);
     return new Date(now.getTime() + 86400000).toISOString();
   }

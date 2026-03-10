@@ -1631,7 +1631,7 @@ function hasRepeatedOpeningLead(text: string, priorOpenings: string[]): boolean 
 }
 
 const AI_SLOP_PATTERN = /\b(landscape|leverage|robust|comprehensive|holistic|streamline|optimize|paradigm|game[- ]changing|cutting-edge|transformative|unprecedented|synergy|foster|harness|delve|elevate|dramatically|significantly|meaningful|importantly|more importantly|most importantly)\b/i;
-const PLANNER_REFUSAL_PATTERN = /\b(duplicate request|exact same brief|brief is identical|i just wrote this exact post|i['']?ve written this same post|i have written this same post|if you['']?d like me to draft a different post|let me know and i['']?ll write that instead|let me know what you need and i['']?ll adjust|this appears to be a duplicate request|i['']?ve already written|i have already written|are you asking for)\b/i;
+const PLANNER_REFUSAL_PATTERN = /\b(duplicate request|brief is identical|i just wrote this exact post|i wrote this exact post already|i['']?ve written this same post|i have written this same post|this appears to be a duplicate request)\b/i;
 
 function isPlannerMetaResponse(text: string): boolean {
   const trimmed = text.trim();
@@ -1639,11 +1639,9 @@ function isPlannerMetaResponse(text: string): boolean {
   if (PLANNER_REFUSAL_PATTERN.test(trimmed)) return true;
   const lower = trimmed.toLowerCase();
   if (lower.startsWith('this appears to be a duplicate request')) return true;
-  if (lower.startsWith('if you would like me to draft a different post')) return true;
   if (lower.startsWith('i just wrote this exact post for you')) return true;
+  if (lower.startsWith('i wrote this exact post already')) return true;
   if (lower.includes('the brief is identical')) return true;
-  if (lower.includes('are you asking for')) return true;
-  if (lower.includes('let me know what you need and i\'ll adjust')) return true;
   return false;
 }
 
@@ -1839,6 +1837,7 @@ ${postBankBlock}
 HARD RULES:
 ${hardRules}
 - Each post in this plan must have a unique hook and framing - do NOT repeat patterns.${avoidOpeningsBlock}
+- Never ask the user for clarification, links, content, or confirmation. If a detail is missing, make the best reasonable assumption and write the post anyway.
 ${prePublishChecklist ? `\nPRE-PUBLISH CHECKLIST (verify ALL before finishing):\n${prePublishChecklist}` : ''}
 OUTPUT:
 Return only the final post text.`;

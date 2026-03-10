@@ -501,7 +501,7 @@ class AgentManagerClass extends EventEmitter {
   private sdkSessionIdBySession: Map<string, string> = new Map();
   private persistentSessions: Map<string, PersistentSDKSession> = new Map();
   private contextUsageBySession: Map<string, { contextTokens: number; contextWindow: number }> = new Map();
-  private pendingMedia: MediaAttachment[] = [];
+  private pendingMediaBySession: Map<string, MediaAttachment[]> = new Map();
   private stoppedByUserSession: Set<string> = new Set();
   private sdkToolTimers: Map<string, { timer: ReturnType<typeof setTimeout>; sessionId: string }> = new Map();
   private recentToolCallsBySession: Map<string, ToolCallRecord[]> = new Map();
@@ -1029,7 +1029,7 @@ class AgentManagerClass extends EventEmitter {
     this.processingBySession.set(sessionId, true);
     this.stoppedByUserSession.delete(sessionId);
     this.lastSuggestedPromptBySession.set(sessionId, undefined);
-    this.pendingMedia = [];
+    this.pendingMediaBySession.set(sessionId, []);
     this.activeTurnToolNamesBySession.set(sessionId, new Set<string>());
 
     try {
@@ -1488,7 +1488,7 @@ class AgentManagerClass extends EventEmitter {
         suggestedPrompt: this.lastSuggestedPromptBySession.get(sessionId),
         contextTokens: contextUsage?.contextTokens,
         contextWindow: contextUsage?.contextWindow,
-        media: this.pendingMedia.length > 0 ? this.pendingMedia : undefined,
+        media: (this.pendingMediaBySession.get(sessionId) || []).length > 0 ? this.pendingMediaBySession.get(sessionId) : undefined,
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -2313,13 +2313,14 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" -show th
 - For full desktop automation, user needs to enable Computer Use (Docker-based)`;
   }
 
-  private extractFromMessage(message: unknown, current: string): string {
+  private extractFromMessage(message: unknown, current: string, sessionId?: string): string {
+    const sid = sessionId || getCurrentSessionId();
     const msg = message as { type?: string; subtype?: string; message?: { content?: unknown }; output?: string; result?: string; errors?: string[] };
     if (msg.type === 'assistant') {
       const content = msg.message?.content;
       if (Array.isArray(content)) {
         // Extract image blocks and save to disk
-        this.extractImageBlocks(content);
+        this.extractImageBlocks(content, sid);
 
         const textBlocks = content
           .filter((block: unknown) => (block as { type?: string })?.type === 'text')
@@ -2372,7 +2373,8 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" -show th
    * Extract image blocks from SDK assistant message content and save to disk.
    * Images are accumulated in pendingMedia and included in the final ProcessResult.
    */
-  private extractImageBlocks(content: unknown[]): void {
+  private extractImageBlocks(content: unknown[], sessionId: string): void {
+    const sessionMedia = this.pendingMediaBySession.get(sessionId) || [];
     for (const block of content) {
       const b = block as {
         type?: string;
@@ -2394,15 +2396,15 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" -show th
 
         if (b.source.type === 'base64' && b.source.data) {
           // Base64 image -save directly to disk
-          const filename = `img-${Date.now()}-${this.pendingMedia.length}${ext}`;
+          const filename = `img-${Date.now()}-${sessionMedia.length}${ext}`;
           const filePath = path.join(mediaDir, filename);
           fs.writeFileSync(filePath, Buffer.from(b.source.data, 'base64'));
 
-          this.pendingMedia.push({ type: 'image', filePath, mimeType });
+          sessionMedia.push({ type: 'image', filePath, mimeType });
           console.log(`[AgentManager] Saved image: ${filePath}`);
         } else if (b.source.type === 'url' && b.source.url) {
           // URL image -download and save to disk
-          const filename = `img-${Date.now()}-${this.pendingMedia.length}${ext}`;
+          const filename = `img-${Date.now()}-${sessionMedia.length}${ext}`;
           const filePath = path.join(mediaDir, filename);
 
           // Fire-and-forget download; image will be available for Telegram sync
@@ -2414,26 +2416,29 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" -show th
             })
             .catch(err => console.error('[AgentManager] Failed to download image:', err));
 
-          this.pendingMedia.push({ type: 'image', filePath, mimeType });
+          sessionMedia.push({ type: 'image', filePath, mimeType });
         }
       } catch (err) {
         console.error('[AgentManager] Failed to save image block:', err);
       }
     }
+    this.pendingMediaBySession.set(sessionId, sessionMedia);
   }
 
   /**
    * Extract screenshot file paths from tool result blocks.
    * The browser tool saves full-res screenshots and includes the path in its result JSON.
    */
-  private extractScreenshotPaths(block: unknown): void {
+  private extractScreenshotPaths(block: unknown, sessionId: string): void {
     try {
       const b = block as { content?: unknown };
       if (!b.content) return;
 
+      const sessionMedia = this.pendingMediaBySession.get(sessionId) || [];
+
       if (Array.isArray(b.content)) {
         // Extract image blocks from tool result content (e.g. computer_use screenshots)
-        this.extractImageBlocks(b.content);
+        this.extractImageBlocks(b.content, sessionId);
 
         // Also check text blocks for file paths
         for (const part of b.content) {
@@ -2441,8 +2446,9 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" -show th
           if (p.type === 'text' && p.text) {
             const match = p.text.match(/saved to (\/[^\s"]+\/screenshot-\d+\.png)/);
             if (match && fs.existsSync(match[1])) {
-              if (!this.pendingMedia.some(m => m.filePath === match[1])) {
-                this.pendingMedia.push({ type: 'image', filePath: match[1], mimeType: 'image/png' });
+              if (!sessionMedia.some(m => m.filePath === match[1])) {
+                sessionMedia.push({ type: 'image', filePath: match[1], mimeType: 'image/png' });
+                this.pendingMediaBySession.set(sessionId, sessionMedia);
                 console.log(`[AgentManager] Found screenshot in tool result: ${match[1]}`);
               }
             }
@@ -2451,8 +2457,9 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" -show th
       } else if (typeof b.content === 'string') {
         const match = b.content.match(/saved to (\/[^\s"]+\/screenshot-\d+\.png)/);
         if (match && fs.existsSync(match[1])) {
-          if (!this.pendingMedia.some(m => m.filePath === match[1])) {
-            this.pendingMedia.push({ type: 'image', filePath: match[1], mimeType: 'image/png' });
+          if (!sessionMedia.some(m => m.filePath === match[1])) {
+            sessionMedia.push({ type: 'image', filePath: match[1], mimeType: 'image/png' });
+            this.pendingMediaBySession.set(sessionId, sessionMedia);
             console.log(`[AgentManager] Found screenshot in tool result: ${match[1]}`);
           }
         }
@@ -2722,7 +2729,7 @@ ALWAYS present posts with full details. NEVER just say "pulled 3 posts" -show th
             }
 
             // Extract screenshot paths and images from tool results
-            this.extractScreenshotPaths(block);
+            this.extractScreenshotPaths(block, sessionId);
 
             // Check if any subagents completed
             if (activeSubagents.size > 0) {

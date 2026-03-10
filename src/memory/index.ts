@@ -560,6 +560,8 @@ export class MemoryManager {
       this.db.exec(`UPDATE sessions SET hidden = 1 WHERE id != 'default' AND instr(id, ':') > 0`);
       console.log('[Memory] Migrated sessions table: added hidden column');
     }
+    // Always self-heal colon-scoped runtime sessions so planner/agent lanes never reappear as normal chats.
+    this.db.exec(`UPDATE sessions SET hidden = 1 WHERE id != 'default' AND instr(id, ':') > 0`);
     // Mode cleanup: "general" has been merged into "manager"
     this.db.exec(`UPDATE sessions SET mode = 'manager' WHERE lower(trim(mode)) = 'general'`);
     this.db.exec(`UPDATE sessions SET mode = 'coder' WHERE mode IS NULL OR lower(trim(mode)) NOT IN ('coder', 'manager')`);
