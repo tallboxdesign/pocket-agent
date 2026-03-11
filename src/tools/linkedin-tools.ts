@@ -469,7 +469,7 @@ Examples:
     input_schema: {
       type: 'object' as const,
       properties: {
-        scroll: { type: 'number', description: 'Number of scroll iterations (default: 3, more = more posts but slower)' },
+        scroll: { type: 'number', description: 'Number of scroll iterations (default: 3, max: 16, more = more posts but slower. Values above 12 are slow.)' },
         person: { type: 'string', description: 'Filter posts by author name (case-insensitive)' },
         keyword: { type: 'string', description: 'Filter posts containing this keyword (case-insensitive)' },
         search_query: { type: 'string', description: 'Discovery mode query for LinkedIn content search (keyword or hashtag)' },
@@ -496,7 +496,7 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   const args: string[] = [];
   const defaultScroll = parseInt(SettingsManager.get('linkedin.feedScroll') || '12', 10);
   const defaultLimit = parseInt(SettingsManager.get('linkedin.feedLimit') || '20', 10);
-  const effectiveScroll = Math.max(1, Math.min(24, Number.isFinite(Number(p.scroll)) ? Number(p.scroll) : defaultScroll));
+  const effectiveScroll = Math.max(1, Math.min(16, Number.isFinite(Number(p.scroll)) ? Number(p.scroll) : defaultScroll));
   const effectiveLimit = Math.max(5, Math.min(120, Number.isFinite(Number(p.limit)) ? Number(p.limit) : defaultLimit));
   const searchQuery = String(p.search_query || '').trim();
   const scrapeSource = String(p.scrape_source || '').trim() || (searchQuery ? 'manual:discovery' : 'manual:feed');
@@ -515,7 +515,8 @@ async function handleBrowseFeedTool(input: unknown): Promise<string> {
   args.push('--dump-html', dumpPath);
 
   try {
-    const stdout = await linkedinExec('feed', args, 180000);
+    const feedTimeoutMs = effectiveScroll * 10000 + 60000; // ~10s per scroll + 60s buffer
+    const stdout = await linkedinExec('feed', args, feedTimeoutMs);
     const posts = JSON.parse(stdout);
 
     if (posts.length === 0) {

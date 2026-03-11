@@ -46,7 +46,7 @@ export async function linkedinExec(script: string, args: string[], timeoutMs = 1
   // context, then strip only the Electron/runtime variables that previously
   // caused Patchright's Chromium to crash under Electron.
   const home = process.env.HOME || os.homedir();
-  const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+  const cleanEnv: Record<string, string | undefined> = { ...process.env };
   for (const key of Object.keys(cleanEnv)) {
     if (
       key.startsWith('ELECTRON') ||
