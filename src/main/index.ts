@@ -2312,6 +2312,12 @@ function setupIPC(): void {
              AND lp.commented = 0
              AND (lp.scheduled_at IS NULL OR lp.scheduled_at = '')
              AND lp.scraped_date < ?)
+            OR
+            -- Future/today scheduled posts always visible regardless of selected date.
+            -- This ensures the Scheduled tab shows upcoming posts even when browsing past dates.
+            (lp.hidden = 0 AND lp.commented = 0 AND lp.approved = 1
+             AND lp.scheduled_at IS NOT NULL AND lp.scheduled_at != ''
+             AND date(lp.scheduled_at, 'localtime') >= date('now', 'localtime'))
           )
         `;
       const snoozedWhere = useAuthorSearch

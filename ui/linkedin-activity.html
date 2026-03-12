@@ -6113,15 +6113,57 @@
           scheduled: true,
           author: true,
         };
-        const safeRows = filtered.map((p, i) => {
-          try {
-            return renderPostRow(p, i + 1);
-          } catch (err) {
-            console.error('Failed to render LinkedIn row:', err, p);
-            const idLabel = Number(p?.id || 0) ? `#${p.id}` : 'unknown post';
-            return `<tr class="row-error"><td colspan="12" style="color:#fca5a5;padding:10px 12px;">Row render failed for ${idLabel}. Open dev tools for details.</td></tr>`;
+        let safeRows = '';
+        if (activePanel === 'scheduled') {
+          // Group by scheduled date and inject date headers
+          const todayIso = new Date().toISOString().split('T')[0];
+          let lastDateKey = null;
+          let rowIdx = 0;
+          for (const p of filtered) {
+            const schedDate = p.scheduled_at ? p.scheduled_at.split('T')[0].split(' ')[0] : null;
+            const dateKey = schedDate || 'unscheduled';
+            if (dateKey !== lastDateKey) {
+              lastDateKey = dateKey;
+              const dayPosts = filtered.filter(q => {
+                const qd = q.scheduled_at ? q.scheduled_at.split('T')[0].split(' ')[0] : null;
+                return (qd || 'unscheduled') === dateKey;
+              });
+              let dateLabel = dateKey;
+              if (dateKey !== 'unscheduled') {
+                try {
+                  const d = new Date(dateKey + 'T00:00:00');
+                  const isToday = dateKey === todayIso;
+                  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+                  const isTomorrow = dateKey === tomorrow.toISOString().split('T')[0];
+                  const fmt = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+                  dateLabel = isToday ? `Today (${fmt})` : isTomorrow ? `Tomorrow (${fmt})` : fmt;
+                } catch { /* keep raw */ }
+              }
+              safeRows += `<tr style="background:rgba(96,165,250,0.08);border-top:1px solid rgba(96,165,250,0.2)">
+                <td colspan="12" style="padding:6px 12px;font-size:11px;font-weight:600;color:#60a5fa;letter-spacing:0.05em;text-transform:uppercase">
+                  ${escapeHtml(dateLabel)} &mdash; ${dayPosts.length} post${dayPosts.length !== 1 ? 's' : ''} scheduled
+                </td>
+              </tr>`;
+            }
+            try {
+              safeRows += renderPostRow(p, ++rowIdx);
+            } catch (err) {
+              console.error('Failed to render LinkedIn row:', err, p);
+              const idLabel = Number(p?.id || 0) ? `#${p.id}` : 'unknown post';
+              safeRows += `<tr class="row-error"><td colspan="12" style="color:#fca5a5;padding:10px 12px;">Row render failed for ${idLabel}. Open dev tools for details.</td></tr>`;
+            }
           }
-        }).join('');
+        } else {
+          safeRows = filtered.map((p, i) => {
+            try {
+              return renderPostRow(p, i + 1);
+            } catch (err) {
+              console.error('Failed to render LinkedIn row:', err, p);
+              const idLabel = Number(p?.id || 0) ? `#${p.id}` : 'unknown post';
+              return `<tr class="row-error"><td colspan="12" style="color:#fca5a5;padding:10px 12px;">Row render failed for ${idLabel}. Open dev tools for details.</td></tr>`;
+            }
+          }).join('');
+        }
         let html = `
           <table class="posts-table" id="main-table">
             <colgroup>
