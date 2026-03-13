@@ -2319,6 +2319,102 @@ export class MemoryManager {
   }
 
   /**
+   * Search EVERYTHING in the database by keyword: messages, cron jobs, kanban tasks/projects,
+   * tasks, daily logs, rolling summaries, cron history.
+   * Uses OR matching (any keyword matches) for broader recall.
+   */
+  searchEverything(query: string, limit = 8): {
+    messages: Array<{ id: number; role: string; content: string; timestamp: string }>;
+    cronJobs: Array<{ id: number; name: string; prompt: string; schedule: string | null; enabled: boolean; job_type: string | null }>;
+    kanbanTasks: Array<{ id: number; title: string; description: string | null; status: string; project_name: string }>;
+    kanbanProjects: Array<{ id: number; name: string; description: string | null; status: string }>;
+    tasks: Array<{ id: number; title: string; description: string | null; status: string; due_date: string | null }>;
+    dailyLogs: Array<{ id: number; date: string; content: string }>;
+    cronHistory: Array<{ jobName: string; response: string; timestamp: string }>;
+  } {
+    const keywords = query.replace(/['"]/g, '').trim().split(/\s+/).filter(k => k.length > 1);
+    if (keywords.length === 0) return { messages: [], cronJobs: [], kanbanTasks: [], kanbanProjects: [], tasks: [], dailyLogs: [], cronHistory: [] };
+
+    // Use OR for broader matching - find anything mentioning any keyword
+    const likeConditions = (cols: string[]) => {
+      const parts = keywords.map(_kw => cols.map(c => `${c} LIKE ?`).join(' OR '));
+      return `(${parts.join(' OR ')})`;
+    };
+    const likeParams = (colCount: number) => keywords.flatMap(kw => Array(colCount).fill(`%${kw}%`));
+
+    // 1. Messages
+    const messages = this.db.prepare(`
+      SELECT id, role, content, timestamp
+      FROM messages
+      WHERE ${likeConditions(['content'])}
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `).all(...likeParams(1), limit) as Array<{ id: number; role: string; content: string; timestamp: string }>;
+
+    // 2. Cron jobs (name + prompt)
+    const cronJobs = this.db.prepare(`
+      SELECT id, name, prompt, schedule, enabled, job_type
+      FROM cron_jobs
+      WHERE ${likeConditions(['name', 'prompt'])}
+      ORDER BY id DESC
+      LIMIT ?
+    `).all(...likeParams(2), limit) as Array<{ id: number; name: string; prompt: string; schedule: string | null; enabled: number; job_type: string | null }>;
+
+    // 3. Kanban tasks (title + description) with project name
+    const kanbanTasks = this.db.prepare(`
+      SELECT kt.id, kt.title, kt.description, kt.status, kp.name as project_name
+      FROM kanban_tasks kt
+      JOIN kanban_projects kp ON kt.project_id = kp.id
+      WHERE ${likeConditions(['kt.title', 'kt.description'])}
+      ORDER BY kt.updated_at DESC
+      LIMIT ?
+    `).all(...likeParams(2), limit) as Array<{ id: number; title: string; description: string | null; status: string; project_name: string }>;
+
+    // 4. Kanban projects
+    const kanbanProjects = this.db.prepare(`
+      SELECT id, name, description, status
+      FROM kanban_projects
+      WHERE ${likeConditions(['name', 'description'])}
+      ORDER BY updated_at DESC
+      LIMIT ?
+    `).all(...likeParams(2), limit) as Array<{ id: number; name: string; description: string | null; status: string }>;
+
+    // 5. Tasks
+    const tasks = this.db.prepare(`
+      SELECT id, title, description, status, due_date
+      FROM tasks
+      WHERE ${likeConditions(['title', 'description'])}
+      ORDER BY updated_at DESC
+      LIMIT ?
+    `).all(...likeParams(2), limit) as Array<{ id: number; title: string; description: string | null; status: string; due_date: string | null }>;
+
+    // 6. Daily logs
+    const dailyLogs = this.db.prepare(`
+      SELECT id, date, content
+      FROM daily_logs
+      WHERE ${likeConditions(['content'])}
+      ORDER BY date DESC
+      LIMIT ?
+    `).all(...likeParams(1), limit) as Array<{ id: number; date: string; content: string }>;
+
+    // 7. Cron history (recent job runs)
+    let cronHistory: Array<{ jobName: string; response: string; timestamp: string }> = [];
+    try {
+      cronHistory = this.db.prepare(`
+        SELECT job_name as jobName, response, timestamp
+        FROM cron_history
+        WHERE ${likeConditions(['job_name', 'response'])}
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `).all(...likeParams(2), limit) as Array<{ jobName: string; response: string; timestamp: string }>;
+    } catch {
+      // cron_history table may not exist in all versions
+    }
+
+    return { messages, cronJobs: cronJobs.map(c => ({ ...c, enabled: c.enabled === 1 || (c.enabled as unknown as boolean) })) as Array<{ id: number; name: string; prompt: string; schedule: string | null; enabled: boolean; job_type: string | null }>, kanbanTasks, kanbanProjects, tasks, dailyLogs, cronHistory };
+  }
+
+  /**
    * Simple search (fallback, no embeddings)
    */
   searchFacts(query: string, category?: string): Fact[] {

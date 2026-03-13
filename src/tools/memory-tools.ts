@@ -202,13 +202,17 @@ export async function handleListFactsTool(input: unknown): Promise<string> {
 export function getMemorySearchToolDefinition() {
   return {
     name: 'memory_search',
-    description: 'Search long-term memory using semantic + keyword hybrid search. Use proactively to recall facts about the user. Returns top 6 results.',
+    description: `Search EVERYTHING in the system: facts, conversation messages, cron jobs, reminders, kanban projects, kanban tasks, daily logs, cron history. This is your most powerful recall tool.
+
+ALWAYS use this BEFORE saying you can't find something. Searches across ALL tables and ALL sessions.
+
+Returns categorized results from every data source in the system.`,
     input_schema: {
       type: 'object' as const,
       properties: {
         query: {
           type: 'string',
-          description: 'Search query - can be natural language',
+          description: 'Search query - use specific keywords. Try single important words if multi-word search returns nothing.',
         },
       },
       required: ['query'],
@@ -231,31 +235,65 @@ export async function handleMemorySearchTool(input: unknown): Promise<string> {
   }
 
   try {
-    const results = await memoryManager.searchFactsHybrid(query);
+    // Search facts (semantic + keyword) AND everything else (keyword) in parallel
+    const [factResults, everything] = await Promise.all([
+      memoryManager.searchFactsHybrid(query),
+      Promise.resolve(memoryManager.searchEverything(query)),
+    ]);
 
-    if (results.length === 0) {
+    const totalResults = factResults.length + everything.messages.length + everything.cronJobs.length +
+      everything.kanbanTasks.length + everything.kanbanProjects.length + everything.tasks.length +
+      everything.dailyLogs.length + everything.cronHistory.length;
+
+    if (totalResults === 0) {
       return JSON.stringify({
         success: true,
-        message: 'No relevant facts found',
-        results: [],
+        message: 'Nothing found anywhere in the system. Try different or simpler keywords.',
       });
     }
 
-    console.log(`[MemorySearch] Found ${results.length} results for: "${query}"`);
+    console.log(`[MemorySearch] "${query}" => ${factResults.length} facts, ${everything.messages.length} messages, ${everything.cronJobs.length} crons, ${everything.kanbanTasks.length} kanban tasks, ${everything.kanbanProjects.length} projects, ${everything.tasks.length} tasks, ${everything.dailyLogs.length} logs, ${everything.cronHistory.length} history`);
 
-    return JSON.stringify({
-      success: true,
-      count: results.length,
-      results: results.map(r => ({
-        id: r.fact.id,
-        category: r.fact.category,
-        subject: r.fact.subject,
-        content: r.fact.content,
-        score: Math.round(r.score * 100) / 100,
-        vectorScore: Math.round(r.vectorScore * 100) / 100,
-        keywordScore: Math.round(r.keywordScore * 100) / 100,
-      })),
-    });
+    // Build compact response with only non-empty sections
+    const response: Record<string, unknown> = { success: true, totalResults };
+
+    if (factResults.length > 0) {
+      response.facts = factResults.map(r => ({
+        id: r.fact.id, category: r.fact.category, subject: r.fact.subject,
+        content: r.fact.content, score: Math.round(r.score * 100) / 100,
+      }));
+    }
+    if (everything.messages.length > 0) {
+      response.messages = everything.messages.map(m => ({
+        id: m.id, role: m.role, timestamp: m.timestamp,
+        content: m.content.length > 1500 ? m.content.substring(0, 1500) + '...' : m.content,
+      }));
+    }
+    if (everything.cronJobs.length > 0) {
+      response.cronJobs = everything.cronJobs;
+    }
+    if (everything.kanbanProjects.length > 0) {
+      response.kanbanProjects = everything.kanbanProjects;
+    }
+    if (everything.kanbanTasks.length > 0) {
+      response.kanbanTasks = everything.kanbanTasks;
+    }
+    if (everything.tasks.length > 0) {
+      response.tasks = everything.tasks;
+    }
+    if (everything.dailyLogs.length > 0) {
+      response.dailyLogs = everything.dailyLogs.map(l => ({
+        date: l.date, content: l.content.length > 1000 ? l.content.substring(0, 1000) + '...' : l.content,
+      }));
+    }
+    if (everything.cronHistory.length > 0) {
+      response.cronHistory = everything.cronHistory.map(h => ({
+        jobName: h.jobName, timestamp: h.timestamp,
+        response: h.response.length > 500 ? h.response.substring(0, 500) + '...' : h.response,
+      }));
+    }
+
+    return JSON.stringify(response);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
     console.error('[MemorySearch] Failed:', errorMsg);
