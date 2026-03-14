@@ -1850,7 +1850,12 @@ class AgentManagerClass extends EventEmitter {
       `Reason naturally and choose the best tool path for the request.\n` +
       `Prefer real evidence over assumptions, and keep tool/reporting claims factual.\n` +
       `Avoid meta-chatter and rigid scripted phrasing.\n` +
-      `Prefer real evidence over assumptions. Don't invent facts or guess at things the user has worked on — use memory and Kanban tools to find them.`
+      `Prefer real evidence over assumptions. Don't invent facts or guess at things the user has worked on — use memory and Kanban tools to find them.\n\n` +
+      `## CRITICAL: Total Recall Rule\n` +
+      `NEVER say "I can't find it", "I don't have that", or "there's no record" without FIRST running memory_search.\n` +
+      `memory_search searches EVERYTHING: all conversation messages (every session ever), all facts, all cron jobs/reminders, all kanban projects/tasks, all daily logs, and cron history.\n` +
+      `If the user mentions something you discussed before, it IS in the database. Search for it. Try different keywords if the first search returns nothing.\n` +
+      `The user treats you as a personal assistant — everything discussed is stored. Your job is to find it, not claim it doesn't exist.`
     );
 
     // Get thinking level config -only Anthropic models support thinking/effort.
@@ -2205,7 +2210,7 @@ Use memory tools:
 - remember: Save a fact (category, key, value)
 - forget: Delete a fact
 - list_facts: List all facts or by category
-- memory_search: Search facts by keyword
+- memory_search: Search EVERYTHING - messages, facts, crons, kanban, tasks, logs. ALWAYS use before saying "can't find"
 
 IMPORTANT:
 - These are direct MCP tools, not Pocket CLI commands.

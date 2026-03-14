@@ -503,6 +503,104 @@ export class MemoryManager {
       // FTS5 triggers may already exist
     }
 
+    // FTS5 for messages (search all conversation history)
+    try {
+      this.db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+          content,
+          content='messages',
+          content_rowid='id'
+        );
+      `);
+
+      this.db.exec(`
+        CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+          INSERT INTO messages_fts(rowid, content)
+          VALUES (new.id, new.content);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+          INSERT INTO messages_fts(messages_fts, rowid, content)
+          VALUES ('delete', old.id, old.content);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+          INSERT INTO messages_fts(messages_fts, rowid, content)
+          VALUES ('delete', old.id, old.content);
+          INSERT INTO messages_fts(rowid, content)
+          VALUES (new.id, new.content);
+        END;
+      `);
+    } catch {
+      // messages FTS5 triggers may already exist
+    }
+
+    // FTS5 for cron_jobs (search reminders, routines, scheduled tasks)
+    try {
+      this.db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS cron_jobs_fts USING fts5(
+          name,
+          prompt,
+          content='cron_jobs',
+          content_rowid='id'
+        );
+      `);
+
+      this.db.exec(`
+        CREATE TRIGGER IF NOT EXISTS cron_jobs_ai AFTER INSERT ON cron_jobs BEGIN
+          INSERT INTO cron_jobs_fts(rowid, name, prompt)
+          VALUES (new.id, new.name, new.prompt);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS cron_jobs_ad AFTER DELETE ON cron_jobs BEGIN
+          INSERT INTO cron_jobs_fts(cron_jobs_fts, rowid, name, prompt)
+          VALUES ('delete', old.id, old.name, old.prompt);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS cron_jobs_au AFTER UPDATE ON cron_jobs BEGIN
+          INSERT INTO cron_jobs_fts(cron_jobs_fts, rowid, name, prompt)
+          VALUES ('delete', old.id, old.name, old.prompt);
+          INSERT INTO cron_jobs_fts(rowid, name, prompt)
+          VALUES (new.id, new.name, new.prompt);
+        END;
+      `);
+    } catch {
+      // cron_jobs FTS5 triggers may already exist
+    }
+
+    // FTS5 for kanban_tasks (search project tasks)
+    try {
+      this.db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS kanban_tasks_fts USING fts5(
+          title,
+          description,
+          content='kanban_tasks',
+          content_rowid='id'
+        );
+      `);
+
+      this.db.exec(`
+        CREATE TRIGGER IF NOT EXISTS kanban_tasks_ai AFTER INSERT ON kanban_tasks BEGIN
+          INSERT INTO kanban_tasks_fts(rowid, title, description)
+          VALUES (new.id, new.title, new.description);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS kanban_tasks_ad AFTER DELETE ON kanban_tasks BEGIN
+          INSERT INTO kanban_tasks_fts(kanban_tasks_fts, rowid, title, description)
+          VALUES ('delete', old.id, old.title, old.description);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS kanban_tasks_au AFTER UPDATE ON kanban_tasks BEGIN
+          INSERT INTO kanban_tasks_fts(kanban_tasks_fts, rowid, title, description)
+          VALUES ('delete', old.id, old.title, old.description);
+          INSERT INTO kanban_tasks_fts(rowid, title, description)
+          VALUES (new.id, new.title, new.description);
+        END;
+      `);
+    } catch {
+      // kanban_tasks FTS5 triggers may already exist
+    }
+
     // Migration: add subject column if missing (must run BEFORE FTS rebuild)
     const columns = this.db.pragma('table_info(facts)') as Array<{ name: string }>;
     const hasSubject = columns.some(c => c.name === 'subject');
@@ -1085,26 +1183,79 @@ export class MemoryManager {
   }
 
   /**
-   * Rebuild FTS index from existing facts
+   * Rebuild all FTS indexes from existing data
    */
   private rebuildFtsIndex(): void {
+    // Facts FTS
     try {
-      // Check if FTS table is empty but facts exist
       const ftsCount = (this.db.prepare('SELECT COUNT(*) as c FROM facts_fts').get() as { c: number }).c;
       const factsCount = (this.db.prepare('SELECT COUNT(*) as c FROM facts').get() as { c: number }).c;
 
       if (ftsCount === 0 && factsCount > 0) {
-        console.log('[Memory] Rebuilding FTS index...');
+        console.log('[Memory] Rebuilding facts FTS index...');
         const facts = this.db.prepare('SELECT id, category, subject, content FROM facts').all() as Fact[];
         const insert = this.db.prepare('INSERT INTO facts_fts(rowid, category, subject, content) VALUES (?, ?, ?, ?)');
-
         for (const fact of facts) {
           insert.run(fact.id, fact.category, fact.subject, fact.content);
         }
-        console.log(`[Memory] Rebuilt FTS index with ${facts.length} facts`);
+        console.log(`[Memory] Rebuilt facts FTS with ${facts.length} entries`);
       }
     } catch (e) {
-      console.warn('[Memory] FTS rebuild failed:', e);
+      console.warn('[Memory] Facts FTS rebuild failed:', e);
+    }
+
+    // Messages FTS
+    try {
+      const ftsCount = (this.db.prepare('SELECT COUNT(*) as c FROM messages_fts').get() as { c: number }).c;
+      const msgCount = (this.db.prepare('SELECT COUNT(*) as c FROM messages').get() as { c: number }).c;
+
+      if (ftsCount === 0 && msgCount > 0) {
+        console.log('[Memory] Rebuilding messages FTS index...');
+        const msgs = this.db.prepare('SELECT id, content FROM messages').all() as Array<{ id: number; content: string }>;
+        const insert = this.db.prepare('INSERT INTO messages_fts(rowid, content) VALUES (?, ?)');
+        for (const msg of msgs) {
+          insert.run(msg.id, msg.content);
+        }
+        console.log(`[Memory] Rebuilt messages FTS with ${msgs.length} entries`);
+      }
+    } catch (e) {
+      console.warn('[Memory] Messages FTS rebuild failed:', e);
+    }
+
+    // Cron jobs FTS
+    try {
+      const ftsCount = (this.db.prepare('SELECT COUNT(*) as c FROM cron_jobs_fts').get() as { c: number }).c;
+      const cronCount = (this.db.prepare('SELECT COUNT(*) as c FROM cron_jobs').get() as { c: number }).c;
+
+      if (ftsCount === 0 && cronCount > 0) {
+        console.log('[Memory] Rebuilding cron_jobs FTS index...');
+        const crons = this.db.prepare('SELECT id, name, prompt FROM cron_jobs').all() as Array<{ id: number; name: string; prompt: string }>;
+        const insert = this.db.prepare('INSERT INTO cron_jobs_fts(rowid, name, prompt) VALUES (?, ?, ?)');
+        for (const cron of crons) {
+          insert.run(cron.id, cron.name, cron.prompt);
+        }
+        console.log(`[Memory] Rebuilt cron_jobs FTS with ${crons.length} entries`);
+      }
+    } catch (e) {
+      console.warn('[Memory] Cron jobs FTS rebuild failed:', e);
+    }
+
+    // Kanban tasks FTS
+    try {
+      const ftsCount = (this.db.prepare('SELECT COUNT(*) as c FROM kanban_tasks_fts').get() as { c: number }).c;
+      const taskCount = (this.db.prepare('SELECT COUNT(*) as c FROM kanban_tasks').get() as { c: number }).c;
+
+      if (ftsCount === 0 && taskCount > 0) {
+        console.log('[Memory] Rebuilding kanban_tasks FTS index...');
+        const tasks = this.db.prepare('SELECT id, title, description FROM kanban_tasks').all() as Array<{ id: number; title: string; description: string | null }>;
+        const insert = this.db.prepare('INSERT INTO kanban_tasks_fts(rowid, title, description) VALUES (?, ?, ?)');
+        for (const task of tasks) {
+          insert.run(task.id, task.title, task.description || '');
+        }
+        console.log(`[Memory] Rebuilt kanban_tasks FTS with ${tasks.length} entries`);
+      }
+    } catch (e) {
+      console.warn('[Memory] Kanban tasks FTS rebuild failed:', e);
     }
   }
 
@@ -2319,9 +2470,17 @@ export class MemoryManager {
   }
 
   /**
-   * Search EVERYTHING in the database by keyword: messages, cron jobs, kanban tasks/projects,
-   * tasks, daily logs, rolling summaries, cron history.
-   * Uses OR matching (any keyword matches) for broader recall.
+   * Build FTS5 MATCH query from keywords (OR-based for broad recall).
+   */
+  private buildFtsQuery(query: string): string {
+    return query.replace(/['"]/g, '').trim().split(/\s+/)
+      .filter(k => k.length > 1)
+      .join(' OR ');
+  }
+
+  /**
+   * Search EVERYTHING in the database: messages, cron jobs, kanban tasks/projects,
+   * tasks, daily logs, cron history. Uses FTS5 for speed with LIKE fallback.
    */
   searchEverything(query: string, limit = 8): {
     messages: Array<{ id: number; role: string; content: string; timestamp: string }>;
@@ -2335,42 +2494,84 @@ export class MemoryManager {
     const keywords = query.replace(/['"]/g, '').trim().split(/\s+/).filter(k => k.length > 1);
     if (keywords.length === 0) return { messages: [], cronJobs: [], kanbanTasks: [], kanbanProjects: [], tasks: [], dailyLogs: [], cronHistory: [] };
 
-    // Use OR for broader matching - find anything mentioning any keyword
+    const ftsQuery = this.buildFtsQuery(query);
+
+    // LIKE fallback helpers (for tables without FTS or when FTS fails)
     const likeConditions = (cols: string[]) => {
-      const parts = keywords.map(_kw => cols.map(c => `${c} LIKE ?`).join(' OR '));
+      const parts = keywords.map(() => cols.map(c => `${c} LIKE ?`).join(' OR '));
       return `(${parts.join(' OR ')})`;
     };
     const likeParams = (colCount: number) => keywords.flatMap(kw => Array(colCount).fill(`%${kw}%`));
 
-    // 1. Messages
-    const messages = this.db.prepare(`
-      SELECT id, role, content, timestamp
-      FROM messages
-      WHERE ${likeConditions(['content'])}
-      ORDER BY timestamp DESC
-      LIMIT ?
-    `).all(...likeParams(1), limit) as Array<{ id: number; role: string; content: string; timestamp: string }>;
+    // 1. Messages - FTS5 with BM25 ranking, LIKE fallback
+    let messages: Array<{ id: number; role: string; content: string; timestamp: string }> = [];
+    try {
+      messages = this.db.prepare(`
+        SELECT m.id, m.role, m.content, m.timestamp, bm25(messages_fts) as rank
+        FROM messages_fts
+        JOIN messages m ON messages_fts.rowid = m.id
+        WHERE messages_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(ftsQuery, limit) as Array<{ id: number; role: string; content: string; timestamp: string }>;
+    } catch {
+      // FTS failed, fall back to LIKE
+      messages = this.db.prepare(`
+        SELECT id, role, content, timestamp
+        FROM messages
+        WHERE ${likeConditions(['content'])}
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `).all(...likeParams(1), limit) as Array<{ id: number; role: string; content: string; timestamp: string }>;
+    }
 
-    // 2. Cron jobs (name + prompt)
-    const cronJobs = this.db.prepare(`
-      SELECT id, name, prompt, schedule, enabled, job_type
-      FROM cron_jobs
-      WHERE ${likeConditions(['name', 'prompt'])}
-      ORDER BY id DESC
-      LIMIT ?
-    `).all(...likeParams(2), limit) as Array<{ id: number; name: string; prompt: string; schedule: string | null; enabled: number; job_type: string | null }>;
+    // 2. Cron jobs - FTS5 with LIKE fallback
+    let cronJobs: Array<{ id: number; name: string; prompt: string; schedule: string | null; enabled: boolean; job_type: string | null }> = [];
+    try {
+      const raw = this.db.prepare(`
+        SELECT c.id, c.name, c.prompt, c.schedule, c.enabled, c.job_type, bm25(cron_jobs_fts) as rank
+        FROM cron_jobs_fts
+        JOIN cron_jobs c ON cron_jobs_fts.rowid = c.id
+        WHERE cron_jobs_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(ftsQuery, limit) as Array<{ id: number; name: string; prompt: string; schedule: string | null; enabled: number; job_type: string | null }>;
+      cronJobs = raw.map(c => ({ ...c, enabled: c.enabled === 1 }));
+    } catch {
+      const raw = this.db.prepare(`
+        SELECT id, name, prompt, schedule, enabled, job_type
+        FROM cron_jobs
+        WHERE ${likeConditions(['name', 'prompt'])}
+        ORDER BY id DESC
+        LIMIT ?
+      `).all(...likeParams(2), limit) as Array<{ id: number; name: string; prompt: string; schedule: string | null; enabled: number; job_type: string | null }>;
+      cronJobs = raw.map(c => ({ ...c, enabled: c.enabled === 1 }));
+    }
 
-    // 3. Kanban tasks (title + description) with project name
-    const kanbanTasks = this.db.prepare(`
-      SELECT kt.id, kt.title, kt.description, kt.status, kp.name as project_name
-      FROM kanban_tasks kt
-      JOIN kanban_projects kp ON kt.project_id = kp.id
-      WHERE ${likeConditions(['kt.title', 'kt.description'])}
-      ORDER BY kt.updated_at DESC
-      LIMIT ?
-    `).all(...likeParams(2), limit) as Array<{ id: number; title: string; description: string | null; status: string; project_name: string }>;
+    // 3. Kanban tasks - FTS5 with LIKE fallback
+    let kanbanTasks: Array<{ id: number; title: string; description: string | null; status: string; project_name: string }> = [];
+    try {
+      kanbanTasks = this.db.prepare(`
+        SELECT kt.id, kt.title, kt.description, kt.status, kp.name as project_name, bm25(kanban_tasks_fts) as rank
+        FROM kanban_tasks_fts
+        JOIN kanban_tasks kt ON kanban_tasks_fts.rowid = kt.id
+        JOIN kanban_projects kp ON kt.project_id = kp.id
+        WHERE kanban_tasks_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(ftsQuery, limit) as Array<{ id: number; title: string; description: string | null; status: string; project_name: string }>;
+    } catch {
+      kanbanTasks = this.db.prepare(`
+        SELECT kt.id, kt.title, kt.description, kt.status, kp.name as project_name
+        FROM kanban_tasks kt
+        JOIN kanban_projects kp ON kt.project_id = kp.id
+        WHERE ${likeConditions(['kt.title', 'kt.description'])}
+        ORDER BY kt.updated_at DESC
+        LIMIT ?
+      `).all(...likeParams(2), limit) as Array<{ id: number; title: string; description: string | null; status: string; project_name: string }>;
+    }
 
-    // 4. Kanban projects
+    // 4. Kanban projects (LIKE only - small table, no FTS needed)
     const kanbanProjects = this.db.prepare(`
       SELECT id, name, description, status
       FROM kanban_projects
@@ -2379,7 +2580,7 @@ export class MemoryManager {
       LIMIT ?
     `).all(...likeParams(2), limit) as Array<{ id: number; name: string; description: string | null; status: string }>;
 
-    // 5. Tasks
+    // 5. Tasks (LIKE only - small table)
     const tasks = this.db.prepare(`
       SELECT id, title, description, status, due_date
       FROM tasks
@@ -2388,7 +2589,7 @@ export class MemoryManager {
       LIMIT ?
     `).all(...likeParams(2), limit) as Array<{ id: number; title: string; description: string | null; status: string; due_date: string | null }>;
 
-    // 6. Daily logs
+    // 6. Daily logs (LIKE only)
     const dailyLogs = this.db.prepare(`
       SELECT id, date, content
       FROM daily_logs
@@ -2397,7 +2598,7 @@ export class MemoryManager {
       LIMIT ?
     `).all(...likeParams(1), limit) as Array<{ id: number; date: string; content: string }>;
 
-    // 7. Cron history (recent job runs)
+    // 7. Cron history
     let cronHistory: Array<{ jobName: string; response: string; timestamp: string }> = [];
     try {
       cronHistory = this.db.prepare(`
@@ -2411,7 +2612,7 @@ export class MemoryManager {
       // cron_history table may not exist in all versions
     }
 
-    return { messages, cronJobs: cronJobs.map(c => ({ ...c, enabled: c.enabled === 1 || (c.enabled as unknown as boolean) })) as Array<{ id: number; name: string; prompt: string; schedule: string | null; enabled: boolean; job_type: string | null }>, kanbanTasks, kanbanProjects, tasks, dailyLogs, cronHistory };
+    return { messages, cronJobs, kanbanTasks, kanbanProjects, tasks, dailyLogs, cronHistory };
   }
 
   /**
