@@ -163,6 +163,7 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   'gemini-2.5-flash-lite': 'gemini',
   'kimi-k2.5': 'moonshot',
   'glm-5': 'glm',
+  'MiniMax-M2.7': 'minimax',
   'MiniMax-M2.5': 'minimax',
   'MiniMax-M2.5-Lightning': 'minimax',
   'qwen3.5-plus-2026-02-15': 'qwen',

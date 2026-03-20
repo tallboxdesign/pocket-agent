@@ -62,6 +62,7 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   // Z.AI GLM models
   'glm-5': 'glm',
   // MiniMax models
+  'MiniMax-M2.7': 'minimax',
   'MiniMax-M2.5': 'minimax',
   'MiniMax-M2.5-Lightning': 'minimax',
   // Gemini direct models (visible in picker, guarded in main SDK flow)
@@ -965,6 +966,7 @@ class AgentManagerClass extends EventEmitter {
       'claude-sonnet-4-6',
       'claude-haiku-4-5-20251001',
       'glm-5',
+      'MiniMax-M2.7',
       'MiniMax-M2.5-Lightning',
       'kimi-k2.5',
       'qwen3.5-plus-2026-02-15',
@@ -1806,6 +1808,7 @@ class AgentManagerClass extends EventEmitter {
       const modelNames: Record<string, string> = {
         'kimi-k2.5': 'Kimi K2.5 by Moonshot AI',
         'glm-5': 'GLM 5 by Zhipu AI',
+        'MiniMax-M2.7': 'MiniMax M2.7',
         'MiniMax-M2.5': 'MiniMax M2.5',
         'MiniMax-M2.5-Lightning': 'MiniMax M2.5 Lightning',
         'qwen3.5-plus-2026-02-15': 'Qwen 3.5 Plus',

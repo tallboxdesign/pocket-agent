@@ -2491,6 +2491,20 @@
     <div class="spacer"></div>
     <button class="action-btn" onclick="selectUndrafted()" style="font-size:11px;color:var(--text-muted)">Select Undrafted</button>
     <button class="action-btn" onclick="selectZeroEngagement()" style="font-size:11px;color:var(--text-muted)">Select Zero Engagement</button>
+    <span style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;">
+      <select id="engage-metric" style="font-size:11px;padding:2px 4px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;">
+        <option value="reactions">Reactions</option>
+        <option value="comments">Comments</option>
+        <option value="both">Either</option>
+        <option value="total">Total</option>
+      </select>
+      <select id="engage-op" style="font-size:11px;padding:2px 4px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;">
+        <option value="gte">&ge;</option>
+        <option value="lte">&le;</option>
+      </select>
+      <input type="number" id="engage-threshold" value="10" min="0" max="9999" style="width:50px;font-size:11px;padding:2px 4px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;text-align:center;">
+      <button class="action-btn" onclick="selectByEngagement()" style="font-size:11px;color:var(--accent)">Select</button>
+    </span>
     <button class="action-btn" onclick="clearSelection()" style="font-size:11px;color:var(--text-muted)">Clear</button>
   </div>
 
@@ -5368,6 +5382,30 @@
         cb.checked = zeroIds.has(Number(cb.value));
       });
       updateSelection();
+    }
+
+    function selectByEngagement() {
+      const metric = document.getElementById('engage-metric').value;
+      const op = document.getElementById('engage-op').value;
+      const threshold = Number(document.getElementById('engage-threshold').value || 0);
+      const matchIds = new Set(
+        currentPosts.filter(p => {
+          const r = Number(p.reactions || 0);
+          const c = Number(p.comments || 0);
+          let val;
+          if (metric === 'reactions') val = r;
+          else if (metric === 'comments') val = c;
+          else if (metric === 'both') val = Math.max(r, c);
+          else val = r + c; // total
+          return op === 'gte' ? val >= threshold : val <= threshold;
+        }).map(p => Number(p.id))
+      );
+      document.querySelectorAll('.posts-table tbody input[type="checkbox"]').forEach(cb => {
+        cb.checked = matchIds.has(Number(cb.value));
+      });
+      updateSelection();
+      const count = matchIds.size;
+      showToast(`Selected ${count} post${count !== 1 ? 's' : ''}`, 'success');
     }
 
     async function researchDraftSelected() {

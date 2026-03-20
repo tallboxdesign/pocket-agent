@@ -4869,6 +4869,7 @@ Image preset: ${c.image_preset || 'none'}${c.image_caption ? `\nImage direction:
     const hasMinimaxKey = SettingsManager.get('minimax.apiKey');
     if (hasMinimaxKey) {
       models.push(
+        { id: 'MiniMax-M2.7', name: 'MiniMax M2.7', provider: 'minimax' },
         { id: 'MiniMax-M2.5', name: 'MiniMax M2.5', provider: 'minimax' },
         { id: 'MiniMax-M2.5-Lightning', name: 'M2.5 Lightning', provider: 'minimax' }
       );
@@ -6185,6 +6186,7 @@ async function initializeAgent(): Promise<void> {
     'claude-haiku-4-5-20251001': 'anthropic',
     'kimi-k2.5': 'moonshot',
     'glm-5': 'glm',
+    'MiniMax-M2.7': 'minimax',
     'MiniMax-M2.5': 'minimax',
     'MiniMax-M2.5-Lightning': 'minimax',
     'qwen3.5-plus-2026-02-15': 'qwen',
@@ -6213,7 +6215,7 @@ async function initializeAgent(): Promise<void> {
           anthropic: 'claude-sonnet-4-6',
           moonshot: 'kimi-k2.5',
           glm: 'glm-5',
-          minimax: 'MiniMax-M2.5',
+          minimax: 'MiniMax-M2.7',
           qwen: 'qwen3.5-plus-2026-02-15',
           openrouter: 'openrouter/auto',
         };

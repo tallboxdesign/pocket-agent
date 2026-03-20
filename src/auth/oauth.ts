@@ -34,6 +34,9 @@ class ClaudeOAuthManager {
   private static instance: ClaudeOAuthManager | null = null;
   private currentPKCE: PKCEPair | null = null;
   private pendingAuth: boolean = false;
+  private refreshFailed: boolean = false;
+  private lastTokenRequestAt: number = 0;
+  private static readonly TOKEN_REQUEST_COOLDOWN_MS = 10000; // 10s between token endpoint calls
 
   private constructor() {}
 
@@ -78,6 +81,7 @@ class ClaudeOAuthManager {
    */
   async startFlow(): Promise<{ success: boolean; error?: string }> {
     try {
+      this.refreshFailed = false; // Reset on new auth flow
       const authUrl = this.getAuthorizationURL();
       this.pendingAuth = true;
 
@@ -120,6 +124,7 @@ class ClaudeOAuthManager {
 
       this.pendingAuth = false;
       this.currentPKCE = null;
+      this.refreshFailed = false;
 
       console.log('[OAuth] Successfully authenticated');
       return { success: true };
@@ -136,6 +141,14 @@ class ClaudeOAuthManager {
    * Exchange authorization code for tokens
    */
   private async exchangeCodeForTokens(code: string, pkce: PKCEPair): Promise<OAuthTokens> {
+    // Throttle: don't hit the token endpoint too frequently
+    const now = Date.now();
+    if (now - this.lastTokenRequestAt < ClaudeOAuthManager.TOKEN_REQUEST_COOLDOWN_MS) {
+      const waitSec = Math.ceil((ClaudeOAuthManager.TOKEN_REQUEST_COOLDOWN_MS - (now - this.lastTokenRequestAt)) / 1000);
+      throw new Error(`Rate limited locally - please wait ${waitSec}s and try again`);
+    }
+    this.lastTokenRequestAt = now;
+
     // Handle code#state format (user pastes the full callback code)
     const parts = code.trim().split('#');
     const authCode = parts[0];
@@ -162,7 +175,8 @@ class ClaudeOAuthManager {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Token exchange failed: ${errorText}`);
+      console.error(`[OAuth] Token exchange HTTP ${response.status}: ${errorText}`);
+      throw new Error(`Token exchange failed (HTTP ${response.status}): ${errorText}`);
     }
 
     const data = await response.json();
@@ -178,6 +192,11 @@ class ClaudeOAuthManager {
    * Refresh access token if needed
    */
   async refreshTokenIfNeeded(): Promise<boolean> {
+    // If a previous refresh already failed, don't keep hammering the endpoint
+    if (this.refreshFailed) {
+      return false;
+    }
+
     const expiresAt = parseInt(SettingsManager.get('auth.tokenExpiresAt') || '0', 10);
     const refreshToken = SettingsManager.get('auth.refreshToken');
 
@@ -190,6 +209,14 @@ class ClaudeOAuthManager {
       return false;
     }
 
+    // Throttle: don't hit the token endpoint more than once per cooldown period
+    const now = Date.now();
+    if (now - this.lastTokenRequestAt < ClaudeOAuthManager.TOKEN_REQUEST_COOLDOWN_MS) {
+      console.log('[OAuth] Skipping refresh - cooldown active');
+      return false;
+    }
+    this.lastTokenRequestAt = now;
+
     try {
       const tokens = await this.refreshAccessToken(refreshToken);
 
@@ -201,6 +228,8 @@ class ClaudeOAuthManager {
       return true;
     } catch (error) {
       console.error('[OAuth] Token refresh failed:', error);
+      // Stop retrying - user must re-authenticate
+      this.refreshFailed = true;
       return false;
     }
   }

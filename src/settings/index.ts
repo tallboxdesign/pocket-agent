@@ -1958,7 +1958,7 @@ class SettingsManagerClass {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'MiniMax-M2.5-Lightning',
+          model: 'MiniMax-M2.7',
           max_tokens: 10,
           messages: [{ role: 'user', content: 'Hi' }],
         }),

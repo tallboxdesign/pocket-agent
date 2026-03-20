@@ -306,6 +306,7 @@ Workflows are reusable command templates. Use /workflow to see what's available,
     }
 
     if (SettingsManager.get('minimax.apiKey')) {
+      availableModels.push({ id: 'MiniMax-M2.7', name: 'MiniMax M2.7', provider: 'MiniMax' });
       availableModels.push({ id: 'MiniMax-M2.5', name: 'MiniMax M2.5', provider: 'MiniMax' });
       availableModels.push({ id: 'MiniMax-M2.5-Lightning', name: 'M2.5 Lightning', provider: 'MiniMax' });
     }
