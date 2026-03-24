@@ -54,6 +54,15 @@ This builds over time. After interactions where you learn something about the re
 - "Remind me to shower in 30 min" → shows notification, nothing else
 - "Don't forget to call mom" → just a notification
 
+## URLs Shared by User
+
+When the user shares a URL (via Telegram or chat) WITHOUT explicit instructions:
+1. FIRST: Fetch the URL (WebFetch) to read the title, description, and content summary
+2. THEN: Tell the user what you found and ASK what they want to do with it
+3. Do NOT automatically save to Kanban, create tasks, or take action without asking
+
+Only skip the ask-first step if the user gives clear instructions alongside the URL (e.g., "save this", "summarize this", "add to project X").
+
 ## Pocket CLI -ALWAYS prefer over WebSearch/WebFetch
 
 Use \`pocket\` CLI for external data before falling back to web search. Returns JSON.

@@ -3759,6 +3759,18 @@
     }
 
     function getContentIntentKey(post) {
+      // Use post_nature from research evidence if available (free-text, more accurate)
+      const postNature = String(post?.evidence_post_nature || '').trim().toLowerCase();
+      if (postNature) {
+        if (/hiring|job|recruit/.test(postNature)) return 'hiring';
+        if (/conference|summit|event|meetup|recap/.test(postNature)) return 'event';
+        if (/milestone|celebration|anniversary|promotion|new role|farewell/.test(postNature)) return 'celebration';
+        if (/product|launch|announcement/.test(postNature)) return 'promotional';
+        if (/tutorial|how-to|technical|guide/.test(postNature)) return 'educational';
+        if (/opinion|thought|insight|debate/.test(postNature)) return 'opinion';
+        if (/question|advice|help/.test(postNature)) return 'question';
+        if (/personal|story/.test(postNature)) return 'personal';
+      }
       const evidenceIntent = String(post?.evidence_post_intent || '').trim().toLowerCase();
       if (evidenceIntent === 'educational' || evidenceIntent === 'promotional' || evidenceIntent === 'mixed') {
         return evidenceIntent;
@@ -3770,9 +3782,18 @@
     }
 
     function getContentIntentLabel(key) {
-      if (key === 'educational') return 'Educational';
-      if (key === 'promotional') return 'Promotional';
-      return 'Mixed';
+      const labels = {
+        educational: 'Educational',
+        promotional: 'Promotional',
+        mixed: 'Mixed',
+        hiring: 'Hiring',
+        event: 'Event/Conference',
+        celebration: 'Celebration',
+        opinion: 'Opinion',
+        question: 'Question',
+        personal: 'Personal Story',
+      };
+      return labels[key] || key.charAt(0).toUpperCase() + key.slice(1);
     }
 
     function getAuthorRelationship(post) {
@@ -6464,6 +6485,7 @@
       const evidenceTags = [];
       if (p.evidence_comment_intent) evidenceTags.push(`Comment: ${String(p.evidence_comment_intent)}`);
       if (p.evidence_post_intent) evidenceTags.push(`Intent: ${String(p.evidence_post_intent)}`);
+      if (p.evidence_post_nature) evidenceTags.push(`Nature: ${String(p.evidence_post_nature)}`);
       evidenceTags.push(`Confidence ${evidenceConfidenceLabel}`);
 
       const evidenceLines = [];
@@ -6472,6 +6494,8 @@
         if (!clean) return;
         evidenceLines.push(`<div class="draft-evidence-line"><strong>${label}:</strong> ${escapeHtml(clean)}</div>`);
       };
+      addEvidenceLine('Post nature', p.evidence_post_nature);
+      addEvidenceLine('Comment approach', p.evidence_comment_approach);
       addEvidenceLine('Key point', p.evidence_key_point);
       addEvidenceLine('Statistic', p.evidence_statistic);
       addEvidenceLine('Implication', p.evidence_implication);

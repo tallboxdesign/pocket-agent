@@ -78,6 +78,10 @@ type ResearchEvidence = {
   fullPostWordCount: number;
   postIntent: 'educational' | 'promotional' | 'mixed';
   confidence: 'high' | 'medium' | 'low';
+  /** Free-text description of the post's nature (e.g. "hiring announcement", "personal milestone", "technical tutorial") */
+  postNature: string;
+  /** LLM-suggested comment approach based on the post's nature */
+  commentApproach: string;
 };
 
 type ResearchTrace = {
@@ -973,6 +977,98 @@ function detectPostIntent(text: string): 'educational' | 'promotional' | 'mixed'
   return 'educational';
 }
 
+/**
+ * Detect if a post requires a light-touch comment (celebration, event, hiring, milestone, etc.)
+ * based on the post text itself - does NOT rely on research evidence fields.
+ * Returns the detected nature and suggested approach, or null if the post is standard.
+ */
+function detectLightTouchPost(text: string): { nature: string; approach: string } | null {
+  const low = text.toLowerCase();
+
+  // Conference / event / summit recaps
+  const eventSignals = [
+    /\b(summit|conference|event|meetup|workshop)\b/,
+    /\bshared the stage\b/,
+    /\bamazing people\b/,
+    /\bgreat (time|event|conference|summit)\b/,
+    /\bnetworking\b.*\btop.notch\b/,
+    /\bspeakers?\b/,
+    /\b(attended|attending|spoke at|speaking at)\b/,
+    /\blearned at\b/,
+    /\bthings i learned\b/,
+    /\bhad (a blast|fun|lots of fun|a great time)\b/,
+  ].filter(re => re.test(low)).length;
+
+  // Hiring / job posts
+  const hiringSignals = [
+    /\b(we'?re hiring|we are hiring|now hiring|open (role|position)|join (our|the) team)\b/,
+    /\b(looking for|seeking) (a |an )?(experienced|senior|junior|talented|passionate)\b/,
+    /\bapply (now|here|today)\b/,
+    /\b(full.time|part.time|remote|on.site|hybrid)\b.*\b(role|position)\b/,
+    /\byou'?ll own\b/,
+    /\byou need\b.*\bexperience\b/,
+  ].filter(re => re.test(low)).length;
+
+  // Personal milestones / celebrations
+  const milestoneSignals = [
+    /\b(promoted|new role|new job|new chapter|just (joined|started)|excited to (announce|share|join))\b/,
+    /\b\d+ years? (at|with|of)\b/,
+    /\b(anniversary|milestone|achievement|proud (to|of)|grateful|thankful)\b/,
+    /\b(welcome to the team|thrilled to)\b/,
+    /\bcouldn'?t be (happier|more excited|more grateful|prouder)\b/,
+  ].filter(re => re.test(low)).length;
+
+  // Team / company celebrations
+  const celebrationSignals = [
+    /\b(congrats|congratulations|well done|shoutout|shout.out|kudos|cheers to)\b/,
+    /\b(amazing team|incredible team|the team did|our team)\b/,
+    /\b(raised|funding|series [a-e]|ipo|acquisition|acquired)\b/,
+    /\b(launched|launch day|we shipped|just released)\b/,
+    /\bwon (the|a|an)\b/,
+    /\baward\b/,
+  ].filter(re => re.test(low)).length;
+
+  // Farewell / transition
+  const farewellSignals = [
+    /\b(farewell|goodbye|leaving|last day|moving on|bittersweet)\b/,
+    /\b(grateful for the|learned so much)\b/,
+  ].filter(re => re.test(low)).length;
+
+  if (eventSignals >= 2) {
+    return {
+      nature: 'conference/event recap',
+      approach: 'Reference a specific speaker, session, or detail they mentioned. Keep it warm and short (1-2 sentences). Play along with the tone of the post. Do NOT add technical analysis or industry insights.',
+    };
+  }
+  if (hiringSignals >= 2) {
+    return {
+      nature: 'hiring announcement',
+      approach: 'Brief congratulation about team growth or mention something specific about the role/company direction. 1-2 sentences max. Do NOT add industry insights or technical commentary.',
+    };
+  }
+  if (milestoneSignals >= 2) {
+    return {
+      nature: 'personal milestone',
+      approach: 'Genuine brief acknowledgment. Reference something specific about their achievement. 1-2 sentences. Do NOT add data points or career advice.',
+    };
+  }
+  if (celebrationSignals >= 2) {
+    return {
+      nature: 'celebration/announcement',
+      approach: 'Acknowledge the achievement specifically. Keep it genuine and short. 1-2 sentences. Do NOT add business advice or industry analysis.',
+    };
+  }
+  if (farewellSignals >= 2) {
+    return {
+      nature: 'farewell/transition',
+      approach: 'Warm, brief, genuine acknowledgment. Reference something specific about their journey. 1-2 sentences.',
+    };
+  }
+
+  // Also check if research evidence provided a nature (for fresh research passes with new code)
+  return null;
+}
+
 function chooseCommentIntent(postId: number): CommentIntent {
   const intents: Array<CommentIntent> = [
     'tradeoff',
@@ -1410,6 +1506,33 @@ function buildDeterministicFallbackDraft(
   authorFirstName: string,
   commentIntent: CommentIntent,
 ): string {
+  // Light-touch posts get a short genuine comment, not the stance+data template
+  const lightTouch = detectLightTouchPost(post.text_preview || '');
+  console.log(`[LinkedInDrafter] buildDeterministicFallback for ${post.author}: lightTouch=${lightTouch ? JSON.stringify(lightTouch) : 'null'}, preview=${(post.text_preview || '').slice(0, 80)}`);
+  if (lightTouch) {
+    // Extract a specific detail from the post to reference
+    const preview = post.text_preview || '';
+    // Try to find a proper noun (person/place name) to reference
+    const names = preview.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g) || [];
+    const specificName = names.find(n => n !== post.author && !['The', 'This', 'That', 'And', 'But'].includes(n.split(' ')[0])) || '';
+    const opener = authorFirstName ? `${authorFirstName},` : '';
+
+    if (lightTouch.nature.includes('event') || lightTouch.nature.includes('conference')) {
+      const lines = [
+        specificName ? `${opener} ${specificName.split(' ')[0]} showing up makes any lineup worth watching.` : `${opener} that lineup alone makes it worth the trip.`,
+      ];
+      return ensureReadableCommentLayout(cleanDraftText(lines.join(' ').trim()));
+    }
+    if (lightTouch.nature.includes('hiring')) {
+      return ensureReadableCommentLayout(cleanDraftText(`${opener} solid hire if you find someone who actually gets this space. good luck with the search.`));
+    }
+    if (lightTouch.nature.includes('milestone') || lightTouch.nature.includes('celebration')) {
+      return ensureReadableCommentLayout(cleanDraftText(`${opener} well earned. the work behind this doesn't get talked about enough.`));
+    }
+    // Generic light-touch fallback
+    return ensureReadableCommentLayout(cleanDraftText(`${opener} this one landed. appreciate you sharing it.`));
+  }
+
   const normalizeAnchorSnippet = (value: string): string => {
     const cleaned = String(value || '')
       .replace(/\s+/g, ' ')
@@ -1553,6 +1676,8 @@ function parseResearchEvidence(rawResearch: string, fallbackIntent: ResearchEvid
     fullPostWordCount: 0,
     postIntent: fallbackIntent,
     confidence: 'low',
+    postNature: '',
+    commentApproach: '',
   };
 
   if (!parsed) {
@@ -1607,6 +1732,8 @@ function parseResearchEvidence(rawResearch: string, fallbackIntent: ResearchEvid
     fullPostWordCount,
     postIntent,
     confidence,
+    postNature: String(parsed.post_nature || '').trim(),
+    commentApproach: String(parsed.comment_approach || '').trim(),
   };
 }
 
@@ -1783,7 +1910,9 @@ Research the exact topic with web search and return STRICT JSON:
   "source_url_2": "secondary source url (optional)",
   "implication": "why this matters in practice, in plain language",
   "post_intent": "educational|promotional|mixed",
-  "confidence": "high|medium|low"
+  "confidence": "high|medium|low",
+  "post_nature": "free-text description of what kind of post this is (e.g. 'hiring announcement', 'personal career milestone', 'technical how-to', 'product launch', 'industry opinion', 'event promotion', 'team celebration', 'asking for advice'). Be specific.",
+  "comment_approach": "given the post nature, describe the right comment strategy (e.g. for hiring: 'brief congratulations on team growth'; for technical: 'add a practical insight from experience'; for personal milestone: 'genuine acknowledgment'). Adapt to the post."
 }`;
 
   const controller = new AbortController();
@@ -1886,7 +2015,9 @@ Research the exact topic with grounded Google search and return STRICT JSON:
   "source_url_2": "secondary source url (optional)",
   "implication": "why this matters in practice, in plain language",
   "post_intent": "educational|promotional|mixed",
-  "confidence": "high|medium|low"
+  "confidence": "high|medium|low",
+  "post_nature": "free-text description of what kind of post this is (e.g. 'hiring announcement', 'personal career milestone', 'technical how-to', 'product launch', 'industry opinion', 'event promotion', 'team celebration', 'asking for advice'). Be specific.",
+  "comment_approach": "given the post nature, describe the right comment strategy (e.g. for hiring: 'brief congratulations on team growth'; for technical: 'add a practical insight from experience'; for personal milestone: 'genuine acknowledgment'). Adapt to the post."
 }`;
 
   const controller = new AbortController();
@@ -1998,6 +2129,8 @@ function evidenceToBrief(evidence: ResearchEvidence): string {
     `Two-cents basis selected from research: ${evidence.stanceBasis}`,
     evidence.actionableAddOn ? `Actionable follow-through to include: ${evidence.actionableAddOn}` : '',
     `Post intent: ${evidence.postIntent}`,
+    evidence.postNature ? `Post nature: ${evidence.postNature}` : '',
+    evidence.commentApproach ? `Comment approach (adapt your style to match): ${evidence.commentApproach}` : '',
     `Evidence confidence: ${evidence.confidence}`,
   ].filter(Boolean);
   return lines.join('\n');
@@ -2188,7 +2321,9 @@ STEP 3: Return STRICT JSON:
   "source_url_2": "secondary source url (optional)",
   "implication": "why this matters in practice, in plain language",
   "post_intent": "educational|promotional|mixed",
-  "confidence": "high|medium|low"
+  "confidence": "high|medium|low",
+  "post_nature": "free-text description of what kind of post this is (e.g. 'hiring announcement', 'personal career milestone', 'technical how-to', 'product launch', 'industry opinion', 'event promotion', 'team celebration', 'asking for advice'). Be specific and natural, not a fixed category.",
+  "comment_approach": "given the post nature, describe the right comment strategy. E.g. for a hiring post: 'brief congratulations on team growth, mention something specific about the role or company direction'. For a technical tutorial: 'add a practical insight or edge case from experience'. For a personal milestone: 'genuine acknowledgment of the achievement, relate briefly'. Adapt to the post, do not force deep insights where a short genuine reaction fits better."
 }
 
 Date discipline:
@@ -2277,6 +2412,9 @@ async function runWritePass(
     ? 'The post has promotional intent. Do not default to agreement. Constructively challenge assumptions and add a practical tradeoff.'
     : 'Be constructive and add practical value beyond agreement.';
 
+  // Light-touch detection from evidence (used as fallback when text-based detection misses)
+  const isLightTouchFromEvidence = evidence.postNature && /\b(hiring|job|recruit|milestone|celebration|congratulat|conference|summit|event|recap|announce|award|promotion|birthday|anniversary|farewell|welcome|thank|gratitude|appreciation|personal story|team|new role|new job)\b/i.test(evidence.postNature);
+
   const hookScore = Number(post.hook_score || 0);
   const hookTarget = Number.isFinite(hookScore) && hookScore > 0 ? `${hookScore}/10` : 'auto';
   const emotionTag = String(post.emotion_tag || '').trim().toLowerCase();
@@ -2305,7 +2443,37 @@ async function runWritePass(
     sharp_question: 'Prioritize one specific question that deepens the discussion.',
   };
 
-  const writingSystemPrompt = `You are writing a LinkedIn reply comment. Sound like someone who knows their stuff typing a quick response, not a blog post.
+  // Detect light-touch post from the actual text (not from research evidence which may be cached/empty)
+  const fullTextForLightTouch = fullTextForPrompt || post.text_preview || '';
+  const lightTouch = detectLightTouchPost(fullTextForLightTouch)
+    || (evidence.postNature && evidence.commentApproach && isLightTouchFromEvidence ? { nature: evidence.postNature, approach: evidence.commentApproach } : null);
+
+  console.log(`[LinkedInDrafter] runWritePass for ${post.author}: lightTouch=${lightTouch ? JSON.stringify(lightTouch) : 'null'}, textLen=${fullTextForLightTouch.length}`);
+
+  const writingSystemPrompt = lightTouch
+    ? `You are a real person leaving a quick LinkedIn comment. You actually know the people and topics in this space.
+
+THIS POST IS: ${lightTouch.nature}
+COMMENT APPROACH: ${lightTouch.approach}
+
+CRITICAL RULES:
+- Write 1-3 sentences MAXIMUM. This is a quick genuine reaction, not an analysis.
+- Reference ONE specific detail from the post (a name, a moment, a place, a quote). This proves you read it.
+- Match the tone/energy of the post. If it is funny, be light. If it is celebratory, be warm. If it is a hiring post, be brief.
+- Talk TO the author, not about the post. Never describe what the post "illustrates" or "highlights."
+- Do NOT add: technical insights, data points, industry analysis, actionable tips, research findings, or "practical next steps."
+- Do NOT describe or analyze the post. Do NOT say things like "this shows that..." or "the post demonstrates..."
+- No emojis, no hashtags, no em dashes, no en dashes.
+- No generic praise: "great post", "thanks for sharing", "love this", "spot on."
+- No AI jargon: "landscape", "leverage", "robust", "holistic", "transformative", "ecosystem", "actionable."
+- ${openingRule}
+- Return ONLY the comment text. Nothing else.${styleGuide ? `\nSTYLE GUIDE:\n${styleGuide}` : ''}
+${postBankBlock}
+
+OUTPUT:
+Return only the final comment text.`
+
+    : `You are writing a LinkedIn reply comment. Sound like someone who knows their stuff typing a quick response, not a blog post.
 
 LENGTH:
 - Target: around ${lengthPlan.targetWords} words (${lengthPlan.minWords}-${lengthPlan.maxWords} acceptable).
@@ -2396,7 +2564,12 @@ ${clipForPrompt(imageContext || '', 1200) || '[none]'}
 Preview snippet:
 "${post.text_preview}"
 Post URL: ${post.post_url}
+${lightTouch
+    ? `
+This is a ${lightTouch.nature} post. Write a brief, genuine, specific comment (1-3 sentences). Do NOT add technical analysis, data points, or actionable tips. Ignore any research notes below.
 
+Write the final comment now.`
+    : `
 Research notes:
 ${researchBrief}
 
@@ -2409,7 +2582,7 @@ Narrative guidance:
 - Use peer pushback, operator observation, tension framing, or a specific caveat. Do not turn this into a mini playbook for the author.
 - Keep one grounded knowledge point from research visible in the final comment.
 
-Write the final comment now.`;
+Write the final comment now.`}`;
 
   const writeOptions: SDKOptions = {
     model,
@@ -2537,6 +2710,8 @@ function buildFallbackEvidenceFromPost(post: DraftPost, fullPostText: string, im
     fullPostWordCount: countWords(fullText),
     postIntent: fallbackIntent,
     confidence: 'low',
+    postNature: '',
+    commentApproach: '',
   };
 }
 
@@ -2583,7 +2758,28 @@ async function generateDraftViaOpenAIModel(
     ? `Open with one specific point from the post. Use "${authorFirstName}," only if it sounds natural; do not force it.`
     : `Start sentence 1 with "${authorFirstName},"`;
 
-  const systemPrompt = `You write a LinkedIn reply comment.
+  // Detect light-touch post from actual text (same as SDK path)
+  const fallbackLightTouch = detectLightTouchPost(fullTextForPrompt || post.text_preview || '')
+    || (evidence.postNature && evidence.commentApproach && /\b(hiring|job|recruit|milestone|celebration|congratulat|conference|summit|event|recap|announce|award|promotion|birthday|anniversary|farewell|welcome|thank|gratitude|appreciation|personal story|team|new role|new job)\b/i.test(evidence.postNature) ? { nature: evidence.postNature, approach: evidence.commentApproach } : null);
+  console.log(`[LinkedInDrafter] generateDraftViaOpenAIModel for ${post.author}: fallbackLightTouch=${fallbackLightTouch ? JSON.stringify(fallbackLightTouch) : 'null'}`);
+
+  const systemPrompt = fallbackLightTouch
+    ? `You are a real person leaving a quick LinkedIn comment.
+
+THIS POST IS: ${fallbackLightTouch.nature}
+COMMENT APPROACH: ${fallbackLightTouch.approach}
+
+RULES:
+- ${openingInstruction}
+- Write 1-3 sentences MAXIMUM. Quick genuine reaction, not analysis.
+- Reference ONE specific detail from the post (a name, moment, place).
+- Match the tone of the post. Talk TO the author.
+- Do NOT add: technical insights, data points, industry analysis, actionable tips.
+- Do NOT describe or analyze what the post "illustrates" or "highlights."
+- No emojis, no hashtags, no em dashes, no en dashes, no generic praise, no AI jargon.
+- Return ONLY the comment text.${styleGuide ? `\n\nStyle guide:\n${styleGuide}` : ''}`
+
+    : `You write a LinkedIn reply comment.
 
 Rules:
 - ${openingInstruction}
@@ -2616,7 +2812,7 @@ ${post.text_preview}
 
 Draft a direct reply comment now.
 Avoid repeating these opening signatures: ${avoidOpenings.join(' | ') || 'none'}
-Avoid repeating these lead-ins: ${avoidLeadIns.join(' | ') || 'none'}${researchBrief ? `\n\nResearch brief:\n${researchBrief}` : ''}`;
+Avoid repeating these lead-ins: ${avoidLeadIns.join(' | ') || 'none'}${!fallbackLightTouch && researchBrief ? `\n\nResearch brief:\n${researchBrief}` : ''}`;
 
   const abortPromise = new Promise<never>((_, reject) => {
     attempt.controller.signal.addEventListener('abort', () => {
@@ -2709,7 +2905,7 @@ async function generateDraftForModel(
     researchAttempt.cleanup();
   }
 
-  if (provider === 'openai' || provider === 'gemini') {
+  if (provider === 'openai' || provider === 'gemini' || provider === 'minimax') {
     return generateDraftViaOpenAIModel(
       post,
       fullPostText,
@@ -3054,8 +3250,9 @@ function saveDraftEvidence(
       post_id, post_url, model, research_model, writer_model, comment_intent,
       post_summary, key_point, statistic, implication, follow_up_question,
       stance_basis, actionable_add_on, post_intent, confidence, full_post_word_count,
-      source_1_name, source_1_url, source_2_name, source_2_url, research_trace, draft_trace
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      source_1_name, source_1_url, source_2_name, source_2_url, research_trace, draft_trace,
+      post_nature, comment_approach
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     postId,
     postUrl,
@@ -3079,6 +3276,8 @@ function saveDraftEvidence(
     s2.url || null,
     generation.researchTrace ? JSON.stringify(generation.researchTrace) : null,
     generation.draftTrace ? JSON.stringify(generation.draftTrace) : null,
+    ev.postNature || null,
+    ev.commentApproach || null,
   );
 }
 
@@ -3096,7 +3295,7 @@ function loadCachedDraftEvidence(postId: number): {
     const row = db.prepare(
       `SELECT comment_intent, research_model, writer_model, model, research_trace, draft_trace, post_summary, key_point, statistic, implication, follow_up_question,
               stance_basis, actionable_add_on, post_intent, confidence, full_post_word_count,
-              source_1_name, source_1_url, source_2_name, source_2_url
+              source_1_name, source_1_url, source_2_name, source_2_url, post_nature, comment_approach
        FROM linkedin_draft_evidence
        WHERE post_id = ?
        ORDER BY created_at DESC
@@ -3150,6 +3349,8 @@ function loadCachedDraftEvidence(postId: number): {
       fullPostWordCount: Number(row.full_post_word_count || 0),
       postIntent: postIntent as ResearchEvidence['postIntent'],
       confidence: confidence as ResearchEvidence['confidence'],
+      postNature: String((row as Record<string, unknown>).post_nature || '').trim(),
+      commentApproach: String((row as Record<string, unknown>).comment_approach || '').trim(),
     };
     if (!evidence.keyPoint || !evidence.statistic || !evidence.actionableAddOn) return null;
     return {
@@ -3725,7 +3926,7 @@ async function redraftOnePost(
     }
     try {
       const provider = getProviderForModel(attemptModel);
-      if (provider === 'openai' || provider === 'gemini') {
+      if (provider === 'openai' || provider === 'gemini' || provider === 'minimax') {
         generation = await generateDraftViaOpenAIModel(
           post,
           fullPostText,

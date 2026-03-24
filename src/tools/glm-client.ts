@@ -67,10 +67,16 @@ function resolveModelProvider(model: string): { baseUrl: string; apiKey: string 
       apiKey: SettingsManager.get('gemini.apiKey') || '',
     };
   }
-  if (model.startsWith('gpt-')) {
+  if (model.startsWith('gpt-') || model.startsWith('o3-') || model.startsWith('o4-')) {
     return {
       baseUrl: OPENAI_BASE_URL,
       apiKey: SettingsManager.get('openai.apiKey') || '',
+    };
+  }
+  if (model.startsWith('MiniMax-') || model.startsWith('minimax-')) {
+    return {
+      baseUrl: 'https://api.minimax.io/v1',
+      apiKey: SettingsManager.get('minimax.apiKey') || '',
     };
   }
   // Default: Zhipu

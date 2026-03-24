@@ -2223,6 +2223,8 @@ function setupIPC(): void {
            de.source_2_url AS evidence_source_2_url,
            de.research_trace AS evidence_research_trace,
            de.draft_trace AS evidence_draft_trace,
+           de.post_nature AS evidence_post_nature,
+           de.comment_approach AS evidence_comment_approach,
            de.created_at AS evidence_created_at,
            `
         : `,
@@ -2264,6 +2266,8 @@ function setupIPC(): void {
                   ev.source_2_url,
                   ev.research_trace,
                   ev.draft_trace,
+                  ev.post_nature,
+                  ev.comment_approach,
                   ev.created_at
            FROM linkedin_draft_evidence ev
            INNER JOIN (

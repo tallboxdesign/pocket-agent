@@ -462,6 +462,8 @@ export class MemoryManager {
         source_2_url TEXT,
         research_trace TEXT,
         draft_trace TEXT,
+        post_nature TEXT,
+        comment_approach TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       );
       CREATE INDEX IF NOT EXISTS idx_linkedin_draft_evidence_post ON linkedin_draft_evidence(post_id);
@@ -887,6 +889,16 @@ export class MemoryManager {
     if (!hasColumn('linkedin_posts', 'post_bank_group')) {
       this.db.exec(`ALTER TABLE linkedin_posts ADD COLUMN post_bank_group TEXT`);
       console.log('[Memory] Migrated linkedin_posts: added post_bank_group column');
+    }
+
+    // LinkedIn draft evidence: add post nature/comment approach columns
+    if (!hasColumn('linkedin_draft_evidence', 'post_nature')) {
+      this.db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN post_nature TEXT`);
+      console.log('[Memory] Migrated linkedin_draft_evidence: added post_nature column');
+    }
+    if (!hasColumn('linkedin_draft_evidence', 'comment_approach')) {
+      this.db.exec(`ALTER TABLE linkedin_draft_evidence ADD COLUMN comment_approach TEXT`);
+      console.log('[Memory] Migrated linkedin_draft_evidence: added comment_approach column');
     }
 
     // LinkedIn activity log (auto-poster audit trail)

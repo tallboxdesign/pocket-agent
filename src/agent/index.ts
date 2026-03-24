@@ -486,6 +486,8 @@ class AgentManagerClass extends EventEmitter {
   private mode: 'coder' | 'manager' = 'coder';
   private toolsConfig: ToolsConfig | null = null;
   private initialized: boolean = false;
+  private readyResolve: (() => void) | null = null;
+  private readyPromise: Promise<void> = new Promise((resolve) => { this.readyResolve = resolve; });
   private identity: string = '';
   private instructions: string = '';
   private abortControllersBySession: Map<string, AbortController> = new Map();
@@ -543,6 +545,10 @@ class AgentManagerClass extends EventEmitter {
     this.mode = this.normalizeMode(config.mode || SettingsManager.get('agent.mode') || 'coder');
     this.toolsConfig = config.tools || null;
     this.initialized = true;
+    if (this.readyResolve) {
+      this.readyResolve();
+      this.readyResolve = null;
+    }
 
     // Isolate SDK session storage from global Claude Code installation
     if (config.dataDir) {
@@ -808,6 +814,13 @@ class AgentManagerClass extends EventEmitter {
     attachmentInfo?: AttachmentInfo,
     turnContext?: TurnContext
   ): Promise<ProcessResult> {
+    // Wait for initialization if not ready yet (prevents race condition on app startup)
+    if (!this.initialized) {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Agent initialization timed out. Please try again in a moment.')), 15_000)
+      );
+      await Promise.race([this.readyPromise, timeout]);
+    }
     if (!this.memory) {
       throw new Error('AgentManager not initialized - call initialize() first');
     }
@@ -998,7 +1011,21 @@ class AgentManagerClass extends EventEmitter {
 
     const memory = this.memory; // Local reference for TypeScript narrowing
     // Smart Router: prefer routeDecision.model over modelOverride over configured model
-    const activeModel = modelOverride || (routeDecision ? routeDecision.model : this.model);
+    // Smart Router may suggest a model (e.g. claude-opus-4-6) that has no API key.
+    // Fall back to the user's configured model when the routed model lacks credentials.
+    let activeModel = modelOverride || (routeDecision ? routeDecision.model : this.model);
+    if (routeDecision && activeModel !== this.model) {
+      const routedProvider = getProviderForModel(activeModel);
+      const configuredProvider = getProviderForModel(this.model);
+      // If routed model is Anthropic but user has no Anthropic key, use their configured model
+      if (routedProvider === 'anthropic' && configuredProvider !== 'anthropic') {
+        const hasAnthropicKey = !!(SettingsManager.get('anthropic.apiKey') || SettingsManager.get('auth.oauthToken'));
+        if (!hasAnthropicKey) {
+          console.log(`[AgentManager] Smart Router suggested ${activeModel} but no Anthropic key; using configured ${this.model}`);
+          activeModel = this.model;
+        }
+      }
+    }
     const usingTemporaryModel = !!modelOverride && modelOverride !== this.model;
     if (!memory.getSession(sessionId)) {
       const inferredName = sessionId
