@@ -301,7 +301,7 @@ Workflows are reusable command templates. Use /workflow to see what's available,
       availableModels.push({ id: 'kimi-k2.5', name: 'Kimi K2.5', provider: 'Moonshot' });
     }
 
-    if (SettingsManager.get('glm.apiKey')) {
+    if (SettingsManager.get('glm.apiKey') || SettingsManager.get('zhipu.apiKey')) {
       availableModels.push({ id: 'glm-5.1', name: 'GLM 5.1', provider: 'Z.AI' });
       availableModels.push({ id: 'glm-5-turbo', name: 'GLM 5 Turbo', provider: 'Z.AI' });
       availableModels.push({ id: 'glm-5', name: 'GLM 5', provider: 'Z.AI' });

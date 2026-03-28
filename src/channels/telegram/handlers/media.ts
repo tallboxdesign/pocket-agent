@@ -119,16 +119,21 @@ export async function handlePhotoMessage(
       const fileSizeKB = (buffer.length / 1024).toFixed(1);
       console.log(`[Telegram] Saved photo: ${localPath} (${largestPhoto.width}x${largestPhoto.height}, ${fileSizeKB}KB)`);
 
-      // Build prompt for agent - tell it the file path so it can use Read tool
+      // Build prompt for agent with image context
       const prompt = caption
-        ? `${caption}\n\n[User sent an image via Telegram]\nImage saved to: ${localPath}\n\nPlease view and analyze this image.`
-        : `[User sent an image via Telegram]\nImage saved to: ${localPath}\n\nPlease view and describe what you see in this image.`;
+        ? `${caption}\n\n[User sent an image via Telegram]\nImage also saved to: ${localPath}`
+        : `[User sent an image via Telegram]\nImage also saved to: ${localPath}\n\nPlease describe what you see in this image.`;
+
+      // Convert image buffer to base64 for vision input
+      const base64Data = buffer.toString('base64');
+      const mediaType = ext === '.png' ? 'image/png' : ext === '.gif' ? 'image/gif' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+      const images = [{ type: 'base64' as const, mediaType: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: base64Data }];
 
       // Look up which session this chat is linked to
       const memory = AgentManager.getMemory();
       const sessionId = memory?.getSessionForChat(chatId) || 'default';
 
-      return AgentManager.processMessage(prompt, 'telegram', sessionId, undefined, {
+      return AgentManager.processMessage(prompt, 'telegram', sessionId, images, {
         hasAttachment: true,
         attachmentType: 'photo',
       });

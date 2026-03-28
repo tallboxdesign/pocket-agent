@@ -120,7 +120,7 @@ async function configureProviderEnvironment(model: string): Promise<void> {
     console.log('[AgentManager] Provider configured: Moonshot (Kimi)');
   } else if (provider === 'glm') {
     // Z.AI GLM requires base URL and uses Bearer token auth
-    const glmKey = SettingsManager.get('glm.apiKey');
+    const glmKey = SettingsManager.get('glm.apiKey') || SettingsManager.get('zhipu.apiKey');
     if (!glmKey) {
       throw new Error('Z.AI GLM API key not configured. Please add your key in Settings > LLM.');
     }
@@ -964,7 +964,7 @@ class AgentManagerClass extends EventEmitter {
   private hasModelCredentials(model: string): boolean {
     const provider = getProviderForModel(model);
     if (provider === 'moonshot') return !!SettingsManager.get('moonshot.apiKey');
-    if (provider === 'glm') return !!SettingsManager.get('glm.apiKey');
+    if (provider === 'glm') return !!(SettingsManager.get('glm.apiKey') || SettingsManager.get('zhipu.apiKey'));
     if (provider === 'minimax') return !!SettingsManager.get('minimax.apiKey');
     if (provider === 'qwen') return !!SettingsManager.get('qwen.apiKey');
     if (provider === 'openrouter') return !!SettingsManager.get('openrouter.apiKey');

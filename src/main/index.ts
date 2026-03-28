@@ -4861,8 +4861,8 @@ Image preset: ${c.image_preset || 'none'}${c.image_caption ? `\nImage direction:
       );
     }
 
-    // Check for GLM/Zhipu key
-    const hasGlmKey = SettingsManager.get('glm.apiKey');
+    // Check for GLM/Zhipu key (either key enables GLM models)
+    const hasGlmKey = SettingsManager.get('glm.apiKey') || SettingsManager.get('zhipu.apiKey');
     if (hasGlmKey) {
       models.push(
         { id: 'glm-5.1', name: 'GLM 5.1', provider: 'glm' },
@@ -6181,7 +6181,7 @@ async function initializeAgent(): Promise<void> {
   const providerKeyMap: Record<string, string> = {
     anthropic: 'anthropic.apiKey',
     moonshot: 'moonshot.apiKey',
-    glm: 'glm.apiKey',
+    glm: 'glm.apiKey', // also checked: zhipu.apiKey
     minimax: 'minimax.apiKey',
     qwen: 'qwen.apiKey',
     openrouter: 'openrouter.apiKey',
@@ -6208,7 +6208,9 @@ async function initializeAgent(): Promise<void> {
   const hasOAuth = !!SettingsManager.get('auth.oauthToken');
   const hasSelectedKey = selectedProvider === 'anthropic'
     ? !!(SettingsManager.get('anthropic.apiKey') || hasOAuth)
-    : !!SettingsManager.get(providerKeyMap[selectedProvider] || '');
+    : selectedProvider === 'glm'
+      ? !!(SettingsManager.get('glm.apiKey') || SettingsManager.get('zhipu.apiKey'))
+      : !!SettingsManager.get(providerKeyMap[selectedProvider] || '');
 
   if (!hasSelectedKey) {
     // Find a provider that has a key
@@ -6217,7 +6219,9 @@ async function initializeAgent(): Promise<void> {
     for (const provider of fallbackOrder) {
       const hasKey = provider === 'anthropic'
         ? !!(SettingsManager.get('anthropic.apiKey') || hasOAuth)
-        : !!SettingsManager.get(providerKeyMap[provider] || '');
+        : provider === 'glm'
+          ? !!(SettingsManager.get('glm.apiKey') || SettingsManager.get('zhipu.apiKey'))
+          : !!SettingsManager.get(providerKeyMap[provider] || '');
       if (hasKey) {
         const defaultModels: Record<string, string> = {
           anthropic: 'claude-sonnet-4-6',

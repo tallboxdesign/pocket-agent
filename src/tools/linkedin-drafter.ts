@@ -291,7 +291,7 @@ function computeEffectiveTimeoutSec(baseTimeoutSec: number, primaryModel: string
 function hasModelCredentials(model: string): boolean {
   const provider = getProviderForModel(model);
   if (provider === 'moonshot') return !!SettingsManager.get('moonshot.apiKey');
-  if (provider === 'glm') return !!SettingsManager.get('glm.apiKey');
+  if (provider === 'glm') return !!(SettingsManager.get('glm.apiKey') || SettingsManager.get('zhipu.apiKey'));
   if (provider === 'minimax') return !!SettingsManager.get('minimax.apiKey');
   if (provider === 'qwen') return !!SettingsManager.get('qwen.apiKey');
   if (provider === 'openai') return !!SettingsManager.get('openai.apiKey');
@@ -444,7 +444,7 @@ async function buildProviderEnv(model: string): Promise<Record<string, string | 
   }
 
   if (provider === 'glm') {
-    const glmKey = SettingsManager.get('glm.apiKey');
+    const glmKey = SettingsManager.get('glm.apiKey') || SettingsManager.get('zhipu.apiKey');
     if (!glmKey) {
       throw new Error('Z.AI GLM API key not configured. Add it in Settings > LLM.');
     }
