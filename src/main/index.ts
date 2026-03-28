@@ -4865,7 +4865,9 @@ Image preset: ${c.image_preset || 'none'}${c.image_caption ? `\nImage direction:
     const hasGlmKey = SettingsManager.get('glm.apiKey');
     if (hasGlmKey) {
       models.push(
-        { id: 'glm-5', name: 'GLM 5', provider: 'glm' }
+        { id: 'glm-5.1', name: 'GLM 5.1', provider: 'glm' },
+        { id: 'glm-5-turbo', name: 'GLM 5 Turbo', provider: 'glm' },
+        { id: 'glm-5', name: 'GLM 5', provider: 'glm' },
       );
     }
 
@@ -5646,7 +5648,7 @@ Respond with ONLY valid JSON, no markdown, no explanation:
         ]
       : [
           'which pocket',
-          'strings ',
+          'strings "/Applications/Pocket Agent.app/',
           'curl -fsSL https://api.github.com/repos/KenKaiii/pocket-agent-cli/releases/latest',
           'curl -fsSL https://raw.githubusercontent.com/KenKaiii/pocket-agent-cli/main/scripts/install.sh | sed ',
         ];
@@ -6189,6 +6191,8 @@ async function initializeAgent(): Promise<void> {
     'claude-sonnet-4-6': 'anthropic',
     'claude-haiku-4-5-20251001': 'anthropic',
     'kimi-k2.5': 'moonshot',
+    'glm-5.1': 'glm',
+    'glm-5-turbo': 'glm',
     'glm-5': 'glm',
     'MiniMax-M2.7': 'minimax',
     'MiniMax-M2.5': 'minimax',
@@ -6218,7 +6222,7 @@ async function initializeAgent(): Promise<void> {
         const defaultModels: Record<string, string> = {
           anthropic: 'claude-sonnet-4-6',
           moonshot: 'kimi-k2.5',
-          glm: 'glm-5',
+          glm: 'glm-5.1',
           minimax: 'MiniMax-M2.7',
           qwen: 'qwen3.5-plus-2026-02-15',
           openrouter: 'openrouter/auto',

@@ -60,6 +60,8 @@ const MODEL_PROVIDERS: Record<string, ProviderType> = {
   // Moonshot/Kimi models
   'kimi-k2.5': 'moonshot',
   // Z.AI GLM models
+  'glm-5.1': 'glm',
+  'glm-5-turbo': 'glm',
   'glm-5': 'glm',
   // MiniMax models
   'MiniMax-M2.7': 'minimax',
@@ -978,6 +980,8 @@ class AgentManagerClass extends EventEmitter {
     const candidates = [
       'claude-sonnet-4-6',
       'claude-haiku-4-5-20251001',
+      'glm-5.1',
+      'glm-5-turbo',
       'glm-5',
       'MiniMax-M2.7',
       'MiniMax-M2.5-Lightning',
@@ -1834,6 +1838,8 @@ class AgentManagerClass extends EventEmitter {
     if (modelProvider !== 'anthropic') {
       const modelNames: Record<string, string> = {
         'kimi-k2.5': 'Kimi K2.5 by Moonshot AI',
+        'glm-5.1': 'GLM 5.1 by Zhipu AI',
+        'glm-5-turbo': 'GLM 5 Turbo by Zhipu AI',
         'glm-5': 'GLM 5 by Zhipu AI',
         'MiniMax-M2.7': 'MiniMax M2.7',
         'MiniMax-M2.5': 'MiniMax M2.5',

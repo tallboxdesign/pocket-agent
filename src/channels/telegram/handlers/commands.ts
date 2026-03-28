@@ -302,6 +302,8 @@ Workflows are reusable command templates. Use /workflow to see what's available,
     }
 
     if (SettingsManager.get('glm.apiKey')) {
+      availableModels.push({ id: 'glm-5.1', name: 'GLM 5.1', provider: 'Z.AI' });
+      availableModels.push({ id: 'glm-5-turbo', name: 'GLM 5 Turbo', provider: 'Z.AI' });
       availableModels.push({ id: 'glm-5', name: 'GLM 5', provider: 'Z.AI' });
     }
 

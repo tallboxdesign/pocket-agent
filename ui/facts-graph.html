@@ -1338,7 +1338,7 @@
       const tooltip = document.getElementById('tooltip');
       const color = CATEGORY_COLORS[d.category] || CATEGORY_COLORS.other;
       tooltip.innerHTML = `
-        <div class="tooltip-category" style="color: ${color}">${d.category}</div>
+        <div class="tooltip-category" style="color: ${color}">${escapeHtml(d.category)}</div>
         <div class="tooltip-subject">${escapeHtml(d.subject)}</div>
         <div class="tooltip-content">${escapeHtml(truncate(d.content, 80))}</div>
       `;
@@ -1380,7 +1380,7 @@
 
       panel.innerHTML = `
         <div class="detail-header">
-          <div class="detail-category" style="background: ${color}20; color: ${color}">${d.category}</div>
+          <div class="detail-category" style="background: ${color}20; color: ${color}">${escapeHtml(d.category)}</div>
           <button class="detail-close" onclick="playNormalClick(); hideDetail()">&times;</button>
         </div>
         <div class="detail-subject">${escapeHtml(d.subject)}</div>

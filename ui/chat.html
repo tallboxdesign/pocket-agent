@@ -5075,8 +5075,9 @@
       activeWorkflow = command;
       closeWorkflows();
       const container = document.getElementById('workflow-badge-container');
-      container.innerHTML = `<span class="workflow-badge">${command.name}<button class="workflow-badge-remove" onclick="playNormalClick(); clearWorkflow()" title="Remove workflow"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></span>`;
-      input.placeholder = `add context for /${command.name}...`;
+      const escapedName = command.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      container.innerHTML = `<span class="workflow-badge">${escapedName}<button class="workflow-badge-remove" onclick="playNormalClick(); clearWorkflow()" title="Remove workflow"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></span>`;
+      input.placeholder = `add context for /${escapedName}...`;
       input.focus();
     }
 
