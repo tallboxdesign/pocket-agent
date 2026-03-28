@@ -119,15 +119,63 @@ export async function handlePhotoMessage(
       const fileSizeKB = (buffer.length / 1024).toFixed(1);
       console.log(`[Telegram] Saved photo: ${localPath} (${largestPhoto.width}x${largestPhoto.height}, ${fileSizeKB}KB)`);
 
-      // Build prompt for agent with image context
-      const prompt = caption
-        ? `${caption}\n\n[User sent an image via Telegram]\nImage also saved to: ${localPath}`
-        : `[User sent an image via Telegram]\nImage also saved to: ${localPath}\n\nPlease describe what you see in this image.`;
-
       // Convert image buffer to base64 for vision input
       const base64Data = buffer.toString('base64');
       const mediaType = ext === '.png' ? 'image/png' : ext === '.gif' ? 'image/gif' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
       const images = [{ type: 'base64' as const, mediaType: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: base64Data }];
+
+      // Pre-describe image using a vision-capable model as fallback
+      // Many Anthropic-compatible providers silently drop image content blocks
+      let imageDescription = '';
+      try {
+        const { isGlmConfigured } = await import('../../../tools/glm-client');
+        if (isGlmConfigured()) {
+          // Use OpenAI-compatible vision format (works with GLM-4V, Gemini, etc.)
+          const visionApiKey = SettingsManager.get('gemini.apiKey') || SettingsManager.get('openai.apiKey') || SettingsManager.get('zhipu.apiKey');
+          const visionBaseUrl = SettingsManager.get('gemini.apiKey')
+            ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+            : SettingsManager.get('openai.apiKey')
+              ? 'https://api.openai.com/v1'
+              : SettingsManager.get('zhipu.baseUrl') || 'https://open.bigmodel.cn/api/paas/v4';
+          const visionModel = SettingsManager.get('gemini.apiKey')
+            ? 'gemini-2.5-flash'
+            : SettingsManager.get('openai.apiKey')
+              ? 'gpt-4.1-mini'
+              : 'glm-4v-flash';
+
+          if (visionApiKey) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 20000);
+            const resp = await fetch(`${visionBaseUrl}/chat/completions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${visionApiKey}` },
+              body: JSON.stringify({
+                model: visionModel,
+                messages: [{ role: 'user', content: [
+                  { type: 'text', text: 'Describe this image in detail. Include all visible text, objects, colors, and layout.' },
+                  { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64Data}` } },
+                ] }],
+                max_tokens: 500,
+                temperature: 0.2,
+              }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            if (resp.ok) {
+              const json = await resp.json() as { choices?: Array<{ message?: { content?: string } }> };
+              imageDescription = json.choices?.[0]?.message?.content || '';
+            }
+          }
+        }
+      } catch (e) {
+        console.log('[Telegram] Image pre-description failed, agent will try inline vision:', e instanceof Error ? e.message : e);
+      }
+
+      // Build prompt with image description if available
+      const descBlock = imageDescription ? `\n\n[Image description from vision model]:\n${imageDescription}` : '';
+      const prompt = caption
+        ? `${caption}\n\n[User sent an image via Telegram]\nImage saved to: ${localPath}${descBlock}`
+        : `[User sent an image via Telegram]\nImage saved to: ${localPath}${descBlock}\n\nPlease analyze this image.`;
 
       // Look up which session this chat is linked to
       const memory = AgentManager.getMemory();
