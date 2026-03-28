@@ -6493,6 +6493,8 @@ function recoverLinkedInScheduleAfterDowntime(trigger: 'launch' | 'wake'): void 
 app.whenReady().then(async () => {
   console.log('[Main] App ready, starting initialization...');
 
+
+
   try {
     // Show splash screen immediately
     showSplashScreen();
